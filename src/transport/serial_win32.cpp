@@ -49,6 +49,8 @@ bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
     case 921600:
     case 1500000:
     case 2000000:
+    case 3000000:
+    case 4000000:
         return true;
     default:
         return false;

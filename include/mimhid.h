@@ -203,7 +203,7 @@ typedef struct mimhid_device_options {
     uint32_t reserved;
     /* Link tuning: zero selects the documented bounded fallback. These are project policies,
      * not USB requirements. */
-    /* zero -> 921600; the firmware is built for this rate */
+    /* zero -> 3000000; the firmware is built for this rate */
     uint32_t baud_rate;
     /* zero -> 500 ms per configuration frame; each frame is tried three times */
     uint32_t control_timeout_ms;

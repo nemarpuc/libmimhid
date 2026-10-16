@@ -10,10 +10,10 @@
 #include "hal.h"
 
 #ifndef MIMHID_BAUD_RATE
-#define MIMHID_BAUD_RATE 921600u
+#define MIMHID_BAUD_RATE 3000000u
 #endif
 #define BAUD_RATE    MIMHID_BAUD_RATE
-#define DMA_BUF_SIZE 512u
+#define DMA_BUF_SIZE 1024u
 #define DMA_BUF_MASK (DMA_BUF_SIZE - 1u)
 
 static uint8_t  g_dma_buf[DMA_BUF_SIZE];

@@ -13,6 +13,9 @@
 #ifndef MIMHID_UART_RX_PIN
 #define MIMHID_UART_RX_PIN 18
 #endif
+#ifndef MIMHID_BAUD_RATE
+#define MIMHID_BAUD_RATE 3000000
+#endif
 
 #define UART_PORT UART_NUM_1
 
@@ -29,7 +32,7 @@ void hal_init(void) {
     usb_new_phy(&phy_conf, &g_phy);
 
     const uart_config_t cfg = {
-        .baud_rate = 921600,
+        .baud_rate = MIMHID_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,

@@ -65,7 +65,7 @@ void hal_init(void) {
     UARTE_REG->PSEL.RTS = 0xFFFFFFFFUL;
     UARTE_REG->PSEL.CTS = 0xFFFFFFFFUL;
     UARTE_REG->CONFIG = 0; // no flow control, no parity
-    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud921600; // actual rate 941176 (+2.2%)
+    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud1M; // 1,000,000 baud (hardware maximum for nRF52840 UARTE)
     UARTE_REG->ENABLE = UARTE_ENABLE_ENABLE_Enabled;
 
     UARTE_REG->RXD.PTR = (uint32_t)(uintptr_t)&g_landing;

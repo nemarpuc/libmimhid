@@ -30,7 +30,7 @@ using mimhid::detail::set_error;
 
 // Zero-valued tuning inputs use bounded project-policy fallbacks. These are not protocol
 // limits; docs/API.md lists them. Product policies stay mandatory.
-constexpr std::uint32_t kFallbackBaud = 921600U;
+constexpr std::uint32_t kFallbackBaud = 3000000U;
 constexpr std::uint32_t kFallbackControlTimeoutMs = 500U;
 constexpr std::uint32_t kFallbackSendTimeoutMs = 500U;
 constexpr std::uint32_t kFallbackReconnectTimeoutMs = 3000U;

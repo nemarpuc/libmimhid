@@ -14,7 +14,7 @@
 #define MIMHID_UART_ID   uart0
 #endif
 #ifndef MIMHID_BAUD_RATE
-#define MIMHID_BAUD_RATE 921600
+#define MIMHID_BAUD_RATE 3000000
 #endif
 #ifndef MIMHID_UART_TX_PIN
 #define MIMHID_UART_TX_PIN 0
@@ -32,7 +32,7 @@
 static critical_section_t g_uart_tx_lock;
 
 // DMA Ring Buffer placed in dedicated SRAM Bank 5 (.scratch_y)
-#define DMA_BUF_SIZE     512u
+#define DMA_BUF_SIZE     1024u
 #define DMA_BUF_MASK     (DMA_BUF_SIZE - 1u)
 static uint8_t uart_rx_buffer[DMA_BUF_SIZE] __attribute__((aligned(DMA_BUF_SIZE), section(".scratch_y")));
 static int dma_chan = -1;
@@ -82,7 +82,7 @@ void hal_init(void) {
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, true);
     channel_config_set_dreq(&c, uart_get_dreq(UART_ID, false));
-    channel_config_set_ring(&c, true, 9); // 2^9 = 512 bytes wrap-around
+    channel_config_set_ring(&c, true, 10); // 2^10 = 1024 bytes wrap-around
     channel_config_set_chain_to(&c, dma_reload_chan);
 
     dma_channel_configure(

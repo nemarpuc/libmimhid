@@ -101,6 +101,14 @@ speed_t termios_speed(std::uint32_t baud) noexcept {
     case 2000000:
         return B2000000;
 #endif
+#ifdef B3000000
+    case 3000000:
+        return B3000000;
+#endif
+#ifdef B4000000
+    case 4000000:
+        return B4000000;
+#endif
     default:
         return B0;
     }
@@ -123,6 +131,8 @@ bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
     case 921600:
     case 1500000:
     case 2000000:
+    case 3000000:
+    case 4000000:
         return true;
     default:
         return false;

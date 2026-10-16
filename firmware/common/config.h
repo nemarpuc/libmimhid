@@ -8,7 +8,7 @@
 #include "mimhid_proto.h"
 
 #ifndef MIMHID_MAX_DESC_BYTES
-#define MIMHID_MAX_DESC_BYTES 1024 // all report descriptors together
+#define MIMHID_MAX_DESC_BYTES 2048 // all report descriptors together
 #endif
 #ifndef MIMHID_MAX_FEATURES
 #define MIMHID_MAX_FEATURES 8

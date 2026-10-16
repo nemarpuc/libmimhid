@@ -114,7 +114,7 @@ static bool cmd_push(uint8_t type, const uint8_t* data, uint8_t len) {
 // -------------------------------------------------------------
 // RX parser
 // -------------------------------------------------------------
-#define RX_SIZE 512
+#define RX_SIZE 1024
 #define RX_MASK (RX_SIZE - 1)
 
 static uint8_t  g_rx[RX_SIZE];
