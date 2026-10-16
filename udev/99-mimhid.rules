@@ -1,0 +1,17 @@
+# udev rules for libmimhid: access to the USB-UART bridges and the RP2040 board's serial port.
+# The group is uucp on Arch; change GROUP to dialout on Debian and Ubuntu.
+
+# Raspberry Pi RP2040 (USB serial / debug probe)
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000a", MODE="0660", GROUP="uucp", TAG+="uaccess"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000c", MODE="0660", GROUP="uucp", TAG+="uaccess"
+
+# Silicon Labs CP210x USB to UART Bridge
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE="0660", GROUP="uucp", TAG+="uaccess"
+
+# FTDI FT232 / FT2232 / FT4232 USB Serial Converters
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", MODE="0660", GROUP="uucp", TAG+="uaccess"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", MODE="0660", GROUP="uucp", TAG+="uaccess"
+
+# WCH CH340 / CH341 USB to Serial
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0660", GROUP="uucp", TAG+="uaccess"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5523", MODE="0660", GROUP="uucp", TAG+="uaccess"

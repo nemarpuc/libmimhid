@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: Host library (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-24.04, macos-latest, windows-latest ]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          werror=ON
+          if [ "$RUNNER_OS" = Windows ]; then werror=OFF; fi
+          cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=ON -DMIMHID_WERROR=$werror
+
+      - name: Build
+        run: cmake --build build_host --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build_host -C Release --output-on-failure
+
+  e2e:
+    name: End to end (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-24.04, macos-latest ]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Fetch TinyUSB
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Build the host library against the firmware core
+        run: |
+          set -euo pipefail
+          cmake -B build_e2e -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_WERROR=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_e2e --parallel
+
+      - name: Run the end-to-end tests
+        run: ctest --test-dir build_e2e -R e2e --output-on-failure
+
+  release-tools:
+    name: Release tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Test the tools and check the header against the export list
+        run: |
+          set -euo pipefail
+          python3 tests/release/test_release_tools.py
+          python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
+
+  firmware-core:
+    name: Firmware core tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Fetch TinyUSB
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Build and run the host-side core tests
+        run: |
+          set -euo pipefail
+          cmake -B build_fwtest -S firmware/tests -DCMAKE_BUILD_TYPE=Release -DTINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_fwtest --parallel
+          ctest --test-dir build_fwtest --output-on-failure
+
+  firmware-pico:
+    name: Firmware (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: rp2040
+            args: ""
+          - name: rp2350
+            args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+
+      - name: Fetch the Pico SDK
+        run: |
+          set -euo pipefail
+          .github/scripts/setup-pico-sdk.sh "$HOME/pico-sdk"
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cmake -B build_fw -S firmware -DCMAKE_BUILD_TYPE=Release ${{ matrix.args }}
+          cmake --build build_fw --parallel
+
+  firmware-bsp:
+    name: Firmware (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nrf52840
+            family: nrf
+          - name: stm32f4
+            family: stm32f4
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build
+
+      - name: Fetch TinyUSB and the vendor HAL
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb" ${{ matrix.family }}
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DTINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_fw
+
+  firmware-esp32s3:
+    name: Firmware (esp32s3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: espressif/idf:v5.4.2@sha256:4317595a911886e04cbc6d731315d5fc2918e510b6733fc7d03381ab2d270082
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Fetch TinyUSB
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          export TINYUSB_PATH="$HOME/tinyusb"
+          idf.py -C firmware/ports/esp32s3 -B build_fw set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw build

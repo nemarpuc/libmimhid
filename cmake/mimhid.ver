@@ -1,0 +1,6 @@
+MIMHID_0 {
+  global:
+    mimhid_*;
+  local:
+    *;
+};

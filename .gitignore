@@ -1,0 +1,72 @@
+# Build and release output directories
+build/
+build_*/
+dist/
+parts/
+stage-*/
+bin/
+lib/
+golden-descriptor-output/
+support-manifests.tsv
+
+# Compiled objects and binaries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.uf2
+*.bin
+*.elf
+*.hex
+*.dis
+*.map
+!tests/golden/*.hex
+
+# CMake and CTest artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
+install_manifest.txt
+compile_commands.json
+mimhid-config.cmake
+mimhid-config-version.cmake
+mimhid.pc
+mimhid-static.pc
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ESP-IDF generated files
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# IDE, editor, and OS files
+.vscode/
+.idea/
+.cache/
+.clangd/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary / scratch
+scratch/
+

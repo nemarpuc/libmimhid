@@ -1,0 +1,83 @@
+# Porting
+
+## Firmware layout
+
+```
+firmware/
+  common/        portable core, shared by every port
+    core.c         frame parser, staged configuration, command handling, queues
+    usb_descriptors.c  builds and serves device, configuration, string, and report descriptors
+    config.h       configuration structures and limits
+    tusb_config.h  TinyUSB configuration
+    hal.h          the functions a port provides
+  rp/            RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2) - official support
+  ports/
+    nrf52840/      nRF52840 (TinyUSB BSP, UARTE1 + interrupt)
+    stm32f4/       STM32F4 (TinyUSB BSP, USART2 + circular DMA)
+    esp32s3/       ESP-IDF component
+  tests/         host-side tests of common/ against a fake HAL
+proto/           wire protocol constants shared with the host (mimhid_proto.h)
+```
+
+`firmware/CMakeLists.txt` builds the RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2) images. The other ports have their own project under `firmware/ports/`.
+
+## HAL
+
+A port implements five functions (see `common/hal.h`):
+
+| Function | Contract |
+|---|---|
+| `hal_init()` | Clocks, board, USB PHY if needed, and the UART receiver at 921,600 baud, 8N1. |
+| `hal_uart_read(dst, max)` | Copy received bytes without blocking; called from one context only. |
+| `hal_uart_write(data, len)` | Blocking send; callable from both the receive and USB contexts. |
+| `hal_millis()` | Milliseconds since boot. |
+| `hal_unique_id(out, max)` | Copy the chip's unique id and return its length, or 0 when there is none. Used for `serial_from_chip_id`. |
+
+The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the official RP2040 and RP2350 dual-core Pico builds do this).
+
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 921,600 baud a byte arrives every 10.9 µs, and the longest frame is 116 bytes. The core keeps its own 512-byte ring, so a port buffer of the same size is a reasonable minimum.
+
+## Endpoint count and the HID layout
+
+Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT endpoint). The number the MCU can spare is the port's `MIMHID_HID_ITFS` (the `max_interfaces` the board reports in its PONG):
+
+| `MIMHID_HID_ITFS` | Used by |
+|---:|---|
+| 7 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2), nRF52840 |
+| 4 | ESP32-S3 (four usable IN endpoints) |
+| 3 | STM32F4 full speed (three usable IN endpoints) |
+
+Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the firmware, host library, and wire protocol do not depend on the value. In `libmimhid`, callers explicitly configure each node's `interface_number`, `ep_in_size`, and `ep_out_size` via `mimhid_node_options`.
+
+`MIMHID_MAX_DESC_BYTES` (default 1024) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
+
+`firmware/tests` builds the core for 7, 4, and 3 interfaces against a fake HAL and checks the descriptors and report routing. `tests/e2e` does the same with the real host library.
+
+## Other MCUs
+
+| MCU family | USB | Notes |
+|---|---|---|
+| i.MX RT1062 (Teensy 4.x), STM32H7 | High-Speed | A higher poll rate is possible in principle. Add a port with a DMA UART receiver and the full layout (eight or more IN endpoints). |
+| STM32 with a High-Speed OTG core, or with at least eight IN endpoints | Full or High | Reuse `ports/stm32f4` and set `MIMHID_HID_ITFS=7`; check the TinyUSB BSP for the board and the USART/DMA mapping in `hal_stm32f4.c`. |
+| Other TinyUSB BSP families | Full | Copy `ports/nrf52840`, replace `hal_nrf52.c`. |
+
+## STM32F4 port assumptions
+
+`hal_stm32f4.c` uses USART2 (PA2 TX, PA3 RX) and DMA1 stream 5 channel 4, which is the mapping on every STM32F4. The TinyUSB BSP's `board_init()` must have enabled USART2 and its pins; this holds for `stm32f411blackpill` (the default), `stm32f411disco`, and `stm32f407disco`. For another board, check that the BSP's `UART_DEV` is `USART2`.
+
+## nRF52840 notes
+
+`hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 cannot produce exactly 921,600 baud: the nearest rate is 941,176 (+2.2 %), which UART receivers accept.
+
+## Host
+
+The serial backend lives in `src/transport/`:
+
+| File | Platform |
+|---|---|
+| `serial_posix.cpp` | Linux and macOS: termios, `poll()` (`select()` on macOS), non-blocking reads and writes |
+| `serial_win32.cpp` | Windows: overlapped I/O on a `\\.\COMn` handle |
+| `ports_linux.cpp`, `ports_macos.cpp`, `ports_win32.cpp` | candidate port enumeration for discovery |
+| `link.cpp` | frame encoding, ACK and retry, reader thread; shared by all platforms |
+
+A new platform implements the `SerialPort` class (`serial_port.hpp`: open, close, read with timeout, write with stall timeout, drain) and the candidate port listing (`list_candidate_ports`), and adds its files to `MIMHID_SOURCES` in `CMakeLists.txt`. The framing, retries, and reader thread are in `link.cpp` and are shared.

@@ -1,0 +1,381 @@
+name: Release
+
+# A pushed v* tag builds, checks, and publishes the release. Run by hand (workflow_dispatch) it
+# builds and checks everything and uploads the assets as workflow artifacts, but publishes nothing.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Validate release metadata
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      epoch: ${{ steps.metadata.outputs.epoch }}
+      source_sha: ${{ steps.metadata.outputs.source_sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the tag, the versions, and the CHANGELOG
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/release/test_release_tools.py
+          python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python3 tools/release/validate_release.py --tag "$GITHUB_REF_NAME" --notes-out build/release-notes.md
+            test "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" = "$(git rev-parse HEAD)"
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^project(libmimhid VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+            python3 tools/release/validate_release.py --tag "v$version" --notes-out build/release-notes.md --allow-undated
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the release notes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: build/release-notes.md
+          if-no-files-found: error
+
+  host:
+    name: ${{ matrix.name }} libraries
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64 (Ubuntu 22.04 glibc)
+            os: ubuntu-22.04
+            platform: linux
+            arch: x86_64
+            run_tests: true
+          - name: Linux AArch64 (Ubuntu 22.04 glibc, cross-built)
+            os: ubuntu-22.04
+            platform: linux
+            arch: aarch64
+            run_tests: false
+            cmake_args: -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/linux-aarch64.cmake
+          - name: macOS ARM64
+            os: macos-15
+            platform: macos
+            arch: arm64
+            run_tests: true
+            cmake_args: -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          - name: macOS x86-64
+            os: macos-15-intel
+            platform: macos
+            arch: x86_64
+            run_tests: true
+            cmake_args: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          - name: Windows x64
+            os: windows-latest
+            platform: windows
+            arch: x86_64
+            run_tests: true
+            cmake_args: -A x64
+          - name: Windows ARM64 (cross-built)
+            os: windows-latest
+            platform: windows
+            arch: arm64
+            run_tests: false
+            cmake_args: -A ARM64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Select Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Install the AArch64 cross toolchain
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Build and test the full tree
+        if: matrix.run_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=ON
+          cmake --build build_test --config Release --parallel
+          ctest --test-dir build_test -C Release --output-on-failure
+
+      - name: Build and install the shared and static packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in shared static; do
+            if [ "$variant" = shared ]; then only="-DMIMHID_BUILD_STATIC=OFF"; else only="-DMIMHID_BUILD_SHARED=OFF"; fi
+            cmake -B "build_$variant" -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
+              -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF $only
+            cmake --build "build_$variant" --config Release --parallel
+            cmake --install "build_$variant" --config Release --prefix "$PWD/stage-$variant"
+          done
+
+      - name: Check the exported symbols and the platform baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            linux)
+              library="$(ls stage-shared/lib/libmimhid.so.*.*.*)"
+              objdump=objdump
+              nm=nm
+              if [ "${{ matrix.arch }}" = aarch64 ]; then objdump=aarch64-linux-gnu-objdump; nm=aarch64-linux-gnu-nm; fi
+              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library" --nm "$nm"
+              python tools/release/glibc_check.py --library "$library" --objdump "$objdump" ;;
+            macos)
+              library="$(ls stage-shared/lib/libmimhid.*.*.*.dylib)"
+              codesign --force --sign - "$library"
+              codesign --verify --strict "$library"
+              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library"
+              otool -l "$library" | grep -A4 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' ;;
+            windows)
+              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library stage-shared/bin/mimhid.dll ;;
+          esac
+
+      - name: Build an external consumer against both installed packages
+        if: matrix.run_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in shared static; do
+            cmake -B "build_consumer_$variant" -S tools/release/consumer ${{ matrix.cmake_args }} \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage-$variant" -DMIMHID_COMPONENT=$variant
+            cmake --build "build_consumer_$variant" --config Release
+            if [ "${{ matrix.platform }}" = windows ]; then
+              PATH="$PWD/stage-$variant/bin:$PATH" "build_consumer_$variant/Release/consumer.exe"
+            else
+              "build_consumer_$variant/consumer"
+            fi
+          done
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          compiler="$(cmake -LA -N build_shared | sed -n 's/^CMAKE_CXX_COMPILER:FILEPATH=//p')"
+          for variant in shared static runtime; do
+            stage=stage-shared
+            if [ "$variant" = static ]; then stage=stage-static; fi
+            python tools/release/package_release.py --stage "$stage" --out-dir dist \
+              --version "${{ needs.verify.outputs.version }}" --platform "${{ matrix.platform }}" \
+              --arch "${{ matrix.arch }}" --variant "$variant" \
+              --source-sha "${{ needs.verify.outputs.source_sha }}" --epoch "${{ needs.verify.outputs.epoch }}" \
+              --build-metadata "runner=${{ matrix.os }}" --build-metadata "cxx_compiler=$compiler" \
+              --build-metadata "tests_run=${{ matrix.run_tests }}"
+          done
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  firmware-pico:
+    name: Firmware (${{ matrix.name }})
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: rp2040, args: "" }
+          - { name: rp2350, args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2" }
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib build-essential
+
+      - name: Fetch the Pico SDK
+        run: |
+          .github/scripts/setup-pico-sdk.sh "$HOME/pico-sdk"
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify.outputs.version }}"
+          cmake -B build_fw -S firmware ${{ matrix.args }}
+          cmake --build build_fw --parallel
+          mkdir -p dist
+          cp build_fw/mimhid_firmware.uf2 "dist/mimhid_firmware-${{ matrix.name }}-${version}.uf2"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: firmware-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  firmware-bsp:
+    name: Firmware (${{ matrix.name }})
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: nrf52840, family: nrf }
+          - { name: stm32f4,  family: stm32f4 }
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build
+
+      - name: Fetch TinyUSB and the vendor HAL
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb" ${{ matrix.family }}
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify.outputs.version }}"
+          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DTINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_fw
+          mkdir -p dist
+          cp build_fw/mimhid_firmware_${{ matrix.name }}.hex "dist/mimhid_firmware-${{ matrix.name }}-${version}.hex"
+          cp build_fw/mimhid_firmware_${{ matrix.name }}.bin "dist/mimhid_firmware-${{ matrix.name }}-${version}.bin"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: firmware-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  firmware-esp32s3:
+    name: Firmware (esp32s3)
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    container:
+      image: espressif/idf:v5.4.2@sha256:4317595a911886e04cbc6d731315d5fc2918e510b6733fc7d03381ab2d270082
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Fetch TinyUSB
+        run: |
+          git config --global --add safe.directory '*'
+          .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          export TINYUSB_PATH="$HOME/tinyusb"
+          version="${{ needs.verify.outputs.version }}"
+          idf.py -C firmware/ports/esp32s3 -B build_fw set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw build
+          mkdir -p dist
+          # Bootloader, partition table and application merged for a single flash at 0x0.
+          idf.py -C firmware/ports/esp32s3 -B build_fw merge-bin -o "$PWD/dist/mimhid_firmware-esp32s3-${version}.bin"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: firmware-esp32s3
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [ verify, host, firmware-pico, firmware-bsp, firmware-esp32s3 ]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: parts
+
+      - name: Assemble the release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for part in parts/host-* parts/firmware-*; do cp "$part"/* dist/; done
+          python3 tools/release/package_source.py --version "${{ needs.verify.outputs.version }}" \
+            --commit "${{ needs.verify.outputs.source_sha }}" --out-dir dist
+          python3 tools/release/collect_release.py --dist dist --version "${{ needs.verify.outputs.version }}" \
+            --source-sha "${{ needs.verify.outputs.source_sha }}"
+          (cd dist && sha256sum --check --strict SHA256SUMS)
+
+      - name: Keep the assembled release (dry runs)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Require a successful CI run for the tagged commit
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=${{ needs.verify.outputs.source_sha }}&status=success" --jq '.total_count')"
+          if [ "$passed" -lt 1 ]; then
+            echo "No successful CI run exists for ${{ needs.verify.outputs.source_sha }}" >&2
+            exit 1
+          fi
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: dist/*
+          body_path: parts/release-notes/release-notes.md
+          fail_on_unmatched_files: true

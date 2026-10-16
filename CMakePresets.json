@@ -1,0 +1,68 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MIMHID_BUILD_TESTS": "ON",
+        "MIMHID_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MIMHID_BUILD_TESTS": "OFF",
+        "MIMHID_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "test",
+      "displayName": "Test build",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/test",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MIMHID_BUILD_TESTS": "ON",
+        "MIMHID_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Developer build",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/dev"
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "test", "configurePreset": "test" },
+    { "name": "dev", "configurePreset": "dev" }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "test",
+      "configurePreset": "test",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
