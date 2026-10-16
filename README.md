@@ -147,10 +147,10 @@ A pushed `v*` tag builds and checks the release, then publishes a GitHub Release
 
 - twelve archives: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04-{shared,static}.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}-{shared,static}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}-{shared,static}.zip`, each with headers, the library, CMake package files, and pkg-config files;
 - twelve matching `.spdx.json` SBOM sidecars;
-- six runtime bundles (`...-runtime.tar.gz`, `...-runtime.zip`) with only the shared library and the license;
+- six runtime bundles (`...-runtime.tar.gz`, `...-runtime.zip`) with only the shared library and the license/notice documents (`LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `CHANGELOG.md`);
 - the tagged tree as `libmimhid-X.Y.Z-source.tar.gz`;
 - `release-manifest.json` and `SHA256SUMS`;
-- the firmware images: `mimhid_firmware-<board>-X.Y.Z.{uf2,hex,bin}` for rp2040, rp2350, nrf52840, stm32f4, and esp32s3.
+- the firmware images: `mimhid_firmware-<board>-X.Y.Z.{uf2,hex,bin}` for rp2040, rp2350, nrf52840, stm32f4, and esp32s3, accompanied by `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt`.
 
 Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 and are signed ad hoc, not notarized; Windows archives use the dynamic MSVC runtime. The AArch64 Linux and ARM64 Windows libraries are cross-built and are not run in CI. Consume an archive with `find_package(mimhid COMPONENTS shared)` (or `static`) or with pkg-config (`mimhid`, `mimhid-static`).
 
@@ -165,4 +165,4 @@ Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 
 
 ## License
 
-MIT. Copyright (c) 2026 libmimhid contributors.
+MIT. Copyright (c) 2026 libmimhid contributors. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party firmware SDK attributions.

@@ -1,0 +1,74 @@
+libmimhid
+Copyright (c) 2026 libmimhid contributors
+
+Summary: The libmimhid host library is MIT licensed and has no third-party
+runtime library dependencies. Prebuilt microcontroller firmware images
+(`mimhid_firmware-*`) incorporate third-party SDK and USB stack code under
+permissive licenses (MIT, BSD-3-Clause, and Apache-2.0); their complete
+copyright notices, license texts, and disclaimers are reproduced in
+THIRD_PARTY_NOTICES.md and in each release's accompanying notices.
+
+This distribution includes software developed by the libmimhid contributors
+and is licensed under the MIT License. The complete license text is in LICENSE.
+
+1. Host library (`libmimhid` shared, static, and runtime archives)
+------------------------------------------------------------------
+
+The host library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`,
+`libmimhid.a`, `mimhid_static.lib`) is compiled solely from first-party MIT
+source code in `src/`, `include/`, and `proto/`. It talks to the serial port
+through operating-system primitives (`termios` on Linux and macOS, Win32 file
+and SetupAPI calls on Windows) and links no third-party library dynamically or
+statically. On Linux, the C++ runtime (`libstdc++` and `libgcc`) is linked
+statically with `-Wl,--exclude-libs,ALL` under the GCC Runtime Library
+Exception 3.1.
+
+Every host binary archive (`*-shared`, `*-static`, and `*-runtime`) carries
+`LICENSE`, this `NOTICE`, `THIRD_PARTY_NOTICES.md`, and `CHANGELOG.md` under
+`share/doc/libmimhid/`, together with `build-metadata.json`. Every `*-shared`
+and `*-static` archive has a matching SPDX 2.3 SBOM sidecar (`*.spdx.json`).
+
+2. Source repository (`firmware/pico_sdk_import.cmake`)
+-------------------------------------------------------
+
+The source tree includes one verbatim third-party CMake helper file:
+`firmware/pico_sdk_import.cmake`, Copyright 2020 (c) 2020 Raspberry Pi
+(Trading) Ltd., licensed under the BSD-3-Clause License. Its copyright notice
+and license text appear at the top of that file and in `THIRD_PARTY_NOTICES.md`.
+
+All other source files, headers, build scripts, and tests in this repository
+are first-party work of the libmimhid contributors under `SPDX-License-Identifier: MIT`,
+verified in CI by `tools/check_license_headers.py`.
+
+3. Prebuilt firmware binaries (`mimhid_firmware-*`)
+---------------------------------------------------
+
+Prebuilt microcontroller firmware images published in GitHub Releases
+(`.uf2`, `.hex`, and `.bin`) are bare-metal binaries that cannot embed text
+documentation inside the flash image itself. Each release therefore publishes
+the complete third-party copyright notices, license conditions, and disclaimers
+alongside the firmware binaries in the GitHub Release notes, in
+`mimhid_firmware-THIRD_PARTY_NOTICES-<version>.txt`, and in
+`THIRD_PARTY_NOTICES.md` inside the source and host archives. If you
+redistribute any prebuilt firmware binary on its own, include
+`THIRD_PARTY_NOTICES.md` (or `mimhid_firmware-THIRD_PARTY_NOTICES-<version>.txt`)
+with it to satisfy the binary attribution requirements of the underlying SDKs:
+
+  * All firmware targets (`rp2040`, `rp2350`, `nrf52840`, `stm32f4`, `esp32s3`):
+    - TinyUSB 0.18.0 (`86ad6e56c1700e85f1c5678607a762cfe3aa2f47`) — MIT License
+    - Arm CMSIS Core headers (`2b7495b8535bdcb306dac29b9ded4cfb679d7e5c`) — Apache-2.0
+    - Newlib / Picolibc C runtime (`arm-none-eabi` / `xtensa-esp32s3-elf`) — BSD / MIT / permissive notices
+  * `mimhid_firmware-rp2040-*` and `mimhid_firmware-rp2350-*`:
+    - Raspberry Pi Pico SDK 2.2.0 (`a1438dff1d38bd9c65dbd693f0e5db4b9ae91779`) — BSD-3-Clause
+  * `mimhid_firmware-nrf52840-*`:
+    - Nordic Semiconductor `nrfx` (`7c47cc0a56ce44658e6da2458e86cd8783ccc4a2`) — BSD-3-Clause
+  * `mimhid_firmware-stm32f4-*`:
+    - STMicroelectronics `cmsis_device_f4` (`2615e866fa48fe1ff1af9e31c348813f2b19e7ec`) — Apache-2.0 / BSD-3-Clause
+    - STMicroelectronics `stm32f4xx_hal_driver` (`04e99fbdabd00ab8f370f377c66b0a4570365b58`) — BSD-3-Clause
+  * `mimhid_firmware-esp32s3-*`:
+    - Espressif Systems ESP-IDF v5.4.2 — Apache-2.0
+    - Amazon FreeRTOS Kernel V11.x (bundled in ESP-IDF) — MIT License
+
+See `THIRD_PARTY_NOTICES.md` for the full verbatim license texts.
+
+SPDX-License-Identifier: MIT

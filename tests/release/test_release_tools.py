@@ -26,7 +26,10 @@ def fake_stage(root: Path, platform: str, variant: str) -> Path:
     stage = root / f"stage-{platform}-{variant}"
     files = {
         "include/mimhid.h": "h", "include/mimhid.hpp": "hpp",
-        "share/doc/libmimhid/LICENSE": "MIT", "share/doc/libmimhid/CHANGELOG.md": "log",
+        "share/doc/libmimhid/LICENSE": "MIT",
+        "share/doc/libmimhid/NOTICE": "notice",
+        "share/doc/libmimhid/THIRD_PARTY_NOTICES.md": "third-party",
+        "share/doc/libmimhid/CHANGELOG.md": "log",
         "lib/cmake/mimhid/mimhid-config.cmake": "c",
         f"lib/cmake/mimhid/mimhid-{'shared' if variant != 'static' else 'static'}-targets.cmake": "t",
     }
@@ -51,12 +54,13 @@ class Names(unittest.TestCase):
     def test_asset_set(self):
         assets = release_names.expected_assets("1.2.3")
         self.assertEqual(len(assets), len(set(assets)))
-        self.assertEqual(len(assets), 12 + 12 + 6 + 1 + 7 + 2)
+        self.assertEqual(len(assets), 12 + 12 + 6 + 1 + 7 + 1 + 2)
         self.assertIn("libmimhid-1.2.3-linux-aarch64-ubuntu22.04-static.tar.gz", assets)
         self.assertIn("libmimhid-1.2.3-macos-arm64-runtime.tar.gz", assets)
         self.assertIn("libmimhid-1.2.3-windows-x86_64-shared.spdx.json", assets)
         self.assertIn("libmimhid-1.2.3-windows-arm64-runtime.zip", assets)
         self.assertIn("mimhid_firmware-rp2040-1.2.3.uf2", assets)
+        self.assertIn("mimhid_firmware-THIRD_PARTY_NOTICES-1.2.3.txt", assets)
 
     def test_rejects_bad_input(self):
         with self.assertRaises(release_names.ReleaseError):
@@ -82,6 +86,9 @@ class Validate(unittest.TestCase):
             root = Path(tmp)
             (root / "include").mkdir()
             (root / "firmware/common").mkdir(parents=True)
+            (root / "LICENSE").write_text("MIT\n")
+            (root / "NOTICE").write_text("NOTICE\n")
+            (root / "THIRD_PARTY_NOTICES.md").write_text("THIRD_PARTY\n")
             (root / "include/mimhid.h").write_text(
                 "#define MIMHID_VERSION_MAJOR 1\n#define MIMHID_VERSION_MINOR 2\n#define MIMHID_VERSION_PATCH 3\n")
             (root / "firmware/common/core.h").write_text(
@@ -94,6 +101,10 @@ class Validate(unittest.TestCase):
             version, notes = validate_release.validate(root, "v1.2.3")
             self.assertEqual((version, notes), ("1.2.3", "- x"))
             (root / "CMakeLists.txt").write_text("project(libmimhid VERSION 1.2.4 LANGUAGES C)\n")
+            with self.assertRaises(release_names.ReleaseError):
+                validate_release.validate(root, "v1.2.3")
+            (root / "CMakeLists.txt").write_text("project(libmimhid VERSION 1.2.3 LANGUAGES C)\n")
+            (root / "THIRD_PARTY_NOTICES.md").unlink()
             with self.assertRaises(release_names.ReleaseError):
                 validate_release.validate(root, "v1.2.3")
 

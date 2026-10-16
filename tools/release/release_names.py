@@ -74,9 +74,14 @@ def firmware_names(version: str) -> list[str]:
     ]
 
 
+def firmware_notices_name(version: str) -> str:
+    return f"mimhid_firmware-THIRD_PARTY_NOTICES-{version}.txt"
+
+
 def expected_assets(version: str) -> list[str]:
     """Every file a release uploads: 12 archives, 12 SPDX sidecars, 6 runtime bundles, the
-    source archive, the manifest, the checksums, and the firmware images."""
+    source archive, the manifest, the checksums, the firmware images, and the firmware
+    third-party notices file."""
     names: list[str] = []
     for platform, arch in TARGETS:
         for variant in ("shared", "static"):
@@ -86,6 +91,7 @@ def expected_assets(version: str) -> list[str]:
         names.append(archive_name(version, platform, arch, "runtime"))
     names.append(source_name(version))
     names.extend(firmware_names(version))
+    names.append(firmware_notices_name(version))
     names.extend(["release-manifest.json", "SHA256SUMS"])
     return sorted(names)
 

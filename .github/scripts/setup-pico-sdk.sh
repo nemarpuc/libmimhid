@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 # Fetches the Raspberry Pi Pico SDK at a pinned release and verifies the commits.
 set -euo pipefail
 

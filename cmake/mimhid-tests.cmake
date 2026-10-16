@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 # Test executables. Included from the top-level CMakeLists.txt when MIMHID_BUILD_TESTS is on.
 
 function(mimhid_test_flags target)

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 # Cross-compile for 64-bit ARM Linux on an x86-64 Ubuntu host (gcc-aarch64-linux-gnu).
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)

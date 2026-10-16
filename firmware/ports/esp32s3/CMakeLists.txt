@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.16)
 
 # ESP32-S3 firmware (ESP-IDF 5.3 or later).

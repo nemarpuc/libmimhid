@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 idf_component_register(
     SRCS
         main.c

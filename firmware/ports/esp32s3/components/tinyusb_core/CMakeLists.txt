@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 # TinyUSB device stack compiled straight from the checkout in $TINYUSB_PATH, with this
 # project's own descriptors and tusb_config.h (esp_tinyusb would supply its own).
 set(tusb_src "$ENV{TINYUSB_PATH}/src")

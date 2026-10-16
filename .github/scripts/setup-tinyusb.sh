@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 # Fetches TinyUSB at a pinned release, verifies the commit, and fetches the pinned
 # vendor dependencies for the given board family (the commits are fixed by get_deps.py).
 set -euo pipefail

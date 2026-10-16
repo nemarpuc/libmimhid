@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.17)
 
 # nRF52840 firmware built on the TinyUSB board support package.

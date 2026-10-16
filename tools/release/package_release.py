@@ -43,7 +43,12 @@ def collect(stage: Path, platform: str, variant: str) -> list[Path]:
 
 
 def validate_layout(stage: Path, platform: str, variant: str) -> None:
-    required = [f"{DOC}/LICENSE", f"{DOC}/CHANGELOG.md"]
+    required = [
+        f"{DOC}/LICENSE",
+        f"{DOC}/NOTICE",
+        f"{DOC}/THIRD_PARTY_NOTICES.md",
+        f"{DOC}/CHANGELOG.md",
+    ]
     if variant in ("shared", "static"):
         required += ["include/mimhid.h", "include/mimhid.hpp"]
         flavor = "shared" if variant == "shared" else "static"

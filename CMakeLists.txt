@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
 project(libmimhid VERSION 0.1.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
@@ -190,7 +192,8 @@ if(MIMHID_BUILD_STATIC)
 endif()
 
 install(FILES include/mimhid.h include/mimhid.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES LICENSE CHANGELOG.md DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/libmimhid)
+install(FILES LICENSE NOTICE THIRD_PARTY_NOTICES.md CHANGELOG.md
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/libmimhid)
 
 configure_package_config_file(cmake/mimhid-config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/mimhid-config.cmake
