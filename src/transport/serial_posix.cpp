@@ -260,7 +260,7 @@ long SerialPort::read(std::uint8_t* buffer, std::size_t capacity,
     if (n < 0)
         return (errno == EAGAIN || errno == EINTR) ? 0 : -1;
     if (n == 0)
-        return (w & WAIT_ERR) ? -1 : 0;
+        return -1;
     return static_cast<long>(n);
 }
 

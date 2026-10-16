@@ -87,8 +87,12 @@ uint8_t mimhid_active_node_interface(uint8_t node) {
 }
 
 static void copy_str(char* dst, const char* src) {
-    strncpy(dst, src, MIMHID_STRING_MAX);
-    dst[MIMHID_STRING_MAX] = '\0';
+    size_t i = 0;
+    while (i < MIMHID_STRING_MAX && src[i] != '\0') {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
 }
 
 static void hex_serial(char* dst) {

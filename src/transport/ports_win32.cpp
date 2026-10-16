@@ -3,8 +3,8 @@
 #include "transport/serial_port.hpp"
 
 #include <cstring>
-#include <setupapi.h>
 #include <windows.h>
+#include <setupapi.h>
 
 namespace mimhid::transport {
 
