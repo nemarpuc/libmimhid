@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace mimhid::transport {
 
@@ -57,8 +58,33 @@ bool FrameParser::next(Frame* out) noexcept {
     }
 }
 
+int baud_index_of(std::uint32_t baud) noexcept {
+    for (std::size_t i = 0; i < kBaudRates.size(); ++i) {
+        if (kBaudRates[i] == baud)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
 bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
-    if (frame.type != MIMHID_T_PONG || frame.length < MIMHID_PONG_LEN)
+    if (frame.type != MIMHID_T_PONG || frame.length < 5U)
+        return false;
+    // Every version starts with the firmware version, ready and the protocol version; a board
+    // on another protocol is reported with those alone.
+    if (frame.payload[4] != MIMHID_PROTO_VERSION) {
+        *out = BoardInfo{};
+        out->version[0] = frame.payload[0];
+        out->version[1] = frame.payload[1];
+        out->version[2] = frame.payload[2];
+        out->ready = frame.payload[3] != 0;
+        out->protocol = frame.payload[4];
+        return true;
+    }
+    if (frame.length < MIMHID_PONG_MIN_LEN)
+        return false;
+    const std::uint8_t id_length = frame.payload[16];
+    if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length ||
+        frame.payload[13] >= MIMHID_BAUD_COUNT)
         return false;
     const auto& p = frame.payload;
     out->version[0] = p[0];
@@ -70,51 +96,171 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->max_interfaces = p[6];
     out->max_report_bytes = p[7];
     out->max_descriptor_bytes = static_cast<std::uint16_t>(p[8] | (p[9] << 8));
-    out->has_unique_id = (p[10] & 1U) != 0;
+    out->has_unique_id = (p[10] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
+    out->chip = p[11];
+    out->usb_high_speed = p[12] != 0;
+    out->baud_index = p[13];
+    out->baud_mask = static_cast<std::uint16_t>(p[14] | (p[15] << 8));
+    out->unique_id_length = id_length;
+    std::memcpy(out->unique_id.data(), &p[17], id_length);
     return true;
 }
 
-bool probe_port(const char* path, std::uint32_t baud, std::uint32_t timeout_ms, BoardInfo* out) {
-    SerialPort port;
-    if (!port.open(path, baud).ok)
-        return false;
-    std::uint8_t ping_payload[1] = {MIMHID_PROTO_VERSION};
-    std::uint8_t frame[8];
-    const std::size_t n = encode_frame(MIMHID_T_PING, ping_payload, 1, frame);
-    if (port.write_all(frame, n, 100, nullptr) != IoStatus::ok)
-        return false;
+namespace {
 
+// Reads frames until on_frame returns true or wait_ms passes.
+template <typename F> bool read_until(SerialPort& port, std::uint32_t wait_ms, F&& on_frame) {
     FrameParser parser;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms < 50U ? 50U : timeout_ms);
-    bool found = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+    bool done = false;
     std::uint8_t buf[64];
-    while (!found && std::chrono::steady_clock::now() < deadline) {
-        const long got = port.read(buf, sizeof(buf), 25);
+    auto take = [&](const Frame& f) { done = done || on_frame(f); };
+    while (!done && std::chrono::steady_clock::now() < deadline) {
+        const long got = port.read(buf, sizeof(buf), 5);
         if (got < 0)
-            break;
-        if (got == 0) {
-            parser.idle([&](const Frame& f) { found = found || decode_pong(f, out); });
-            continue;
-        }
-        parser.feed(buf, static_cast<std::size_t>(got),
-                    [&](const Frame& f) { found = found || decode_pong(f, out); });
+            return false;
+        if (got == 0)
+            parser.idle(take);
+        else
+            parser.feed(buf, static_cast<std::size_t>(got), take);
     }
-    return found;
+    return done;
+}
+
+} // namespace
+
+bool Handshaker::ping(BoardInfo* out) {
+    const std::uint8_t payload[1] = {MIMHID_PROTO_VERSION};
+    std::uint8_t frame[8];
+    const std::size_t n = encode_frame(MIMHID_T_PING, payload, 1, frame);
+    port_.discard_input();
+    if (port_.write_all(frame, n, wait_ms_, nullptr) != IoStatus::ok)
+        return false;
+    return read_until(port_, wait_ms_, [&](const Frame& f) { return decode_pong(f, out); });
+}
+
+CommandStatus Handshaker::set_board_baud(std::uint8_t index) {
+    const std::uint8_t seq = ++seq_;
+    const std::uint8_t payload[2] = {seq, index};
+    std::uint8_t frame[8];
+    const std::size_t n = encode_frame(MIMHID_T_SET_BAUD, payload, 2, frame);
+    port_.discard_input();
+    if (port_.write_all(frame, n, wait_ms_, nullptr) != IoStatus::ok)
+        return CommandStatus::io_error;
+    CommandStatus status = CommandStatus::timeout;
+    read_until(port_, wait_ms_, [&](const Frame& f) {
+        if ((f.type != MIMHID_T_ACK && f.type != MIMHID_T_NAK) || f.length < 2 ||
+            f.payload[0] != seq || f.payload[1] != MIMHID_T_SET_BAUD)
+            return false;
+        status = f.type == MIMHID_T_ACK ? CommandStatus::ack : CommandStatus::nak;
+        return true;
+    });
+    return status;
+}
+
+bool Handshaker::to_boot(BoardInfo* info) {
+    if (rate_ != MIMHID_BOOT_BAUD) {
+        if (set_board_baud(0) != CommandStatus::ack)
+            return false;
+        if (!port_.set_baud(MIMHID_BOOT_BAUD))
+            return false;
+        rate_ = MIMHID_BOOT_BAUD;
+    }
+    return ping(info);
+}
+
+bool Handshaker::find(BoardInfo* out) {
+    if (ping(out))
+        return true;
+    for (std::size_t i = kBaudRates.size() - 1; i > 0; --i) {
+        if (!port_.set_baud(kBaudRates[i]))
+            continue;
+        rate_ = kBaudRates[i];
+        if (ping(out)) {
+            // A board on another protocol cannot be asked to change its rate; it stays found
+            // where it answered.
+            return out->protocol != MIMHID_PROTO_VERSION || to_boot(out);
+        }
+    }
+    rate_ = MIMHID_BOOT_BAUD;
+    port_.set_baud(MIMHID_BOOT_BAUD);
+    return false;
+}
+
+Handshake Handshaker::try_rate(std::uint8_t index, BoardInfo* info) {
+    const std::uint32_t baud = kBaudRates[index];
+    // A rate the port cannot be set to is not asked of the board.
+    if (!port_.set_baud(baud)) {
+        port_.set_baud(MIMHID_BOOT_BAUD);
+        return Handshake::rate_refused;
+    }
+    if (!port_.set_baud(MIMHID_BOOT_BAUD))
+        return Handshake::io_error;
+    const CommandStatus asked = set_board_baud(index);
+    if (asked == CommandStatus::nak)
+        return Handshake::rate_refused;
+    if (asked != CommandStatus::ack)
+        return Handshake::io_error;
+    const auto switched = std::chrono::steady_clock::now();
+    if (!port_.set_baud(baud))
+        return Handshake::io_error;
+    rate_ = baud;
+    BoardInfo seen;
+    bool carried = true;
+    for (int i = 0; i < 3 && carried; ++i)
+        carried = ping(&seen) && seen.baud_index == index;
+    if (carried) {
+        *info = seen;
+        return Handshake::ok;
+    }
+    // The board goes back to the boot rate unless one of the pings reached it; the search
+    // finds it either way.
+    rate_ = MIMHID_BOOT_BAUD;
+    if (!port_.set_baud(MIMHID_BOOT_BAUD))
+        return Handshake::io_error;
+    std::this_thread::sleep_until(switched + std::chrono::milliseconds(MIMHID_BAUD_CONFIRM_MS + 20));
+    if (!ping(info) && !find(info))
+        return Handshake::io_error;
+    return Handshake::rate_failed;
+}
+
+Handshake Handshaker::negotiate(std::uint32_t baud, BoardInfo* info, std::uint32_t* rate) {
+    *rate = MIMHID_BOOT_BAUD;
+    if (baud != 0U) {
+        const int index = baud_index_of(baud);
+        if (index < 0 || !(info->baud_mask & (1U << index)))
+            return Handshake::rate_refused;
+        if (index == 0)
+            return Handshake::ok;
+        const Handshake result = try_rate(static_cast<std::uint8_t>(index), info);
+        if (result == Handshake::ok)
+            *rate = baud;
+        return result;
+    }
+    for (std::size_t i = kBaudRates.size() - 1; i > 0; --i) {
+        if (!(info->baud_mask & (1U << i)) || !SerialPort::baud_supported(kBaudRates[i]))
+            continue;
+        const Handshake result = try_rate(static_cast<std::uint8_t>(i), info);
+        if (result == Handshake::ok) {
+            *rate = kBaudRates[i];
+            return result;
+        }
+        if (result == Handshake::io_error)
+            return result;
+    }
+    return Handshake::ok;
 }
 
 Link::~Link() { close(); }
 
-OpenResult Link::open(const char* path, std::uint32_t baud, EventHandler handler) {
-    OpenResult result = port_.open(path, baud);
-    if (!result.ok)
-        return result;
+OpenResult Link::open(const char* path) { return port_.open(path, MIMHID_BOOT_BAUD); }
+
+void Link::start(EventHandler handler) {
     handler_ = std::move(handler);
     stop_.store(false);
     failed_.store(false);
     ready_.store(false);
     reader_ = std::thread([this] { reader_loop(); });
-    return result;
 }
 
 void Link::close() {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 // ESP32-S3: UART1 through the IDF driver (interrupt-fed ring), built-in USB PHY.
+#include "freertos/FreeRTOS.h"
 #include "driver/uart.h"
 #include "esp_private/usb_phy.h"
 #include "esp_mac.h"
@@ -12,9 +13,6 @@
 #endif
 #ifndef MIMHID_UART_RX_PIN
 #define MIMHID_UART_RX_PIN 18
-#endif
-#ifndef MIMHID_BAUD_RATE
-#define MIMHID_BAUD_RATE 3000000
 #endif
 
 #define UART_PORT UART_NUM_1
@@ -32,7 +30,7 @@ void hal_init(void) {
     usb_new_phy(&phy_conf, &g_phy);
 
     const uart_config_t cfg = {
-        .baud_rate = MIMHID_BAUD_RATE,
+        .baud_rate = MIMHID_BOOT_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -55,6 +53,20 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
 
 void hal_uart_write(const uint8_t* data, size_t len) {
     uart_write_bytes(UART_PORT, data, len);
+}
+
+// The UART runs up to 5 Mbaud from its 80 MHz clock with a fractional divider.
+bool hal_uart_baud_ok(uint32_t baud) {
+    return baud <= 5000000u;
+}
+
+void hal_uart_set_baud(uint32_t baud) {
+    uart_wait_tx_done(UART_PORT, portMAX_DELAY);
+    uart_set_baudrate(UART_PORT, baud);
+}
+
+uint8_t hal_chip(void) {
+    return MIMHID_CHIP_ESP32S3;
 }
 
 uint32_t hal_millis(void) {

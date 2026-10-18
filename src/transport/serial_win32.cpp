@@ -47,6 +47,7 @@ bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
     case 460800:
     case 576000:
     case 921600:
+    case 1000000:
     case 1500000:
     case 2000000:
     case 3000000:
@@ -123,6 +124,23 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
     handle_ = reinterpret_cast<std::intptr_t>(h);
     result.ok = true;
     return result;
+}
+
+bool SerialPort::set_baud(std::uint32_t baud) noexcept {
+    if (!is_open() || !baud_supported(baud))
+        return false;
+    HANDLE h = reinterpret_cast<HANDLE>(handle_);
+    FlushFileBuffers(h);
+    DCB dcb;
+    std::memset(&dcb, 0, sizeof(dcb));
+    dcb.DCBlength = sizeof(dcb);
+    if (!GetCommState(h, &dcb))
+        return false;
+    dcb.BaudRate = baud;
+    if (!SetCommState(h, &dcb))
+        return false;
+    PurgeComm(h, PURGE_RXCLEAR);
+    return true;
 }
 
 void SerialPort::close() noexcept {

@@ -27,6 +27,8 @@ static uint8_t  g_out[8192];
 static size_t   g_out_len;
 static uint32_t g_now;
 static int      g_has_id = 1;
+static uint32_t g_baud = MIMHID_BOOT_BAUD;
+static int      g_baud_changes;
 
 void hal_init(void) {}
 size_t hal_uart_read(uint8_t* dst, size_t max) {
@@ -38,6 +40,9 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
 }
 void hal_uart_write(const uint8_t* d, size_t n) { memcpy(g_out + g_out_len, d, n); g_out_len += n; }
 uint32_t hal_millis(void) { return g_now; }
+bool hal_uart_baud_ok(uint32_t baud) { return baud <= 3000000u; }
+void hal_uart_set_baud(uint32_t baud) { g_baud = baud; g_baud_changes++; }
+uint8_t hal_chip(void) { return MIMHID_CHIP_RP2040; }
 size_t hal_unique_id(uint8_t* out, size_t max) {
     if (!g_has_id) return 0;
     static const uint8_t id[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};
@@ -332,10 +337,14 @@ static void test_ping_and_events(void) {
     pump();
     size_t pos = 0;
     uint8_t p[256], n;
-    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_LEN);
-    assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[3] == 1);
+    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_MIN_LEN + 8);
+    assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH && p[3] == 1);
     assert(p[4] == MIMHID_PROTO_VERSION && p[5] == MIMHID_MAX_NODES && p[6] == MIMHID_HID_ITFS);
-    assert(p[7] == 64 && (p[8] | (p[9] << 8)) == MIMHID_MAX_DESC_BYTES && p[10] == 1);
+    assert(p[7] == 64 && (p[8] | (p[9] << 8)) == MIMHID_MAX_DESC_BYTES && p[10] == MIMHID_PONG_FLAG_UNIQUE_ID);
+    assert(p[11] == MIMHID_CHIP_RP2040 && p[12] == 0 && p[13] == 0);
+    // 4,000,000 (index 8) is past what this HAL makes.
+    assert((p[14] | (p[15] << 8)) == 0x00FF);
+    assert(p[16] == 8 && p[17] == 0x01 && p[24] == 0xEF);
 
     reset_io();
     tud_mount_cb();
@@ -362,6 +371,57 @@ static void test_ping_and_events(void) {
     g_suspended = true;
     assert(command(MIMHID_T_REMOTE_WAKEUP, NULL, 0) == 1 && g_wakeups == 1);
     g_suspended = false;
+}
+
+static void test_set_baud(void) {
+    reset_io();
+    const uint8_t v = MIMHID_PROTO_VERSION;
+    // A rate the board cannot make, and one past the table, are refused.
+    uint8_t index = 8;
+    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    index = MIMHID_BAUD_COUNT;
+    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(g_baud == MIMHID_BOOT_BAUD && g_baud_changes == 0);
+
+    // The ACK goes out before the switch; a valid frame at the new rate keeps it.
+    index = 7;
+    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == 3000000u);
+    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+    reset_io();
+    put_frame(MIMHID_T_PING, &v, 1);
+    pump();
+    size_t pos = 0;
+    uint8_t p[256], n;
+    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && p[13] == 7);
+    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
+    pump();
+    assert(g_baud == 3000000u);
+
+    // Back to the boot rate needs no confirmation.
+    index = 0;
+    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == MIMHID_BOOT_BAUD);
+    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
+    pump();
+    assert(g_baud == MIMHID_BOOT_BAUD);
+
+    // Nothing valid at the new rate in time: back to the boot rate.
+    index = 3;
+    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == 921600u);
+    reset_io();
+    const uint8_t junk[] = {0x00, 0xFF, 0x13, 0x37};
+    memcpy(g_in, junk, sizeof(junk));
+    g_in_len = sizeof(junk);
+    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+    pump();
+    assert(g_baud == 921600u);
+    g_now += 1;
+    pump();
+    assert(g_baud == MIMHID_BOOT_BAUD);
+    reset_io();
+    put_frame(MIMHID_T_PING, &v, 1);
+    pump();
+    pos = 0;
+    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && p[13] == 0);
 }
 
 static void test_feature(void) {
@@ -481,6 +541,7 @@ int main(void) {
     printf("firmware core, %d HID interfaces\n", MIMHID_HID_ITFS);
     mimhid_core_init();
     test_ping_and_events();
+    test_set_baud();
     test_descriptors_basic();
     test_reports();
     test_feature();

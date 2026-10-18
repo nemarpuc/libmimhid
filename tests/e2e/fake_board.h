@@ -47,6 +47,12 @@ void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol);
 void fake_board_target_set_idle(uint8_t iface, uint8_t rate);
 void fake_board_set_mount_delay_ms(unsigned ms);
 
+// The line: bytes pass only while the host's port and the board run at the same rate. A port
+// set above the adapter's limit sends at the limit, as adapters that round silently do (0: no
+// limit). The board makes rates up to 3,000,000.
+uint32_t fake_board_baud(void);
+void fake_board_set_adapter_limit(uint32_t baud);
+
 #ifdef __cplusplus
 }
 #endif

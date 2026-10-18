@@ -120,8 +120,17 @@ static bool cmd_push(uint8_t type, const uint8_t* data, uint8_t len) {
 static uint8_t  g_rx[RX_SIZE];
 static uint32_t g_rd = 0;
 static uint32_t g_wr = 0;
+static uint8_t  g_unique_id[MIMHID_UNIQUE_ID_MAX];
 static uint8_t  g_unique_id_len = 0;
 static uint32_t g_last_rx_ms = 0;
+
+// The line rate: an index into MIMHID_BAUD_RATES. A rate other than the boot rate stays
+// unconfirmed until a valid frame arrives at it.
+static const uint32_t g_rates[MIMHID_BAUD_COUNT] = MIMHID_BAUD_RATES;
+static uint16_t g_baud_mask = 0;
+static uint8_t  g_baud_index = 0;
+static bool     g_baud_pending = false;
+static uint32_t g_baud_since_ms = 0;
 
 // A corrupt header can announce a long frame whose bytes never come. Waiting that long for
 // the payload would swallow the valid frames behind it, so a frame that stays incomplete with
@@ -142,11 +151,29 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_REMOTE_WAKEUP);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_SET_BAUD);
+}
+
+static void set_baud_index(uint8_t index) {
+    hal_uart_set_baud(g_rates[index]);
+    g_baud_index = index;
+    g_baud_pending = index != 0;
+    g_baud_since_ms = hal_millis();
+}
+
+// Runs on the receive side: the ACK has to leave at the old rate before the switch.
+static void cmd_set_baud(const uint8_t* data, uint8_t len) {
+    const uint8_t seq = data[0];
+    if (len != 2 || data[1] >= MIMHID_BAUD_COUNT || !(g_baud_mask & (1u << data[1]))) {
+        send_nak(seq, MIMHID_T_SET_BAUD, MIMHID_NAK_PARAM);
+        return;
+    }
+    send_ack(seq, MIMHID_T_SET_BAUD);
+    set_baud_index(data[1]);
 }
 
 static void send_pong(void) {
-    uint8_t p[MIMHID_PONG_LEN];
+    uint8_t p[MIMHID_PONG_MIN_LEN + MIMHID_UNIQUE_ID_MAX];
     p[0] = FW_VERSION_MAJOR;
     p[1] = FW_VERSION_MINOR;
     p[2] = FW_VERSION_PATCH;
@@ -157,8 +184,19 @@ static void send_pong(void) {
     p[7] = MIMHID_MAX_REPORT_BYTES;
     p[8] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
     p[9] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
-    p[10] = g_unique_id_len ? 1 : 0;
-    send_frame(MIMHID_T_PONG, p, MIMHID_PONG_LEN);
+    p[10] = g_unique_id_len ? MIMHID_PONG_FLAG_UNIQUE_ID : 0;
+    p[11] = hal_chip();
+#if TUD_OPT_HIGH_SPEED
+    p[12] = 1;
+#else
+    p[12] = 0;
+#endif
+    p[13] = g_baud_index;
+    p[14] = (uint8_t)(g_baud_mask & 0xFF);
+    p[15] = (uint8_t)(g_baud_mask >> 8);
+    p[16] = g_unique_id_len;
+    memcpy(&p[17], g_unique_id, g_unique_id_len);
+    send_frame(MIMHID_T_PONG, p, (uint8_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
 
 // Handles at most one frame or skips one byte. Returns false when more input is needed.
@@ -216,6 +254,7 @@ static bool rx_step(void) {
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
+        g_baud_pending = false;
         if (dst != NULL) {
             q->items[h].len = len;
             __atomic_store_n(&q->head, next_h, __ATOMIC_RELEASE);
@@ -232,17 +271,25 @@ static bool rx_step(void) {
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
+        g_baud_pending = false;
+        g_rd = (read_idx + total) & RX_MASK;
         if (type == MIMHID_T_PING) {
             send_pong();
+        } else if (type == MIMHID_T_SET_BAUD) {
+            cmd_set_baud(buf, len);
         } else {
             cmd_push(type, buf, len); // a full mailbox drops the frame; the host retries on no ACK
         }
+        return true;
     }
     g_rd = (read_idx + total) & RX_MASK;
     return true;
 }
 
 void mimhid_rx_poll(void) {
+    // An unconfirmed rate that heard nothing valid in time falls back to the boot rate.
+    if (g_baud_pending && (int32_t)(hal_millis() - g_baud_since_ms) >= MIMHID_BAUD_CONFIRM_MS)
+        set_baud_index(0);
     for (;;) {
         rx_fill();
         if (rx_step()) continue;
@@ -447,8 +494,11 @@ static void run_command(const command_t* c) {
 }
 
 void mimhid_core_init(void) {
-    uint8_t id[16];
-    g_unique_id_len = (uint8_t)hal_unique_id(id, sizeof(id));
+    g_unique_id_len = (uint8_t)hal_unique_id(g_unique_id, sizeof(g_unique_id));
+    for (uint8_t i = 0; i < MIMHID_BAUD_COUNT; i++) {
+        if (hal_uart_baud_ok(g_rates[i])) g_baud_mask = (uint16_t)(g_baud_mask | (1u << i));
+    }
+    g_baud_mask |= 1u; // the boot rate is always there
     tusb_init();
     tud_disconnect();
 }

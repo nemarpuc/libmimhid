@@ -6,15 +6,13 @@
 #include "pico/critical_section.h"
 #include "hardware/uart.h"
 #include "hardware/dma.h"
+#include "hardware/clocks.h"
 #include "bsp/board.h"
 #include "pico/unique_id.h"
 #include "hal.h"
 
 #ifndef MIMHID_UART_ID
 #define MIMHID_UART_ID   uart0
-#endif
-#ifndef MIMHID_BAUD_RATE
-#define MIMHID_BAUD_RATE 3000000
 #endif
 #ifndef MIMHID_UART_TX_PIN
 #define MIMHID_UART_TX_PIN 0
@@ -24,7 +22,6 @@
 #endif
 
 #define UART_ID          MIMHID_UART_ID
-#define BAUD_RATE        MIMHID_BAUD_RATE
 #define UART_TX_PIN      MIMHID_UART_TX_PIN
 #define UART_RX_PIN      MIMHID_UART_RX_PIN
 
@@ -50,7 +47,7 @@ void hal_init(void) {
     critical_section_init(&g_uart_tx_lock);
 
     // 1. Hardware UART Setup
-    uart_init(UART_ID, BAUD_RATE);
+    uart_init(UART_ID, MIMHID_BOOT_BAUD);
     gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
     uart_set_hw_flow(UART_ID, false, false);
@@ -117,8 +114,28 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     critical_section_exit(&g_uart_tx_lock);
 }
 
+// The fractional divider keeps the error well under 2 % up to clk_peri / 16.
+bool hal_uart_baud_ok(uint32_t baud) {
+    return (uint64_t)baud * 16u <= clock_get_hz(clk_peri);
+}
+
+void hal_uart_set_baud(uint32_t baud) {
+    critical_section_enter_blocking(&g_uart_tx_lock);
+    uart_tx_wait_blocking(UART_ID);
+    uart_set_baudrate(UART_ID, baud);
+    critical_section_exit(&g_uart_tx_lock);
+}
+
 uint32_t hal_millis(void) {
     return to_ms_since_boot(get_absolute_time());
+}
+
+uint8_t hal_chip(void) {
+#if PICO_RP2350
+    return MIMHID_CHIP_RP2350;
+#else
+    return MIMHID_CHIP_RP2040;
+#endif
 }
 
 size_t hal_unique_id(uint8_t* out, size_t max) {

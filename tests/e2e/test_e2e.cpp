@@ -256,9 +256,15 @@ void test_open_identity_and_descriptors() {
 
     mimhid_device_info board{};
     MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
+    // What the board said about itself when the Device was opened.
     MIMHID_CHECK(board.protocol_version == MIMHID_PROTO_VERSION);
-    MIMHID_CHECK(board.max_interfaces == 8 && board.max_nodes == 8);
+    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 0 && board.version_patch == 1);
+    MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == 8);
     MIMHID_CHECK(board.max_report_bytes == 64);
+    MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
+    MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
+                 board.unique_id[0] == 0xDE && board.unique_id[7] == 0x04);
+    MIMHID_CHECK(board.baud_mask == 0x00FF && board.baud_rate == 3000000U);
 
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_spec* mouse = mouse_spec(2);
@@ -613,9 +619,123 @@ void test_keep_attached_and_discovery() {
     if (again != nullptr) {
         mimhid_device_info info{};
         MIMHID_CHECK(mimhid_device_board_info(again, &info) == MIMHID_OK &&
-                     info.max_interfaces == 8);
+                     info.max_interfaces == E2E_HID_ITFS);
         MIMHID_CHECK(mimhid_device_close(again) == MIMHID_OK);
     }
+}
+
+// Frames written by hand on the slave end, as another program would.
+void raw_frame(int fd, std::uint8_t type, const std::uint8_t* payload, std::uint8_t length) {
+    std::uint8_t frame[8];
+    std::uint8_t x = static_cast<std::uint8_t>(type ^ length);
+    frame[0] = MIMHID_SYNC;
+    frame[1] = type;
+    frame[2] = length;
+    for (std::uint8_t i = 0; i < length; ++i) {
+        frame[3 + i] = payload[i];
+        x = static_cast<std::uint8_t>(x ^ payload[i]);
+    }
+    frame[3 + length] = x;
+    MIMHID_CHECK(write(fd, frame, 4U + length) == 4 + length);
+}
+
+bool raw_answer(int fd, std::uint8_t type) {
+    std::uint8_t buf[256];
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    std::size_t have = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const ssize_t n = read(fd, buf + have, sizeof(buf) - have);
+        if (n > 0)
+            have += static_cast<std::size_t>(n);
+        for (std::size_t i = 0; i + 1 < have; ++i) {
+            if (buf[i] == MIMHID_SYNC && buf[i + 1] == type)
+                return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false;
+}
+
+void set_speed(int fd, std::uint32_t baud) {
+#ifdef __APPLE__
+    const speed_t speed = baud; // speeds are plain numbers there
+#else
+    const speed_t speed = baud == 3000000U ? B3000000 : B115200;
+#endif
+    termios tio{};
+    tcgetattr(fd, &tio);
+    cfmakeraw(&tio);
+    cfsetispeed(&tio, speed);
+    cfsetospeed(&tio, speed);
+    tcsetattr(fd, TCSANOW, &tio);
+}
+
+mimhid_device* open_at(std::uint32_t baud, mimhid_result* result) {
+    mimhid_device_options o = base_options();
+    o.baud_rate = baud;
+    mimhid_device* device = nullptr;
+    *result = mimhid_device_open(g_slave.c_str(), &o, &device);
+    return device;
+}
+
+std::uint32_t link_baud(const mimhid_device* device) {
+    mimhid_device_info info{};
+    return mimhid_device_board_info(device, &info) == MIMHID_OK ? info.baud_rate : 0U;
+}
+
+void test_line_rate() {
+    mimhid_result r = MIMHID_OK;
+    // The fastest rate the board makes, and back on the boot rate after close.
+    mimhid_device* device = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
+    MIMHID_CHECK(fake_board_baud() == 3000000U);
+    mimhid_device_close(device);
+    MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
+
+    // An adapter that cannot go past 1,000,000 sends at that rate whatever it is set to: the
+    // faster rates are tried and given up, and 1,000,000 is kept.
+    fake_board_set_adapter_limit(1000000U);
+    device = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 1000000U);
+    mimhid_device_close(device);
+    // A rate asked for that the adapter does not carry fails, and leaves the board on the boot rate.
+    device = open_at(2000000U, &r);
+    MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
+    MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
+    fake_board_set_adapter_limit(0);
+
+    // A rate the board cannot make, and one asked for exactly.
+    device = open_at(4000000U, &r);
+    MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
+    device = open_at(921600U, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 921600U && fake_board_baud() == 921600U);
+    mimhid_device_close(device);
+
+    // A program that went away left the board on 3,000,000: it is found there.
+    const int fd = open(g_slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    MIMHID_CHECK(fd >= 0);
+    set_speed(fd, 115200U);
+    const std::uint8_t to_fast[2] = {0x55, 7};
+    raw_frame(fd, MIMHID_T_SET_BAUD, to_fast, 2);
+    MIMHID_CHECK(raw_answer(fd, MIMHID_T_ACK));
+    set_speed(fd, 3000000U);
+    const std::uint8_t version[1] = {MIMHID_PROTO_VERSION};
+    raw_frame(fd, MIMHID_T_PING, version, 1);
+    MIMHID_CHECK(raw_answer(fd, MIMHID_T_PONG));
+    close(fd);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2 * MIMHID_BAUD_CONFIRM_MS));
+    MIMHID_CHECK(fake_board_baud() == 3000000U);
+    device = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
+    mimhid_device_close(device);
+    MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
+
+    // Only one program has the port.
+    device = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_OK);
+    mimhid_device* second = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_ERR_ACCESS && second == nullptr);
+    mimhid_device_close(device);
 }
 
 void test_bad_arguments() {
@@ -684,6 +804,7 @@ int main() {
         return 1;
 
     test_bad_arguments();
+    test_line_rate();
     test_open_identity_and_descriptors();
     test_reports_and_neutral();
     test_touch_feature();

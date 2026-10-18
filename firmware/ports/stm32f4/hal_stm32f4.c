@@ -2,34 +2,60 @@
 // Copyright (c) 2026 libmimhid contributors
 // STM32F4: USART2 (PA2 TX, PA3 RX) received by a circular DMA1 stream 5 channel 4 transfer.
 // The TinyUSB BSP board_init() already enables USART2, its pins and its clock; this file
-// adds the DMA receiver and raises the baud rate.
+// adds the DMA receiver and sets the rate.
 #include <string.h>
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal.h"
 #include "bsp/board_api.h"
 #include "hal.h"
 
-#ifndef MIMHID_BAUD_RATE
-#define MIMHID_BAUD_RATE 3000000u
-#endif
-#define BAUD_RATE    MIMHID_BAUD_RATE
 #define DMA_BUF_SIZE 1024u
 #define DMA_BUF_MASK (DMA_BUF_SIZE - 1u)
 
 static uint8_t  g_dma_buf[DMA_BUF_SIZE];
 static uint32_t g_read_idx = 0;
 
+// The divider for baud: PCLK1 / baud in 1/16 steps (oversampling by 16), or in 1/8 steps
+// (by 8) when the first would be below 1. Zero when neither comes within 2 %.
+typedef struct {
+    uint32_t brr;
+    bool over8;
+} divider_t;
+
+static divider_t divider(uint32_t baud) {
+    const uint32_t clock = HAL_RCC_GetPCLK1Freq();
+    const uint32_t v = (clock + baud / 2u) / baud; // clock / baud, rounded
+    divider_t d = {0, false};
+    if (v >= 16u) {
+        d.brr = v;
+    } else if (v >= 8u) {
+        d.brr = ((v >> 3) << 4) | (v & 7u);
+        d.over8 = true;
+    } else {
+        return d;
+    }
+    const uint32_t actual = clock / v;
+    const uint32_t error = actual > baud ? actual - baud : baud - actual;
+    if (error * 50u > baud) d.brr = 0;
+    return d;
+}
+
+static void set_rate(divider_t d) {
+    USART2->CR1 &= ~USART_CR1_UE;
+    USART2->BRR = d.brr;
+    USART2->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | (d.over8 ? USART_CR1_OVER8 : 0u);
+}
+
 void hal_init(void) {
     board_init();
 
     __HAL_RCC_DMA1_CLK_ENABLE();
 
-    // Reprogram USART2 for the target rate, 8N1, oversampling by 16.
+    // Reprogram USART2 for the boot rate, 8N1.
     USART2->CR1 &= ~USART_CR1_UE;
-    USART2->BRR = (HAL_RCC_GetPCLK1Freq() + BAUD_RATE / 2u) / BAUD_RATE;
     USART2->CR2 = 0;
     USART2->CR3 = USART_CR3_DMAR;
-    USART2->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+    set_rate(divider(MIMHID_BOOT_BAUD));
 
     // USART2_RX is DMA1 stream 5, channel 4: peripheral to memory, circular, byte-wide.
     DMA1_Stream5->CR = 0;
@@ -69,6 +95,19 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     }
     while (!(USART2->SR & USART_SR_TC)) {
     }
+}
+
+bool hal_uart_baud_ok(uint32_t baud) {
+    return divider(baud).brr != 0;
+}
+
+// hal_uart_write returns only once its last byte has left. The DMA receiver keeps running.
+void hal_uart_set_baud(uint32_t baud) {
+    set_rate(divider(baud));
+}
+
+uint8_t hal_chip(void) {
+    return MIMHID_CHIP_STM32F4;
 }
 
 uint32_t hal_millis(void) {

@@ -30,7 +30,7 @@ flowchart TD
     API --> Prof
     Prof --> HID
     API --> Trans
-    Trans -->|"UART (921,600 / 2,000,000 baud)"| FWCore
+    Trans -->|"UART (115,200 at start, then the fastest agreed rate, up to 4,000,000)"| FWCore
     FWCore --> HAL
     HAL -->|"USB Full-Speed HID"| Target
 ```

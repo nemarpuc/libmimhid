@@ -93,6 +93,10 @@ speed_t termios_speed(std::uint32_t baud) noexcept {
 #endif
     case 921600:
         return B921600;
+#ifdef B1000000
+    case 1000000:
+        return B1000000;
+#endif
 #ifdef B1500000
     case 1500000:
         return B1500000;
@@ -129,6 +133,7 @@ bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
     case 460800:
     case 576000:
     case 921600:
+    case 1000000:
     case 1500000:
     case 2000000:
     case 3000000:
@@ -196,6 +201,13 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
         return result;
     }
 #endif
+    // Another process holding the port (a running program, or a search) keeps it to itself.
+    if (ioctl(fd, TIOCEXCL) != 0) {
+        result.step = OpenStep::open;
+        result.os_error = errno;
+        ::close(fd);
+        return result;
+    }
 #ifdef __linux__
     struct serial_struct ser{};
     if (ioctl(fd, TIOCGSERIAL, &ser) == 0) {
@@ -209,8 +221,43 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
     return result;
 }
 
+bool SerialPort::set_baud(std::uint32_t baud) noexcept {
+    const int fd = static_cast<int>(handle_);
+    if (fd < 0 || !baud_supported(baud))
+        return false;
+    tcdrain(fd);
+#ifdef __APPLE__
+    speed_t rate = baud;
+    if (ioctl(fd, IOSSIOSPEED, &rate) != 0) {
+        if (errno != ENOTTY)
+            return false;
+        // A pseudo-terminal keeps the rate in its termios, where any value is taken.
+        struct termios tio;
+        if (tcgetattr(fd, &tio) != 0)
+            return false;
+        cfsetispeed(&tio, rate);
+        cfsetospeed(&tio, rate);
+        if (tcsetattr(fd, TCSANOW, &tio) != 0)
+            return false;
+    }
+#else
+    struct termios tio;
+    if (tcgetattr(fd, &tio) != 0)
+        return false;
+    const speed_t speed = termios_speed(baud);
+    cfsetispeed(&tio, speed);
+    cfsetospeed(&tio, speed);
+    if (tcsetattr(fd, TCSANOW, &tio) != 0)
+        return false;
+#endif
+    tcflush(fd, TCIFLUSH);
+    return true;
+}
+
 void SerialPort::close() noexcept {
     if (handle_ >= 0) {
+        // The flag outlives the descriptor on a tty whose other end stays open (a pty).
+        (void)ioctl(static_cast<int>(handle_), TIOCNXCL);
         ::close(static_cast<int>(handle_));
         handle_ = -1;
     }

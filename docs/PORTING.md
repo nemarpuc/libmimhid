@@ -23,11 +23,14 @@ proto/           wire protocol constants shared with the host (mimhid_proto.h)
 
 ## HAL
 
-A port implements five functions (see `common/hal.h`):
+A port implements eight functions (see `common/hal.h`):
 
 | Function | Contract |
 |---|---|
-| `hal_init()` | Clocks, board, USB PHY if needed, and the UART receiver at 921,600 baud, 8N1. |
+| `hal_init()` | Clocks, board, USB PHY if needed, and the UART at the boot rate (`MIMHID_BOOT_BAUD`, 115,200), 8N1. |
+| `hal_uart_baud_ok(baud)` | True when the UART can run within 2 % of `baud`. Asked for every rate of the protocol's table at start-up; the answers become the PONG's rate mask. |
+| `hal_uart_set_baud(baud)` | Wait until queued output has left, then switch the UART. Called from the receive context; it must not interleave with `hal_uart_write`. |
+| `hal_chip()` | The chip, as `MIMHID_CHIP_*` names it. |
 | `hal_uart_read(dst, max)` | Copy received bytes without blocking; called from one context only. |
 | `hal_uart_write(data, len)` | Blocking send; callable from both the receive and USB contexts. |
 | `hal_millis()` | Milliseconds since boot. |
@@ -35,7 +38,7 @@ A port implements five functions (see `common/hal.h`):
 
 The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the official RP2040 and RP2350 dual-core Pico builds do this).
 
-The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 921,600 baud a byte arrives every 10.9 µs, and the longest frame is 116 bytes. The core keeps its own 512-byte ring, so a port buffer of the same size is a reasonable minimum.
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is 259 bytes. The core keeps its own 512-byte ring, so a port buffer of the same size is a reasonable minimum.
 
 ## Endpoint count and the HID layout
 
@@ -67,7 +70,7 @@ Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the fir
 
 ## nRF52840 notes
 
-`hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 cannot produce exactly 921,600 baud: the nearest rate is 941,176 (+2.2 %), which UART receivers accept.
+`hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 makes the rates of its BAUDRATE register only, up to 1,000,000; 921,600 runs at 941,176 (+2.1 %), which UART receivers accept. The rate is changed with the receiver stopped and the peripheral disabled.
 
 ## Host
 

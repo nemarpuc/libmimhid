@@ -31,8 +31,11 @@ class SerialPort final {
 
     static bool baud_supported(std::uint32_t baud) noexcept;
 
-    // Opens a raw 8N1 port without flow control.
+    // Opens a raw 8N1 port without flow control, for this process alone.
     OpenResult open(const char* path, std::uint32_t baud) noexcept;
+    // Waits until queued output has left, switches the rate, and discards unread input. False
+    // when the operating system or the adapter's driver refuses the rate.
+    bool set_baud(std::uint32_t baud) noexcept;
     void close() noexcept;
     [[nodiscard]] bool is_open() const noexcept;
 

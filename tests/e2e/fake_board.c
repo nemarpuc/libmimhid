@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <string.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -30,15 +31,53 @@ static pthread_t g_thread;
 static volatile bool g_run;
 static pthread_mutex_t g_tx_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static volatile uint32_t g_board_baud = MIMHID_BOOT_BAUD;
+static volatile uint32_t g_adapter_limit = 0;
+
+// What the host's side sends at: the pty shares one termios between its ends.
+static uint32_t host_baud(void) {
+    struct termios tio;
+    if (tcgetattr(g_fd, &tio) != 0) return 0;
+    uint32_t baud = 0;
+#ifdef __APPLE__
+    baud = (uint32_t)cfgetospeed(&tio); // speeds are plain numbers there
+#else
+    switch (cfgetospeed(&tio)) {
+    case B115200: baud = 115200; break;
+    case B230400: baud = 230400; break;
+    case B460800: baud = 460800; break;
+    case B921600: baud = 921600; break;
+    case B1000000: baud = 1000000; break;
+    case B1500000: baud = 1500000; break;
+    case B2000000: baud = 2000000; break;
+    case B3000000: baud = 3000000; break;
+    case B4000000: baud = 4000000; break;
+    default: break;
+    }
+#endif
+    if (g_adapter_limit != 0 && baud > g_adapter_limit) baud = g_adapter_limit;
+    return baud;
+}
+
+static bool line_matches(void) {
+    return host_baud() == g_board_baud;
+}
+
 // ---- HAL ----
 void hal_init(void) {}
 
 size_t hal_uart_read(uint8_t* dst, size_t max) {
     ssize_t n = read(g_fd, dst, max);
-    return n > 0 ? (size_t)n : 0;
+    // At different rates the bytes would arrive as framing errors; they are dropped.
+    return n > 0 && line_matches() ? (size_t)n : 0;
 }
 
+bool hal_uart_baud_ok(uint32_t baud) { return baud <= 3000000u; }
+void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
+uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
+
 void hal_uart_write(const uint8_t* data, size_t len) {
+    if (!line_matches()) return;
     pthread_mutex_lock(&g_tx_lock);
     size_t done = 0;
     while (done < len) {
@@ -257,3 +296,5 @@ void fake_board_target_resume(void) { action_t a = {3, 0, 0, 0, {0}, 0}; post(a)
 void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol) { action_t a = {4, iface, protocol, 0, {0}, 0}; post(a); }
 void fake_board_target_set_idle(uint8_t iface, uint8_t rate) { action_t a = {5, iface, rate, 0, {0}, 0}; post(a); }
 void fake_board_set_mount_delay_ms(unsigned ms) { g_mount_delay_ms = ms; }
+uint32_t fake_board_baud(void) { return g_board_baud; }
+void fake_board_set_adapter_limit(uint32_t baud) { g_adapter_limit = baud; }

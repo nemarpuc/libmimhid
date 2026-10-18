@@ -29,8 +29,8 @@ target_include_directories(mimhid_firmware_stm32f4 PUBLIC
 
 # The full-speed OTG core has three usable IN endpoints, so the host packs nodes into three
 # interfaces (see core.h).
-# The BSP's UART (USART2) is reused at the protocol baud rate.
-set(MIMHID_DEFS MIMHID_HID_ITFS=3 CFG_BOARD_UART_BAUDRATE=3000000 MIMHID_BAUD_RATE=3000000)
+# The BSP's UART (USART2) is reused, starting at the protocol's boot rate.
+set(MIMHID_DEFS MIMHID_HID_ITFS=3 CFG_BOARD_UART_BAUDRATE=115200)
 
 family_configure_device_example(mimhid_firmware_stm32f4 noos)
 target_include_directories(mimhid_firmware_stm32f4-tinyusb_config INTERFACE

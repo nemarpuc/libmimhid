@@ -19,7 +19,9 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <set>
+#include <string>
 #include <thread>
 #include <utility>
 
@@ -30,13 +32,22 @@ using mimhid::detail::set_error;
 
 // Zero-valued tuning inputs use bounded project-policy fallbacks. These are not protocol
 // limits; docs/API.md lists them. Product policies stay mandatory.
-constexpr std::uint32_t kFallbackBaud = 3000000U;
 constexpr std::uint32_t kFallbackControlTimeoutMs = 500U;
 constexpr std::uint32_t kFallbackSendTimeoutMs = 500U;
 constexpr std::uint32_t kFallbackReconnectTimeoutMs = 3000U;
 constexpr std::uint32_t kFallbackCloseDrainTimeoutMs = 1000U;
 constexpr std::uint32_t kFallbackMaxPowerMa = 100U;
 constexpr int kCommandAttempts = 3;
+// How long a handshake waits for each answer: a few frames at the boot rate plus the latency
+// timer of a USB serial adapter (16 ms on FTDI chips).
+constexpr std::uint32_t kHandshakeWaitMs = 50U;
+
+// The public header repeats the wire protocol's tables.
+static_assert(MIMHID_PROTOCOL_VERSION == MIMHID_PROTO_VERSION);
+static_assert(tr::kBaudRates == std::array<std::uint32_t, MIMHID_BAUD_COUNT>(MIMHID_BAUD_RATES));
+static_assert(MIMHID_CHIP_RP2040 == 1 && MIMHID_CHIP_RP2350 == 2 && MIMHID_CHIP_ESP32S3 == 3 &&
+              MIMHID_CHIP_NRF52840 == 4 && MIMHID_CHIP_STM32F4 == 5);
+static_assert(sizeof(mimhid_device_info::unique_id) == MIMHID_UNIQUE_ID_MAX);
 constexpr std::size_t kMaximumReportBytes = 64U;
 
 std::uint16_t report_id(const mimhid_node* node) noexcept {
@@ -115,8 +126,6 @@ mimhid_result prepare_device_options(const mimhid_device_options* options,
         return MIMHID_ERR_PARAM;
     }
     *effective = *options;
-    if (effective->baud_rate == 0U)
-        effective->baud_rate = kFallbackBaud;
     if (effective->control_timeout_ms == 0U)
         effective->control_timeout_ms = kFallbackControlTimeoutMs;
     if (effective->send_timeout_ms == 0U)
@@ -168,8 +177,10 @@ mimhid_result prepare_device_options(const mimhid_device_options* options,
             return MIMHID_ERR_PARAM;
         }
     }
-    if (!tr::SerialPort::baud_supported(effective->baud_rate)) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "device_options.baud_rate", "Unsupported baud rate.");
+    if (effective->baud_rate != 0U && (tr::baud_index_of(effective->baud_rate) < 0 ||
+                                       !tr::SerialPort::baud_supported(effective->baud_rate))) {
+        set_error(MIMHID_ERR_UNSUPPORTED, "device_options.baud_rate",
+                  "The rate is not one of MIMHID_BAUD_RATES that this system can set.");
         return MIMHID_ERR_UNSUPPORTED;
     }
     return MIMHID_OK;
@@ -808,6 +819,30 @@ mimhid_result send_neutral(mimhid_node* node, std::uint32_t timeout_ms) {
     return MIMHID_OK;
 }
 
+mimhid_device_info describe_board(const std::string& port, const std::string& description,
+                                  const tr::BoardInfo& board, std::uint32_t baud) noexcept {
+    mimhid_device_info info{};
+    std::strncpy(info.port_name, port.c_str(), sizeof(info.port_name) - 1U);
+    std::strncpy(info.description, description.c_str(), sizeof(info.description) - 1U);
+    info.version_major = board.version[0];
+    info.version_minor = board.version[1];
+    info.version_patch = board.version[2];
+    info.is_ready = board.ready ? 1U : 0U;
+    info.protocol_version = board.protocol;
+    info.max_nodes = board.max_nodes;
+    info.max_interfaces = board.max_interfaces;
+    info.max_report_bytes = board.max_report_bytes;
+    info.max_descriptor_bytes = board.max_descriptor_bytes;
+    info.has_unique_id = board.has_unique_id ? 1U : 0U;
+    info.baud_rate = baud;
+    info.baud_mask = board.baud_mask;
+    info.chip = board.chip;
+    info.usb_high_speed = board.usb_high_speed ? 1U : 0U;
+    info.unique_id_length = board.unique_id_length;
+    std::memcpy(info.unique_id, board.unique_id.data(), board.unique_id_length);
+    return info;
+}
+
 } // namespace
 
 #define MIMHID_C_RESULT_CATCH(api_name)                                                            \
@@ -864,30 +899,36 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
     std::vector<tr::PortCandidate> ports = tr::list_candidate_ports();
     std::sort(ports.begin(), ports.end(),
               [](const auto& a, const auto& b) { return a.path < b.path; });
-    std::uint32_t per_port =
-        static_cast<std::uint32_t>(timeout_ms / (ports.empty() ? 1U : ports.size()));
-    if (per_port < 25U)
-        per_port = 25U;
-    for (const tr::PortCandidate& port : ports) {
-        tr::BoardInfo board;
-        if (port.path.size() >= sizeof(mimhid_device_info::port_name) ||
-            !tr::probe_port(port.path.c_str(), kFallbackBaud, per_port, &board)) {
+    // Each port is searched on its own thread; a board's rate is measured and the board left
+    // on the boot rate.
+    std::vector<std::optional<mimhid_device_info>> found(ports.size());
+    std::vector<std::thread> searches;
+    searches.reserve(ports.size());
+    for (std::size_t i = 0; i < ports.size(); ++i) {
+        if (ports[i].path.size() >= sizeof(mimhid_device_info::port_name))
             continue;
-        }
-        mimhid_device_info info{};
-        std::strncpy(info.port_name, port.path.c_str(), sizeof(info.port_name) - 1U);
-        std::strncpy(info.description, port.description.c_str(), sizeof(info.description) - 1U);
-        info.version_major = board.version[0];
-        info.version_minor = board.version[1];
-        info.version_patch = board.version[2];
-        info.is_ready = board.ready ? 1U : 0U;
-        info.protocol_version = board.protocol;
-        info.max_nodes = board.max_nodes;
-        info.max_interfaces = board.max_interfaces;
-        info.max_report_bytes = board.max_report_bytes;
-        info.max_descriptor_bytes = board.max_descriptor_bytes;
-        info.has_unique_id = board.has_unique_id ? 1U : 0U;
-        discovery->entries.push_back(info);
+        searches.emplace_back([&, i] {
+            tr::SerialPort port;
+            if (!port.open(ports[i].path.c_str(), MIMHID_BOOT_BAUD).ok)
+                return;
+            tr::Handshaker handshake(port, timeout_ms);
+            tr::BoardInfo board;
+            if (!handshake.find(&board))
+                return;
+            // A board on another protocol is listed with its version, to be flashed again.
+            std::uint32_t fastest = handshake.rate();
+            if (board.protocol == MIMHID_PROTO_VERSION &&
+                (handshake.negotiate(0U, &board, &fastest) != tr::Handshake::ok ||
+                 !handshake.to_boot(&board)))
+                return;
+            found[i] = describe_board(ports[i].path, ports[i].description, board, fastest);
+        });
+    }
+    for (std::thread& search : searches)
+        search.join();
+    for (const auto& entry : found) {
+        if (entry)
+            discovery->entries.push_back(*entry);
     }
     *out_discovery = discovery.release();
     return MIMHID_OK;
@@ -957,17 +998,50 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     device->options.manufacturer = device->options.product = nullptr;
     device->options.serial = device->options.configuration = nullptr;
 
-    // Populate default board limits without requiring communication
-    device->board.max_nodes = 8;
-    device->board.max_interfaces = 8;
-    device->board.max_report_bytes = 64;
-    device->board.max_descriptor_bytes = 4096;
-    device->board.protocol = MIMHID_PROTO_VERSION;
-    device->board.version[0] = MIMHID_VERSION_MAJOR;
-    device->board.version[1] = MIMHID_VERSION_MINOR;
-    device->board.version[2] = MIMHID_VERSION_PATCH;
-    device->board.ready = false;
-    device->board.has_unique_id = false;
+    const tr::OpenResult opened = device->link.open(port_path);
+    if (!opened.ok) {
+        if (opened.step == tr::OpenStep::open) {
+            set_error(MIMHID_ERR_ACCESS, "port",
+                      "Failed to open the serial port (it may be in use by another program).",
+                      opened.os_error);
+            return MIMHID_ERR_ACCESS;
+        }
+        set_error(MIMHID_ERR_IO, "port", "Failed to configure the serial port.", opened.os_error);
+        return MIMHID_ERR_IO;
+    }
+    // The board's own limits and the line rate come from talking to it.
+    tr::Handshaker handshake(device->link.port(), kHandshakeWaitMs);
+    if (!handshake.find(&device->board)) {
+        set_error(MIMHID_ERR_TIMEOUT, "port",
+                  "No board answered on this port at any rate (check the firmware is libmimhid "
+                  "1.0.1 or newer, the wiring, and the port).");
+        return MIMHID_ERR_TIMEOUT;
+    }
+    if (device->board.protocol != MIMHID_PROTO_VERSION) {
+        set_error(MIMHID_ERR_PROTOCOL, "port",
+                  "The board's firmware speaks another protocol version: flash the firmware of "
+                  "this libmimhid release.",
+                  0, 0, 0, 0, MIMHID_PROTO_VERSION, device->board.protocol);
+        return MIMHID_ERR_PROTOCOL;
+    }
+    std::uint32_t rate = MIMHID_BOOT_BAUD;
+    switch (handshake.negotiate(effective.baud_rate, &device->board, &rate)) {
+    case tr::Handshake::ok:
+        break;
+    case tr::Handshake::rate_refused:
+        set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
+                  "The board cannot run at this rate, or the serial port refused to be set to it.");
+        return MIMHID_ERR_UNSUPPORTED;
+    case tr::Handshake::rate_failed:
+        set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
+                  "The link did not carry this rate: the serial adapter or the wiring does not "
+                  "support it. Use 0 to take the fastest rate that works.");
+        return MIMHID_ERR_UNSUPPORTED;
+    case tr::Handshake::no_board:
+    case tr::Handshake::io_error:
+        set_error(MIMHID_ERR_IO, "port", "The board stopped answering while the rate was agreed.");
+        return MIMHID_ERR_IO;
+    }
 
     if (effective.maximum_report_bytes > device->board.max_report_bytes ||
         effective.maximum_report_bytes > kMaximumReportBytes) {
@@ -979,38 +1053,10 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         effective.maximum_report_bytes != 0U
             ? effective.maximum_report_bytes
             : std::min<std::uint32_t>(device->board.max_report_bytes, kMaximumReportBytes);
-
-    device->info = mimhid_device_info{};
-    std::strncpy(device->info.port_name, port_path, sizeof(device->info.port_name) - 1U);
-    device->info.port_name[sizeof(device->info.port_name) - 1U] = '\0';
-    device->info.version_major = device->board.version[0];
-    device->info.version_minor = device->board.version[1];
-    device->info.version_patch = device->board.version[2];
-    device->info.is_ready = 0U;
-    device->info.protocol_version = device->board.protocol;
-    device->info.max_nodes = device->board.max_nodes;
-    device->info.max_interfaces = device->board.max_interfaces;
-    device->info.max_report_bytes = device->board.max_report_bytes;
-    device->info.max_descriptor_bytes = device->board.max_descriptor_bytes;
-    device->info.has_unique_id = 0U;
+    device->info = describe_board(port_path, "", device->board, rate);
 
     mimhid_device* raw = device.get();
-    const tr::OpenResult opened =
-        device->link.open(port_path, effective.baud_rate,
-                          [raw](const tr::BoardEvent& event) { deliver_event(raw, event); });
-    if (!opened.ok) {
-        if (opened.step == tr::OpenStep::unsupported_baud) {
-            set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate", "Unsupported baud rate.");
-            return MIMHID_ERR_UNSUPPORTED;
-        }
-        if (opened.step == tr::OpenStep::open) {
-            set_error(MIMHID_ERR_ACCESS, "port", "Failed to open the serial port.",
-                      opened.os_error);
-            return MIMHID_ERR_ACCESS;
-        }
-        set_error(MIMHID_ERR_IO, "port", "Failed to configure the serial port.", opened.os_error);
-        return MIMHID_ERR_IO;
-    }
+    device->link.start([raw](const tr::BoardEvent& event) { deliver_event(raw, event); });
 
     mimhid::detail::log_message(raw, MIMHID_LOG_INFO, "device opened");
     *out_device = device.release();
@@ -1097,6 +1143,12 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
         if (sent.status != tr::CommandStatus::ack && retained == MIMHID_OK)
             retained = command_error(sent, "device.close", "The board did not go off the bus.",
                                      MIMHID_T_COMMIT);
+    }
+    // The next program to open the board, or a search, finds it at once on the boot rate.
+    if (!device->link.failed() && device->info.baud_rate != MIMHID_BOOT_BAUD) {
+        const std::uint8_t boot[1] = {0U};
+        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, device->options.control_timeout_ms,
+                                   1);
     }
     device->link.drain();
     device->link.close();
@@ -1264,12 +1316,18 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
          effective.ep_out_size != 64U) ||
         (effective.boot_protocol != MIMHID_BOOT_NONE &&
          effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
-         effective.boot_protocol != MIMHID_BOOT_MOUSE) ||
-        (effective.interface_number >= device->board.max_interfaces)) {
+         effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
         set_error(MIMHID_ERR_PARAM, "node_options",
                   "A string is not printable ASCII of at most 31 characters, or a setting is "
                   "outside its range.");
         return MIMHID_ERR_PARAM;
+    }
+    if (effective.interface_number >= device->board.max_interfaces) {
+        set_error(MIMHID_ERR_OVERFLOW, "node_options.interface_number",
+                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
+                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
+                  effective.interface_number);
+        return MIMHID_ERR_OVERFLOW;
     }
     if (effective.boot_protocol != MIMHID_BOOT_NONE && spec->kind != MIMHID_PROFILE_RAW) {
         set_error(MIMHID_ERR_UNSUPPORTED, "node_options.boot_protocol",
@@ -1477,12 +1535,18 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
          effective.ep_out_size != 64U) ||
         (effective.boot_protocol != MIMHID_BOOT_NONE &&
          effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
-         effective.boot_protocol != MIMHID_BOOT_MOUSE) ||
-        (effective.interface_number >= device->board.max_interfaces)) {
+         effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
         set_error(MIMHID_ERR_PARAM, "node_options",
                   "A string is not printable ASCII of at most 31 characters, or a setting is "
                   "outside its range.");
         return MIMHID_ERR_PARAM;
+    }
+    if (effective.interface_number >= device->board.max_interfaces) {
+        set_error(MIMHID_ERR_OVERFLOW, "node_options.interface_number",
+                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
+                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
+                  effective.interface_number);
+        return MIMHID_ERR_OVERFLOW;
     }
     if (effective.poll_interval_ms == 0U) {
         set_error(MIMHID_ERR_UNSET_FIELD, "node_options.poll_interval_ms",

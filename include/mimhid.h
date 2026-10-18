@@ -35,9 +35,11 @@
 extern "C" {
 #endif
 
-#define MIMHID_VERSION_MAJOR 0
-#define MIMHID_VERSION_MINOR 1
-#define MIMHID_VERSION_PATCH 0
+#define MIMHID_VERSION_MAJOR 1
+#define MIMHID_VERSION_MINOR 0
+#define MIMHID_VERSION_PATCH 1
+/* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
+#define MIMHID_PROTOCOL_VERSION 3
 
 typedef struct mimhid_discovery mimhid_discovery;
 typedef struct mimhid_device mimhid_device;
@@ -181,7 +183,20 @@ typedef struct mimhid_event {
 
 typedef void(MIMHID_CALL* mimhid_event_sink)(void* user, const mimhid_event* event);
 
-/* A board found on a serial port by mimhid_discover(). */
+/* The serial line rates a board and the host can agree on, fastest last. A board starts at the
+ * first, MIMHID_BAUD_RATES[0] = 115200. */
+#define MIMHID_BAUD_RATES {115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u}
+#define MIMHID_BAUD_COUNT 9
+
+/* mimhid_device_info.chip */
+#define MIMHID_CHIP_UNKNOWN  0
+#define MIMHID_CHIP_RP2040   1
+#define MIMHID_CHIP_RP2350   2
+#define MIMHID_CHIP_ESP32S3  3
+#define MIMHID_CHIP_NRF52840 4
+#define MIMHID_CHIP_STM32F4  5
+
+/* A board found on a serial port by mimhid_discover(), or the one a Device has open. */
 typedef struct mimhid_device_info {
     char port_name[64];       /* "/dev/ttyUSB0", "/dev/cu.usbserial-0001", "COM3" */
     char description[64];     /* the bridge's USB product string, where the OS gives one */
@@ -196,6 +211,15 @@ typedef struct mimhid_device_info {
     uint16_t max_descriptor_bytes; /* room for all report descriptors together */
     uint8_t has_unique_id;    /* 1 when the MCU can supply a chip serial number */
     uint8_t reserved8;
+    /* discover: the fastest rate that carried pings each way on this port (the board is left on
+     * the first rate); a Device: the rate the link runs at */
+    uint32_t baud_rate;
+    uint16_t baud_mask;       /* bit i: the board can run at MIMHID_BAUD_RATES[i] */
+    uint8_t chip;             /* MIMHID_CHIP_* */
+    uint8_t usb_high_speed;   /* 1 when the board's USB device runs at high speed */
+    uint8_t unique_id_length; /* bytes of unique_id in use, 0 when the chip has none */
+    uint8_t unique_id[16];    /* the chip's own unique id */
+    uint8_t reserved_end[3];
 } mimhid_device_info;
 
 typedef struct mimhid_device_options {
@@ -203,7 +227,8 @@ typedef struct mimhid_device_options {
     uint32_t reserved;
     /* Link tuning: zero selects the documented bounded fallback. These are project policies,
      * not USB requirements. */
-    /* zero -> 3000000; the firmware is built for this rate */
+    /* zero -> the fastest of MIMHID_BAUD_RATES that the board makes and that carries pings each
+     * way; otherwise exactly that rate, which must be in MIMHID_BAUD_RATES */
     uint32_t baud_rate;
     /* zero -> 500 ms per configuration frame; each frame is tried three times */
     uint32_t control_timeout_ms;
@@ -650,9 +675,14 @@ MIMHID_API uint32_t MIMHID_CALL mimhid_version(void);
 /* mimhid_discover
  * Ownership: On success, out_discovery receives a caller-owned snapshot containing every
  * returned info. A nonnull output is set to null before validation and stays null on failure.
- * Blocking: Opens each candidate USB serial port, sends one ping, and waits up to the share of
- * timeout_ms it has been given (at least 50 ms) for a pong. Ports that do not answer are
- * skipped. It allocates the snapshot.
+ * Blocking: Searches every candidate USB serial port at once, one thread each, and waits up to
+ * timeout_ms for each answer. A port another program has open is skipped. On each port it
+ * pings at the boot rate, then at every rate of MIMHID_BAUD_RATES (a board left on a fast rate
+ * by a program that went away); so a serial device that is not a board receives pings at each
+ * of those rates. On a board it measures the fastest rate that carries pings each way
+ * (baud_rate) and leaves the board on the boot rate. A board whose firmware speaks another
+ * protocol version is listed too, with only its version, protocol_version and the rate it
+ * answered at filled in, so that it can be flashed again. It allocates the snapshot.
  * Synchronization: Safe on concurrent threads; the snapshot has its own lifetime.
  * Returns: MIMHID_OK, including for an empty result; MIMHID_ERR_PARAM for a null output or
  * zero timeout; MIMHID_ERR_INTERNAL for allocation or unexpected ABI-boundary failure. */
@@ -694,15 +724,19 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
  * normalizes documented zero-valued tuning fields only in that copy, never in caller storage.
  * On success, out_device receives one Device owned by the caller. A nonnull output stays null
  * on failure.
- * Blocking: Opens the serial port at options->baud_rate and starts the reader thread.
- * It sends no ping or configuration: the board's USB device stays disconnected from the
- * target until nodes are opened and committed. port_path is the serial device path
- * (e.g., "/dev/ttyACM0" or "COM3").
+ * Blocking: Opens the serial port for this process alone, finds the board on it (at the boot
+ * rate, else at each rate of MIMHID_BAUD_RATES), reads its limits, agrees the line rate
+ * (options->baud_rate), and starts the reader thread. It sends no configuration: the board's
+ * USB device stays disconnected from the target until nodes are opened and committed.
+ * port_path is the serial device path (e.g., "/dev/ttyACM0" or "COM3").
  * Synchronization: Safe on concurrent threads for different ports.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid pointers/ABI fields/identity;
  * MIMHID_ERR_UNSET_FIELD for a missing vendor_id or required product policy;
- * MIMHID_ERR_UNSUPPORTED for an unsupported baud rate; MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY,
- * or MIMHID_ERR_IO for a port that cannot be opened or configured;
+ * MIMHID_ERR_UNSUPPORTED for a rate not in MIMHID_BAUD_RATES, one the board cannot make, or
+ * one the serial adapter or wiring did not carry; MIMHID_ERR_TIMEOUT when no board answered;
+ * MIMHID_ERR_PROTOCOL when the board's firmware speaks another protocol version;
+ * MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY, or MIMHID_ERR_IO for a port that cannot be opened (it
+ * may be open in another program) or configured;
  * MIMHID_ERR_INTERNAL for allocation or unexpected ABI-boundary failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                                                         const mimhid_device_options* options,
@@ -713,8 +747,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
  * child Node for every returned result; all those pointers become invalid and must never be
  * passed again.
  * Blocking: Sends neutral reports for every open node (bounded by close_drain_timeout_ms), then
- * detaches the board's USB device from the target unless options->keep_attached is 1, and closes
- * the serial port.
+ * detaches the board's USB device from the target unless options->keep_attached is 1, puts the
+ * line back on the boot rate, and closes the serial port.
  * Synchronization: Must be serialized against every Device and Node call.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null or for a Device already closing;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, or MIMHID_ERR_SHORT_TRANSFER

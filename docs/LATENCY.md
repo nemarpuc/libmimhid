@@ -21,11 +21,12 @@ application call
 |---|---|---|
 | UART wire time, 9-byte report at 921,600 baud | 141.0 µs | (9 + 4) bytes x 10 bits / 921,600 |
 | UART wire time, 9-byte report at 2,000,000 baud | 65.0 µs | 13 bytes x 10 bits / 2,000,000 |
+| UART wire time, 9-byte report at 3,000,000 baud | 43.3 µs | 13 bytes x 10 bits / 3,000,000 |
 | USB poll wait | 0 to 1000 µs, 500 µs on average | Full-Speed interrupt endpoint with `bInterval = 1` |
 | USB-UART bridge buffering | not characterized | Depends on the adapter and driver |
 | Core 1 to core 0 hand-off, TinyUSB, target OS | not measured | |
 
-The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term.
+The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term. The rate is the fastest one the board and the serial adapter carry (see [PROTOCOL.md](PROTOCOL.md#line-rate)).
 
 ## Host serial latency
 

@@ -5,11 +5,11 @@ Physical USB HID emulation for a target device, driven from a Linux, macOS, or W
 The C ABI and the C++ header follow [`libaoahid`](https://github.com/nemarpuc/libaoahid): Specs, Nodes, the same option structures, the same input calls. Code written for one library moves to the other with minimal changes. The transport differs: `libaoahid` speaks Android Open Accessory over USB, whereas `libmimhid` speaks framed binary UART to an MCU coprocessor and requires no special mode, driver, or debugging setting on the target.
 
 > [!NOTE]
-> Version 0.1.0 is the initial release. See [CHANGELOG.md](CHANGELOG.md).
+> Version 1.0.1. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Core Design
 
-- **Ultra-low latency.** Input calls do not allocate on the hot path; one report submission is a single contiguous serial write (`10.9 µs/byte` at 921,600 baud, `5.0 µs/byte` at 2,000,000 baud). On RP2040 and RP2350, UART DMA runs into a dedicated `.scratch_y` SRAM bank polled by Core 1, handing off reports via lock-free single-producer single-consumer (SPSC) queues to Core 0 (`TinyUSB`) for 1000 Hz (`bInterval = 1 ms`) USB Interrupt IN delivery.
+- **Ultra-low latency.** Input calls do not allocate on the hot path; one report submission is a single contiguous serial write (`3.3 µs/byte` at 3,000,000 baud; the host and the board agree the fastest rate the serial adapter carries). On RP2040 and RP2350, UART DMA runs into a dedicated `.scratch_y` SRAM bank polled by Core 1, handing off reports via lock-free single-producer single-consumer (SPSC) queues to Core 0 (`TinyUSB`) for 1000 Hz (`bInterval = 1 ms`) USB Interrupt IN delivery.
 - **Minimal MCU load.** The host PC builds every HID report descriptor and encodes every report. The microcontroller acts strictly as a stateless-per-report I/O bridge: it knows nothing about keyboards, mice, or touchscreens, holds only the descriptors uploaded by the host, and forwards raw report payloads directly to USB endpoints.
 - **High customizability & clean HAL.** Every USB identity field (VID, PID, release number, language, device class, power, remote wakeup, and string descriptors) and per-interface parameter (`interface_number`, `poll_interval_ms`, `ep_in_size`, `ep_out_size`, `bcd_hid`, country code, boot protocol) is explicitly configured from the host without reflashing firmware. Hardware-specific code is isolated behind a five-function HAL (`firmware/common/hal.h`).
 - **libaoahid model.** `mimhid_spec_create_*` builds an immutable descriptor and layout from an options structure; `mimhid_node_open` stages it on the board with an explicit interface number; `mimhid_node_open_raw` does the same for custom raw descriptors; `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several opens into one re-enumeration; `mimhid_keyboard_key`, `mimhid_mouse_move`, `mimhid_touchscreen_contact`, and the rest mutate a node; `mimhid_node_submit` sends. Descriptors are byte-identical to `libaoahid`'s for equal options.
@@ -33,7 +33,7 @@ flowchart LR
         App["Application"] --> API["libmimhid (Specs, Nodes, Framing)"]
     end
     subgraph Bridge["Serial Link"]
-        UART["USB-to-UART Bridge<br/>(921,600 / 2,000,000 baud)"]
+        UART["USB-to-UART Bridge<br/>(115,200 at start, then the fastest agreed rate)"]
     end
     subgraph MCU["MCU Board (RP2040 / RP2350 / nRF52840 / STM32F4 / ESP32-S3)"]
         RX["Core 1 / RX Poll<br/>(DMA Ring + Frame Parser)"] -->|"Lock-free SPSC Queues"| USB["Core 0 / USB Poll<br/>(Dynamic Descriptors + TinyUSB)"]

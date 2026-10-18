@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Wire protocol v2 client: framing, acknowledged commands, and board events. It knows nothing
- * about HID; the layers above give it bytes. */
+/* Wire protocol v3 client: framing, the line rate, acknowledged commands, and board events. It
+ * knows nothing about HID; the layers above give it bytes. */
 #pragma once
 
 #include "mimhid_proto.h"
@@ -26,7 +26,18 @@ struct BoardInfo {
     std::uint8_t max_report_bytes{};
     std::uint16_t max_descriptor_bytes{};
     bool has_unique_id{};
+    std::uint8_t chip{};
+    bool usb_high_speed{};
+    std::uint8_t baud_index{}; // the rate the board is on, in kBaudRates
+    std::uint16_t baud_mask{}; // bit i: the board can run at kBaudRates[i]
+    std::uint8_t unique_id_length{};
+    std::array<std::uint8_t, MIMHID_UNIQUE_ID_MAX> unique_id{};
 };
+
+inline constexpr std::array<std::uint32_t, MIMHID_BAUD_COUNT> kBaudRates = MIMHID_BAUD_RATES;
+
+// The index of baud in kBaudRates, or -1.
+[[nodiscard]] int baud_index_of(std::uint32_t baud) noexcept;
 
 struct Frame {
     std::uint8_t type{};
@@ -102,8 +113,43 @@ struct CommandResult {
     operator bool() const noexcept { return status == CommandStatus::ack; }
 };
 
-// Pings the port without starting a reader; used for discovery.
-bool probe_port(const char* path, std::uint32_t baud, std::uint32_t timeout_ms, BoardInfo* out);
+enum class Handshake : std::uint8_t {
+    ok,
+    no_board,     // nothing answered at any rate
+    rate_refused, // the board cannot make the rate, or the port refused to be set to it
+    rate_failed,  // both sides switched, but the pings did not come through
+    io_error,
+};
+
+// Talks to a board on a port that has no reader thread: finds it, and agrees a line rate with
+// it. The port starts at the boot rate, and every call leaves the port and the board on the same
+// rate. wait_ms bounds each wait for an answer.
+class Handshaker final {
+  public:
+    Handshaker(SerialPort& port, std::uint32_t wait_ms) noexcept : port_(port), wait_ms_(wait_ms) {}
+
+    // Looks for the board at the boot rate, then at every rate of the table (a board left on a
+    // fast rate by a host that went away). Leaves both on the boot rate, except for a board on
+    // another protocol version (out->protocol), which is left where it answered.
+    bool find(BoardInfo* out);
+    // From the boot rate, switches to baud, or with 0 to the fastest rate that carries three
+    // pings each way. On failure both are back on the boot rate.
+    Handshake negotiate(std::uint32_t baud, BoardInfo* info, std::uint32_t* rate);
+    // Back to the boot rate.
+    bool to_boot(BoardInfo* info);
+    // The rate the port is on.
+    [[nodiscard]] std::uint32_t rate() const noexcept { return rate_; }
+
+  private:
+    bool ping(BoardInfo* out);
+    CommandStatus set_board_baud(std::uint8_t index);
+    Handshake try_rate(std::uint8_t index, BoardInfo* info);
+
+    SerialPort& port_;
+    std::uint32_t wait_ms_;
+    std::uint32_t rate_{MIMHID_BOOT_BAUD};
+    std::uint8_t seq_{0x80};
+};
 
 struct BoardEvent {
     std::uint8_t kind{};
@@ -120,7 +166,10 @@ class Link final {
     Link(const Link&) = delete;
     Link& operator=(const Link&) = delete;
 
-    OpenResult open(const char* path, std::uint32_t baud, EventHandler handler);
+    // Opens the port at the boot rate, for a Handshaker on port(), then start().
+    OpenResult open(const char* path);
+    [[nodiscard]] SerialPort& port() noexcept { return port_; }
+    void start(EventHandler handler);
     void close();
 
     // Pings until the board answers or the timeout passes.

@@ -28,7 +28,7 @@ Board pins:
 | STM32F4 (Black Pill) | PA2 (USART2 TX) | PA3 (USART2 RX) | the board's USB connector (OTG FS: PA11, PA12) |
 | ESP32-S3 | GPIO17 | GPIO18 | native USB (GPIO19 D-, GPIO20 D+), not the UART or JTAG USB port |
 
-Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own USB cable. Default pins and baud rate can be overridden at firmware build time with `-DMIMHID_UART_TX_PIN=<pin> -DMIMHID_UART_RX_PIN=<pin> -DMIMHID_BAUD_RATE=<baud>`.
+Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own USB cable. Default pins can be overridden at firmware build time with `-DMIMHID_UART_TX_PIN=<pin> -DMIMHID_UART_RX_PIN=<pin>`. The rate is not a build setting: the board starts at 115,200 baud and the library agrees the fastest rate the bridge carries.
 
 ---
 
@@ -84,7 +84,7 @@ build/examples/basic_keyboard_mouse          # Linux, macOS
 build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 ```
 
-`mimhid_discover` reports the port, the bridge description, and the firmware version and limits (`max_interfaces`, `max_nodes`) the board sent in its answer.
+`mimhid_discover` reports the port, the bridge description, the firmware version and limits (`max_interfaces`, `max_nodes`) the board sent in its answer, its chip and unique id, and the fastest rate the bridge carried (`baud_rate`).
 
 ---
 
@@ -98,4 +98,4 @@ build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 | `MIMHID_ERR_BUSY` on an input call | The board is re-enumerating after a node was opened or closed, or a batch is open. Wait with `mimhid_device_wait_ready`. |
 | `MIMHID_ERR_PROTOCOL` on open | The board runs firmware of another protocol version (0.1 and 0.2 firmware speak version 1). Flash the firmware that matches the library. |
 | `MIMHID_ERR_OVERFLOW` on `mimhid_node_open` | The board has no interface, node, or descriptor space left for this node (see [LIMITS.md](LIMITS.md)). |
-| Discovery works with other devices attached | Discovery sends a 4-byte ping to every USB serial port (`/dev/ttyUSB*` and `/dev/ttyACM*` on Linux, `/dev/cu.usb*` on macOS, USB COM ports on Windows); a device that does not answer is skipped. |
+| Discovery works with other devices attached | Discovery sends a 5-byte ping to every USB serial port (`/dev/ttyUSB*` and `/dev/ttyACM*` on Linux, `/dev/cu.usb*` on macOS, USB COM ports on Windows) at each rate of `MIMHID_BAUD_RATES` until one answers; a device that does not answer is skipped, and a port another program has open is not touched. |

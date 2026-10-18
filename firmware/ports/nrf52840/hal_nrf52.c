@@ -29,6 +29,19 @@ static volatile uint16_t g_tail = 0;
 static volatile uint8_t  g_landing;     // EasyDMA target for the byte being received
 static uint8_t           g_tx_buf[TX_CHUNK]; // EasyDMA cannot read from flash
 
+// The BAUDRATE register takes fixed settings; the ones in the protocol's table. 921,600 runs at
+// 941,176 (+2.1 %), within what UART receivers accept.
+static uint32_t baud_setting(uint32_t baud) {
+    switch (baud) {
+    case 115200: return UARTE_BAUDRATE_BAUDRATE_Baud115200;
+    case 230400: return UARTE_BAUDRATE_BAUDRATE_Baud230400;
+    case 460800: return UARTE_BAUDRATE_BAUDRATE_Baud460800;
+    case 921600: return UARTE_BAUDRATE_BAUDRATE_Baud921600;
+    case 1000000: return UARTE_BAUDRATE_BAUDRATE_Baud1M;
+    default: return 0;
+    }
+}
+
 static NRF_GPIO_Type* gpio_port(uint32_t pin) {
     return pin < 32 ? NRF_P0 : NRF_P1;
 }
@@ -36,6 +49,8 @@ static NRF_GPIO_Type* gpio_port(uint32_t pin) {
 void UARTE1_IRQHandler(void) {
     if (UARTE_REG->EVENTS_ENDRX) {
         UARTE_REG->EVENTS_ENDRX = 0;
+        // A stopped transfer ends with nothing in it.
+        if (UARTE_REG->RXD.AMOUNT == 0) return;
         uint16_t next = (uint16_t)((g_head + 1) & RX_RING_MASK);
         if (next != g_tail) {
             g_ring[g_head] = g_landing;
@@ -65,7 +80,7 @@ void hal_init(void) {
     UARTE_REG->PSEL.RTS = 0xFFFFFFFFUL;
     UARTE_REG->PSEL.CTS = 0xFFFFFFFFUL;
     UARTE_REG->CONFIG = 0; // no flow control, no parity
-    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud1M; // 1,000,000 baud (hardware maximum for nRF52840 UARTE)
+    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud115200; // MIMHID_BOOT_BAUD
     UARTE_REG->ENABLE = UARTE_ENABLE_ENABLE_Enabled;
 
     UARTE_REG->RXD.PTR = (uint32_t)(uintptr_t)&g_landing;
@@ -109,6 +124,30 @@ void hal_uart_write(const uint8_t* data, size_t len) {
         data += n;
         len -= n;
     }
+}
+
+bool hal_uart_baud_ok(uint32_t baud) {
+    return baud_setting(baud) != 0;
+}
+
+// hal_uart_write returns only once its bytes have left, so nothing is queued here. The
+// receiver is stopped and the peripheral disabled while the rate changes.
+void hal_uart_set_baud(uint32_t baud) {
+    UARTE_REG->SHORTS = 0;
+    UARTE_REG->EVENTS_RXTO = 0;
+    UARTE_REG->TASKS_STOPRX = 1;
+    while (!UARTE_REG->EVENTS_RXTO) {
+    }
+    UARTE_REG->EVENTS_RXTO = 0;
+    UARTE_REG->ENABLE = UARTE_ENABLE_ENABLE_Disabled;
+    UARTE_REG->BAUDRATE = baud_setting(baud);
+    UARTE_REG->ENABLE = UARTE_ENABLE_ENABLE_Enabled;
+    UARTE_REG->SHORTS = UARTE_SHORTS_ENDRX_STARTRX_Msk;
+    UARTE_REG->TASKS_STARTRX = 1;
+}
+
+uint8_t hal_chip(void) {
+    return MIMHID_CHIP_NRF52840;
 }
 
 uint32_t hal_millis(void) {

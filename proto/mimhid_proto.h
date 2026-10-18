@@ -4,7 +4,7 @@
 #define MIMHID_PROTO_H
 
 /*
- * Serial wire protocol v2, shared by the host library and the firmware.
+ * Serial wire protocol v3, shared by the host library and the firmware.
  *
  *   frame  = SYNC TYPE LEN payload[LEN] XOR
  *   XOR    = TYPE ^ LEN ^ every payload byte
@@ -14,7 +14,7 @@
  * target receives it, Report ID included, and are not acknowledged.
  */
 
-#define MIMHID_PROTO_VERSION 2
+#define MIMHID_PROTO_VERSION 3
 #define MIMHID_SYNC          0xA5
 
 /* Host to board. */
@@ -27,6 +27,7 @@
 #define MIMHID_T_FEATURE       0x14 /* data returned for GET_REPORT of a feature report */
 #define MIMHID_T_RESET         0x15 /* drop every queued report */
 #define MIMHID_T_REMOTE_WAKEUP 0x16
+#define MIMHID_T_SET_BAUD      0x17 /* payload after sequence number: baud index (see below) */
 #define MIMHID_T_REPORT_BASE   0x40 /* 0x40 | node id, node id 0..15 */
 #define MIMHID_T_REPORT_LAST   0x4F
 
@@ -62,12 +63,37 @@
 #define MIMHID_FEATURE_MAX      32
 
 /*
+ * Line rates. A board starts at the boot rate, index 0, and the host asks for another with
+ * SET_BAUD. The board ACKs at the rate it is on, switches once the ACK has left, and keeps the
+ * new rate only when a valid frame arrives at it within MIMHID_BAUD_CONFIRM_MS; otherwise it
+ * goes back to the boot rate. A switch to the boot rate needs no confirmation.
+ */
+#define MIMHID_BAUD_RATES      {115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u}
+#define MIMHID_BAUD_COUNT      9
+#define MIMHID_BOOT_BAUD       115200u
+#define MIMHID_BAUD_CONFIRM_MS 100
+
+/* Chips, as the PONG names them. */
+#define MIMHID_CHIP_UNKNOWN  0
+#define MIMHID_CHIP_RP2040   1
+#define MIMHID_CHIP_RP2350   2
+#define MIMHID_CHIP_ESP32S3  3
+#define MIMHID_CHIP_NRF52840 4
+#define MIMHID_CHIP_STM32F4  5
+
+/*
  * PONG payload (all single bytes unless noted):
  *   0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 proto_version
  *   5 max_nodes  6 max_interfaces  7 max_report_bytes
  *   8..9 max_descriptor_bytes (little endian)  10 flags (bit 0: has chip unique id)
+ *   11 chip  12 usb speed (0 full, 1 high)  13 baud index the board is on
+ *   14..15 baud mask (little endian; bit i: the board can run at rate i)
+ *   16 unique id length n (0..16)  17.. the chip's unique id, n bytes
+ * A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_LEN 11
+#define MIMHID_PONG_MIN_LEN   17
+#define MIMHID_UNIQUE_ID_MAX  16
+#define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
 
 /*
  * DEVICE_CONFIG payload after the sequence number:
