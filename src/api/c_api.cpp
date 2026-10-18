@@ -177,8 +177,14 @@ mimhid_result prepare_device_options(const mimhid_device_options* options,
             return MIMHID_ERR_PARAM;
         }
     }
-    if (effective->baud_rate != 0U && (tr::baud_index_of(effective->baud_rate) < 0 ||
-                                       !tr::SerialPort::baud_supported(effective->baud_rate))) {
+    if (effective->baud_rate == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "device_options.baud_rate",
+                  "baud_rate must be set to one of MIMHID_BAUD_RATES; mimhid_discover measures "
+                  "the fastest one the link carries.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (tr::baud_index_of(effective->baud_rate) < 0 ||
+        !tr::SerialPort::baud_supported(effective->baud_rate)) {
         set_error(MIMHID_ERR_UNSUPPORTED, "device_options.baud_rate",
                   "The rate is not one of MIMHID_BAUD_RATES that this system can set.");
         return MIMHID_ERR_UNSUPPORTED;
@@ -917,10 +923,11 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
                 return;
             // A board on another protocol is listed with its version, to be flashed again.
             std::uint32_t fastest = handshake.rate();
-            if (board.protocol == MIMHID_PROTO_VERSION &&
-                (handshake.negotiate(0U, &board, &fastest) != tr::Handshake::ok ||
-                 !handshake.to_boot(&board)))
-                return;
+            if (board.protocol == MIMHID_PROTO_VERSION) {
+                fastest = handshake.fastest(&board);
+                if (fastest == 0U || !handshake.to_boot(&board))
+                    return;
+            }
             found[i] = describe_board(ports[i].path, ports[i].description, board, fastest);
         });
     }
@@ -1024,8 +1031,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   0, 0, 0, 0, MIMHID_PROTO_VERSION, device->board.protocol);
         return MIMHID_ERR_PROTOCOL;
     }
-    std::uint32_t rate = MIMHID_BOOT_BAUD;
-    switch (handshake.negotiate(effective.baud_rate, &device->board, &rate)) {
+    switch (handshake.switch_to(effective.baud_rate, &device->board)) {
     case tr::Handshake::ok:
         break;
     case tr::Handshake::rate_refused:
@@ -1035,7 +1041,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     case tr::Handshake::rate_failed:
         set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
                   "The link did not carry this rate: the serial adapter or the wiring does not "
-                  "support it. Use 0 to take the fastest rate that works.");
+                  "support it. mimhid_discover measures the fastest rate that works.");
         return MIMHID_ERR_UNSUPPORTED;
     case tr::Handshake::no_board:
     case tr::Handshake::io_error:
@@ -1053,7 +1059,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         effective.maximum_report_bytes != 0U
             ? effective.maximum_report_bytes
             : std::min<std::uint32_t>(device->board.max_report_bytes, kMaximumReportBytes);
-    device->info = describe_board(port_path, "", device->board, rate);
+    device->info = describe_board(port_path, "", device->board, effective.baud_rate);
 
     mimhid_device* raw = device.get();
     device->link.start([raw](const tr::BoardEvent& event) { deliver_event(raw, event); });

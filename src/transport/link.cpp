@@ -224,31 +224,24 @@ Handshake Handshaker::try_rate(std::uint8_t index, BoardInfo* info) {
     return Handshake::rate_failed;
 }
 
-Handshake Handshaker::negotiate(std::uint32_t baud, BoardInfo* info, std::uint32_t* rate) {
-    *rate = MIMHID_BOOT_BAUD;
-    if (baud != 0U) {
-        const int index = baud_index_of(baud);
-        if (index < 0 || !(info->baud_mask & (1U << index)))
-            return Handshake::rate_refused;
-        if (index == 0)
-            return Handshake::ok;
-        const Handshake result = try_rate(static_cast<std::uint8_t>(index), info);
-        if (result == Handshake::ok)
-            *rate = baud;
-        return result;
-    }
+Handshake Handshaker::switch_to(std::uint32_t baud, BoardInfo* info) {
+    const int index = baud_index_of(baud);
+    if (index < 0 || !(info->baud_mask & (1U << index)))
+        return Handshake::rate_refused;
+    return index == 0 ? Handshake::ok : try_rate(static_cast<std::uint8_t>(index), info);
+}
+
+std::uint32_t Handshaker::fastest(BoardInfo* info) {
     for (std::size_t i = kBaudRates.size() - 1; i > 0; --i) {
         if (!(info->baud_mask & (1U << i)) || !SerialPort::baud_supported(kBaudRates[i]))
             continue;
         const Handshake result = try_rate(static_cast<std::uint8_t>(i), info);
-        if (result == Handshake::ok) {
-            *rate = kBaudRates[i];
-            return result;
-        }
+        if (result == Handshake::ok)
+            return kBaudRates[i];
         if (result == Handshake::io_error)
-            return result;
+            return 0U;
     }
-    return Handshake::ok;
+    return MIMHID_BOOT_BAUD;
 }
 
 Link::~Link() { close(); }

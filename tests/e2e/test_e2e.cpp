@@ -6,6 +6,7 @@
 #include "mimhid.h"
 #include "mimhid_proto.h"
 #include "test.hpp"
+#include "transport/link.hpp"
 
 #include <array>
 #include <atomic>
@@ -87,6 +88,7 @@ bool wait_event(mimhid_event_kind kind, EventRecord* out, int timeout_ms = 2000)
 mimhid_device_options base_options() {
     mimhid_device_options o{};
     o.struct_size = sizeof(o);
+    o.baud_rate = 3000000;
     o.vendor_id = 0x046D;
     o.product_id = 0xC52B;
     o.linux_descriptor_policy_bytes = 4096;
@@ -683,28 +685,44 @@ std::uint32_t link_baud(const mimhid_device* device) {
     return mimhid_device_board_info(device, &info) == MIMHID_OK ? info.baud_rate : 0U;
 }
 
+// What mimhid_discover measures on each port, run on the pseudo-terminal.
+std::uint32_t measure() {
+    mimhid::transport::SerialPort port;
+    if (!port.open(g_slave.c_str(), MIMHID_BOOT_BAUD).ok)
+        return 0;
+    mimhid::transport::Handshaker handshake(port, 50);
+    mimhid::transport::BoardInfo board;
+    if (!handshake.find(&board))
+        return 0;
+    const std::uint32_t fastest = handshake.fastest(&board);
+    return handshake.to_boot(&board) ? fastest : 0;
+}
+
 void test_line_rate() {
     mimhid_result r = MIMHID_OK;
-    // The fastest rate the board makes, and back on the boot rate after close.
+    // The rate is the caller's: none is chosen for it.
     mimhid_device* device = open_at(0, &r);
+    MIMHID_CHECK(r == MIMHID_ERR_UNSET_FIELD && device == nullptr);
+
+    // The fastest rate the board makes; the board is left on the boot rate.
+    MIMHID_CHECK(measure() == 3000000U && fake_board_baud() == MIMHID_BOOT_BAUD);
+    device = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
     MIMHID_CHECK(fake_board_baud() == 3000000U);
     mimhid_device_close(device);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
     // An adapter that cannot go past 1,000,000 sends at that rate whatever it is set to: the
-    // faster rates are tried and given up, and 1,000,000 is kept.
+    // faster rates are tried and given up, and 1,000,000 is measured.
     fake_board_set_adapter_limit(1000000U);
-    device = open_at(0, &r);
-    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 1000000U);
-    mimhid_device_close(device);
-    // A rate asked for that the adapter does not carry fails, and leaves the board on the boot rate.
+    MIMHID_CHECK(measure() == 1000000U && fake_board_baud() == MIMHID_BOOT_BAUD);
+    // A rate the adapter does not carry fails, and leaves the board on the boot rate.
     device = open_at(2000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
     fake_board_set_adapter_limit(0);
 
-    // A rate the board cannot make, and one asked for exactly.
+    // A rate the board cannot make, and a slower one.
     device = open_at(4000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
     device = open_at(921600U, &r);
@@ -725,17 +743,17 @@ void test_line_rate() {
     close(fd);
     std::this_thread::sleep_for(std::chrono::milliseconds(2 * MIMHID_BAUD_CONFIRM_MS));
     MIMHID_CHECK(fake_board_baud() == 3000000U);
-    device = open_at(0, &r);
-    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
+    device = open_at(921600U, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 921600U);
     mimhid_device_close(device);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
 #ifdef __linux__
     // Only one program has the port. A macOS pseudo-terminal does not keep TIOCEXCL, so this
     // is checked on Linux only.
-    device = open_at(0, &r);
+    device = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_OK);
-    mimhid_device* second = open_at(0, &r);
+    mimhid_device* second = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_ACCESS && second == nullptr);
     mimhid_device_close(device);
 #endif

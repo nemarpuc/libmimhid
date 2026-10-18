@@ -84,8 +84,9 @@ A board starts at the boot rate and reports in its PONG which rates it can make 
 The host never trusts a rate it has not seen work, because a USB serial adapter may accept a rate from the operating system and send at another one:
 
 1. Find the board: ping at the boot rate, then at each rate of the table (a board left on a fast rate by a program that went away). Bring it back to the boot rate.
-2. For each rate the board can make and the operating system can set, fastest first (or only the rate the caller asked for): set the port to it once to see that the driver takes it, send `SET_BAUD` at the boot rate, switch the port, and ping three times. Three PONGs that name the new rate settle it.
-3. When they do not come, set the port back to the boot rate, wait until the board has gone back (100 ms after the switch, plus a margin), check with a ping, and try the next rate. If a ping did reach the board, it kept the new rate; the search of step 1 finds it.
+2. Switch to a rate: set the port to it once to see that the driver takes it, send `SET_BAUD` at the boot rate, switch the port, and ping three times. Three PONGs that name the new rate settle it. `mimhid_device_open` does this for the caller's `baud_rate` and fails when it is not carried.
+3. When the PONGs do not come, set the port back to the boot rate, wait until the board has gone back (100 ms after the switch, plus a margin) and check with a ping. If a ping did reach the board, it kept the new rate; the search of step 1 finds it.
+4. `mimhid_discover` measures: it tries step 2 for each rate the board can make and the operating system can set, fastest first, reports the first one settled as `baud_rate`, and leaves the board on the boot rate.
 
 `mimhid_device_close` sends `SET_BAUD` to the boot rate, so the next program finds the board at once. The host opens a port for its process alone (`TIOCEXCL` on Linux and macOS; Windows ports are exclusive), so a search does not ping a board another program is using.
 

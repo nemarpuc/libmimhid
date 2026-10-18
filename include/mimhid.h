@@ -227,8 +227,8 @@ typedef struct mimhid_device_options {
     uint32_t reserved;
     /* Link tuning: zero selects the documented bounded fallback. These are project policies,
      * not USB requirements. */
-    /* zero -> the fastest of MIMHID_BAUD_RATES that the board makes and that carries pings each
-     * way; otherwise exactly that rate, which must be in MIMHID_BAUD_RATES */
+    /* required: the line rate, one of MIMHID_BAUD_RATES. mimhid_discover reports the fastest
+     * one the board and the serial adapter carry. */
     uint32_t baud_rate;
     /* zero -> 500 ms per configuration frame; each frame is tried three times */
     uint32_t control_timeout_ms;
@@ -731,7 +731,7 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
  * port_path is the serial device path (e.g., "/dev/ttyACM0" or "COM3").
  * Synchronization: Safe on concurrent threads for different ports.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid pointers/ABI fields/identity;
- * MIMHID_ERR_UNSET_FIELD for a missing vendor_id or required product policy;
+ * MIMHID_ERR_UNSET_FIELD for a missing vendor_id, baud_rate or required product policy;
  * MIMHID_ERR_UNSUPPORTED for a rate not in MIMHID_BAUD_RATES, one the board cannot make, or
  * one the serial adapter or wiring did not carry; MIMHID_ERR_TIMEOUT when no board answered;
  * MIMHID_ERR_PROTOCOL when the board's firmware speaks another protocol version;

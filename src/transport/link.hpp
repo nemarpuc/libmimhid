@@ -132,9 +132,12 @@ class Handshaker final {
     // fast rate by a host that went away). Leaves both on the boot rate, except for a board on
     // another protocol version (out->protocol), which is left where it answered.
     bool find(BoardInfo* out);
-    // From the boot rate, switches to baud, or with 0 to the fastest rate that carries three
-    // pings each way. On failure both are back on the boot rate.
-    Handshake negotiate(std::uint32_t baud, BoardInfo* info, std::uint32_t* rate);
+    // From the boot rate, switches to baud and checks that three pings each way come through.
+    // On failure both are back on the boot rate.
+    Handshake switch_to(std::uint32_t baud, BoardInfo* info);
+    // From the boot rate, the fastest rate the board makes that switch_to settles; both are
+    // left on it. The boot rate when no other works, 0 when the board stopped answering.
+    std::uint32_t fastest(BoardInfo* info);
     // Back to the boot rate.
     bool to_boot(BoardInfo* info);
     // The rate the port is on.
