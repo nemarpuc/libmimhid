@@ -730,12 +730,15 @@ void test_line_rate() {
     mimhid_device_close(device);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
-    // Only one program has the port.
+#ifdef __linux__
+    // Only one program has the port. A macOS pseudo-terminal does not keep TIOCEXCL, so this
+    // is checked on Linux only.
     device = open_at(0, &r);
     MIMHID_CHECK(r == MIMHID_OK);
     mimhid_device* second = open_at(0, &r);
     MIMHID_CHECK(r == MIMHID_ERR_ACCESS && second == nullptr);
     mimhid_device_close(device);
+#endif
 }
 
 void test_bad_arguments() {
