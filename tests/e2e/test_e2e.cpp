@@ -89,6 +89,13 @@ mimhid_device_options base_options() {
     mimhid_device_options o{};
     o.struct_size = sizeof(o);
     o.baud_rate = 3000000;
+    o.control_timeout_ms = 500;
+    o.send_timeout_ms = 500;
+    o.reconnect_timeout_ms = 3000;
+    o.close_drain_timeout_ms = 1000;
+    o.language_id = 0x0409;
+    o.bcd_device = 0x0100;
+    o.max_power_ma = 100;
     o.vendor_id = 0x046D;
     o.product_id = 0xC52B;
     o.linux_descriptor_policy_bytes = 4096;
@@ -759,6 +766,20 @@ void test_line_rate() {
 #endif
 }
 
+// Strings that are not given are left out: the library does not name the device.
+void test_no_names() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    mimhid_spec* raw = raw_spec_no_id();
+    mimhid_node* node = open_node(device, raw);
+    MIMHID_CHECK(node != nullptr);
+    const std::uint8_t* d = fake_board_device_descriptor();
+    MIMHID_CHECK(d[14] == 0 && d[15] == 0 && d[16] == 0); // iManufacturer, iProduct, iSerial
+    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    mimhid_spec_release(raw);
+}
+
 void test_bad_arguments() {
     mimhid_device_info info{};
     std::strncpy(info.port_name, g_slave.c_str(), sizeof(info.port_name) - 1);
@@ -769,6 +790,18 @@ void test_bad_arguments() {
                  device == nullptr);
     o = base_options();
     o.linux_hid_usages_policy = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    // Nothing is chosen for the caller.
+    for (std::uint32_t mimhid_device_options::*field :
+         {&mimhid_device_options::control_timeout_ms, &mimhid_device_options::send_timeout_ms,
+          &mimhid_device_options::reconnect_timeout_ms,
+          &mimhid_device_options::close_drain_timeout_ms}) {
+        o = base_options();
+        o.*field = 0;
+        MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    }
+    o = base_options();
+    o.language_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
     o.baud_rate = 12345;
@@ -826,6 +859,7 @@ int main() {
 
     test_bad_arguments();
     test_line_rate();
+    test_no_names();
     test_open_identity_and_descriptors();
     test_reports_and_neutral();
     test_touch_feature();

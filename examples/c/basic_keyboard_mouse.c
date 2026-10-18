@@ -19,7 +19,7 @@ static int fail(const char* what, mimhid_result r) {
 
 int main(void) {
     mimhid_discovery* found = NULL;
-    mimhid_result r = mimhid_discover(500, &found);
+    mimhid_result r = mimhid_discover(50, &found);
     if (r != MIMHID_OK || mimhid_discovery_count(found) == 0) {
         mimhid_discovery_destroy(found);
         fprintf(stderr, "No mimhid board found.\n");
@@ -33,6 +33,15 @@ int main(void) {
     options.manufacturer = "Example";
     options.product = "Keyboard and Mouse";
     options.serial_from_chip_id = 1;
+    // The rate the search measured; the waits are this program's choice.
+    options.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
+    options.control_timeout_ms = 500;
+    options.send_timeout_ms = 500;
+    options.reconnect_timeout_ms = 3000;
+    options.close_drain_timeout_ms = 1000;
+    options.language_id = 0x0409;
+    options.bcd_device = 0x0100;
+    options.max_power_ma = 100;
     // Limits of the target's HID parser; choose the values of the system you attach to.
     options.linux_descriptor_policy_bytes = 4096;
     options.linux_hid_fields_per_report_policy = 256;

@@ -225,21 +225,22 @@ typedef struct mimhid_device_info {
 typedef struct mimhid_device_options {
     uint32_t struct_size;
     uint32_t reserved;
-    /* Link tuning: zero selects the documented bounded fallback. These are project policies,
-     * not USB requirements. */
+    /* Every value is used as given; nothing is chosen for the caller. Fields marked required
+     * fail with MIMHID_ERR_UNSET_FIELD when zero. */
     /* required: the line rate, one of MIMHID_BAUD_RATES. mimhid_discover reports the fastest
      * one the board and the serial adapter carry. */
     uint32_t baud_rate;
-    /* zero -> 500 ms per configuration frame; each frame is tried three times */
+    /* required: the wait for each configuration frame's answer; each frame is tried three
+     * times */
     uint32_t control_timeout_ms;
-    /* zero -> 500 ms. A serial write that makes no progress for this long fails. */
+    /* required: a serial write that makes no progress for this long fails */
     uint32_t send_timeout_ms;
-    /* zero -> 3000 ms: how long to wait for the board to re-enumerate after a node is opened
-     * or closed. */
+    /* required: how long to wait for the board to re-enumerate after a node is opened or
+     * closed */
     uint32_t reconnect_timeout_ms;
     /* zero -> the board's limit; otherwise at most that limit */
     uint32_t maximum_report_bytes;
-    /* zero -> 1000 ms: bound on the neutral reports sent when a node closes */
+    /* required: bound on the neutral reports sent when a node closes */
     uint32_t close_drain_timeout_ms;
     /* Caller-selected limits for the exact target HID parser revision. These are not universal
      * Linux, HID, or library defaults. Each must be nonzero. */
@@ -258,11 +259,10 @@ typedef struct mimhid_device_options {
     /* USB device identity and configuration. */
     uint16_t vendor_id;   /* required, nonzero */
     uint16_t product_id;
-    uint16_t bcd_device;  /* zero -> 0x0100 */
-    uint16_t language_id; /* zero -> 0x0409 */
-    /* NUL-terminated printable ASCII, at most 31 characters, or null. Null manufacturer and
-     * product select "mimhid" and "mimhid Composite HID"; null serial and configuration
-     * leave those strings out. */
+    uint16_t bcd_device;  /* as given; 0x0000 is a valid release number */
+    uint16_t language_id; /* required, nonzero: the LANGID of every string */
+    /* NUL-terminated printable ASCII, at most 31 characters, or null. A null or empty string
+     * is left out of the USB device (its index is 0). */
     const char* manufacturer;
     const char* product;
     const char* serial;
@@ -276,7 +276,7 @@ typedef struct mimhid_device_options {
     /* 0 or 1. Written to the configuration's bmAttributes. */
     uint32_t self_powered;
     uint32_t remote_wakeup;
-    /* zero -> 100 mA; at most 500 */
+    /* as given, 0 to 500 */
     uint32_t max_power_ma;
 
     /* Events from the target. Null disables them. */

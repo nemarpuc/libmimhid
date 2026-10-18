@@ -58,12 +58,12 @@ All 23 profile-layer entries (9 Spec factories and 14 mutation calls) are retain
 
 ## Settings of the USB device
 
-`mimhid_device_options` (zero or NULL selects the default unless stated):
+`mimhid_device_options`: every value is used as given and none has a default. A required field that is zero fails with `MIMHID_ERR_UNSET_FIELD`.
 
-- Identity: `vendor_id` (required), `product_id`, `bcd_device` (0x0100), `language_id` (0x0409), `manufacturer`, `product`, `serial`, `configuration` (strings of at most 31 printable ASCII characters), `serial_from_chip_id` (use the MCU's unique id when `serial` is NULL).
+- Identity: `vendor_id` (required), `product_id`, `bcd_device`, `language_id` (required), `manufacturer`, `product`, `serial`, `configuration` (strings of at most 31 printable ASCII characters; NULL or empty leaves the string out), `serial_from_chip_id` (use the MCU's unique id when `serial` is NULL).
 - Descriptor: `device_class`, `device_subclass`, `device_protocol`.
-- Power: `self_powered`, `remote_wakeup`, `max_power_ma` (100, at most 500).
-- Link: `baud_rate` (required, one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `control_timeout_ms` (500), `send_timeout_ms` (500), `reconnect_timeout_ms` (3000), `maximum_report_bytes`, `close_drain_timeout_ms` (1000).
+- Power: `self_powered`, `remote_wakeup`, `max_power_ma` (0 to 500).
+- Link, all required except `maximum_report_bytes`: `baud_rate` (one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `control_timeout_ms`, `send_timeout_ms`, `reconnect_timeout_ms`, `close_drain_timeout_ms`, and `maximum_report_bytes` (0: the limit the board reports).
 - Behavior: `validate_reports` (decode each generated report again), `keep_attached` (leave the USB device on the bus after `device_close`).
 - Target parser limits `linux_*_policy`: nonzero values chosen by the caller for the HID parser of the target. A descriptor that exceeds them is rejected when the Spec is opened on the Device.
 - Callbacks: `event_sink` (everything the target sends: Output and Feature reports, `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, resume), `log_sink`.

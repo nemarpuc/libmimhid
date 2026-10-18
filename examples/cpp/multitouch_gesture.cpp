@@ -8,7 +8,7 @@
 
 int main() {
     mimhid_discovery* found = nullptr;
-    if (mimhid::discover(500, &found) != MIMHID_OK || mimhid::discovery_count(found) == 0) {
+    if (mimhid::discover(50, &found) != MIMHID_OK || mimhid::discovery_count(found) == 0) {
         mimhid::discovery_destroy(found);
         std::fprintf(stderr, "No mimhid board found.\n");
         return 1;
@@ -20,6 +20,15 @@ int main() {
     options.product_id = 0x2A15;
     options.manufacturer = "Example";
     options.product = "Touchscreen";
+    // The rate the search measured; the waits are this program's choice.
+    options.baud_rate = mimhid::discovery_get(found, 0)->baud_rate;
+    options.control_timeout_ms = 500;
+    options.send_timeout_ms = 500;
+    options.reconnect_timeout_ms = 3000;
+    options.close_drain_timeout_ms = 1000;
+    options.language_id = 0x0409;
+    options.bcd_device = 0x0100;
+    options.max_power_ma = 100;
     options.linux_descriptor_policy_bytes = 4096;
     options.linux_hid_fields_per_report_policy = 256;
     options.linux_hid_global_stack_depth_policy = 4;

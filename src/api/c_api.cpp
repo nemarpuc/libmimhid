@@ -30,13 +30,6 @@ namespace tr = mimhid::transport;
 namespace {
 using mimhid::detail::set_error;
 
-// Zero-valued tuning inputs use bounded project-policy fallbacks. These are not protocol
-// limits; docs/API.md lists them. Product policies stay mandatory.
-constexpr std::uint32_t kFallbackControlTimeoutMs = 500U;
-constexpr std::uint32_t kFallbackSendTimeoutMs = 500U;
-constexpr std::uint32_t kFallbackReconnectTimeoutMs = 3000U;
-constexpr std::uint32_t kFallbackCloseDrainTimeoutMs = 1000U;
-constexpr std::uint32_t kFallbackMaxPowerMa = 100U;
 constexpr int kCommandAttempts = 3;
 // How long a handshake waits for each answer: a few frames at the boot rate plus the latency
 // timer of a USB serial adapter (16 ms on FTDI chips).
@@ -126,32 +119,28 @@ mimhid_result prepare_device_options(const mimhid_device_options* options,
         return MIMHID_ERR_PARAM;
     }
     *effective = *options;
-    if (effective->control_timeout_ms == 0U)
-        effective->control_timeout_ms = kFallbackControlTimeoutMs;
-    if (effective->send_timeout_ms == 0U)
-        effective->send_timeout_ms = kFallbackSendTimeoutMs;
-    if (effective->reconnect_timeout_ms == 0U)
-        effective->reconnect_timeout_ms = kFallbackReconnectTimeoutMs;
-    if (effective->close_drain_timeout_ms == 0U)
-        effective->close_drain_timeout_ms = kFallbackCloseDrainTimeoutMs;
-    if (effective->bcd_device == 0U)
-        effective->bcd_device = 0x0100U;
-    if (effective->language_id == 0U)
-        effective->language_id = 0x0409U;
-    if (effective->max_power_ma == 0U)
-        effective->max_power_ma = kFallbackMaxPowerMa;
     if (effective->log_level == 0)
         effective->log_level = MIMHID_LOG_DISABLED;
 
-    if (effective->vendor_id == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "device_options.vendor_id", "vendor_id must be set.");
-        return MIMHID_ERR_UNSET_FIELD;
+    // Every value is used as given; the ones zero cannot mean anything for are required.
+    const std::pair<std::uint32_t, const char*> required[] = {
+        {effective->vendor_id, "device_options.vendor_id"},
+        {effective->language_id, "device_options.language_id"},
+        {effective->control_timeout_ms, "device_options.control_timeout_ms"},
+        {effective->send_timeout_ms, "device_options.send_timeout_ms"},
+        {effective->reconnect_timeout_ms, "device_options.reconnect_timeout_ms"},
+        {effective->close_drain_timeout_ms, "device_options.close_drain_timeout_ms"},
+    };
+    for (const auto& [value, field] : required) {
+        if (value == 0U) {
+            set_error(MIMHID_ERR_UNSET_FIELD, field, "This value must be set; it has no default.");
+            return MIMHID_ERR_UNSET_FIELD;
+        }
     }
     if (effective->reserved != 0U || effective->reserved8 != 0U ||
         !required_product_policies_nonzero(*effective)) {
         set_error(MIMHID_ERR_UNSET_FIELD, "device_options",
-                  "Every required product policy must be nonzero and reserved fields zero; only "
-                  "documented tuning fields accept zero as a fallback request.");
+                  "Every required product policy must be nonzero and reserved fields zero.");
         return MIMHID_ERR_UNSET_FIELD;
     }
     if (!mimhid::detail::valid_boolean(effective->validate_reports) ||
@@ -997,8 +986,8 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
 
     auto device = std::make_unique<mimhid_device>();
     device->options = effective;
-    device->manufacturer = effective.manufacturer != nullptr ? effective.manufacturer : "mimhid";
-    device->product = effective.product != nullptr ? effective.product : "mimhid Composite HID";
+    device->manufacturer = effective.manufacturer != nullptr ? effective.manufacturer : "";
+    device->product = effective.product != nullptr ? effective.product : "";
     device->serial = effective.serial != nullptr ? effective.serial : "";
     device->configuration = effective.configuration != nullptr ? effective.configuration : "";
     // The caller's string pointers are not retained.
