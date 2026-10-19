@@ -28,7 +28,7 @@ The control-transfer routing is the only part of the firmware that sits between 
 | RP2350 | Yes | No. |
 | STM32F4 | Yes | No. |
 | nRF52840 | Yes | No. |
-| ESP32-S3 | See the CI job `firmware-esp32s3` | No. |
+| ESP32-S3 | Yes (ESP-IDF 5.4.2; the disassembly shows the DWC2 driver calling `__wrap_dcd_event_handler`) | No. |
 
 Not run anywhere: a high-speed endpoint 0, a host that gives up while a request is held, and Windows or macOS hosts.
 
