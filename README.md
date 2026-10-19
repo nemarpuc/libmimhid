@@ -5,7 +5,7 @@ Physical USB HID emulation for a target device, driven from a Linux, macOS, or W
 The C ABI and the C++ header follow [`libaoahid`](https://github.com/nemarpuc/libaoahid): Specs, Nodes, the same option structures, the same input calls. Code written for one library moves to the other with minimal changes. The transport differs: `libaoahid` speaks Android Open Accessory over USB, whereas `libmimhid` speaks framed binary UART to an MCU coprocessor and requires no special mode, driver, or debugging setting on the target.
 
 > [!NOTE]
-> Version 1.0.1. See [CHANGELOG.md](CHANGELOG.md).
+> Version 1.0.2. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Core Design
 

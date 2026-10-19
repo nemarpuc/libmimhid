@@ -355,15 +355,14 @@ static void cmd_node_begin(const command_t* c) {
     const uint16_t desc_len = (uint16_t)(p[2] | (p[3] << 8));
     const uint8_t ep_size = p[5];
     if (id >= MIMHID_MAX_NODES || desc_len == 0 || p[9] > 2 ||
-        !(ep_size == 0 || ep_size == 8 || ep_size == 16 || ep_size == 32 || ep_size == 64)) {
+        ep_size > 64) {
         send_nak(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
 
     uint8_t ep_out_size = 0;
     uint8_t pos = 12;
-    if (len >= 14 && (p[12] == 0 || p[12] == 8 || p[12] == 16 || p[12] == 32 || p[12] == 64) &&
-        ((uint32_t)14 + p[13] <= len)) {
+    if (len >= 14 && p[12] <= 64 && ((uint32_t)14 + p[13] <= len)) {
         ep_out_size = p[12];
         pos = 13;
     } else if (len >= 14 && (uint32_t)14 + p[13] <= len) {

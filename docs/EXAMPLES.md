@@ -41,7 +41,7 @@ node_options.struct_size = sizeof(node_options);
 node_options.interface_number = 0; /* explicit interface index */
 node_options.poll_interval_ms = 4;
 node_options.ep_in_size = 64;
-node_options.ep_out_size = 0;      /* set 8, 16, 32, or 64 if OUT endpoint needed */
+node_options.ep_out_size = 0;      /* set 1 to 64 if OUT endpoint needed */
 node_options.interface_name = "Keys";
 node_options.bcd_hid = 0x0111;
 ```

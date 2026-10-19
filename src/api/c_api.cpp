@@ -1304,11 +1304,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     mimhid_node_options effective = *options;
     if (effective.poll_interval_ms > 255U || effective.country_code > 35U ||
         !valid_usb_string(effective.interface_name) ||
-        (effective.ep_in_size != 0U && effective.ep_in_size != 8U && effective.ep_in_size != 16U &&
-         effective.ep_in_size != 32U && effective.ep_in_size != 64U) ||
-        (effective.ep_out_size != 0U && effective.ep_out_size != 8U &&
-         effective.ep_out_size != 16U && effective.ep_out_size != 32U &&
-         effective.ep_out_size != 64U) ||
+        effective.ep_in_size > 64U || effective.ep_out_size > 64U ||
         (effective.boot_protocol != MIMHID_BOOT_NONE &&
          effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
          effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
@@ -1336,7 +1332,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     }
     if (effective.ep_in_size == 0U) {
         set_error(MIMHID_ERR_UNSET_FIELD, "node_options.ep_in_size",
-                  "ep_in_size must be non-zero (8, 16, 32, or 64 bytes).");
+                  "ep_in_size must be non-zero (1 to 64 bytes).");
         return MIMHID_ERR_UNSET_FIELD;
     }
     if (effective.bcd_hid == 0U) {
@@ -1523,11 +1519,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     mimhid_node_options effective = *options;
     if (effective.poll_interval_ms > 255U || effective.country_code > 35U ||
         !valid_usb_string(effective.interface_name) ||
-        (effective.ep_in_size != 0U && effective.ep_in_size != 8U && effective.ep_in_size != 16U &&
-         effective.ep_in_size != 32U && effective.ep_in_size != 64U) ||
-        (effective.ep_out_size != 0U && effective.ep_out_size != 8U &&
-         effective.ep_out_size != 16U && effective.ep_out_size != 32U &&
-         effective.ep_out_size != 64U) ||
+        effective.ep_in_size > 64U || effective.ep_out_size > 64U ||
         (effective.boot_protocol != MIMHID_BOOT_NONE &&
          effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
          effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
@@ -1550,7 +1542,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     }
     if (effective.ep_in_size == 0U) {
         set_error(MIMHID_ERR_UNSET_FIELD, "node_options.ep_in_size",
-                  "ep_in_size must be non-zero (8, 16, 32, or 64 bytes).");
+                  "ep_in_size must be non-zero (1 to 64 bytes).");
         return MIMHID_ERR_UNSET_FIELD;
     }
     if (effective.bcd_hid == 0U) {

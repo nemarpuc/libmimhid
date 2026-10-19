@@ -267,7 +267,7 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
     // What the board said about itself when the Device was opened.
     MIMHID_CHECK(board.protocol_version == MIMHID_PROTO_VERSION);
-    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 0 && board.version_patch == 1);
+    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 0 && board.version_patch == 2);
     MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == 8);
     MIMHID_CHECK(board.max_report_bytes == 64);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
@@ -584,7 +584,8 @@ void test_chip_serial_and_boot() {
     no.struct_size = sizeof(no);
     no.interface_number = 0;
     no.poll_interval_ms = 1;
-    no.ep_in_size = 64;
+    no.ep_in_size = 6;
+    no.ep_out_size = 5;
     no.boot_protocol = MIMHID_BOOT_KEYBOARD;
     no.country_code = 33;
     no.bcd_hid = 0x0110;
@@ -596,13 +597,19 @@ void test_chip_serial_and_boot() {
     const std::uint8_t* c = fake_board_config_descriptor(&length);
     MIMHID_CHECK(c[9 + 5] == 3 && c[9 + 6] == 1 && c[9 + 7] == 1); // boot keyboard
     MIMHID_CHECK(c[9 + 11] == 0x10 && c[9 + 12] == 0x01 && c[9 + 13] == 33);
+    // Packet sizes are taken as given, not rounded to a power of two.
+    MIMHID_CHECK(c[9 + 20] == 0x81 && c[9 + 22] == 6 && c[9 + 23] == 0);
+    MIMHID_CHECK(c[9 + 25 + 2] == 0x01 && c[9 + 25 + 4] == 5 && c[9 + 25 + 5] == 0);
     // Defaults the board does not accept for a non-Raw Spec.
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_node* bad = nullptr;
     MIMHID_CHECK(mimhid_node_open(device, kbd, &no, &bad) == MIMHID_ERR_UNSUPPORTED &&
                  bad == nullptr);
     mimhid_node_options broken = no;
-    broken.ep_in_size = 12;
+    broken.ep_in_size = 65;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_PARAM);
+    broken.ep_in_size = 64;
+    broken.ep_out_size = 65;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);

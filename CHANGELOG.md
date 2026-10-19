@@ -3,6 +3,11 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-19
+
+### Changed
+- **Endpoint packet sizes are free.** `ep_in_size` is any 1 to 64 and `ep_out_size` is 0 or any 1 to 64, written to the endpoint descriptor as given; they were limited to 8, 16, 32 and 64. A device that announces an endpoint of 6 bytes can now be copied exactly. The firmware's check changed too (`core.c`), so a board must be flashed again: an older firmware answers a size outside the old set with a refusal (`MIMHID_ERR_PARAM`, "The board refused the node's interface settings"). The wire protocol is unchanged.
+
 ## [1.0.1] - 2026-10-18
 
 Firmware and host library must both be this version: the wire protocol is version 3.

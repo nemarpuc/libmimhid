@@ -49,7 +49,7 @@ The host builds every report. The firmware does not know what a keyboard or a to
 
 ## Interface configuration
 
-In `libmimhid`, each node explicitly specifies its USB `interface_number` (0, 1, 2...) via `mimhid_node_options`. There is no automatic interface assignment. Each interface specifies `ep_in_size` (e.g. 64) and optional `ep_out_size` (0 for disabled, 8/16/32/64 for enabled) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
+In `libmimhid`, each node explicitly specifies its USB `interface_number` (0, 1, 2...) via `mimhid_node_options`. There is no automatic interface assignment. Each interface specifies `ep_in_size` (e.g. 64) and optional `ep_out_size` (0 for disabled, 1 to 64 for enabled) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
 
 ## Firmware
 

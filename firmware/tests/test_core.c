@@ -483,7 +483,7 @@ static void test_errors(void) {
     assert(device_config(0, "x") == 1);
     expect_nak(node_begin(9, 0, 4, 1, 0, 0, ""), MIMHID_NAK_PARAM);           // node id out of range
     expect_nak(node_begin(0, 0, 0, 1, 0, 0, ""), MIMHID_NAK_PARAM);           // empty descriptor
-    expect_nak(node_begin(0, 0, 4, 1, 7, 0, ""), MIMHID_NAK_PARAM);           // bad endpoint size
+    expect_nak(node_begin(0, 0, 4, 1, 65, 0, ""), MIMHID_NAK_PARAM);           // endpoint size above 64
     expect_nak(node_begin(0, 0, 4, 1, 0, 3, ""), MIMHID_NAK_PARAM);           // bad boot protocol
     expect_nak(node_begin(0, MIMHID_HID_ITFS, 4, 1, 0, 0, ""), MIMHID_NAK_OVERFLOW);
     expect_nak(node_begin(0, 0, MIMHID_MAX_DESC_BYTES + 1, 1, 0, 0, ""), MIMHID_NAK_OVERFLOW);

@@ -71,8 +71,8 @@ All 23 profile-layer entries (9 Spec factories and 14 mutation calls) are retain
 `mimhid_node_options` configures the USB interface that carries a node:
 - `interface_number`: explicit USB interface number (`0`, `1`, `2`...; required, no automatic allocation).
 - `poll_interval_ms`: polling interval in ms (1..255 ms, typical `1`).
-- `ep_in_size`: IN endpoint packet size (`8`, `16`, `32`, or `64`; typical `64`).
-- `ep_out_size`: OUT endpoint packet size (`0`: OUT disabled, `8`, `16`, `32`, `64`: OUT enabled).
+- `ep_in_size`: IN endpoint packet size (`1` to `64`; typical `64`).
+- `ep_out_size`: OUT endpoint packet size (`0`: OUT disabled, `1` to `64`: OUT enabled).
 - `boot_protocol`: `0`: None, `1`: Keyboard, `2`: Mouse.
 - `bcd_hid`: HID version (default `0x0111`).
 - `country_code`: country code (default `0`).

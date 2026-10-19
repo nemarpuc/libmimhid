@@ -37,7 +37,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 1
 #define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 1
+#define MIMHID_VERSION_PATCH 2
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
 #define MIMHID_PROTOCOL_VERSION 3
 
@@ -300,8 +300,8 @@ typedef struct mimhid_node_options {
     uint32_t struct_size;       /* sizeof(mimhid_node_options) */
     uint32_t interface_number;  /* 0, 1, 2... must be explicitly specified (no auto) */
     uint32_t poll_interval_ms;  /* polling interval in ms (1..255 ms, typical 1) */
-    uint32_t ep_in_size;        /* IN packet size (8, 16, 32, or 64; typical 64) */
-    uint32_t ep_out_size;       /* OUT packet size (0: OUT disabled, 8/16/32/64: OUT enabled) */
+    uint32_t ep_in_size;        /* IN packet size, 1 to 64 (typical 64) */
+    uint32_t ep_out_size;       /* OUT packet size (0: OUT disabled, 1 to 64: OUT enabled) */
     uint32_t boot_protocol;     /* 0: None, 1: Keyboard, 2: Mouse */
     uint16_t bcd_hid;           /* 0x0111 (HID 1.11) */
     uint8_t  country_code;      /* 0: Not Supported */
