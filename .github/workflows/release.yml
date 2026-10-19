@@ -168,7 +168,8 @@ jobs:
           set -euo pipefail
           for variant in shared static; do
             cmake -B "build_consumer_$variant" -S tools/release/consumer ${{ matrix.cmake_args }} \
-              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage-$variant" -DMIMHID_COMPONENT=$variant
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage-$variant" -DMIMHID_COMPONENT=$variant \
+              -DMIMHID_VERSION=${{ needs.verify.outputs.version }}
             cmake --build "build_consumer_$variant" --config Release
             if [ "${{ matrix.platform }}" = windows ]; then
               PATH="$PWD/stage-$variant/bin:$PATH" "build_consumer_$variant/Release/consumer.exe"
