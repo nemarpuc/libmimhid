@@ -1,10 +1,11 @@
 # Examples
 
-Both programs find a board with `mimhid_discover` (or connect directly via port path), open it, and build and run on Linux, macOS, and Windows (`-DMIMHID_BUILD_EXAMPLES=ON`).
+The programs find a board with `mimhid_discover` (or connect directly via port path), open it, and build and run on Linux, macOS, and Windows (`-DMIMHID_BUILD_EXAMPLES=ON`).
 
 | File | What it shows |
 |---|---|
 | [`examples/c/basic_keyboard_mouse.c`](../examples/c/basic_keyboard_mouse.c) | `mimhid_device_open` with port path and USB identity, a keyboard and a mouse Spec, explicit interface assignments, both nodes opened in one batch, commit, a key press, mouse motion, and a click. |
+| [`examples/c/control_transfers.c`](../examples/c/control_transfers.c) | Control transfers of the target: report every request, hold one by a rule, and answer it from the event sink. Runs for 10 s and types nothing. |
 | [`examples/cpp/multitouch_gesture.cpp`](../examples/cpp/multitouch_gesture.cpp) | A two-finger touchscreen Spec and a pinch-out gesture through the `mimhid::` forwarders. |
 
 ## Patterns
@@ -73,6 +74,22 @@ static void on_event(void* user, const mimhid_event* event) {
 ...
 options.event_sink = on_event;
 ```
+
+**Report the target's control transfers, and answer one**
+
+```c
+mimhid_control_rule rule = {0};
+rule.request_type_mask = 0xFF; rule.request_type_value = 0xC0; /* vendor, device to host */
+rule.request_mask = 0xFF;      rule.request_value = 0x42;
+rule.timeout_ms = 100;                        /* required: no default */
+rule.when_late = MIMHID_CONTROL_ACTION_STALL; /* required: what happens if no answer comes */
+mimhid_device_set_control_routing(device, 1 /* report every request */, &rule, 1);
+
+/* in event_sink, for MIMHID_EVENT_CONTROL_SETUP with MIMHID_CONTROL_FLAG_HELD: */
+mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER, data, length);
+```
+
+See [PROTOCOL.md](PROTOCOL.md#control-transfers) for what is held, the verdict of a host-to-device transfer, and the flags.
 
 **Keep the board on the bus after the program exits**
 

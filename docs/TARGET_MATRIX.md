@@ -18,6 +18,20 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 
 The portable firmware core is tested on the build host against a fake HAL for 7, 4, and 3 interfaces (`firmware/tests`), and together with the real host library through a pseudo-terminal (`tests/e2e`).
 
+## Control transfers (1.2.0)
+
+The control-transfer routing is the only part of the firmware that sits between TinyUSB and the USB controller, so its status is listed apart. "Logic" means the firmware core's host-side tests and the end-to-end test (a simulated TinyUSB around the same `control.c`), which run for every target; none of it has been run with a real USB host holding a request.
+
+| Board | Builds (wrap applied) | Run on a board |
+|---|---|---|
+| RP2040 | Yes | Verified with a Linux 7.2 host (libusb): every request reported (string and report descriptor reads, `SET_IDLE`); a held vendor read answered with data in 2.5 ms; an unrouted vendor read stalled. Rule timeout, host-to-device transfers and `LEAVE` not run on the board. |
+| RP2350 | Yes | No. |
+| STM32F4 | Yes | No. |
+| nRF52840 | Yes | No. |
+| ESP32-S3 | See the CI job `firmware-esp32s3` | No. |
+
+Not run anywhere: a high-speed endpoint 0, a host that gives up while a request is held, and Windows or macOS hosts.
+
 ## Host
 
 | OS | Status |

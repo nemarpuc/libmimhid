@@ -88,6 +88,17 @@ A USB device has one VID/PID, so those belong to the Device, not to a profile.
 
 `mimhid_node_set_feature_response` sets the answer to a Feature read of a Report ID. A touch Spec with `enable_contact_count_maximum_feature_declaration` is answered automatically. `mimhid_device_remote_wakeup` wakes a suspended target when `remote_wakeup` was enabled.
 
+## Control transfers of the target
+
+Two calls, both on the Device and both off until used (see [PROTOCOL.md](PROTOCOL.md#control-transfers) for the wire side):
+
+| Call | Does |
+|---|---|
+| `mimhid_device_set_control_routing(device, report_all, rules, count)` | Replaces the set: `report_all` 1 reports every request on endpoint 0 as `MIMHID_EVENT_CONTROL_SETUP`; each `mimhid_control_rule` (up to `MIMHID_CONTROL_MAX_RULES`, the board's `max_control_rules`) holds the requests it matches. `timeout_ms` and `when_late` have no default and zero is refused. |
+| `mimhid_device_control_reply(device, token, action, data, length)` | Answers a held request: `ANSWER` (data for a device-to-host request, an acknowledgement otherwise), `STALL`, or `LEAVE` (the board's own handling). Writes one frame and returns; callable from the event sink. |
+
+A held request that nobody answers within its rule's time gets the rule's `when_late` action. `MIMHID_EVENT_CONTROL_DATA` carries the data stage of a host-to-device request; the second reply is the verdict. SET_ADDRESS and SET_CONFIGURATION are reported and never held; a host-to-device data stage longer than `max_control_data_bytes` is reported with `MIMHID_CONTROL_FLAG_TOO_LONG` and never held. `mimhid_device_close` removes the rules. A complete program: [`examples/c/control_transfers.c`](../examples/c/control_transfers.c).
+
 ## Errors
 
 Calls return `mimhid_result`. `mimhid_last_error()` returns a thread-local `mimhid_error_detail` (field, reason, node id, Report ID, offsets) valid until the next call on the thread. A serial failure latches `MIMHID_ERR_NO_DEVICE`: afterwards every Device and Node call fails with it, and `mimhid_device_latched_error` reports it. Recovery is to close the Device and open it again.

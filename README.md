@@ -16,8 +16,9 @@ The C ABI and the C++ header follow [`libaoahid`](https://github.com/nemarpuc/li
 - **Profiles.** Keyboard, mouse, toggle (consumer, system, telephony, camera), gamepad, touchscreen, touchpad, pen, digitizer, and raw HID (`mimhid_node_open_raw`). Battery Strength can be added to the profiles that support it.
 - **Physical bus control.** `mimhid_device_connect()` and `mimhid_device_disconnect()` command physical D+=3.3V attachment or D+=0V stealth/silent disconnection at will. `mimhid_device_commit(device, delay_ms)` handles staged dynamic re-enumeration with a controlled disconnect window.
 - **Events from the target.** Output reports (keyboard LEDs), Feature reads, `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, and resume reach your callback. `mimhid_node_set_feature_response` answers Feature reads.
+- **Control transfers of the target.** Every request on endpoint 0 (descriptors, `GET_REPORT`, `SET_REPORT`, vendor requests) can be reported, and chosen ones answered from the program with data, an acknowledgement or a STALL: `mimhid_device_set_control_routing` takes up to 8 rules, each with a required time and a required action for when no answer comes. Off until asked; the board answers by itself as before.
 - **No input shaping.** The library does not smooth, pace, or randomize input.
-- **Low level.** Applications that need no profile helper can stay at the low level: `mimhid_discover`, `mimhid_device_open`, `mimhid_node_open_raw`, `mimhid_raw_submit` / `mimhid_report_send`, and `event_sink`. The 33 low-level calls and the 23 profile calls are listed by layer in [`docs/API.md`](docs/API.md); every call is documented in [`include/mimhid.h`](include/mimhid.h).
+- **Low level.** Applications that need no profile helper can stay at the low level: `mimhid_discover`, `mimhid_device_open`, `mimhid_node_open_raw`, `mimhid_raw_submit` / `mimhid_report_send`, and `event_sink`. The 35 low-level calls and the 23 profile calls are listed by layer in [`docs/API.md`](docs/API.md); every call is documented in [`include/mimhid.h`](include/mimhid.h).
 
 ## Status
 
@@ -140,6 +141,7 @@ Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md).
 | USB identity | fixed Google accessory ID | set in `mimhid_device_options` |
 | Physical bus control | handled by Android OS | `mimhid_device_connect()`, `mimhid_device_disconnect()`, `mimhid_device_commit()` |
 | Output of the target | AOA has none | `event_sink` |
+| Control transfers of the target | AOA has none | `mimhid_device_set_control_routing`, `mimhid_device_control_reply` |
 
 ## Releases
 
