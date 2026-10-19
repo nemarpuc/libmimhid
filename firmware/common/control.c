@@ -16,6 +16,14 @@
 #include "core.h"
 #include "hal.h"
 
+// Code that runs in the USB interrupt sits in RAM where the port asks for it. The host-side tests
+// set an RP2040 target, whose section name a Mach-O compiler refuses.
+#ifdef __APPLE__
+#define CONTROL_FAST
+#else
+#define CONTROL_FAST TU_ATTR_FAST_FUNC
+#endif
+
 // The root hub port the stack runs on (tusb_init() with no argument is port 0).
 #define RHPORT 0
 
@@ -106,14 +114,14 @@ void mimhid_control_set_single_context(bool single) {
 }
 
 // ---- rules ----
-TU_ATTR_FAST_FUNC static bool is_fixed(const tusb_control_request_t* r) {
+CONTROL_FAST static bool is_fixed(const tusb_control_request_t* r) {
     // These two change the board's own USB state, which TinyUSB and the controller keep.
     return r->bmRequestType_bit.type == TUSB_REQ_TYPE_STANDARD &&
            r->bmRequestType_bit.recipient == TUSB_REQ_RCPT_DEVICE &&
            (r->bRequest == TUSB_REQ_SET_ADDRESS || r->bRequest == TUSB_REQ_SET_CONFIGURATION);
 }
 
-TU_ATTR_FAST_FUNC static int match_rule(const tusb_control_request_t* r) {
+CONTROL_FAST static int match_rule(const tusb_control_request_t* r) {
     const uint8_t count = g_rule_count;
     for (uint8_t i = 0; i < count; i++) {
         const rule_t* q = &g_rule[i];
@@ -172,7 +180,7 @@ uint8_t mimhid_control_config(const uint8_t* p, uint16_t len) {
 }
 
 // ---- the interrupt side ----
-TU_ATTR_FAST_FUNC static void note_push(uint8_t token, uint8_t flags, const tusb_control_request_t* r) {
+CONTROL_FAST static void note_push(uint8_t token, uint8_t flags, const tusb_control_request_t* r) {
     note_t* n = &g_note[g_note_head];
     n->token = token;
     n->flags = flags;
@@ -180,17 +188,17 @@ TU_ATTR_FAST_FUNC static void note_push(uint8_t token, uint8_t flags, const tusb
     __atomic_store_n(&g_note_head, (uint8_t)((g_note_head + 1) & NOTE_MASK), __ATOMIC_RELEASE);
 }
 
-TU_ATTR_FAST_FUNC static bool note_room(void) {
+CONTROL_FAST static bool note_room(void) {
     return ((g_note_head + 1) & NOTE_MASK) != __atomic_load_n(&g_note_tail, __ATOMIC_ACQUIRE);
 }
 
-TU_ATTR_FAST_FUNC static void drop_held(void) {
+CONTROL_FAST static void drop_held(void) {
     g_hold.state = HOLD_IDLE;
     g_expect = 0;
     g_answer.armed = false;
 }
 
-TU_ATTR_FAST_FUNC void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
+CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
     if (event->event_id != DCD_EVENT_SETUP_RECEIVED) {
         // The host has left or reset the bus: whatever it asked is void.
         if (event->event_id == DCD_EVENT_BUS_RESET || event->event_id == DCD_EVENT_UNPLUGGED ||
