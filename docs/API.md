@@ -84,6 +84,8 @@ A USB device has one VID/PID, so those belong to the Device, not to a profile.
 
 `event_sink` receives, on the library's reader thread: `MOUNTED`, `UNMOUNTED`, `SUSPEND`, `RESUME`, `OUTPUT_REPORT` and `FEATURE_REPORT` (the target wrote a report; Report ID separate from the data), `SET_PROTOCOL`, and `SET_IDLE`. The callback must be short, must not call libmimhid, and must copy data it keeps.
 
+`CONTROL_SETUP` and `CONTROL_DATA` events (with `control_token` and `control_flags`) come from [control transfers](PROTOCOL.md#control-transfers), which are off until `mimhid_device_set_control_routing` turns them on. `mimhid_device_control_reply` may be called from the event sink (it only writes a frame), which is the way to answer inside a short rule time.
+
 `mimhid_node_set_feature_response` sets the answer to a Feature read of a Report ID. A touch Spec with `enable_contact_count_maximum_feature_declaration` is answered automatically. `mimhid_device_remote_wakeup` wakes a suspended target when `remote_wakeup` was enabled.
 
 ## Errors

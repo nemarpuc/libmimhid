@@ -3,6 +3,32 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-19
+
+Firmware and host library must both be this version: the wire protocol is version 5 (the PONG grew by three bytes).
+
+### Added
+- **Control transfers of the target.** Everything the target sends on endpoint 0 (descriptor reads, class and vendor requests, `GET_REPORT`, `SET_REPORT`, feature selectors) can be reported, and the answer to chosen requests can come from the program. `mimhid_device_set_control_routing` sets up to 8 rules (a mask and value for `bmRequestType`, `bRequest`, `wValue`, `wIndex`; a time; what to do when the time runs out) and whether every transfer is reported. `MIMHID_EVENT_CONTROL_SETUP` carries the setup packet, a token and flags; `mimhid_device_control_reply` answers the held transfer with data, an acknowledgement, a stall, or leaves it to the board's own handling. A host-to-device transfer with a data stage reports the data (`MIMHID_EVENT_CONTROL_DATA`) and waits for a verdict. Nothing changes until the program asks: with no rule and no report flag every request goes to TinyUSB as before. Rules and times have no defaults; `mimhid_device_close` removes the rules.
+- `mimhid_board_limits` gains `max_control_data_bytes` and `max_control_rules`; `mimhid_event` gains `control_token` and `control_flags`.
+- SET_ADDRESS and SET_CONFIGURATION are reported and never held: they change the state of the board's own USB controller. A host-to-device data stage longer than `max_control_data_bytes` is reported as too long and never held.
+
+### Changed
+- **Every firmware port links with `-Wl,--wrap=dcd_event_handler`** and compiles `common/control.c` (the RP2040, RP2350, STM32F4 and nRF52840 projects and the ESP32-S3 component do). The firmware takes the setup packet where TinyUSB receives it, and a held request is handed to TinyUSB later, either unchanged or retyped as a vendor request that `tud_vendor_control_xfer_cb` answers; TinyUSB's control state machine is not replaced. A port with its own `tud_vendor_control_xfer_cb` conflicts with it.
+- The PONG carries `max_control_data_bytes` and `max_control_rules`; the unique id moved to byte 27.
+
+## [1.1.0] - 2026-10-19
+
+Firmware and host library must both be this version: the wire protocol is version 4. A board on protocol 3 is listed by `mimhid_discover` with its version, to be flashed again, and refused by `mimhid_device_open` with `MIMHID_ERR_PROTOCOL`.
+
+### Added
+- **The board's limits are its own and are reported.** The PONG carries `max_report_bytes`, `max_feature_bytes`, `max_endpoint_bytes` and `max_frame_payload` as two-byte values. New `mimhid_board_limits` and `mimhid_device_limits()` read them. A firmware is built with the largest the chip can hold: a Feature answer of up to 1024 bytes (it was 32), so a Feature report of 644 bytes can be answered; endpoint packets and reports of 1024 bytes on a high-speed chip (64 on the full-speed chips of today, untried on high speed for want of a board).
+- **Frames longer than 127 bytes.** `LEN` takes a second byte; a shorter frame is the frame of protocol 3.
+
+### Changed
+- `NODE_BEGIN` carries both endpoint sizes as two bytes. The OUT report event carries a two-byte length.
+- `mimhid_node_open`/`_open_raw` check `ep_in_size` and `ep_out_size` against the board's `max_endpoint_bytes` (`MIMHID_ERR_OVERFLOW`); `mimhid_node_set_feature_response` against its `max_feature_bytes`.
+- `mimhid_device_info.max_report_bytes` stays a byte and saturates at 255; use `mimhid_device_limits` for the exact figure.
+
 ## [1.0.2] - 2026-10-19
 
 ### Changed

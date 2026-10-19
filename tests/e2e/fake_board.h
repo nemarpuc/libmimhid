@@ -15,8 +15,8 @@ extern "C" {
 
 typedef struct {
     uint8_t iface;
-    uint8_t length;
-    uint8_t data[64];
+    uint16_t length;
+    uint8_t data[1024];
 } fake_report_t;
 
 // Starts the board thread on a descriptor (the pty master). hid_interfaces is what the firmware
@@ -46,6 +46,27 @@ void fake_board_target_resume(void);
 void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol);
 void fake_board_target_set_idle(uint8_t iface, uint8_t rate);
 void fake_board_set_mount_delay_ms(unsigned ms);
+
+// Control transfers. The target sends a request on endpoint 0; the board's wrapper of the stack's
+// event handler sees it first, and what reaches the stack is played out here the way the stack
+// would act: a vendor request goes to tud_vendor_control_xfer_cb, any other is left to the stack.
+enum {
+    FAKE_CONTROL_LEFT = 1,     // handed to the stack as it came
+    FAKE_CONTROL_ANSWERED = 2, // a data stage (device to host) was sent
+    FAKE_CONTROL_ACKED = 3,    // the transfer completed, with its data stage (host to device) taken
+    FAKE_CONTROL_STALLED = 4
+};
+typedef struct {
+    int outcome;
+    uint8_t setup[8]; // as the stack got it (a retyped request has the vendor type)
+    uint8_t data[1100];
+    size_t length;    // what was sent to the target, or what the board took from it
+} fake_control_result_t;
+
+// Runs on the board thread; out_data is the data stage of a host-to-device request.
+void fake_board_target_control(const uint8_t setup[8], const uint8_t* out_data, size_t out_length);
+// The next outcome; returns 1, or 0 on timeout.
+int fake_board_wait_control(fake_control_result_t* out, uint32_t timeout_ms);
 
 // The line: bytes pass only while the host's port and the board run at the same rate. A port
 // set above the adapter's limit sends at the limit, as adapters that round silently do (0: no

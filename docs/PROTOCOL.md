@@ -1,4 +1,4 @@
-# Wire protocol (version 3)
+# Wire protocol (version 5)
 
 The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which both the host library and the firmware include. This page describes how they are used. The link is UART, 8N1. A board starts at 115,200 baud; the host then agrees a faster rate with it (see [Line rate](#line-rate)).
 
@@ -8,31 +8,34 @@ The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which b
 A5  TYPE  LEN  payload[LEN]  XOR
 ```
 
-`XOR` is `TYPE ^ LEN ^` every payload byte. A frame with a bad checksum or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
+`LEN` is one byte for a payload shorter than 128 bytes. Longer, it is two: `0x80 | (LEN & 0x7F)`, then `LEN >> 7`. `XOR` is `TYPE ^` every `LEN` byte `^` every payload byte. A frame shorter than 128 bytes is byte for byte the frame of protocol 3, so a board still on protocol 3 answers a `PING` and the host can tell which protocol it speaks. A frame with a bad checksum or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
 
 | Range | Direction | Meaning |
 |---|---|---|
 | `0x01` | host to board | `PING`. Payload: the host's protocol version. No sequence number. |
-| `0x10`..`0x17` | host to board | Commands. The payload starts with a sequence number. |
+| `0x10`..`0x19` | host to board | Commands. The payload starts with a sequence number. |
 | `0x40`..`0x4F` | host to board | Report for node `TYPE & 0x0F`. Payload: the report exactly as the target receives it, Report ID included. No acknowledgement. |
 | `0x81` | board to host | `PONG` |
 | `0x82` / `0x83` | board to host | `ACK` (`seq, type`) / `NAK` (`seq, type, code`) |
 | `0x84` | board to host | `EVENT` (`kind, ...`) |
 
-Report payloads are at most 64 bytes. Other payloads are at most 255 bytes.
+A report payload is at most the board's `max_report_bytes`. Other payloads are at most the board's `max_frame_payload`, never below 255 (so every configuration command fits) and never above `MIMHID_PROTO_MAX_PAYLOAD` (4096). The board says both in its PONG.
 
 ## Commands
 
 | Type | Name | Payload after the sequence number |
 |---|---|---|
 | `0x10` | `DEVICE_CONFIG` | USB identity and power; starts a new staged configuration and clears every staged node |
-| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length, poll interval, endpoint size, `bcdHID`, country, boot protocol, interface string. A repeated begin for a node that has not changed is acknowledged again. |
+| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length, poll interval, IN and OUT endpoint sizes (two bytes each), `bcdHID`, country, boot protocol, interface string. A repeated begin for a node that has not changed is acknowledged again. |
 | `0x12` | `NODE_DATA` | node id, offset, up to 240 descriptor bytes |
 | `0x13` | `COMMIT` | apply the staged configuration. Reconnect delay in payload. With payload byte `1`: detach from the bus and forget the configuration |
-| `0x14` | `FEATURE` | node id, Report ID, up to 32 bytes returned for a Feature `GET_REPORT`; takes effect at once, also on a running configuration |
+| `0x14` | `FEATURE` | node id, Report ID, up to `max_feature_bytes` returned for a Feature `GET_REPORT`; takes effect at once, also on a running configuration |
 | `0x15` | `RESET` | drop every queued report |
 | `0x16` | `REMOTE_WAKEUP` | signal remote wakeup (NAK `STATE` when the target has not suspended the device) |
 | `0x17` | `SET_BAUD` | index of a line rate (see [Line rate](#line-rate)); NAK `PARAM` for a rate the board cannot make. Handled on the receive side, like `PING` |
+
+| `0x18` | `CONTROL_CONFIG` | which control transfers of the target are reported and which are held (see [Control transfers](#control-transfers)) |
+| `0x19` | `CONTROL_REPLY` | the answer to a held control transfer. Handled on the receive side, like `PING` and `SET_BAUD`; the host does not wait for its acknowledgement |
 
 Field layouts of `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA` are in the header comment.
 
@@ -54,14 +57,16 @@ The caller explicitly assigns each node to a USB interface index (`interface_num
 
 ```
 0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 protocol_version
-5 max_nodes  6 max_interfaces  7 max_report_bytes
-8..9 max_descriptor_bytes (little endian)  10 flags (bit 0: chip unique id available)
-11 chip  12 usb speed (0 full, 1 high)  13 index of the line rate the board is on
-14..15 rates the board can make (little endian; bit i: rate i)
-16 unique id length n (0..16)  17.. the chip's unique id, n bytes
+5 max_nodes  6 max_interfaces  7 flags (bit 0: chip unique id available)
+8 chip  9 usb speed (0 full, 1 high)  10 index of the line rate the board is on
+11..12 rates the board can make (little endian; bit i: rate i)
+13..14 max_descriptor_bytes  15..16 max_report_bytes  17..18 max_feature_bytes
+19..20 max_endpoint_bytes  21..22 max_frame_payload      (all little endian)
+23..24 max_control_data_bytes  25 max_control_rules
+26 unique id length n (0..16)  27.. the chip's unique id, n bytes
 ```
 
-The length is 17 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
+The length is 27 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
 
 The first five bytes keep their place in every version. The host reads them from any board, lists a board on another `protocol_version` in `mimhid_discover` with only those values, and refuses to open it with `MIMHID_ERR_PROTOCOL`. Version 2 (libmimhid 0.1) answered at 3,000,000 baud (1,000,000 on nRF52840); the search finds it there.
 
@@ -99,8 +104,30 @@ The host never trusts a rate it has not seen work, because a USB serial adapter 
 | `SET_REPORT` | interface, report type, Report ID, bytes |
 | `SET_PROTOCOL` | interface, protocol (0 boot, 1 report) |
 | `SET_IDLE` | interface, idle rate |
+| `CONTROL_SETUP` | token, flags, the 8 setup bytes (see [Control transfers](#control-transfers)) |
+| `CONTROL_DATA` | token, the data stage of a host-to-device transfer |
 
 The host maps the interface to the node and delivers `mimhid_event` on its reader thread.
+
+## Control transfers
+
+Besides the reports, the target talks to the board on endpoint 0. Without configuration the board answers it all itself (TinyUSB does, and the HID class driver for the report requests). `CONTROL_CONFIG` changes that, for as long as the host wants:
+
+```
+flags (bit 0: report every control transfer)  rule count n (0..max_control_rules)
+n rules of 15 bytes: bmRequestType mask, value  bRequest mask, value  wValue mask, value (2+2)
+                     wIndex mask, value (2+2)  timeout in ms (2)  action after the timeout
+```
+
+A request matches a rule when each field ANDed with the mask equals the value; the first matching rule holds the request. The set replaces the previous one, the board starts with none, a timeout of 0 or above `MIMHID_CONTROL_TIMEOUT_MAX` (4000), an unknown action, or a value with bits outside its mask is refused with `PARAM`.
+
+**How it is done.** The board wraps TinyUSB's `dcd_event_handler`, which every controller driver calls with the setup packet in the USB interrupt (`-Wl,--wrap=dcd_event_handler`). A request that matches a rule is not passed on; the USB side reports it (`EVENT CONTROL_SETUP`: token, flags, the 8 bytes) and waits. When the answer comes, or the time runs out, the request is given to TinyUSB: unchanged for `LEAVE` (the board's own handling), or with the type bits of `bmRequestType` set to vendor for `ANSWER` and `STALL`, which `tud_vendor_control_xfer_cb` then serves from the host's data (or stalls). The control endpoint's data and status stages therefore run in TinyUSB as for any request, and the controller NAKs until they start.
+
+`CONTROL_REPLY` carries the token, the action (0 leave, 1 answer, 2 stall) and, for an answer to a device-to-host request, the data stage (cut to `wLength`). It is acknowledged when the board still waits for that token; `NAK STATE` says it does not (late, or the target gave up and sent another request). For a host-to-device request with a data stage, an `ANSWER` lets the data stage happen; the board then sends `CONTROL_DATA` with the bytes and waits, within the same time, for a second `CONTROL_REPLY` that is the verdict: `ANSWER` or `LEAVE` acknowledges, `STALL` stalls, and the rule's action applies when none comes. The USB side of the firmware is busy during that wait; reports queue and go out after it.
+
+Event flags: `0x01` held, `0x02` a host-to-device data stage longer than `max_control_data_bytes` (reported, never held), `0x04` SET_ADDRESS or SET_CONFIGURATION (reported, never held: they change the state of the board's own controller), `0x08` earlier transfers were not reported because the board's queue of 7 was full. Tokens run 1..255. A new request, a bus reset, a suspend and a `COMMIT` end a hold.
+
+Limits of what this reaches: the board sees only the setup packet of a transfer it does not hold; the data stage of one it leaves to TinyUSB is not reported.
 
 ## Wire time
 

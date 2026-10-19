@@ -3,6 +3,7 @@
 #include <string.h>
 #include "tusb.h"
 #include "config.h"
+#include "control.h"
 #include "core.h"
 #include "hal.h"
 
@@ -10,13 +11,17 @@
 // Report queues: one per USB interface (RX context produces, USB context consumes)
 // -------------------------------------------------------------
 #ifndef MIMHID_QUEUE_DEPTH
+#if MIMHID_MAX_REPORT_BYTES <= 64
 #define MIMHID_QUEUE_DEPTH 16
+#else
+#define MIMHID_QUEUE_DEPTH 8 // a report may be 1024 bytes
+#endif
 #endif
 #define MIMHID_QUEUE_MASK (MIMHID_QUEUE_DEPTH - 1)
 _Static_assert((MIMHID_QUEUE_DEPTH & MIMHID_QUEUE_MASK) == 0, "MIMHID_QUEUE_DEPTH must be a power of two");
 
 typedef struct {
-    uint8_t len;
+    uint16_t len;
     uint8_t data[MIMHID_MAX_REPORT_BYTES];
 } report_t;
 
@@ -52,26 +57,44 @@ static void queue_flush_all(void) {
 // -------------------------------------------------------------
 // Frames to the host
 // -------------------------------------------------------------
-static void send_frame(uint8_t type, const uint8_t* payload, uint8_t len) {
-    uint8_t frame[4 + MIMHID_MAX_FRAME_PAYLOAD];
-    uint8_t x = (uint8_t)(type ^ len);
-    frame[0] = MIMHID_SYNC;
-    frame[1] = type;
-    frame[2] = len;
-    for (uint8_t i = 0; i < len; i++) {
-        frame[3 + i] = payload[i];
+// A frame longer than 127 bytes is only ever sent from the USB side (events), so one buffer
+// serves them all; short frames use the stack of whichever side sends them.
+static uint8_t g_tx_long[5 + MIMHID_MAX_FRAME_PAYLOAD];
+
+static void send_frame(uint8_t type, const uint8_t* payload, uint16_t len) {
+    uint8_t shortbuf[5 + 127];
+    uint8_t* frame = len < 0x80 ? shortbuf : g_tx_long;
+    size_t n = 0;
+    uint8_t x = type;
+    frame[n++] = MIMHID_SYNC;
+    frame[n++] = type;
+    if (len < 0x80) {
+        frame[n++] = (uint8_t)len;
+        x ^= (uint8_t)len;
+    } else {
+        const uint8_t low = (uint8_t)(0x80 | (len & 0x7F));
+        const uint8_t high = (uint8_t)(len >> 7);
+        frame[n++] = low;
+        frame[n++] = high;
+        x ^= low;
+        x ^= high;
+    }
+    for (uint16_t i = 0; i < len; i++) {
+        frame[n++] = payload[i];
         x ^= payload[i];
     }
-    frame[3 + len] = x;
-    hal_uart_write(frame, (size_t)len + 4u);
+    frame[n++] = x;
+    hal_uart_write(frame, n);
 }
 
-static void send_event(uint8_t kind, const uint8_t* data, uint8_t len) {
-    uint8_t payload[1 + MIMHID_MAX_REPORT_BYTES + 8];
-    if (len > sizeof(payload) - 1) len = (uint8_t)(sizeof(payload) - 1);
-    payload[0] = kind;
-    if (len && data) memcpy(&payload[1], data, len);
-    send_frame(MIMHID_T_EVENT, payload, (uint8_t)(1 + len));
+static uint8_t g_event[1 + MIMHID_MAX_FRAME_PAYLOAD - 1];
+
+// USB side only.
+void mimhid_send_event(uint8_t kind, const uint8_t* data, uint16_t len) {
+    if (len > sizeof(g_event) - 1) len = (uint16_t)(sizeof(g_event) - 1);
+    g_event[0] = kind;
+    if (len && data) memcpy(&g_event[1], data, len);
+    send_frame(MIMHID_T_EVENT, g_event, (uint16_t)(1 + len));
 }
 
 static void send_ack(uint8_t seq, uint8_t type) {
@@ -92,7 +115,7 @@ static void send_nak(uint8_t seq, uint8_t type, uint8_t code) {
 
 typedef struct {
     uint8_t type;
-    uint8_t len;
+    uint16_t len;
     uint8_t data[MIMHID_MAX_FRAME_PAYLOAD];
 } command_t;
 
@@ -100,7 +123,7 @@ static command_t g_cmd[CMD_SLOTS];
 static volatile uint32_t g_cmd_head = 0;
 static volatile uint32_t g_cmd_tail = 0;
 
-static bool cmd_push(uint8_t type, const uint8_t* data, uint8_t len) {
+static bool cmd_push(uint8_t type, const uint8_t* data, uint16_t len) {
     uint32_t h = g_cmd_head;
     uint32_t n = (h + 1) & CMD_MASK;
     if (n == __atomic_load_n(&g_cmd_tail, __ATOMIC_ACQUIRE)) return false;
@@ -114,7 +137,14 @@ static bool cmd_push(uint8_t type, const uint8_t* data, uint8_t len) {
 // -------------------------------------------------------------
 // RX parser
 // -------------------------------------------------------------
+// Room for a few of the longest frames the board accepts; a power of two.
+#if MIMHID_MAX_FRAME_PAYLOAD <= 250
 #define RX_SIZE 1024
+#elif MIMHID_MAX_FRAME_PAYLOAD <= 1500
+#define RX_SIZE 4096
+#else
+#define RX_SIZE 8192
+#endif
 #define RX_MASK (RX_SIZE - 1)
 
 static uint8_t  g_rx[RX_SIZE];
@@ -151,7 +181,7 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_SET_BAUD);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_CONTROL_REPLY);
 }
 
 static void set_baud_index(uint8_t index) {
@@ -162,7 +192,7 @@ static void set_baud_index(uint8_t index) {
 }
 
 // Runs on the receive side: the ACK has to leave at the old rate before the switch.
-static void cmd_set_baud(const uint8_t* data, uint8_t len) {
+static void cmd_set_baud(const uint8_t* data, uint16_t len) {
     const uint8_t seq = data[0];
     if (len != 2 || data[1] >= MIMHID_BAUD_COUNT || !(g_baud_mask & (1u << data[1]))) {
         send_nak(seq, MIMHID_T_SET_BAUD, MIMHID_NAK_PARAM);
@@ -181,23 +211,36 @@ static void send_pong(void) {
     p[4] = MIMHID_PROTO_VERSION;
     p[5] = MIMHID_MAX_NODES;
     p[6] = MIMHID_HID_ITFS;
-    p[7] = MIMHID_MAX_REPORT_BYTES;
-    p[8] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
-    p[9] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
-    p[10] = g_unique_id_len ? MIMHID_PONG_FLAG_UNIQUE_ID : 0;
-    p[11] = hal_chip();
+    p[7] = g_unique_id_len ? MIMHID_PONG_FLAG_UNIQUE_ID : 0;
+    p[8] = hal_chip();
 #if TUD_OPT_HIGH_SPEED
-    p[12] = 1;
+    p[9] = 1;
 #else
-    p[12] = 0;
+    p[9] = 0;
 #endif
-    p[13] = g_baud_index;
-    p[14] = (uint8_t)(g_baud_mask & 0xFF);
-    p[15] = (uint8_t)(g_baud_mask >> 8);
-    p[16] = g_unique_id_len;
-    memcpy(&p[17], g_unique_id, g_unique_id_len);
-    send_frame(MIMHID_T_PONG, p, (uint8_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
+    p[10] = g_baud_index;
+    p[11] = (uint8_t)(g_baud_mask & 0xFF);
+    p[12] = (uint8_t)(g_baud_mask >> 8);
+    p[13] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
+    p[14] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
+    p[15] = (uint8_t)(MIMHID_MAX_REPORT_BYTES & 0xFF);
+    p[16] = (uint8_t)(MIMHID_MAX_REPORT_BYTES >> 8);
+    p[17] = (uint8_t)(MIMHID_FEATURE_MAX & 0xFF);
+    p[18] = (uint8_t)(MIMHID_FEATURE_MAX >> 8);
+    p[19] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES & 0xFF);
+    p[20] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES >> 8);
+    p[21] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD & 0xFF);
+    p[22] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD >> 8);
+    p[23] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
+    p[24] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
+    p[25] = MIMHID_CONTROL_RULES;
+    p[26] = g_unique_id_len;
+    memcpy(&p[27], g_unique_id, g_unique_id_len);
+    send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
+
+// The command frame being read; used by the receive side only.
+static uint8_t g_rx_cmd[MIMHID_MAX_FRAME_PAYLOAD];
 
 // Handles at most one frame or skips one byte. Returns false when more input is needed.
 // A frame that fails validation is skipped one byte at a time so the parser
@@ -214,7 +257,16 @@ static bool rx_step(void) {
     if (available < 3) return false;
 
     const uint8_t type = g_rx[(read_idx + 1) & RX_MASK];
-    const uint8_t len = g_rx[(read_idx + 2) & RX_MASK];
+    const uint8_t len_low = g_rx[(read_idx + 2) & RX_MASK];
+    uint8_t len_high = 0;
+    uint32_t header = 3;
+    uint16_t len = len_low;
+    if (len_low & 0x80) {
+        if (available < 4) return false;
+        len_high = g_rx[(read_idx + 3) & RX_MASK];
+        len = (uint16_t)((len_low & 0x7F) | ((uint16_t)len_high << 7));
+        header = 4;
+    }
     const bool is_report = type >= MIMHID_T_REPORT_BASE && type <= MIMHID_T_REPORT_LAST;
 
     // Reject unknown types and impossible lengths before waiting for the payload.
@@ -222,14 +274,17 @@ static bool rx_step(void) {
         g_rd = (read_idx + 1) & RX_MASK;
         return true;
     }
-    if (is_report ? (len == 0 || len > MIMHID_MAX_REPORT_BYTES) : (type == MIMHID_T_PING ? len != 1 : len < 1)) {
+    if (is_report ? (len == 0 || len > MIMHID_MAX_REPORT_BYTES)
+                  : (type == MIMHID_T_PING ? len != 1 : (len < 1 || len > MIMHID_MAX_FRAME_PAYLOAD))) {
         g_rd = (read_idx + 1) & RX_MASK;
         return true;
     }
 
-    const uint32_t total = 4u + len;
+    const uint32_t total = header + len + 1u;
     if (available < total) return false;
 
+    uint8_t x = (uint8_t)(type ^ len_low ^ len_high);
+    const uint32_t body = read_idx + header;
     if (is_report) {
         uint8_t node = (uint8_t)(type & 0x0F);
         uint8_t iface = mimhid_active_node_interface(node);
@@ -244,13 +299,12 @@ static bool rx_step(void) {
                 dst = q->items[h].data;
             }
         }
-        uint8_t x = (uint8_t)(type ^ len);
-        for (uint8_t i = 0; i < len; i++) {
-            uint8_t b = g_rx[(read_idx + 3 + i) & RX_MASK];
+        for (uint16_t i = 0; i < len; i++) {
+            uint8_t b = g_rx[(body + i) & RX_MASK];
             if (dst != NULL) dst[i] = b;
             x ^= b;
         }
-        if (x != g_rx[(read_idx + 3 + len) & RX_MASK]) {
+        if (x != g_rx[(body + len) & RX_MASK]) {
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
@@ -260,14 +314,12 @@ static bool rx_step(void) {
             __atomic_store_n(&q->head, next_h, __ATOMIC_RELEASE);
         }
     } else {
-        uint8_t buf[MIMHID_MAX_FRAME_PAYLOAD];
-        uint8_t x = (uint8_t)(type ^ len);
-        for (uint8_t i = 0; i < len; i++) {
-            uint8_t b = g_rx[(read_idx + 3 + i) & RX_MASK];
-            buf[i] = b;
+        for (uint16_t i = 0; i < len; i++) {
+            uint8_t b = g_rx[(body + i) & RX_MASK];
+            g_rx_cmd[i] = b;
             x ^= b;
         }
-        if (x != g_rx[(read_idx + 3 + len) & RX_MASK]) {
+        if (x != g_rx[(body + len) & RX_MASK]) {
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
@@ -276,9 +328,14 @@ static bool rx_step(void) {
         if (type == MIMHID_T_PING) {
             send_pong();
         } else if (type == MIMHID_T_SET_BAUD) {
-            cmd_set_baud(buf, len);
+            cmd_set_baud(g_rx_cmd, len);
+        } else if (type == MIMHID_T_CONTROL_REPLY) {
+            // The USB side may be waiting in a TinyUSB callback, so the reply is taken here.
+            const uint8_t code = mimhid_control_reply(&g_rx_cmd[1], (uint16_t)(len - 1));
+            if (code) send_nak(g_rx_cmd[0], type, code);
+            else send_ack(g_rx_cmd[0], type);
         } else {
-            cmd_push(type, buf, len); // a full mailbox drops the frame; the host retries on no ACK
+            cmd_push(type, g_rx_cmd, len); // a full mailbox drops the frame; the host retries on no ACK
         }
         return true;
     }
@@ -306,20 +363,20 @@ void mimhid_rx_poll(void) {
 // -------------------------------------------------------------
 static mimhid_config_t g_staged;
 
-static bool read_string(char* dst, const uint8_t* p, uint8_t len, uint8_t* pos) {
+static bool read_string(char* dst, const uint8_t* p, uint16_t len, uint16_t* pos) {
     if (*pos >= len) return false;
     uint8_t n = p[*pos];
     if (n > MIMHID_STRING_MAX || (uint32_t)*pos + 1u + n > len) return false;
     memcpy(dst, &p[*pos + 1], n);
     dst[n] = '\0';
-    *pos = (uint8_t)(*pos + 1 + n);
+    *pos = (uint16_t)(*pos + 1 + n);
     return true;
 }
 
 static void cmd_device_config(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
-    const uint8_t len = (uint8_t)(c->len - 1);
+    const uint16_t len = (uint16_t)(c->len - 1);
     if (len < 13 + 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     memset(&g_staged, 0, sizeof(g_staged));
@@ -333,7 +390,7 @@ static void cmd_device_config(const command_t* c) {
     d->language_id = (uint16_t)(p[9] | (p[10] << 8));
     d->flags = p[11];
     d->max_power = p[12];
-    uint8_t pos = 13;
+    uint16_t pos = 13;
     if (!read_string(d->manufacturer, p, len, &pos) || !read_string(d->product, p, len, &pos) ||
         !read_string(d->serial, p, len, &pos) || !read_string(d->configuration, p, len, &pos)) {
         g_staged.valid = false;
@@ -347,25 +404,16 @@ static void cmd_device_config(const command_t* c) {
 static void cmd_node_begin(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
-    const uint8_t len = (uint8_t)(c->len - 1);
+    const uint16_t len = (uint16_t)(c->len - 1);
     if (!g_staged.valid) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
-    if (len < 13) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (len < 16) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     const uint8_t id = p[0];
     const uint16_t desc_len = (uint16_t)(p[2] | (p[3] << 8));
-    const uint8_t ep_size = p[5];
-    if (id >= MIMHID_MAX_NODES || desc_len == 0 || p[9] > 2 ||
-        ep_size > 64) {
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
-        return;
-    }
-
-    uint8_t ep_out_size = 0;
-    uint8_t pos = 12;
-    if (len >= 14 && p[12] <= 64 && ((uint32_t)14 + p[13] <= len)) {
-        ep_out_size = p[12];
-        pos = 13;
-    } else if (len >= 14 && (uint32_t)14 + p[13] <= len) {
+    const uint16_t ep_size = (uint16_t)(p[5] | (p[6] << 8));
+    const uint16_t ep_out_size = (uint16_t)(p[13] | (p[14] << 8));
+    if (id >= MIMHID_MAX_NODES || desc_len == 0 || p[10] > 2 ||
+        ep_size > MIMHID_MAX_ENDPOINT_BYTES || ep_out_size > MIMHID_MAX_ENDPOINT_BYTES) {
         send_nak(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
@@ -392,9 +440,10 @@ static void cmd_node_begin(const command_t* c) {
     n->poll_interval = p[4];
     n->ep_size = ep_size;
     n->ep_out_size = ep_out_size;
-    n->bcd_hid = (uint16_t)(p[6] | (p[7] << 8));
-    n->country = p[8];
-    n->boot_protocol = p[9];
+    n->bcd_hid = (uint16_t)(p[7] | (p[8] << 8));
+    n->country = p[9];
+    n->boot_protocol = p[10];
+    uint16_t pos = 15;
     if (!read_string(n->interface_string, p, len, &pos)) {
         n->used = false;
         send_nak(seq, c->type, MIMHID_NAK_PARAM);
@@ -408,11 +457,11 @@ static void cmd_node_begin(const command_t* c) {
 static void cmd_node_data(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
-    const uint8_t len = (uint8_t)(c->len - 1);
+    const uint16_t len = (uint16_t)(c->len - 1);
     if (len < 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
     const uint8_t id = p[0];
     const uint16_t off = (uint16_t)(p[1] | (p[2] << 8));
-    const uint8_t n = (uint8_t)(len - 3);
+    const uint16_t n = (uint16_t)(len - 3);
     if (id >= MIMHID_MAX_NODES || !g_staged.node[id].used) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
     mimhid_node_cfg_t* node = &g_staged.node[id];
     if ((uint32_t)off + n > node->desc_len || off > node->desc_recv) {
@@ -427,7 +476,7 @@ static void cmd_node_data(const command_t* c) {
 static void cmd_feature(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
-    const uint8_t len = (uint8_t)(c->len - 1);
+    const uint16_t len = (uint16_t)(c->len - 1);
     if (len < 2 || len - 2 > MIMHID_FEATURE_MAX) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
     if (p[0] >= MIMHID_MAX_NODES || !g_staged.node[p[0]].used) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
     mimhid_feature_t* slot = NULL;
@@ -440,7 +489,7 @@ static void cmd_feature(const command_t* c) {
     slot->used = true;
     slot->node = p[0];
     slot->report_id = p[1];
-    slot->len = (uint8_t)(len - 2);
+    slot->len = (uint16_t)(len - 2);
     memcpy(slot->data, &p[2], slot->len);
     mimhid_active_set_feature(p[0], p[1], slot->data, slot->len); // takes effect without a COMMIT
     send_ack(seq, c->type);
@@ -452,6 +501,7 @@ static void cmd_commit(const command_t* c) {
         // Detach: leave the target's bus and forget the active configuration.
         tud_disconnect();
         queue_flush_all();
+        mimhid_control_clear();
         mimhid_clear_config();
         send_ack(seq, c->type);
         return;
@@ -461,6 +511,7 @@ static void cmd_commit(const command_t* c) {
         return;
     }
     queue_flush_all();
+    mimhid_control_clear();
     tud_connect();
     send_ack(seq, c->type);
 }
@@ -474,6 +525,12 @@ static void run_command(const command_t* c) {
     case MIMHID_T_NODE_DATA:     cmd_node_data(c); break;
     case MIMHID_T_FEATURE:       cmd_feature(c); break;
     case MIMHID_T_COMMIT:        cmd_commit(c); break;
+    case MIMHID_T_CONTROL_CONFIG: {
+        const uint8_t code = mimhid_control_config(&c->data[1], (uint16_t)(c->len - 1));
+        if (code) send_nak(seq, c->type, code);
+        else send_ack(seq, c->type);
+        break;
+    }
     case MIMHID_T_RESET:
         queue_flush_all();
         send_ack(seq, c->type);
@@ -510,6 +567,7 @@ void mimhid_usb_poll(void) {
         run_command(&g_cmd[g_cmd_tail]);
         __atomic_store_n(&g_cmd_tail, (g_cmd_tail + 1) & CMD_MASK, __ATOMIC_RELEASE);
     }
+    mimhid_control_poll();
 
     // Each queue is serviced independently; the start index rotates for fairness.
     const uint8_t count = mimhid_active_interfaces();
@@ -525,6 +583,7 @@ void mimhid_usb_poll(void) {
 }
 
 void mimhid_run(void) {
+    mimhid_control_set_single_context(true);
     for (;;) {
         tud_task();
         mimhid_rx_poll();
@@ -536,20 +595,20 @@ void mimhid_run(void) {
 // TinyUSB callbacks
 // -------------------------------------------------------------
 void tud_mount_cb(void) {
-    send_event(MIMHID_EV_MOUNTED, NULL, 0);
+    mimhid_send_event(MIMHID_EV_MOUNTED, NULL, 0);
 }
 
 void tud_umount_cb(void) {
-    send_event(MIMHID_EV_UNMOUNTED, NULL, 0);
+    mimhid_send_event(MIMHID_EV_UNMOUNTED, NULL, 0);
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
     const uint8_t v = remote_wakeup_en ? 1 : 0;
-    send_event(MIMHID_EV_SUSPEND, &v, 1);
+    mimhid_send_event(MIMHID_EV_SUSPEND, &v, 1);
 }
 
 void tud_resume_cb(void) {
-    send_event(MIMHID_EV_RESUME, NULL, 0);
+    mimhid_send_event(MIMHID_EV_RESUME, NULL, 0);
 }
 
 void tud_hid_report_complete_cb(uint8_t itf, uint8_t const* report, uint16_t len) {
@@ -570,32 +629,33 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
     return 0;
 }
 
+// What the target sent, cut to what an event carries; USB side only.
+static uint8_t g_set_report[3 + MIMHID_HID_BUFSIZE];
+
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {
+    const uint16_t n = bufsize > MIMHID_HID_BUFSIZE ? (uint16_t)MIMHID_HID_BUFSIZE : bufsize;
     if (report_type == HID_REPORT_TYPE_OUTPUT && report_id == 0) {
-        uint8_t ev[2 + MIMHID_MAX_REPORT_BYTES];
-        uint8_t n = bufsize > MIMHID_MAX_REPORT_BYTES ? MIMHID_MAX_REPORT_BYTES : (uint8_t)bufsize;
-        ev[0] = itf;
-        ev[1] = n;
-        if (n && buffer) memcpy(&ev[2], buffer, n);
-        send_event(MIMHID_EV_OUTPUT_REPORT, ev, (uint8_t)(2 + n));
+        g_set_report[0] = itf;
+        g_set_report[1] = (uint8_t)(n & 0xFF);
+        g_set_report[2] = (uint8_t)(n >> 8);
+        if (n && buffer) memcpy(&g_set_report[3], buffer, n);
+        mimhid_send_event(MIMHID_EV_OUTPUT_REPORT, g_set_report, (uint16_t)(3 + n));
     } else {
-        uint8_t ev[3 + 48];
-        uint8_t n = bufsize > 48 ? 48 : (uint8_t)bufsize;
-        ev[0] = itf;
-        ev[1] = (uint8_t)report_type;
-        ev[2] = report_id;
-        if (n && buffer) memcpy(&ev[3], buffer, n);
-        send_event(MIMHID_EV_SET_REPORT, ev, (uint8_t)(3 + n));
+        g_set_report[0] = itf;
+        g_set_report[1] = (uint8_t)report_type;
+        g_set_report[2] = report_id;
+        if (n && buffer) memcpy(&g_set_report[3], buffer, n);
+        mimhid_send_event(MIMHID_EV_SET_REPORT, g_set_report, (uint16_t)(3 + n));
     }
 }
 
 void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol) {
     const uint8_t ev[2] = {instance, protocol};
-    send_event(MIMHID_EV_SET_PROTOCOL, ev, 2);
+    mimhid_send_event(MIMHID_EV_SET_PROTOCOL, ev, 2);
 }
 
 bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate) {
     const uint8_t ev[2] = {instance, idle_rate};
-    send_event(MIMHID_EV_SET_IDLE, ev, 2);
+    mimhid_send_event(MIMHID_EV_SET_IDLE, ev, 2);
     return true;
 }

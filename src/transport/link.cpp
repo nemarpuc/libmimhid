@@ -10,16 +10,26 @@ namespace mimhid::transport {
 
 std::size_t encode_frame(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                          std::uint8_t* out) noexcept {
-    std::uint8_t x = static_cast<std::uint8_t>(type ^ length);
-    out[0] = MIMHID_SYNC;
-    out[1] = type;
-    out[2] = static_cast<std::uint8_t>(length);
+    std::size_t n = 0;
+    std::uint8_t x = type;
+    out[n++] = MIMHID_SYNC;
+    out[n++] = type;
+    if (length < 0x80U) {
+        out[n++] = static_cast<std::uint8_t>(length);
+        x = static_cast<std::uint8_t>(x ^ length);
+    } else {
+        const auto low = static_cast<std::uint8_t>(0x80U | (length & 0x7FU));
+        const auto high = static_cast<std::uint8_t>(length >> 7);
+        out[n++] = low;
+        out[n++] = high;
+        x = static_cast<std::uint8_t>(x ^ low ^ high);
+    }
     for (std::size_t i = 0; i < length; i++) {
-        out[3 + i] = payload[i];
+        out[n++] = payload[i];
         x = static_cast<std::uint8_t>(x ^ payload[i]);
     }
-    out[3 + length] = x;
-    return length + 4U;
+    out[n++] = x;
+    return n;
 }
 
 bool FrameParser::next(Frame* out) noexcept {
@@ -31,7 +41,17 @@ bool FrameParser::next(Frame* out) noexcept {
         if (available < 3U)
             return false;
         const std::uint8_t type = at(1U);
-        const std::uint8_t len = at(2U);
+        const std::uint8_t len_low = at(2U);
+        std::uint8_t len_high = 0;
+        std::size_t header = 3U;
+        std::size_t len = len_low;
+        if ((len_low & 0x80U) != 0U) {
+            if (available < 4U)
+                return false;
+            len_high = at(3U);
+            len = static_cast<std::size_t>(len_low & 0x7FU) | (static_cast<std::size_t>(len_high) << 7);
+            header = 4U;
+        }
         const bool board_type = type == MIMHID_T_PONG || type == MIMHID_T_ACK ||
                                 type == MIMHID_T_NAK || type == MIMHID_T_EVENT ||
                                 type == MIMHID_EV_OUTPUT_REPORT || type == MIMHID_EV_SET_REPORT;
@@ -39,21 +59,25 @@ bool FrameParser::next(Frame* out) noexcept {
             tail_ = (tail_ + 1U) & kMask;
             continue;
         }
-        if (available < 4U + len)
+        if (len > MIMHID_PROTO_MAX_PAYLOAD) {
+            tail_ = (tail_ + 1U) & kMask;
+            continue;
+        }
+        if (available < header + len + 1U)
             return false;
-        std::uint8_t x = static_cast<std::uint8_t>(type ^ len);
-        for (std::uint8_t i = 0; i < len; i++) {
-            const std::uint8_t b = at(3U + i);
+        std::uint8_t x = static_cast<std::uint8_t>(type ^ len_low ^ len_high);
+        for (std::size_t i = 0; i < len; i++) {
+            const std::uint8_t b = at(header + i);
             out->payload[i] = b;
             x = static_cast<std::uint8_t>(x ^ b);
         }
-        if (x != at(3U + len)) {
+        if (x != at(header + len)) {
             tail_ = (tail_ + 1U) & kMask;
             continue;
         }
         out->type = type;
-        out->length = len;
-        tail_ = (tail_ + 4U + len) & kMask;
+        out->length = static_cast<std::uint16_t>(len);
+        tail_ = (tail_ + header + len + 1U) & kMask;
         return true;
     }
 }
@@ -82,9 +106,9 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     }
     if (frame.length < MIMHID_PONG_MIN_LEN)
         return false;
-    const std::uint8_t id_length = frame.payload[16];
+    const std::uint8_t id_length = frame.payload[26];
     if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length ||
-        frame.payload[13] >= MIMHID_BAUD_COUNT)
+        frame.payload[10] >= MIMHID_BAUD_COUNT)
         return false;
     const auto& p = frame.payload;
     out->version[0] = p[0];
@@ -94,15 +118,20 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->protocol = p[4];
     out->max_nodes = p[5];
     out->max_interfaces = p[6];
-    out->max_report_bytes = p[7];
-    out->max_descriptor_bytes = static_cast<std::uint16_t>(p[8] | (p[9] << 8));
-    out->has_unique_id = (p[10] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
-    out->chip = p[11];
-    out->usb_high_speed = p[12] != 0;
-    out->baud_index = p[13];
-    out->baud_mask = static_cast<std::uint16_t>(p[14] | (p[15] << 8));
+    out->has_unique_id = (p[7] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
+    out->chip = p[8];
+    out->usb_high_speed = p[9] != 0;
+    out->baud_index = p[10];
+    out->baud_mask = static_cast<std::uint16_t>(p[11] | (p[12] << 8));
+    out->max_descriptor_bytes = static_cast<std::uint16_t>(p[13] | (p[14] << 8));
+    out->max_report_bytes = static_cast<std::uint16_t>(p[15] | (p[16] << 8));
+    out->max_feature_bytes = static_cast<std::uint16_t>(p[17] | (p[18] << 8));
+    out->max_endpoint_bytes = static_cast<std::uint16_t>(p[19] | (p[20] << 8));
+    out->max_frame_payload = static_cast<std::uint16_t>(p[21] | (p[22] << 8));
+    out->max_control_data_bytes = static_cast<std::uint16_t>(p[23] | (p[24] << 8));
+    out->max_control_rules = p[25];
     out->unique_id_length = id_length;
-    std::memcpy(out->unique_id.data(), &p[17], id_length);
+    std::memcpy(out->unique_id.data(), &p[27], id_length);
     return true;
 }
 
@@ -266,7 +295,7 @@ void Link::close() {
 
 void Link::reader_loop() {
     FrameParser parser;
-    std::uint8_t buf[256];
+    std::uint8_t buf[4096];
     while (!stop_.load(std::memory_order_acquire)) {
         const long got = port_.read(buf, sizeof(buf), 50);
         if (got < 0) {
@@ -329,7 +358,7 @@ void Link::handle_frame(const Frame& frame) {
         } else if (ev.kind == MIMHID_EV_UNMOUNTED) {
             ready_.store(false, std::memory_order_release);
         } else if (ev.kind == MIMHID_EV_OUTPUT_REPORT) {
-            if (ev.length < 2)
+            if (ev.length < 3)
                 break;
         } else if (ev.kind == MIMHID_EV_SET_REPORT) {
             if (ev.length < 3)
@@ -396,13 +425,13 @@ bool Link::ping(std::uint32_t timeout_ms, BoardInfo* out) {
 CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                             std::uint32_t timeout_ms, int attempts) {
     CommandResult result;
-    if (length + 1U > MIMHID_MAX_FRAME_PAYLOAD) {
+    if (length + 1U > MIMHID_PROTO_MAX_PAYLOAD) {
         result.status = CommandStatus::io_error;
         return result;
     }
     std::lock_guard<std::mutex> cmd(cmd_mutex_);
-    std::uint8_t body[MIMHID_MAX_FRAME_PAYLOAD];
-    std::uint8_t frame[4 + MIMHID_MAX_FRAME_PAYLOAD];
+    std::uint8_t body[MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t frame[5 + MIMHID_PROTO_MAX_PAYLOAD];
     for (int attempt = 0; attempt < attempts; ++attempt) {
         if (failed()) {
             result.status = CommandStatus::closed;
@@ -476,13 +505,32 @@ IoStatus Link::send_report(std::uint8_t node, const std::uint8_t* report, std::s
                            std::uint32_t stall_ms, std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;
-    if (length > 64)
+    if (length > MIMHID_PROTO_MAX_PAYLOAD)
         return IoStatus::error;
-    std::uint8_t frame[4 + 64];
+    std::uint8_t frame[5 + MIMHID_PROTO_MAX_PAYLOAD];
     const std::size_t n = encode_frame(
         static_cast<std::uint8_t>(MIMHID_T_REPORT_BASE | (node & 0x0F)), report, length, frame);
     std::lock_guard<std::mutex> tx(tx_mutex_);
     return port_.write_all(frame, n, stall_ms, os_error);
+}
+
+IoStatus Link::send_control_reply(std::uint8_t token, std::uint8_t action,
+                                  const std::uint8_t* data, std::size_t length,
+                                  std::uint32_t timeout_ms, std::int32_t* os_error) {
+    if (failed())
+        return IoStatus::closed;
+    if (length + 3U > MIMHID_PROTO_MAX_PAYLOAD)
+        return IoStatus::error;
+    std::uint8_t body[3 + MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t frame[5 + 3 + MIMHID_PROTO_MAX_PAYLOAD];
+    body[0] = 0; // a sequence number nobody waits for
+    body[1] = token;
+    body[2] = action;
+    if (length != 0)
+        std::memcpy(body + 3, data, length);
+    const std::size_t n = encode_frame(MIMHID_T_CONTROL_REPLY, body, length + 3U, frame);
+    std::lock_guard<std::mutex> tx(tx_mutex_);
+    return port_.write_all(frame, n, timeout_ms, os_error);
 }
 
 bool Link::wait_ready(std::uint32_t timeout_ms) {

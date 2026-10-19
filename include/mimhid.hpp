@@ -66,6 +66,20 @@ inline void discovery_destroy(mimhid_discovery* discovery) noexcept {
                                                      mimhid_device_info* out_info) noexcept {
     return mimhid_device_board_info(device, out_info);
 }
+[[nodiscard]] inline mimhid_result device_limits(const mimhid_device* device,
+                                                 mimhid_board_limits* out_limits) noexcept {
+    return mimhid_device_limits(device, out_limits);
+}
+[[nodiscard]] inline mimhid_result device_set_control_routing(mimhid_device* device, uint32_t report_all,
+                                                              const mimhid_control_rule* rules,
+                                                              size_t rule_count) noexcept {
+    return mimhid_device_set_control_routing(device, report_all, rules, rule_count);
+}
+[[nodiscard]] inline mimhid_result device_control_reply(mimhid_device* device, uint32_t token,
+                                                        mimhid_control_action action,
+                                                        const uint8_t* data, size_t length) noexcept {
+    return mimhid_device_control_reply(device, token, action, data, length);
+}
 [[nodiscard]] inline mimhid_result node_set_feature_response(mimhid_node* node, uint8_t report_id,
                                                              const uint8_t* data,
                                                              size_t length) noexcept {

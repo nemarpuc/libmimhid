@@ -58,6 +58,8 @@ In `libmimhid`, each node explicitly specifies its USB `interface_number` (0, 1,
 - **Receive side** (`mimhid_rx_poll`): reads bytes through `hal_uart_read` into a 512-byte ring, parses frames, and handles reports and commands. Reports go to a per-interface single-producer single-consumer queue of 16. Commands are pushed to a small mailbox so that the USB side executes them; the receive side never touches the active descriptors.
 - **USB side** (`mimhid_usb_poll`, with `tud_task`): executes commands (`COMMIT` rebuilds the descriptors with `mimhid_apply_config`, disconnects, and reconnects), and services the interface queues in rotation, one report per ready endpoint.
 
+`firmware/common/control.c` sits between the controller driver and TinyUSB: it wraps `dcd_event_handler` to see the setup packet of every control transfer, reports it, and for chosen requests holds it until the host answers (see [PROTOCOL.md](PROTOCOL.md#control-transfers)). It is inert until the host configures it.
+
 `firmware/common/usb_descriptors.c` builds the device descriptor (VID, PID, class, strings), the configuration descriptor (one HID interface with IN and optional OUT endpoints per interface), the string table, and serves each report descriptor. TinyUSB 0.18.0 specifics: `GET_REPORT` input includes the Report ID when the interface uses IDs, and `tud_hid_n_report` with ID 0 sends the buffer as is.
 
 Both the Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350) have official dual-core hardware support: the receive side runs on core 1 and the USB side on core 0; the DMA ring for the UART sits in the dedicated `.scratch_y` SRAM bank so that it does not contend with core 0. The other ports use one loop.

@@ -29,12 +29,13 @@ extern "C" {
 #define CFG_TUD_ENDPOINT0_SIZE      64
 
 #include "core.h"
+#include "config.h"
 
 // One HID class instance per USB HID interface the MCU's endpoints allow
 #define CFG_TUD_HID                 MIMHID_HID_ITFS
 
-// HID endpoint buffer; the largest report the firmware accepts
-#define CFG_TUD_HID_EP_BUFSIZE      64
+// HID buffer per interface: a report, and the data stage of a Feature report
+#define CFG_TUD_HID_EP_BUFSIZE      MIMHID_HID_BUFSIZE
 
 #ifdef __cplusplus
 }

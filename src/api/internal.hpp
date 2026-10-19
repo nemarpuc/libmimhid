@@ -252,6 +252,7 @@ struct mimhid_device {
     bool batch_open{false};
     bool configured{false}; // the board holds a committed configuration
     bool dirty{false};      // staged changes not yet committed
+    std::atomic<bool> control_routed{false}; // the board holds control routing rules or reports
     std::atomic<bool> reconfiguring{false};
     std::atomic<bool> closing{false};
     std::atomic<mimhid_result> latched{MIMHID_OK};

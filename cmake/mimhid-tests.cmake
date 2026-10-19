@@ -59,6 +59,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
             tests/e2e/test_e2e.cpp
             tests/e2e/fake_board.c
             firmware/common/core.c
+            firmware/common/control.c
             firmware/common/usb_descriptors.c
             $<TARGET_OBJECTS:mimhid_test_objects>)
         target_include_directories(mimhid_e2e_${itfs} PRIVATE

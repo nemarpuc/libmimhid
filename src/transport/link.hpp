@@ -23,8 +23,13 @@ struct BoardInfo {
     std::uint8_t protocol{};
     std::uint8_t max_nodes{};
     std::uint8_t max_interfaces{};
-    std::uint8_t max_report_bytes{};
+    std::uint16_t max_report_bytes{};
     std::uint16_t max_descriptor_bytes{};
+    std::uint16_t max_feature_bytes{};
+    std::uint16_t max_endpoint_bytes{};
+    std::uint16_t max_frame_payload{};
+    std::uint16_t max_control_data_bytes{};
+    std::uint8_t max_control_rules{};
     bool has_unique_id{};
     std::uint8_t chip{};
     bool usb_high_speed{};
@@ -41,14 +46,15 @@ inline constexpr std::array<std::uint32_t, MIMHID_BAUD_COUNT> kBaudRates = MIMHI
 
 struct Frame {
     std::uint8_t type{};
-    std::uint8_t length{};
-    std::array<std::uint8_t, MIMHID_MAX_FRAME_PAYLOAD> payload{};
+    std::uint16_t length{};
+    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> payload; // not zeroed: length says what is in it
 };
 
 // Splits a byte stream into valid frames, skipping garbage one byte at a time.
 class FrameParser final {
   public:
-    static constexpr std::size_t kCapacity = 1024;
+    // Room for a few frames of the longest payload the protocol allows.
+    static constexpr std::size_t kCapacity = 16384;
     static constexpr std::size_t kMask = kCapacity - 1;
 
     // Feeds bytes; calls on_frame for every complete valid frame.
@@ -157,7 +163,7 @@ class Handshaker final {
 struct BoardEvent {
     std::uint8_t kind{};
     std::size_t length{};
-    std::array<std::uint8_t, 256> data{};
+    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> data; // not zeroed: length says what is in it
 };
 
 class Link final {
@@ -190,6 +196,12 @@ class Link final {
 
     // Asserts physical D+ Low (disconnect) and waits for ACK or NAK.
     CommandResult disconnect(std::uint32_t timeout_ms = 2000);
+
+    // Sends a CONTROL_REPLY without waiting for the board's ACK or NAK: the board drops a reply it
+    // no longer waits for. It only writes, so the event handler may call it.
+    IoStatus send_control_reply(std::uint8_t token, std::uint8_t action, const std::uint8_t* data,
+                                std::size_t length, std::uint32_t timeout_ms,
+                                std::int32_t* os_error);
 
     // Sends a report frame for a node; it is not acknowledged.
     IoStatus send_report(std::uint8_t node, const std::uint8_t* report, std::size_t length,

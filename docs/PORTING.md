@@ -6,6 +6,7 @@
 firmware/
   common/        portable core, shared by every port
     core.c         frame parser, staged configuration, command handling, queues
+    control.c      control transfers of the target: reports and holds them (see PROTOCOL.md)
     usb_descriptors.c  builds and serves device, configuration, string, and report descriptors
     config.h       configuration structures and limits
     tusb_config.h  TinyUSB configuration
@@ -20,6 +21,10 @@ proto/           wire protocol constants shared with the host (mimhid_proto.h)
 ```
 
 `firmware/CMakeLists.txt` builds the RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2) images. The other ports have their own project under `firmware/ports/`.
+
+## Control transfers
+
+`control.c` is built into every port and needs two things from the port's build: the link option `-Wl,--wrap=dcd_event_handler` (GNU ld; every port's project in this tree sets it), and no other definition of `tud_vendor_control_xfer_cb` (a vendor class would own it). It uses `dcd_int_disable` and `dcd_int_enable` of root hub port 0 around its shared state and `hal_millis` in the interrupt, so both must be callable there. A port that runs the receive side on another core (RP2040, RP2350) leaves it at that; a port that runs `mimhid_run` reads the UART from the USB side while it waits for a verdict, and nothing else is needed.
 
 ## HAL
 
@@ -38,7 +43,7 @@ A port implements eight functions (see `common/hal.h`):
 
 The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the official RP2040 and RP2350 dual-core Pico builds do this).
 
-The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is 259 bytes. The core keeps its own 512-byte ring, so a port buffer of the same size is a reasonable minimum.
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 5 bytes (1,045 with the defaults). The core keeps its own ring of 4,096 bytes (1,024 when the frame limit is 250 or less), so a port buffer of 512 bytes is a reasonable minimum.
 
 ## Endpoint count and the HID layout
 
@@ -52,7 +57,9 @@ Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT e
 
 Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the firmware, host library, and wire protocol do not depend on the value. In `libmimhid`, callers explicitly configure each node's `interface_number`, `ep_in_size`, and `ep_out_size` via `mimhid_node_options`.
 
-`MIMHID_MAX_DESC_BYTES` (default 1024) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
+`MIMHID_MAX_DESC_BYTES` (default 2048) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
+
+The buffers follow the chip: `MIMHID_MAX_ENDPOINT_BYTES` is 64, or 1024 when the port's `CFG_TUSB_RHPORT0_MODE` asks for high speed; `MIMHID_MAX_REPORT_BYTES` defaults to it, and `MIMHID_FEATURE_MAX` to 1024. TinyUSB keeps a buffer of the larger of the two for every HID interface (`MIMHID_HID_BUFSIZE`), so on a chip with little RAM a port sets them lower before `config.h` is read. The PONG reports what was built. The high-speed values have not been run on a board.
 
 `firmware/tests` builds the core for 7, 4, and 3 interfaces against a fake HAL and checks the descriptors and report routing. `tests/e2e` does the same with the real host library.
 

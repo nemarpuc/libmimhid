@@ -36,10 +36,10 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 1
-#define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 2
+#define MIMHID_VERSION_MINOR 2
+#define MIMHID_VERSION_PATCH 0
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
-#define MIMHID_PROTOCOL_VERSION 3
+#define MIMHID_PROTOCOL_VERSION 5
 
 typedef struct mimhid_discovery mimhid_discovery;
 typedef struct mimhid_device mimhid_device;
@@ -163,7 +163,27 @@ enum {
     /* value: 0 for the boot protocol, 1 for the report protocol. */
     MIMHID_EVENT_SET_PROTOCOL = 7,
     /* value: the idle rate in 4 ms units. */
-    MIMHID_EVENT_SET_IDLE = 8
+    MIMHID_EVENT_SET_IDLE = 8,
+    /* The target sent a control transfer on endpoint 0 (see mimhid_device_set_control_routing).
+     * data/length: the 8 setup bytes (bmRequestType, bRequest, wValue, wIndex, wLength, little
+     * endian). control_token and control_flags say which transfer it is and whether the board
+     * waits for an answer. */
+    MIMHID_EVENT_CONTROL_SETUP = 9,
+    /* The data stage of a held host-to-device transfer, the one the answer accepted. data/length:
+     * the bytes. The board waits for a second answer (the verdict) with control_token. */
+    MIMHID_EVENT_CONTROL_DATA = 10
+};
+
+/* mimhid_event.control_flags */
+enum {
+    /* The board holds this transfer and waits for mimhid_device_control_reply. */
+    MIMHID_CONTROL_FLAG_HELD = 0x01,
+    /* A host-to-device data stage longer than the board takes: reported, never held. */
+    MIMHID_CONTROL_FLAG_TOO_LONG = 0x02,
+    /* SET_ADDRESS and SET_CONFIGURATION change the board's own USB state: reported, never held. */
+    MIMHID_CONTROL_FLAG_FIXED = 0x04,
+    /* Transfers before this one were not reported: the board's queue was full. */
+    MIMHID_CONTROL_FLAG_LOST = 0x08
 };
 
 /* Delivered on the library's reader thread. The callback must be short, must not call any
@@ -179,6 +199,9 @@ typedef struct mimhid_event {
     /* Report bytes without the Report ID (OUTPUT_REPORT and FEATURE_REPORT). */
     const uint8_t* data;
     size_t length;
+    /* MIMHID_EVENT_CONTROL_SETUP and _DATA: the transfer's token (1 to 255) and the flags. */
+    uint32_t control_token;
+    uint32_t control_flags;
 } mimhid_event;
 
 typedef void(MIMHID_CALL* mimhid_event_sink)(void* user, const mimhid_event* event);
@@ -207,7 +230,8 @@ typedef struct mimhid_device_info {
     uint8_t protocol_version; /* serial protocol version the firmware speaks */
     uint8_t max_nodes;        /* nodes the firmware can hold */
     uint8_t max_interfaces;   /* USB HID interfaces (IN endpoints) the MCU provides */
-    uint8_t max_report_bytes; /* largest report the firmware accepts */
+    uint8_t max_report_bytes; /* largest report the firmware accepts, 255 at most here; see
+                                 mimhid_device_limits for the exact figure */
     uint16_t max_descriptor_bytes; /* room for all report descriptors together */
     uint8_t has_unique_id;    /* 1 when the MCU can supply a chip serial number */
     uint8_t reserved8;
@@ -221,6 +245,19 @@ typedef struct mimhid_device_info {
     uint8_t unique_id[16];    /* the chip's own unique id */
     uint8_t reserved_end[3];
 } mimhid_device_info;
+
+/* What the board holds, in bytes. A board is built for the largest its chip can: 64 for an endpoint
+ * packet on a full-speed chip, 1024 on a high-speed one, and a Feature report may be longer than
+ * a packet because it travels on the control pipe. */
+typedef struct mimhid_board_limits {
+    uint32_t struct_size;          /* set to sizeof(mimhid_board_limits) */
+    uint32_t max_report_bytes;     /* largest report (Report ID included) */
+    uint32_t max_feature_bytes;    /* largest Feature report answer */
+    uint32_t max_endpoint_bytes;   /* largest endpoint packet: ep_in_size and ep_out_size */
+    uint32_t max_frame_payload;    /* largest serial frame payload the board takes */
+    uint32_t max_control_data_bytes; /* largest control transfer data stage the host may read or answer */
+    uint32_t max_control_rules;    /* rules mimhid_device_set_control_routing takes */
+} mimhid_board_limits;
 
 typedef struct mimhid_device_options {
     uint32_t struct_size;
@@ -300,8 +337,8 @@ typedef struct mimhid_node_options {
     uint32_t struct_size;       /* sizeof(mimhid_node_options) */
     uint32_t interface_number;  /* 0, 1, 2... must be explicitly specified (no auto) */
     uint32_t poll_interval_ms;  /* polling interval in ms (1..255 ms, typical 1) */
-    uint32_t ep_in_size;        /* IN packet size, 1 to 64 (typical 64) */
-    uint32_t ep_out_size;       /* OUT packet size (0: OUT disabled, 1 to 64: OUT enabled) */
+    uint32_t ep_in_size;        /* IN packet size, 1 to the board's max_endpoint_bytes (typical 64) */
+    uint32_t ep_out_size;       /* OUT packet size (0: OUT disabled, else 1 to max_endpoint_bytes) */
     uint32_t boot_protocol;     /* 0: None, 1: Keyboard, 2: Mouse */
     uint16_t bcd_hid;           /* 0x0111 (HID 1.11) */
     uint8_t  country_code;      /* 0: Not Supported */
@@ -808,6 +845,101 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* 
  * MIMHID_ERR_INTERNAL for an unexpected ABI-boundary failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_device* device,
                                                               mimhid_device_info* out_info);
+
+/* mimhid_device_limits
+ * Ownership: Borrows Device and fills caller-owned out_limits; no handle ownership changes.
+ * Blocking: Does not perform I/O; the copy only.
+ * Copies the limits the board reported at open. out_limits->struct_size must be set.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, null out_limits or a wrong
+ * struct_size. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
+                                                          mimhid_board_limits* out_limits);
+
+/* ---- control transfers of the target ----------------------------------------------------
+ * Besides the reports, the target talks to the board on endpoint 0: descriptors, class and
+ * vendor requests, GET_REPORT, SET_REPORT, feature selectors. By default the board answers
+ * all of these itself, as before. A Device can ask the board to report them
+ * (MIMHID_EVENT_CONTROL_SETUP), and to hold chosen ones until the library's user answers.
+ * The board does the work of the bus; the answer is the user's. Nothing here is inferred: a
+ * rule says exactly which requests it takes, for how long, and what happens if no answer comes. */
+
+typedef int32_t mimhid_control_action;
+enum {
+    /* After the time ran out, or as an answer: the board's own handling, as if it had not asked. */
+    MIMHID_CONTROL_ACTION_LEAVE = 1,
+    /* The data (device to host) or an acknowledgement (no data stage, or host to device). */
+    MIMHID_CONTROL_ACTION_ANSWER = 2,
+    /* The request is refused with a STALL. */
+    MIMHID_CONTROL_ACTION_STALL = 3
+};
+
+#define MIMHID_CONTROL_MAX_RULES 8
+#define MIMHID_CONTROL_MAX_TIMEOUT_MS 4000
+
+/* A request matches a rule when, for each of the four fields, (field & mask) == value. A mask
+ * of zero matches any. Rules are tried in order and the first match holds the request. */
+typedef struct mimhid_control_rule {
+    uint8_t request_type_mask;  /* bmRequestType: direction, type and recipient */
+    uint8_t request_type_value;
+    uint8_t request_mask;       /* bRequest */
+    uint8_t request_value;
+    uint16_t value_mask;        /* wValue */
+    uint16_t value_value;
+    uint16_t index_mask;        /* wIndex */
+    uint16_t index_value;
+    /* Required, 1 to MIMHID_CONTROL_MAX_TIMEOUT_MS: how long the board waits for each answer.
+     * USB 2.0 asks a device to return the first data packet of a standard request within 500 ms
+     * (9.2.6.4) and allows a control transfer 5 s in all (9.2.6.1); hosts may give up earlier, so
+     * keep this short. */
+    uint32_t timeout_ms;
+    /* Required: what the board does when no answer came in time. */
+    mimhid_control_action when_late;
+} mimhid_control_rule;
+
+/* mimhid_device_set_control_routing
+ * Ownership: Borrows a live Device and the rules (copied before returning).
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms).
+ * Replaces the whole set. report_all is 0 or 1: 1 reports every control transfer as
+ * MIMHID_EVENT_CONTROL_SETUP (see its flags), also those no rule holds. With no rules and
+ * report_all 0 the board handles everything itself, which is how it starts. Events are delivered
+ * to event_sink. A request that is held waits for mimhid_device_control_reply, for at most the
+ * rule's timeout.
+ * A held request delays the target's USB transfer, never the reports of other nodes, but every
+ * board's USB task is busy while it waits for the verdict of a host-to-device transfer.
+ * SET_ADDRESS and SET_CONFIGURATION are reported and never held: they change the state of the
+ * board's own USB controller. A request is held only if a host-to-device data stage fits
+ * mimhid_board_limits.max_control_data_bytes.
+ * The rules stay on the board until replaced; mimhid_device_close removes them.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, report_all, count or rule (a value
+ * outside its mask, a time outside 1..MIMHID_CONTROL_MAX_TIMEOUT_MS, an unknown action);
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout_ms or when_late; MIMHID_ERR_OVERFLOW for more rules
+ * than the board holds; MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE or MIMHID_ERR_IO on a
+ * communication failure. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
+    mimhid_device* device, uint32_t report_all, const mimhid_control_rule* rules, size_t rule_count);
+
+/* mimhid_device_control_reply
+ * Ownership: Borrows a live Device; data is copied before returning.
+ * Blocking: Writes one frame to the serial port; it does not wait for the board. It may be called
+ * from the event sink: that is the way to answer within a short time.
+ * Answers the held transfer with this token (from MIMHID_EVENT_CONTROL_SETUP, or from
+ * MIMHID_EVENT_CONTROL_DATA for the verdict of a host-to-device transfer).
+ *  - ANSWER on a device-to-host request: data is the data stage, cut to wLength (it may be empty).
+ *  - ANSWER on any other request: data must be empty; the target sees an acknowledgement. On a
+ *    host-to-device request with a data stage it lets the data stage happen; the board then reports
+ *    it as MIMHID_EVENT_CONTROL_DATA and waits for the verdict, which is ANSWER (acknowledge) or
+ *    STALL, or the rule's when_late.
+ *  - STALL: the target sees a STALL. data must be empty.
+ *  - LEAVE: the request goes to the board's own handling, as if it had not matched. On the
+ *    verdict of a host-to-device transfer it acknowledges.
+ * A reply the board no longer waits for (late, or for a request the target gave up) is dropped.
+ * Returns: MIMHID_OK once the frame was written; MIMHID_ERR_PARAM for an invalid Device, a token
+ * of 0 or above 255, an unknown action, or data with an action that takes none;
+ * MIMHID_ERR_OVERFLOW for data longer than max_control_data_bytes; MIMHID_ERR_NO_DEVICE or
+ * MIMHID_ERR_IO on a communication failure. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(
+    mimhid_device* device, uint32_t token, mimhid_control_action action, const uint8_t* data,
+    size_t length);
 
 /* mimhid_device_commit
  * Ownership: Borrows live Device.

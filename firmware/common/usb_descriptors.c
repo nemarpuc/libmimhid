@@ -186,8 +186,8 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     uint8_t* p = g_cfg_desc + TUD_CONFIG_DESC_LEN;
     for (uint8_t i = 0; i < count; i++) {
         const mimhid_node_cfg_t* first = NULL;
-        uint8_t ep_out = 0;
-        uint8_t ep_in = 0;
+        uint16_t ep_out = 0;
+        uint16_t ep_in = 0;
         uint8_t min_interval = 255;
         for (uint8_t n = 0; n < MIMHID_MAX_NODES; n++) {
             if (cfg->node[n].used && cfg->node[n].iface == i) {
@@ -213,7 +213,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         total = (uint16_t)(total + itf_len);
         copy_str(g_str_iface[i], first->interface_string);
         const uint8_t boot = first->boot_protocol;
-        const uint8_t ep_size = ep_in > 0 ? ep_in : first->ep_size;
+        const uint16_t ep_size = ep_in > 0 ? ep_in : first->ep_size;
         const uint8_t interval = min_interval != 255 ? min_interval : first->poll_interval;
         const uint8_t itf_head[] = {
             IFACE_DESC_LEN,
@@ -238,8 +238,8 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
             TUSB_DESC_ENDPOINT,
             (uint8_t)(0x81 + i),
             TUSB_XFER_INTERRUPT,
-            ep_size,
-            0,
+            (uint8_t)(ep_size & 0xFF),
+            (uint8_t)(ep_size >> 8),
             interval,
         };
         memcpy(p, itf_head, sizeof(itf_head));
@@ -247,8 +247,8 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
 
         if (ep_out > 0) {
             const uint8_t ep_out_desc[] = {
-                EP_DESC_LEN, TUSB_DESC_ENDPOINT, (uint8_t)(0x01 + i), TUSB_XFER_INTERRUPT, ep_out,
-                0,           interval,
+                EP_DESC_LEN, TUSB_DESC_ENDPOINT, (uint8_t)(0x01 + i), TUSB_XFER_INTERRUPT,
+                (uint8_t)(ep_out & 0xFF), (uint8_t)(ep_out >> 8), interval,
             };
             memcpy(p, ep_out_desc, sizeof(ep_out_desc));
             p += sizeof(ep_out_desc);
@@ -281,7 +281,7 @@ const mimhid_feature_t* mimhid_find_feature(uint8_t iface, uint8_t report_id) {
     return NULL;
 }
 
-void mimhid_active_set_feature(uint8_t node, uint8_t report_id, const uint8_t* data, uint8_t len) {
+void mimhid_active_set_feature(uint8_t node, uint8_t report_id, const uint8_t* data, uint16_t len) {
     if (mimhid_active_node_interface(node) == 0xFF || len > MIMHID_FEATURE_MAX)
         return;
     mimhid_feature_t* free_slot = NULL;

@@ -10,7 +10,9 @@
 #include <unistd.h>
 
 #include "tusb.h"
+#include "device/dcd.h"
 #include "config.h"
+#include "control.h"
 #include "core.h"
 #include "fake_board.h"
 #include "hal.h"
@@ -25,6 +27,7 @@ void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol);
 bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate);
 void tud_suspend_cb(bool remote_wakeup_en);
 void tud_resume_cb(void);
+void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
 
 static int g_fd = -1;
 static pthread_t g_thread;
@@ -146,7 +149,7 @@ bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     pthread_mutex_lock(&g_lock);
     fake_report_t* e = &g_reports[g_report_head % 512];
     e->iface = itf;
-    e->length = (uint8_t)len;
+    e->length = len;
     memcpy(e->data, r, len);
     g_report_head++;
     pthread_cond_broadcast(&g_cond);
@@ -154,11 +157,87 @@ bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     return true;
 }
 
+// ---- control transfers: the stack's side of them ----
+static fake_control_result_t g_control[32];
+static unsigned g_control_head, g_control_tail;
+static uint8_t g_control_out[1100];
+static size_t g_control_out_length;
+
+static struct {
+    int kind; // 1 data stage, 2 status only
+    uint8_t* buffer;
+    uint16_t length;
+} g_xfer;
+
+void dcd_int_disable(uint8_t rhport) { (void)rhport; }
+void dcd_int_enable(uint8_t rhport) { (void)rhport; }
+
+bool tud_control_xfer(uint8_t rhport, tusb_control_request_t const* request, void* buffer, uint16_t len) {
+    (void)rhport;
+    (void)request;
+    g_xfer.kind = 1;
+    g_xfer.buffer = buffer;
+    g_xfer.length = len;
+    return true;
+}
+
+bool tud_control_status(uint8_t rhport, tusb_control_request_t const* request) {
+    (void)rhport;
+    (void)request;
+    g_xfer.kind = 2;
+    return true;
+}
+
+static void control_result(const fake_control_result_t* r) {
+    pthread_mutex_lock(&g_lock);
+    g_control[g_control_head++ % 32] = *r;
+    pthread_cond_broadcast(&g_cond);
+    pthread_mutex_unlock(&g_lock);
+}
+
+// What reaches the stack from the board's wrapper.
+void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
+    (void)in_isr;
+    if (event->event_id != DCD_EVENT_SETUP_RECEIVED) return;
+    tusb_control_request_t req = event->setup_received;
+    fake_control_result_t r;
+    memset(&r, 0, sizeof(r));
+    memcpy(r.setup, &req, 8);
+    if (req.bmRequestType_bit.type != TUSB_REQ_TYPE_VENDOR) {
+        r.outcome = FAKE_CONTROL_LEFT;
+        control_result(&r);
+        return;
+    }
+    memset(&g_xfer, 0, sizeof(g_xfer));
+    if (!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req)) {
+        r.outcome = FAKE_CONTROL_STALLED;
+        control_result(&r);
+        return;
+    }
+    if (g_xfer.kind == 1 && req.bmRequestType_bit.direction == TUSB_DIR_IN) {
+        r.outcome = FAKE_CONTROL_ANSWERED;
+        r.length = g_xfer.length;
+        memcpy(r.data, g_xfer.buffer, g_xfer.length);
+        tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req);
+    } else if (g_xfer.kind == 1) {
+        size_t n = g_control_out_length < g_xfer.length ? g_control_out_length : g_xfer.length;
+        memcpy(g_xfer.buffer, g_control_out, n);
+        r.length = g_xfer.length;
+        memcpy(r.data, g_xfer.buffer, g_xfer.length);
+        r.outcome = tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req) ? FAKE_CONTROL_ACKED
+                                                                           : FAKE_CONTROL_STALLED;
+    } else {
+        r.outcome = FAKE_CONTROL_ACKED;
+    }
+    tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req);
+    control_result(&r);
+}
+
 // ---- target actions, run on the board thread ----
 typedef struct {
     int kind;
     uint8_t a, b, c;
-    uint8_t data[48];
+    uint8_t data[1100];
     size_t length;
 } action_t;
 
@@ -186,6 +265,17 @@ static void run_actions(void) {
         case 3: g_suspended = false; tud_resume_cb(); break;
         case 4: tud_hid_set_protocol_cb(act.a, act.b); break;
         case 5: tud_hid_set_idle_cb(act.a, act.b); break;
+        case 6: {
+            dcd_event_t e;
+            memset(&e, 0, sizeof(e));
+            e.rhport = 0;
+            e.event_id = DCD_EVENT_SETUP_RECEIVED;
+            memcpy(&e.setup_received, act.data, 8);
+            g_control_out_length = act.length - 8;
+            memcpy(g_control_out, act.data + 8, g_control_out_length);
+            __wrap_dcd_event_handler(&e, true);
+            break;
+        }
         default: break;
         }
     }
@@ -194,6 +284,7 @@ static void run_actions(void) {
 static void* board_main(void* arg) {
     (void)arg;
     mimhid_core_init();
+    mimhid_control_set_single_context(true);
     while (g_run) {
         mimhid_rx_poll();
         mimhid_usb_poll();
@@ -287,10 +378,38 @@ size_t fake_board_feature(uint8_t iface, uint8_t report_id, uint8_t* out, size_t
 
 void fake_board_target_set_report(uint8_t iface, uint8_t report_type, uint8_t report_id,
                                   const uint8_t* data, size_t length) {
-    action_t a = {1, iface, report_type, report_id, {0}, length > 48 ? 48 : length};
+    action_t a = {1, iface, report_type, report_id, {0}, length > sizeof(a.data) ? sizeof(a.data) : length};
     memcpy(a.data, data, a.length);
     post(a);
 }
+void fake_board_target_control(const uint8_t setup[8], const uint8_t* out_data, size_t out_length) {
+    action_t a = {6, 0, 0, 0, {0}, 8};
+    memcpy(a.data, setup, 8);
+    if (out_length > sizeof(a.data) - 8) out_length = sizeof(a.data) - 8;
+    if (out_length) memcpy(a.data + 8, out_data, out_length);
+    a.length = 8 + out_length;
+    post(a);
+}
+
+int fake_board_wait_control(fake_control_result_t* out, uint32_t timeout_ms) {
+    struct timespec until;
+    clock_gettime(CLOCK_REALTIME, &until);
+    until.tv_sec += timeout_ms / 1000;
+    until.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (until.tv_nsec >= 1000000000L) {
+        until.tv_sec++;
+        until.tv_nsec -= 1000000000L;
+    }
+    pthread_mutex_lock(&g_lock);
+    while (g_control_tail == g_control_head) {
+        if (pthread_cond_timedwait(&g_cond, &g_lock, &until) != 0) break;
+    }
+    int ok = g_control_tail != g_control_head;
+    if (ok) *out = g_control[g_control_tail++ % 32];
+    pthread_mutex_unlock(&g_lock);
+    return ok;
+}
+
 void fake_board_target_suspend(int remote_wakeup) { action_t a = {2, (uint8_t)remote_wakeup, 0, 0, {0}, 0}; post(a); }
 void fake_board_target_resume(void) { action_t a = {3, 0, 0, 0, {0}, 0}; post(a); }
 void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol) { action_t a = {4, iface, protocol, 0, {0}, 0}; post(a); }

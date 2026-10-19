@@ -5,6 +5,7 @@ idf_component_register(
         main.c
         hal_esp32s3.c
         ../../../common/core.c
+        ../../../common/control.c
         ../../../common/usb_descriptors.c
     INCLUDE_DIRS
         .
@@ -20,3 +21,6 @@ endif()
 if(DEFINED MIMHID_UART_RX_PIN)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MIMHID_UART_RX_PIN=${MIMHID_UART_RX_PIN})
 endif()
+
+# Control transfers of the target are taken where the stack receives them (see common/control.h).
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dcd_event_handler")

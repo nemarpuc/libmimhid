@@ -21,6 +21,7 @@ target_sources(mimhid_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/main.c
     ${CMAKE_CURRENT_LIST_DIR}/hal_nrf52.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/core.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../common/control.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/usb_descriptors.c
 )
 target_include_directories(mimhid_firmware_nrf52840 PUBLIC
@@ -28,6 +29,8 @@ target_include_directories(mimhid_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 
 family_configure_device_example(mimhid_firmware_nrf52840 noos)
+# Control transfers of the target are taken where the stack receives them (see common/control.h).
+target_link_options(mimhid_firmware_nrf52840 PUBLIC -Wl,--wrap=dcd_event_handler)
 target_include_directories(mimhid_firmware_nrf52840-tinyusb_config INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
