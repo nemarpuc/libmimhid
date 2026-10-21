@@ -3,6 +3,11 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-10-21
+
+### Fixed
+- **Strict qualification for unheld control requests (`is_fixed`).** Standard `SET_ADDRESS` and `SET_CONFIGURATION` requests are only exempted from control routing hold when they are valid standard OUT requests (`bmRequestType == 0x00`, `wLength == 0`, `wIndex == 0`). Non-standard, vendor, or IN-direction variants (such as `0x80 0x05`) are now matched by control routing rules and reported to the host/application instead of being intercepted by TinyUSB.
+
 ## [1.2.1] - 2026-10-21
 
 ### Added

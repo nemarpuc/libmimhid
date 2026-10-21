@@ -116,8 +116,7 @@ void mimhid_control_set_single_context(bool single) {
 // ---- rules ----
 CONTROL_FAST static bool is_fixed(const tusb_control_request_t* r) {
     // These two change the board's own USB state, which TinyUSB and the controller keep.
-    return r->bmRequestType_bit.type == TUSB_REQ_TYPE_STANDARD &&
-           r->bmRequestType_bit.recipient == TUSB_REQ_RCPT_DEVICE &&
+    return r->bmRequestType == 0x00 && r->wLength == 0 && r->wIndex == 0 &&
            (r->bRequest == TUSB_REQ_SET_ADDRESS || r->bRequest == TUSB_REQ_SET_CONFIGURATION);
 }
 
