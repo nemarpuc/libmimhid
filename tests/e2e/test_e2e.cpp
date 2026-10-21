@@ -287,7 +287,9 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
     // What the board said about itself when the Device was opened.
     MIMHID_CHECK(board.protocol_version == MIMHID_PROTO_VERSION);
-    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 2 && board.version_patch == 1);
+    MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
+                 board.version_minor == MIMHID_VERSION_MINOR &&
+                 board.version_patch == MIMHID_VERSION_PATCH);
     MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == 8);
     MIMHID_CHECK(board.max_report_bytes == 64);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
