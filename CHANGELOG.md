@@ -3,6 +3,13 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-10-21
+
+### Fixed
+- **Pure passthrough for `SET_CONFIGURATION`.** `SET_CONFIGURATION` is now matched by control routing rules and reported to the host/application, allowing full passthrough to target devices and accurate replication of configuration state transitions.
+- **Immediate Status stage handshake for zero-length control transfers.** Control transfers with `wLength == 0` now always complete with a standard IN Zero-Length Packet (ZLP) handshake regardless of setup direction, resolving deadlock when answering zero-length descriptor and feature requests.
+- **Dynamic configuration descriptor boundary check.** `tud_descriptor_configuration_cb` validates configuration index dynamically against `g_device.bNumConfigurations`, cleanly stalling requests for non-existent configurations.
+
 ## [1.2.2] - 2026-10-21
 
 ### Fixed

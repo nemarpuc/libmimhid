@@ -115,9 +115,9 @@ void mimhid_control_set_single_context(bool single) {
 
 // ---- rules ----
 CONTROL_FAST static bool is_fixed(const tusb_control_request_t* r) {
-    // These two change the board's own USB state, which TinyUSB and the controller keep.
     return r->bmRequestType == 0x00 && r->wLength == 0 && r->wIndex == 0 &&
-           (r->bRequest == TUSB_REQ_SET_ADDRESS || r->bRequest == TUSB_REQ_SET_CONFIGURATION);
+           (r->bRequest == TUSB_REQ_SET_ADDRESS ||
+            (r->bRequest == TUSB_REQ_SET_CONFIGURATION && r->wValue == 1));
 }
 
 CONTROL_FAST static int match_rule(const tusb_control_request_t* r) {
@@ -290,8 +290,9 @@ static void settle(uint8_t token, uint8_t action, const uint8_t* data, uint16_t 
         g_answer.timeout_ms = rule->timeout_ms;
         g_answer.timeout_action = rule->action;
         if (length) memcpy(&g_answer.buf[1], data, length);
-        event.setup_received.bmRequestType =
-            (uint8_t)((event.setup_received.bmRequestType & 0x9F) | 0x40); // type: vendor
+        uint8_t bm = (uint8_t)((event.setup_received.bmRequestType & 0x9F) | 0x40); // type: vendor
+        if (event.setup_received.wLength == 0) bm &= 0x7F; // zero length has no data stage; status stage is IN ZLP
+        event.setup_received.bmRequestType = bm;
         g_answer.request = event.setup_received;
         g_answer.active = false;
         g_answer.armed = true;
