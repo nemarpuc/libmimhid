@@ -51,7 +51,8 @@ static_assert(MIMHID_CONTROL_FLAG_HELD == MIMHID_CONTROL_F_HELD &&
               MIMHID_CONTROL_FLAG_LOST == MIMHID_CONTROL_F_LOST);
 static_assert(MIMHID_CONTROL_ACTION_LEAVE == MIMHID_CONTROL_LEAVE + 1 &&
               MIMHID_CONTROL_ACTION_ANSWER == MIMHID_CONTROL_ANSWER + 1 &&
-              MIMHID_CONTROL_ACTION_STALL == MIMHID_CONTROL_STALL + 1);
+              MIMHID_CONTROL_ACTION_STALL == MIMHID_CONTROL_STALL + 1 &&
+              MIMHID_CONTROL_ACTION_DROP == MIMHID_CONTROL_DROP + 1);
 // The largest report this library sends: a high-speed interrupt endpoint packet.
 constexpr std::size_t kMaximumReportBytes = 1024U;
 
@@ -1369,7 +1370,7 @@ mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* devic
             return MIMHID_ERR_UNSET_FIELD;
         }
         if (r.timeout_ms > MIMHID_CONTROL_MAX_TIMEOUT_MS || r.when_late < MIMHID_CONTROL_ACTION_LEAVE ||
-            r.when_late > MIMHID_CONTROL_ACTION_STALL ||
+            r.when_late > MIMHID_CONTROL_ACTION_DROP ||
             (r.request_type_value & ~r.request_type_mask) != 0 ||
             (r.request_value & ~r.request_mask) != 0 || (r.value_value & ~r.value_mask) != 0 ||
             (r.index_value & ~r.index_mask) != 0) {
@@ -1415,7 +1416,7 @@ mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, con
         return MIMHID_ERR_PARAM;
     }
     if (token == 0U || token > 255U || action < MIMHID_CONTROL_ACTION_LEAVE ||
-        action > MIMHID_CONTROL_ACTION_STALL ||
+        action > MIMHID_CONTROL_ACTION_DROP ||
         (length != 0U && (data == nullptr || action != MIMHID_CONTROL_ACTION_ANSWER))) {
         set_error(MIMHID_ERR_PARAM, "reply",
                   "A token of 1 to 255, a known action, and data only with ANSWER are required.");

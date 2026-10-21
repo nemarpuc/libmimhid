@@ -287,7 +287,7 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
     // What the board said about itself when the Device was opened.
     MIMHID_CHECK(board.protocol_version == MIMHID_PROTO_VERSION);
-    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 2 && board.version_patch == 0);
+    MIMHID_CHECK(board.version_major == 1 && board.version_minor == 2 && board.version_patch == 1);
     MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == 8);
     MIMHID_CHECK(board.max_report_bytes == 64);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
@@ -964,7 +964,7 @@ void test_control() {
     bad.when_late = 0;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_UNSET_FIELD);
     bad = good;
-    bad.when_late = 4;
+    bad.when_late = 5;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_PARAM);
     bad = good;
     bad.timeout_ms = MIMHID_CONTROL_MAX_TIMEOUT_MS + 1;

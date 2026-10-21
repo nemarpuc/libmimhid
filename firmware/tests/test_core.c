@@ -928,7 +928,7 @@ static void test_control(void) {
     expect_nak(control_config(0, &bad, 1), MIMHID_NAK_PARAM); // no time
     bad = rule_for(0xC0, 0x42, MIMHID_CONTROL_TIMEOUT_MAX + 1, MIMHID_CONTROL_STALL);
     expect_nak(control_config(0, &bad, 1), MIMHID_NAK_PARAM);
-    bad = rule_for(0xC0, 0x42, 10, 3);
+    bad = rule_for(0xC0, 0x42, 10, 4);
     expect_nak(control_config(0, &bad, 1), MIMHID_NAK_PARAM);
     bad = rule_for(0xC0, 0x42, 10, MIMHID_CONTROL_STALL);
     bad.value_value = 1; // outside its (zero) mask

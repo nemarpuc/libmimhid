@@ -111,6 +111,7 @@
 #define MIMHID_CONTROL_LEAVE  0 /* the board's own handling, as if the host had not been asked */
 #define MIMHID_CONTROL_ANSWER 1 /* the data (device to host) or an empty status (otherwise) */
 #define MIMHID_CONTROL_STALL  2
+#define MIMHID_CONTROL_DROP   3 /* silent drop: do not stall, do not arm, keep NAKing until host aborts */
 #define MIMHID_CONTROL_TIMEOUT_MAX 4000
 
 #define MIMHID_CONTROL_F_HELD     0x01

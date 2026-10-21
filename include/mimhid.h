@@ -37,7 +37,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 1
 #define MIMHID_VERSION_MINOR 2
-#define MIMHID_VERSION_PATCH 0
+#define MIMHID_VERSION_PATCH 1
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
 #define MIMHID_PROTOCOL_VERSION 5
 
@@ -870,7 +870,9 @@ enum {
     /* The data (device to host) or an acknowledgement (no data stage, or host to device). */
     MIMHID_CONTROL_ACTION_ANSWER = 2,
     /* The request is refused with a STALL. */
-    MIMHID_CONTROL_ACTION_STALL = 3
+    MIMHID_CONTROL_ACTION_STALL = 3,
+    /* Silent drop: no answer and no STALL; the board stays in NAK until the target aborts. */
+    MIMHID_CONTROL_ACTION_DROP = 4
 };
 
 #define MIMHID_CONTROL_MAX_RULES 8
@@ -930,6 +932,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
  *    it as MIMHID_EVENT_CONTROL_DATA and waits for the verdict, which is ANSWER (acknowledge) or
  *    STALL, or the rule's when_late.
  *  - STALL: the target sees a STALL. data must be empty.
+ *  - DROP: the transfer is dropped silently without answering or stalling. data must be empty.
  *  - LEAVE: the request goes to the board's own handling, as if it had not matched. On the
  *    verdict of a host-to-device transfer it acknowledges.
  * A reply the board no longer waits for (late, or for a request the target gave up) is dropped.

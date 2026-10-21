@@ -154,7 +154,7 @@ uint8_t mimhid_control_config(const uint8_t* p, uint16_t len) {
         r->timeout_ms = (uint16_t)(q[12] | (q[13] << 8));
         r->action = q[14];
         if (r->timeout_ms == 0 || r->timeout_ms > MIMHID_CONTROL_TIMEOUT_MAX ||
-            r->action > MIMHID_CONTROL_STALL)
+            r->action > MIMHID_CONTROL_DROP)
             return MIMHID_NAK_PARAM;
         // A value outside its mask never matches, which would only hide a mistake.
         if ((r->bm_value & ~r->bm_mask) || (r->request_value & ~r->request_mask) ||
@@ -252,7 +252,7 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
 
 // ---- the receive side ----
 uint8_t mimhid_control_reply(const uint8_t* p, uint16_t len) {
-    if (len < 2 || p[1] > MIMHID_CONTROL_STALL) return MIMHID_NAK_PARAM;
+    if (len < 2 || p[1] > MIMHID_CONTROL_DROP) return MIMHID_NAK_PARAM;
     if (len - 2u > MIMHID_CONTROL_DATA_MAX) return MIMHID_NAK_OVERFLOW;
     if (p[0] == 0 || p[0] != g_expect) return MIMHID_NAK_STATE;
     if (g_reply.full) return MIMHID_NAK_BUSY;
@@ -280,6 +280,10 @@ static void settle(uint8_t token, uint8_t action, const uint8_t* data, uint16_t 
     if (action == BY_RULE) action = rule->action;
     g_hold.state = HOLD_IDLE;
     g_expect = 0;
+    if (action == MIMHID_CONTROL_DROP) {
+        dcd_int_enable(RHPORT);
+        return;
+    }
     if (action != MIMHID_CONTROL_LEAVE) {
         g_answer.action = action;
         g_answer.token = token;
@@ -344,7 +348,7 @@ static bool wait_for_verdict(void) {
         }
     }
     g_expect = 0;
-    return action != MIMHID_CONTROL_STALL;
+    return action != MIMHID_CONTROL_STALL && action != MIMHID_CONTROL_DROP;
 }
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {

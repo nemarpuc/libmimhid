@@ -3,6 +3,11 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-10-21
+
+### Added
+- **Silent drop control action (`MIMHID_CONTROL_ACTION_DROP`).** `mimhid_device_control_reply` and `mimhid_control_rule.when_late` support dropping a held transfer silently without returning data or issuing a STALL handshake. The board resets the hold state while leaving EP0 un-armed, allowing hardware flow control (NAK) to continue uninterrupted until the target host aborts the transfer, matching the behavior of physical devices that ignore unsupported vendor requests.
+
 ## [1.2.0] - 2026-10-19
 
 Firmware and host library must both be this version: the wire protocol is version 5 (the PONG grew by three bytes).
