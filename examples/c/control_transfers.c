@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 #include <mimhid.h>
 
+#include <inttypes.h>
 #include <stdio.h>
 
 #ifdef _WIN32
@@ -12,21 +13,20 @@
 #define sleep_ms(ms) usleep((ms) * 1000)
 #endif
 
-static const uint8_t vendor_answer[] = {'h', 'e', 'l', 'l', 'o'};
+static const uint8_t vendor_answer[] = {0x01, 0x02, 0x03, 0x04};
 
 static int fail(const char* what, mimhid_result r) {
     fprintf(stderr, "%s: %s (%s)\n", what, mimhid_result_name(r), mimhid_last_error()->reason);
     return 1;
 }
 
-// Runs on the reader thread, so it stays short. Replying from here is how a short rule time is met.
 static void on_event(void* user, const mimhid_event* event) {
     mimhid_device* device = *(mimhid_device**)user;
-    if (event->kind != MIMHID_EVENT_CONTROL_SETUP || event->length != 8)
+    if (event->kind != MIMHID_EVENT_CONTROL_SETUP)
         return;
-    const uint8_t* s = event->data;
-    printf("setup %02x %02x value %04x index %04x length %u%s%s\n", s[0], s[1], s[2] | (s[3] << 8),
-           s[4] | (s[5] << 8), s[6] | (s[7] << 8), (event->control_flags & MIMHID_CONTROL_FLAG_HELD) ? " held" : "",
+    printf("setup: bmRequestType=0x%02x bRequest=0x%02x token=%" PRIu32 "%s%s\n",
+           event->data[0], event->data[1], event->control_token,
+           (event->control_flags & MIMHID_CONTROL_FLAG_HELD) ? " held" : "",
            (event->control_flags & MIMHID_CONTROL_FLAG_FIXED) ? " fixed" : "");
     if (event->control_flags & MIMHID_CONTROL_FLAG_HELD)
         mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER,
@@ -43,31 +43,35 @@ int main(void) {
     }
 
     mimhid_device* device = NULL;
-    mimhid_device_options options = {0};
-    options.struct_size = sizeof(options);
-    options.vendor_id = 0x046D;
-    options.product_id = 0xC52B;
-    options.manufacturer = "Example";
-    options.product = "Control transfers";
-    options.serial_from_chip_id = 1;
-    options.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
-    options.control_timeout_ms = 500;
-    options.send_timeout_ms = 500;
-    options.reconnect_timeout_ms = 3000;
-    options.close_drain_timeout_ms = 1000;
-    options.language_id = 0x0409;
-    options.bcd_device = 0x0100;
-    options.max_power_ma = 100;
-    options.linux_descriptor_policy_bytes = 4096;
-    options.linux_hid_fields_per_report_policy = 256;
-    options.linux_hid_global_stack_depth_policy = 4;
-    options.linux_hid_usages_policy = 1024;
-    options.linux_hid_report_data_policy_bits = 8192;
-    options.linux_hid_report_size_policy_bits = 32;
-    options.event_sink = on_event;
-    options.event_user = &device;
+    mimhid_device_config config;
+    mimhid_device_config_init(&config);
+    config.usb_device.vendor_id = 0x046D;
+    config.usb_device.product_id = 0xC52B;
+    config.usb_device.manufacturer = "Example";
+    config.usb_device.product = "Control transfers";
+    config.usb_device.serial_from_chip_id = 1;
+    config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
+    config.transport.control_timeout_ms = 500;
+    config.transport.send_timeout_ms = 500;
+    config.transport.reconnect_timeout_ms = 3000;
+    config.transport.close_drain_timeout_ms = 1000;
+    config.usb_device.language_id = 0x0409;
+    config.usb_device.bcd_usb = 0x0200;
+    config.usb_device.ep0_max_packet_size = 64;
+    config.usb_device.bcd_device = 0x0100;
+    config.usb_config.configuration_value = 1;
+    config.usb_config.bm_attributes = 0x80;
+    config.usb_config.bmax_power = 50;
+    config.transport.linux_descriptor_policy_bytes = 4096;
+    config.transport.linux_hid_fields_per_report_policy = 256;
+    config.transport.linux_hid_global_stack_depth_policy = 4;
+    config.transport.linux_hid_usages_policy = 1024;
+    config.transport.linux_hid_report_data_policy_bits = 8192;
+    config.transport.linux_hid_report_size_policy_bits = 32;
+    config.transport.event_sink = on_event;
+    config.transport.event_user = &device;
 
-    r = mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &options, &device);
+    r = mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &config, &device);
     mimhid_discovery_destroy(found);
     if (r != MIMHID_OK)
         return fail("device_open", r);
@@ -82,14 +86,16 @@ int main(void) {
     if ((r = mimhid_spec_create_keyboard(&keyboard_options, &keyboard_spec)) != MIMHID_OK)
         return fail("spec_create", r);
 
-    mimhid_node_options node_options = {0};
-    node_options.struct_size = sizeof(node_options);
-    node_options.interface_number = 0;
-    node_options.poll_interval_ms = 1;
-    node_options.ep_in_size = 64;
-    node_options.bcd_hid = 0x0111;
+    mimhid_node_config node_config;
+    mimhid_node_config_init(&node_config);
+    node_config.iface.number = 0;
+    node_config.iface.class_code = 3;
+    node_config.iface.bcd_hid = 0x0111;
+    node_config.ep_in.address = 0x81;
+    node_config.ep_in.poll_interval_ms = 1;
+    node_config.ep_in.max_packet_size = 64;
     mimhid_node* keyboard = NULL;
-    if ((r = mimhid_node_open(device, keyboard_spec, &node_options, &keyboard)) != MIMHID_OK ||
+    if ((r = mimhid_node_open(device, keyboard_spec, &node_config, &keyboard)) != MIMHID_OK ||
         (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);
 

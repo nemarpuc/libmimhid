@@ -109,13 +109,13 @@ bool valid_usb_string(const char* text) noexcept {
     std::size_t length = 0U;
     for (; text[length] != '\0'; ++length) {
         const auto c = static_cast<unsigned char>(text[length]);
-        if (length >= MIMHID_STRING_MAX || c < 0x20U || c > 0x7EU)
+        if (c < 0x20U || c > 0x7EU)
             return false;
     }
-    return true;
+    return length <= MIMHID_STRING_MAX;
 }
 
-bool required_product_policies_nonzero(const mimhid_device_options& options) noexcept {
+bool required_product_policies_nonzero(const mimhid_transport_options& options) noexcept {
     return options.linux_descriptor_policy_bytes != 0U &&
            options.linux_hid_fields_per_report_policy != 0U &&
            options.linux_hid_global_stack_depth_policy != 0U &&
@@ -124,73 +124,108 @@ bool required_product_policies_nonzero(const mimhid_device_options& options) noe
            options.linux_hid_report_size_policy_bits != 0U;
 }
 
-mimhid_result prepare_device_options(const mimhid_device_options* options,
-                                     mimhid_device_options* effective) noexcept {
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "device_options")) {
+mimhid_result prepare_device_config(const mimhid_device_config* config,
+                                    mimhid_device_config* effective) noexcept {
+    if (config == nullptr || !mimhid::detail::valid_struct(
+                                 config, config->struct_size,
+                                 static_cast<std::uint32_t>(sizeof(*config)), "device_config")) {
         return MIMHID_ERR_PARAM;
     }
-    *effective = *options;
-    if (effective->log_level == 0)
-        effective->log_level = MIMHID_LOG_DISABLED;
+    *effective = *config;
+    if (effective->transport.log_level == 0)
+        effective->transport.log_level = MIMHID_LOG_DISABLED;
 
-    // Every value is used as given; the ones zero cannot mean anything for are required.
-    const std::pair<std::uint32_t, const char*> required[] = {
-        {effective->vendor_id, "device_options.vendor_id"},
-        {effective->language_id, "device_options.language_id"},
-        {effective->control_timeout_ms, "device_options.control_timeout_ms"},
-        {effective->send_timeout_ms, "device_options.send_timeout_ms"},
-        {effective->reconnect_timeout_ms, "device_options.reconnect_timeout_ms"},
-        {effective->close_drain_timeout_ms, "device_options.close_drain_timeout_ms"},
+    // Transport required fields
+    const std::pair<std::uint32_t, const char*> required_transport[] = {
+        {effective->transport.baud_rate, "transport.baud_rate"},
+        {effective->transport.control_timeout_ms, "transport.control_timeout_ms"},
+        {effective->transport.send_timeout_ms, "transport.send_timeout_ms"},
+        {effective->transport.reconnect_timeout_ms, "transport.reconnect_timeout_ms"},
+        {effective->transport.close_drain_timeout_ms, "transport.close_drain_timeout_ms"},
     };
-    for (const auto& [value, field] : required) {
+    for (const auto& [value, field] : required_transport) {
         if (value == 0U) {
             set_error(MIMHID_ERR_UNSET_FIELD, field, "This value must be set; it has no default.");
             return MIMHID_ERR_UNSET_FIELD;
         }
     }
-    if (effective->reserved != 0U || effective->reserved8 != 0U ||
-        !required_product_policies_nonzero(*effective)) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "device_options",
-                  "Every required product policy must be nonzero and reserved fields zero.");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (!mimhid::detail::valid_boolean(effective->validate_reports) ||
-        !mimhid::detail::valid_boolean(effective->keep_attached) ||
-        !mimhid::detail::valid_boolean(effective->serial_from_chip_id) ||
-        !mimhid::detail::valid_boolean(effective->self_powered) ||
-        !mimhid::detail::valid_boolean(effective->remote_wakeup) ||
-        effective->log_level < MIMHID_LOG_DISABLED || effective->log_level > MIMHID_LOG_TRACE) {
-        set_error(MIMHID_ERR_PARAM, "device_options",
-                  "Every flag must be exactly zero or one and log_level a defined value.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (effective->max_power_ma > 500U) {
-        set_error(MIMHID_ERR_PARAM, "device_options.max_power_ma",
-                  "max_power_ma must be at most 500.");
-        return MIMHID_ERR_PARAM;
-    }
-    for (const char* text : {effective->manufacturer, effective->product, effective->serial,
-                             effective->configuration}) {
-        if (!valid_usb_string(text)) {
-            set_error(MIMHID_ERR_PARAM, "device_options.strings",
-                      "A string must be printable ASCII, at most 31 characters.");
-            return MIMHID_ERR_PARAM;
-        }
-    }
-    if (effective->baud_rate == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "device_options.baud_rate",
-                  "baud_rate must be set to one of MIMHID_BAUD_RATES; mimhid_discover measures "
-                  "the fastest one the link carries.");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (tr::baud_index_of(effective->baud_rate) < 0 ||
-        !tr::SerialPort::baud_supported(effective->baud_rate)) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "device_options.baud_rate",
+    if (tr::baud_index_of(effective->transport.baud_rate) < 0 ||
+        !tr::SerialPort::baud_supported(effective->transport.baud_rate)) {
+        set_error(MIMHID_ERR_UNSUPPORTED, "transport.baud_rate",
                   "The rate is not one of MIMHID_BAUD_RATES that this system can set.");
         return MIMHID_ERR_UNSUPPORTED;
     }
+    if (!required_product_policies_nonzero(effective->transport)) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "transport.linux_policy",
+                  "Every required product policy must be nonzero.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (!mimhid::detail::valid_boolean(effective->transport.validate_reports) ||
+        !mimhid::detail::valid_boolean(effective->transport.keep_attached) ||
+        effective->transport.log_level < MIMHID_LOG_DISABLED ||
+        effective->transport.log_level > MIMHID_LOG_TRACE) {
+        set_error(MIMHID_ERR_PARAM, "transport",
+                  "Every flag must be exactly zero or one and log_level a defined value.");
+        return MIMHID_ERR_PARAM;
+    }
+
+    // USB Device required fields
+    const std::pair<std::uint32_t, const char*> required_usb_device[] = {
+        {effective->usb_device.vendor_id, "usb_device.vendor_id"},
+        {effective->usb_device.language_id, "usb_device.language_id"},
+        {effective->usb_device.bcd_usb, "usb_device.bcd_usb"},
+        {effective->usb_device.ep0_max_packet_size, "usb_device.ep0_max_packet_size"},
+    };
+    for (const auto& [value, field] : required_usb_device) {
+        if (value == 0U) {
+            set_error(MIMHID_ERR_UNSET_FIELD, field, "This value must be set; it has no default.");
+            return MIMHID_ERR_UNSET_FIELD;
+        }
+    }
+    if (effective->usb_device.ep0_max_packet_size != 8U &&
+        effective->usb_device.ep0_max_packet_size != 16U &&
+        effective->usb_device.ep0_max_packet_size != 32U &&
+        effective->usb_device.ep0_max_packet_size != 64U) {
+        set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",
+                  "ep0_max_packet_size must be 8, 16, 32, or 64.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (!mimhid::detail::valid_boolean(effective->usb_device.serial_from_chip_id)) {
+        set_error(MIMHID_ERR_PARAM, "usb_device.serial_from_chip_id",
+                  "serial_from_chip_id must be zero or one.");
+        return MIMHID_ERR_PARAM;
+    }
+    for (const char* text : {effective->usb_device.manufacturer, effective->usb_device.product,
+                             effective->usb_device.serial}) {
+        if (!valid_usb_string(text)) {
+            set_error(MIMHID_ERR_PARAM, "usb_device.strings",
+                      "A string must be printable ASCII, at most 126 characters.");
+            return MIMHID_ERR_PARAM;
+        }
+    }
+
+    // USB Config required fields
+    if (effective->usb_config.configuration_value == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_config.configuration_value",
+                  "configuration_value must be non-zero (e.g. 1).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if ((effective->usb_config.bm_attributes & 0x80U) == 0U) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
+                  "bm_attributes bit 7 must be set (0x80).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (effective->usb_config.bmax_power > 250U) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.bmax_power",
+                  "bmax_power must be at most 250 (500 mA).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (!valid_usb_string(effective->usb_config.string)) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.string",
+                  "A string must be printable ASCII, at most 126 characters.");
+        return MIMHID_ERR_PARAM;
+    }
+
     return MIMHID_OK;
 }
 
@@ -495,10 +530,10 @@ mimhid_result assign_interfaces(mimhid_device* device, const std::vector<mimhid_
     const std::size_t limit = device->board.max_interfaces;
     std::set<std::uint32_t> unique_ifaces;
     for (const mimhid_node* node : nodes) {
-        unique_ifaces.insert(node->options.interface_number);
+        unique_ifaces.insert(node->config.iface.number);
     }
     if (unique_ifaces.size() > limit) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_options.interface_number",
+        set_error(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
                   "Number of distinct interfaces exceeds the board's maximum interfaces.");
         return MIMHID_ERR_OVERFLOW;
     }
@@ -508,7 +543,7 @@ mimhid_result assign_interfaces(mimhid_device* device, const std::vector<mimhid_
         dense_map[iface_num] = dense_idx++;
     }
     for (mimhid_node* node : nodes) {
-        node->iface = dense_map[node->options.interface_number];
+        node->iface = dense_map[node->config.iface.number];
     }
 
     // USB HID 1.11 Sec 5.6: If multiple nodes share an interface, all must have distinct Report
@@ -516,7 +551,7 @@ mimhid_result assign_interfaces(mimhid_device* device, const std::vector<mimhid_
     for (std::uint32_t iface_num : unique_ifaces) {
         std::vector<mimhid_node*> iface_nodes;
         for (mimhid_node* node : nodes) {
-            if (node->options.interface_number == iface_num)
+            if (node->config.iface.number == iface_num)
                 iface_nodes.push_back(node);
         }
         if (iface_nodes.size() > 1U) {
@@ -572,7 +607,7 @@ struct ReconfigGuard {
 // device and re-enumerates it with exactly these nodes.
 mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms = 0U) {
     const ReconfigGuard guard(device);
-    const std::uint32_t control = device->options.control_timeout_ms;
+    const std::uint32_t control = device->config.transport.control_timeout_ms;
     const std::vector<mimhid_node*> nodes = live_nodes(device);
 
     if (nodes.empty()) {
@@ -608,24 +643,25 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms =
     if (const mimhid_result assigned = assign_interfaces(device, nodes); assigned != MIMHID_OK)
         return assigned;
 
-    const mimhid_device_options& options = device->options;
+    const mimhid_usb_device& dev = device->config.usb_device;
+    const mimhid_usb_config& cfg = device->config.usb_config;
     std::vector<std::uint8_t> payload;
-    put_u16(&payload, options.vendor_id);
-    put_u16(&payload, options.product_id);
-    put_u16(&payload, options.bcd_device);
-    payload.push_back(options.device_class);
-    payload.push_back(options.device_subclass);
-    payload.push_back(options.device_protocol);
-    put_u16(&payload, options.language_id);
+    put_u16(&payload, dev.vendor_id);
+    put_u16(&payload, dev.product_id);
+    put_u16(&payload, dev.bcd_device);
+    payload.push_back(dev.device_class);
+    payload.push_back(dev.device_subclass);
+    payload.push_back(dev.device_protocol);
+    put_u16(&payload, dev.language_id);
+    put_u16(&payload, dev.bcd_usb);
+    payload.push_back(dev.ep0_max_packet_size);
+    payload.push_back(cfg.configuration_value);
+    payload.push_back(cfg.bm_attributes);
+    payload.push_back(cfg.bmax_power);
     std::uint8_t flags = 0U;
-    if (options.self_powered == 1U)
-        flags |= MIMHID_DEVFLAG_SELF_POWERED;
-    if (options.remote_wakeup == 1U)
-        flags |= MIMHID_DEVFLAG_REMOTE_WAKEUP;
-    if (options.serial_from_chip_id == 1U)
+    if (dev.serial_from_chip_id == 1U)
         flags |= MIMHID_DEVFLAG_SERIAL_FROM_ID;
     payload.push_back(flags);
-    payload.push_back(static_cast<std::uint8_t>(options.max_power_ma / 2U));
     put_string(&payload, device->manufacturer);
     put_string(&payload, device->product);
     put_string(&payload, device->serial);
@@ -644,14 +680,19 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms =
         payload.push_back(node->node_id);
         payload.push_back(node->iface);
         put_u16(&payload, static_cast<std::uint32_t>(desc.size()));
-        payload.push_back(static_cast<std::uint8_t>(node->options.poll_interval_ms));
-        put_u16(&payload, node->options.ep_in_size);
-        put_u16(&payload, node->options.bcd_hid);
-        payload.push_back(static_cast<std::uint8_t>(node->options.country_code));
-        payload.push_back(static_cast<std::uint8_t>(node->options.boot_protocol));
-        payload.push_back(0U); // idle rate, reserved
-        payload.push_back(0U); // flags (reserved, zero)
-        put_u16(&payload, node->options.ep_out_size);
+        payload.push_back(node->config.iface.class_code);
+        payload.push_back(node->config.iface.subclass);
+        payload.push_back(node->config.iface.protocol);
+        put_u16(&payload, node->config.iface.bcd_hid);
+        payload.push_back(static_cast<std::uint8_t>(node->config.iface.country_code));
+        payload.push_back(node->config.ep_in.address);
+        put_u16(&payload, node->config.ep_in.max_packet_size);
+        payload.push_back(static_cast<std::uint8_t>(node->config.ep_in.poll_interval_ms));
+        payload.push_back(node->config.ep_out.address);
+        put_u16(&payload, node->config.ep_out.max_packet_size);
+        payload.push_back(static_cast<std::uint8_t>(node->config.ep_out.poll_interval_ms));
+        payload.push_back(0U); // idle rate
+        payload.push_back(0U); // flags
         put_string(&payload, node->interface_string);
         r = command_error(device->link.command(MIMHID_T_NODE_BEGIN, payload.data(), payload.size(),
                                                control, kCommandAttempts),
@@ -697,7 +738,7 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms =
         if (reconnect_delay_ms > 0U)
             std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_delay_ms));
     }
-    r = command_error(device->link.connect(options.reconnect_timeout_ms), "device.commit",
+    r = command_error(device->link.connect(device->config.transport.reconnect_timeout_ms), "device.commit",
                       "The board did not connect or enumerate in time.", MIMHID_T_COMMIT);
     if (r != MIMHID_OK)
         return r;
@@ -715,7 +756,7 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms =
 void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept {
     const std::uint8_t* d = board.data.data();
 
-    if (device->options.event_sink == nullptr)
+    if (device->config.transport.event_sink == nullptr)
         return;
     mimhid_event event{};
     event.struct_size = sizeof(event);
@@ -817,7 +858,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         event.node_id = public_node_id(match);
     }
     try {
-        device->options.event_sink(device->options.event_user, &event);
+        device->config.transport.event_sink(device->config.transport.event_user, &event);
     } catch (...) {
         // A sink is foreign callback code and must not unwind through the reader thread.
     }
@@ -997,7 +1038,7 @@ MIMHID_C_VOID_CATCH("discovery.destroy")
 // ---- device ----------------------------------------------------------------------------
 
 mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
-                                             const mimhid_device_options* options,
+                                             const mimhid_device_config* config,
                                              mimhid_device** out_device) try {
     mimhid::detail::clear_error();
     if (out_device == nullptr) {
@@ -1009,21 +1050,24 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         set_error(MIMHID_ERR_PARAM, "port_path", "A non-empty port_path is required.");
         return MIMHID_ERR_PARAM;
     }
-    mimhid_device_options effective{};
-    if (const mimhid_result prepared = prepare_device_options(options, &effective);
+    mimhid_device_config effective{};
+    if (const mimhid_result prepared = prepare_device_config(config, &effective);
         prepared != MIMHID_OK) {
         return prepared;
     }
 
     auto device = std::make_unique<mimhid_device>();
-    device->options = effective;
-    device->manufacturer = effective.manufacturer != nullptr ? effective.manufacturer : "";
-    device->product = effective.product != nullptr ? effective.product : "";
-    device->serial = effective.serial != nullptr ? effective.serial : "";
-    device->configuration = effective.configuration != nullptr ? effective.configuration : "";
+    device->config = effective;
+    device->manufacturer =
+        effective.usb_device.manufacturer != nullptr ? effective.usb_device.manufacturer : "";
+    device->product = effective.usb_device.product != nullptr ? effective.usb_device.product : "";
+    device->serial = effective.usb_device.serial != nullptr ? effective.usb_device.serial : "";
+    device->configuration =
+        effective.usb_config.string != nullptr ? effective.usb_config.string : "";
     // The caller's string pointers are not retained.
-    device->options.manufacturer = device->options.product = nullptr;
-    device->options.serial = device->options.configuration = nullptr;
+    device->config.usb_device.manufacturer = device->config.usb_device.product = nullptr;
+    device->config.usb_device.serial = nullptr;
+    device->config.usb_config.string = nullptr;
 
     const tr::OpenResult opened = device->link.open(port_path);
     if (!opened.ok) {
@@ -1051,7 +1095,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   0, 0, 0, 0, MIMHID_PROTO_VERSION, device->board.protocol);
         return MIMHID_ERR_PROTOCOL;
     }
-    switch (handshake.switch_to(effective.baud_rate, &device->board)) {
+    switch (handshake.switch_to(effective.transport.baud_rate, &device->board)) {
     case tr::Handshake::ok:
         break;
     case tr::Handshake::rate_refused:
@@ -1069,17 +1113,17 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         return MIMHID_ERR_IO;
     }
 
-    if (effective.maximum_report_bytes > device->board.max_report_bytes ||
-        effective.maximum_report_bytes > kMaximumReportBytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "device_options.maximum_report_bytes",
+    if (effective.transport.maximum_report_bytes > device->board.max_report_bytes ||
+        effective.transport.maximum_report_bytes > kMaximumReportBytes) {
+        set_error(MIMHID_ERR_OVERFLOW, "transport.maximum_report_bytes",
                   "The limit exceeds what the board accepts.");
         return MIMHID_ERR_OVERFLOW;
     }
     device->maximum_report_bytes =
-        effective.maximum_report_bytes != 0U
-            ? effective.maximum_report_bytes
+        effective.transport.maximum_report_bytes != 0U
+            ? effective.transport.maximum_report_bytes
             : std::min<std::uint32_t>(device->board.max_report_bytes, kMaximumReportBytes);
-    device->info = describe_board(port_path, "", device->board, effective.baud_rate);
+    device->info = describe_board(port_path, "", device->board, effective.transport.baud_rate);
 
     mimhid_device* raw = device.get();
     device->link.start([raw](const tr::BoardEvent& event) { deliver_event(raw, event); });
@@ -1089,6 +1133,90 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.open")
+
+mimhid_result MIMHID_CALL
+mimhid_device_set_usb_identity(mimhid_device* device,
+                               const mimhid_usb_device* usb_device,
+                               const mimhid_usb_config* usb_config) try {
+    mimhid::detail::clear_error();
+    if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (usb_device == nullptr) {
+        set_error(MIMHID_ERR_PARAM, "usb_device", "usb_device cannot be null.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (usb_config == nullptr) {
+        set_error(MIMHID_ERR_PARAM, "usb_config", "usb_config cannot be null.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (usb_device->vendor_id == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_device.vendor_id", "vendor_id must be non-zero.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (usb_device->language_id == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_device.language_id", "language_id must be non-zero.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (usb_device->bcd_usb == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_device.bcd_usb", "bcd_usb must be non-zero.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (usb_device->ep0_max_packet_size != 8U && usb_device->ep0_max_packet_size != 16U &&
+        usb_device->ep0_max_packet_size != 32U && usb_device->ep0_max_packet_size != 64U) {
+        set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",
+                  "ep0_max_packet_size must be 8, 16, 32, or 64.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (!mimhid::detail::valid_boolean(usb_device->serial_from_chip_id)) {
+        set_error(MIMHID_ERR_PARAM, "usb_device.serial_from_chip_id",
+                  "serial_from_chip_id must be zero or one.");
+        return MIMHID_ERR_PARAM;
+    }
+    for (const char* text : {usb_device->manufacturer, usb_device->product, usb_device->serial}) {
+        if (!valid_usb_string(text)) {
+            set_error(MIMHID_ERR_PARAM, "usb_device.strings",
+                      "A string must be printable ASCII, at most 126 characters.");
+            return MIMHID_ERR_PARAM;
+        }
+    }
+    if (usb_config->configuration_value == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_config.configuration_value",
+                  "configuration_value must be non-zero (e.g. 1).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if ((usb_config->bm_attributes & 0x80U) == 0U) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
+                  "bm_attributes bit 7 must be set (0x80).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (usb_config->bmax_power > 250U) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.bmax_power",
+                  "bmax_power must be at most 250 (500 mA).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (!valid_usb_string(usb_config->string)) {
+        set_error(MIMHID_ERR_PARAM, "usb_config.string",
+                  "A string must be printable ASCII, at most 126 characters.");
+        return MIMHID_ERR_PARAM;
+    }
+
+    device->config.usb_device = *usb_device;
+    device->config.usb_config = *usb_config;
+    device->manufacturer = usb_device->manufacturer ? usb_device->manufacturer : "";
+    device->product = usb_device->product ? usb_device->product : "";
+    device->serial = usb_device->serial ? usb_device->serial : "";
+    device->configuration = usb_config->string ? usb_config->string : "";
+    device->config.usb_device.manufacturer = device->config.usb_device.product = nullptr;
+    device->config.usb_device.serial = nullptr;
+    device->config.usb_config.string = nullptr;
+    device->dirty = true;
+    if (!device->batch_open)
+        return commit_device(device, 0U);
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("device.set_usb_identity")
 
 mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device,
                                                uint32_t reconnect_delay_ms) try {
@@ -1119,7 +1247,7 @@ mimhid_result MIMHID_CALL mimhid_device_connect(mimhid_device* device) try {
     if (!device->configured) {
         return commit_device(device, 0U);
     }
-    return command_error(device->link.connect(device->options.control_timeout_ms), "device.connect",
+    return command_error(device->link.connect(device->config.transport.control_timeout_ms), "device.connect",
                          "The board did not acknowledge connect.", MIMHID_T_COMMIT);
 }
 MIMHID_C_RESULT_CATCH("device.connect")
@@ -1131,7 +1259,7 @@ mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* device) try {
         return MIMHID_ERR_PARAM;
     }
     const mimhid_result r = command_error(
-        device->link.disconnect(device->options.control_timeout_ms), "device.disconnect",
+        device->link.disconnect(device->config.transport.control_timeout_ms), "device.disconnect",
         "The board did not acknowledge disconnect.", MIMHID_T_COMMIT);
     if (r == MIMHID_OK) {
         device->configured = false;
@@ -1152,7 +1280,7 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
     }
     mimhid_result retained = MIMHID_OK;
     const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(device->options.close_drain_timeout_ms);
+                          std::chrono::milliseconds(device->config.transport.close_drain_timeout_ms);
     for (mimhid_node* node : live_nodes(device)) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
@@ -1166,12 +1294,12 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
         // The next program finds the board answering everything itself.
         const std::uint8_t none[2] = {0U, 0U};
         (void)device->link.command(MIMHID_T_CONTROL_CONFIG, none, sizeof(none),
-                                   device->options.control_timeout_ms, 1);
+                                   device->config.transport.control_timeout_ms, 1);
     }
-    if (!device->link.failed() && device->configured && device->options.keep_attached == 0U) {
+    if (!device->link.failed() && device->configured && device->config.transport.keep_attached == 0U) {
         const std::uint8_t detach[1] = {1U};
         const tr::CommandResult sent = device->link.command(
-            MIMHID_T_COMMIT, detach, 1, device->options.control_timeout_ms, kCommandAttempts);
+            MIMHID_T_COMMIT, detach, 1, device->config.transport.control_timeout_ms, kCommandAttempts);
         if (sent.status != tr::CommandStatus::ack && retained == MIMHID_OK)
             retained = command_error(sent, "device.close", "The board did not go off the bus.",
                                      MIMHID_T_COMMIT);
@@ -1179,7 +1307,7 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
     // The next program to open the board, or a search, finds it at once on the boot rate.
     if (!device->link.failed() && device->info.baud_rate != MIMHID_BOOT_BAUD) {
         const std::uint8_t boot[1] = {0U};
-        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, device->options.control_timeout_ms,
+        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, device->config.transport.control_timeout_ms,
                                    1);
     }
     device->link.drain();
@@ -1291,7 +1419,7 @@ mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device) try
         return MIMHID_ERR_PARAM;
     }
     const tr::CommandResult result = device->link.command(
-        MIMHID_T_REMOTE_WAKEUP, nullptr, 0, device->options.control_timeout_ms, kCommandAttempts);
+        MIMHID_T_REMOTE_WAKEUP, nullptr, 0, device->config.transport.control_timeout_ms, kCommandAttempts);
     return command_error(result, "device.remote_wakeup", "The target has not suspended the device.",
                          MIMHID_T_REMOTE_WAKEUP);
 }
@@ -1396,8 +1524,8 @@ mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* devic
         payload[n++] = static_cast<std::uint8_t>(r.when_late - 1);
     }
     const mimhid_result result = command_error(
-        device->link.command(MIMHID_T_CONTROL_CONFIG, payload, n, device->options.control_timeout_ms,
-                             kCommandAttempts),
+        device->link.command(MIMHID_T_CONTROL_CONFIG, payload, n,
+                             device->config.transport.control_timeout_ms, kCommandAttempts),
         "device.set_control_routing", "The board did not accept the control routing.",
         MIMHID_T_CONTROL_CONFIG);
     if (result == MIMHID_OK)
@@ -1430,7 +1558,7 @@ mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, con
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_control_reply(
         static_cast<std::uint8_t>(token), static_cast<std::uint8_t>(action - 1), data, length,
-        device->options.send_timeout_ms, &os_error);
+        device->config.transport.send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
         return MIMHID_OK;
@@ -1457,8 +1585,75 @@ MIMHID_C_RESULT_CATCH("device.control_reply")
 
 // ---- nodes -----------------------------------------------------------------------------
 
+mimhid_result validate_node_config(const mimhid_device* device,
+                                   const mimhid_node_config& effective) noexcept {
+    if (effective.ep_in.poll_interval_ms == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_in.poll_interval_ms",
+                  "poll_interval_ms must be non-zero (1-255 ms).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (effective.ep_in.max_packet_size == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_in.max_packet_size",
+                  "ep_in.max_packet_size must be non-zero (1 to board max_endpoint_bytes).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (effective.iface.bcd_hid == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "node_config.iface.bcd_hid",
+                  "bcd_hid must be explicitly specified (e.g. 0x0111).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if (effective.iface.class_code == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "node_config.iface.class_code",
+                  "class_code must be explicitly specified (e.g. 0x03 for HID).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    if ((effective.ep_in.address & 0x80U) == 0U) {
+        set_error(MIMHID_ERR_PARAM, "node_config.ep_in.address",
+                  "ep_in.address must have bit 7 set for IN endpoint (e.g. 0x81).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (effective.iface.country_code > 35U || !valid_usb_string(effective.iface.name)) {
+        set_error(MIMHID_ERR_PARAM, "node_config.iface",
+                  "A string is not printable ASCII of at most 126 characters, or country_code > 35.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (effective.ep_in.max_packet_size > device->board.max_endpoint_bytes ||
+        effective.ep_out.max_packet_size > device->board.max_endpoint_bytes) {
+        set_error(MIMHID_ERR_OVERFLOW, "node_config.ep_in.max_packet_size",
+                  "An endpoint packet is larger than the board's endpoints hold.", 0, 0, 0, 0,
+                  device->board.max_endpoint_bytes,
+                  std::max<std::uint32_t>(effective.ep_in.max_packet_size, effective.ep_out.max_packet_size));
+        return MIMHID_ERR_OVERFLOW;
+    }
+    if (effective.iface.number >= device->board.max_interfaces) {
+        set_error(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
+                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
+                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
+                  effective.iface.number);
+        return MIMHID_ERR_OVERFLOW;
+    }
+    if (effective.ep_out.max_packet_size > 0U || effective.ep_out.address != 0U) {
+        if ((effective.ep_out.address & 0x80U) != 0U || effective.ep_out.address == 0U) {
+            set_error(MIMHID_ERR_PARAM, "node_config.ep_out.address",
+                      "ep_out.address must have bit 7 clear and nonzero (e.g. 0x01).");
+            return MIMHID_ERR_PARAM;
+        }
+        if (effective.ep_out.poll_interval_ms == 0U) {
+            set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_out.poll_interval_ms",
+                      "poll_interval_ms must be non-zero (1-255 ms) when ep_out is enabled.");
+            return MIMHID_ERR_UNSET_FIELD;
+        }
+        if (effective.ep_out.max_packet_size == 0U) {
+            set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_out.max_packet_size",
+                      "max_packet_size must be non-zero when ep_out is enabled.");
+            return MIMHID_ERR_UNSET_FIELD;
+        }
+    }
+    return MIMHID_OK;
+}
+
 mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* spec,
-                                           const mimhid_node_options* options,
+                                           const mimhid_node_config* config,
                                            mimhid_node** out_node) try {
     mimhid::detail::clear_error();
     if (out_node == nullptr) {
@@ -1478,59 +1673,16 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
     }
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "node_options")) {
+    if (config == nullptr || !mimhid::detail::valid_struct(
+                                 config, config->struct_size,
+                                 static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }
-    mimhid_node_options effective = *options;
-    if (effective.poll_interval_ms > 255U || effective.country_code > 35U ||
-        !valid_usb_string(effective.interface_name) ||
-        (effective.boot_protocol != MIMHID_BOOT_NONE &&
-         effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
-         effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
-        set_error(MIMHID_ERR_PARAM, "node_options",
-                  "A string is not printable ASCII of at most 31 characters, or a setting is "
-                  "outside its range.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (effective.ep_in_size > device->board.max_endpoint_bytes ||
-        effective.ep_out_size > device->board.max_endpoint_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_options.ep_in_size",
-                  "An endpoint packet is larger than the board's endpoints hold.", 0, 0, 0, 0,
-                  device->board.max_endpoint_bytes,
-                  std::max(effective.ep_in_size, effective.ep_out_size));
-        return MIMHID_ERR_OVERFLOW;
-    }
-    if (effective.interface_number >= device->board.max_interfaces) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_options.interface_number",
-                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
-                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
-                  effective.interface_number);
-        return MIMHID_ERR_OVERFLOW;
-    }
-    if (effective.boot_protocol != MIMHID_BOOT_NONE && spec->kind != MIMHID_PROFILE_RAW) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "node_options.boot_protocol",
-                  "A boot protocol needs a Raw Spec whose descriptor follows HID 1.11 Appendix B.");
-        return MIMHID_ERR_UNSUPPORTED;
-    }
-    if (effective.poll_interval_ms == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.poll_interval_ms",
-                  "poll_interval_ms must be non-zero (1-255 ms).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (effective.ep_in_size == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.ep_in_size",
-                  "ep_in_size must be non-zero (1 to 64 bytes).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (effective.bcd_hid == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.bcd_hid",
-                  "bcd_hid must be explicitly specified (e.g. 0x0111).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
+    mimhid_node_config effective = *config;
+    if (const mimhid_result v = validate_node_config(device, effective); v != MIMHID_OK)
+        return v;
 
-    const mimhid_device_options& policy = device->options;
+    const mimhid_transport_options& policy = device->config.transport;
     if (spec->descriptor.empty() || spec->descriptor.size() > device->board.max_descriptor_bytes) {
         set_error(MIMHID_ERR_OVERFLOW, "spec.descriptor.board",
                   "The descriptor exceeds the board's descriptor memory.");
@@ -1623,9 +1775,9 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     }
     node->device = device;
     node->spec = spec;
-    node->options = effective;
-    node->interface_string = effective.interface_name != nullptr ? effective.interface_name : "";
-    node->options.interface_name = nullptr;
+    node->config = effective;
+    node->interface_string = effective.iface.name != nullptr ? effective.iface.name : "";
+    node->config.iface.name = nullptr;
     node->node_id = node_id;
     collect_report_ids(spec->descriptor, &node->report_ids, &node->has_report_ids);
     if (const mimhid_result initialized = initialize_node_state(node.get());
@@ -1679,7 +1831,7 @@ MIMHID_C_RESULT_CATCH("node.open")
 
 mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint8_t* descriptor,
                                                size_t descriptor_length,
-                                               const mimhid_node_options* options,
+                                               const mimhid_node_config* config,
                                                mimhid_node** out_node) try {
     mimhid::detail::clear_error();
     if (out_node == nullptr) {
@@ -1700,52 +1852,14 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
     }
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "node_options")) {
+    if (config == nullptr || !mimhid::detail::valid_struct(
+                                 config, config->struct_size,
+                                 static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }
-    mimhid_node_options effective = *options;
-    if (effective.poll_interval_ms > 255U || effective.country_code > 35U ||
-        !valid_usb_string(effective.interface_name) ||
-        (effective.boot_protocol != MIMHID_BOOT_NONE &&
-         effective.boot_protocol != MIMHID_BOOT_KEYBOARD &&
-         effective.boot_protocol != MIMHID_BOOT_MOUSE)) {
-        set_error(MIMHID_ERR_PARAM, "node_options",
-                  "A string is not printable ASCII of at most 31 characters, or a setting is "
-                  "outside its range.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (effective.ep_in_size > device->board.max_endpoint_bytes ||
-        effective.ep_out_size > device->board.max_endpoint_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_options.ep_in_size",
-                  "An endpoint packet is larger than the board's endpoints hold.", 0, 0, 0, 0,
-                  device->board.max_endpoint_bytes,
-                  std::max(effective.ep_in_size, effective.ep_out_size));
-        return MIMHID_ERR_OVERFLOW;
-    }
-    if (effective.interface_number >= device->board.max_interfaces) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_options.interface_number",
-                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
-                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
-                  effective.interface_number);
-        return MIMHID_ERR_OVERFLOW;
-    }
-    if (effective.poll_interval_ms == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.poll_interval_ms",
-                  "poll_interval_ms must be non-zero (1-255 ms).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (effective.ep_in_size == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.ep_in_size",
-                  "ep_in_size must be non-zero (1 to 64 bytes).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
-    if (effective.bcd_hid == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "node_options.bcd_hid",
-                  "bcd_hid must be explicitly specified (e.g. 0x0111).");
-        return MIMHID_ERR_UNSET_FIELD;
-    }
+    mimhid_node_config effective = *config;
+    if (const mimhid_result v = validate_node_config(device, effective); v != MIMHID_OK)
+        return v;
 
     if (descriptor_length > device->board.max_descriptor_bytes) {
         set_error(MIMHID_ERR_OVERFLOW, "descriptor.board",
@@ -1785,9 +1899,9 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     }
     node->device = device;
     node->spec = spec.release();
-    node->options = effective;
-    node->interface_string = effective.interface_name != nullptr ? effective.interface_name : "";
-    node->options.interface_name = nullptr;
+    node->config = effective;
+    node->interface_string = effective.iface.name != nullptr ? effective.iface.name : "";
+    node->config.iface.name = nullptr;
     node->node_id = node_id;
     collect_report_ids(node->spec->descriptor, &node->report_ids, &node->has_report_ids);
     if (const mimhid_result initialized = initialize_node_state(node.get());
@@ -1858,7 +1972,7 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
     payload.push_back(report_id);
     payload.insert(payload.end(), entry->data.begin(), entry->data.end());
     return command_error(device->link.command(MIMHID_T_FEATURE, payload.data(), payload.size(),
-                                              device->options.control_timeout_ms, kCommandAttempts),
+                                              device->config.transport.control_timeout_ms, kCommandAttempts),
                          "node.feature", "The board did not accept the Feature report answer.",
                          MIMHID_T_FEATURE, public_node_id(node));
 }
@@ -1897,7 +2011,7 @@ mimhid_result write_report(mimhid_node* node, const std::uint8_t* report, std::s
     mimhid_device* device = node->device;
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_report(
-        node->node_id, report, length, device->options.send_timeout_ms, &os_error);
+        node->node_id, report, length, device->config.transport.send_timeout_ms, &os_error);
     mimhid_result result = MIMHID_OK;
     std::int32_t native = 0;
     switch (status) {
@@ -2047,7 +2161,7 @@ mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node) try {
         node->transfer_inflight.store(false, std::memory_order_release);
         return serialized;
     }
-    if (node->device->options.validate_reports == 1U) {
+    if (node->device->config.transport.validate_reports == 1U) {
         const mimhid_result validated = mimhid::detail::validate_serialized_report(
             node->spec, layout, buffer.data(), report_length);
         if (validated != MIMHID_OK) {
@@ -2172,7 +2286,7 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
     }
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_report(
-        node->node_id, report_bytes, report_length, device->options.send_timeout_ms, &os_error);
+        node->node_id, report_bytes, report_length, device->config.transport.send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
         mimhid::detail::clear_error();
@@ -2206,7 +2320,7 @@ mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node) try {
         return MIMHID_ERR_PARAM;
     }
     mimhid_device* device = node->device;
-    if (const mimhid_result neutral = send_neutral(node, device->options.close_drain_timeout_ms);
+    if (const mimhid_result neutral = send_neutral(node, device->config.transport.close_drain_timeout_ms);
         neutral != MIMHID_OK) {
         return neutral;
     }

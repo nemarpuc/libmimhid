@@ -32,9 +32,14 @@ inline void discovery_destroy(mimhid_discovery* discovery) noexcept {
     return mimhid_discover(timeout_ms, out_discovery);
 }
 [[nodiscard]] inline mimhid_result device_open(const char* port_path,
-                                               const mimhid_device_options* options,
+                                               const mimhid_device_config* config,
                                                mimhid_device** out_device) noexcept {
-    return mimhid_device_open(port_path, options, out_device);
+    return mimhid_device_open(port_path, config, out_device);
+}
+[[nodiscard]] inline mimhid_result device_set_usb_identity(mimhid_device* device,
+                                                           const mimhid_usb_device* usb_device,
+                                                           const mimhid_usb_config* usb_config) noexcept {
+    return mimhid_device_set_usb_identity(device, usb_device, usb_config);
 }
 [[nodiscard]] inline mimhid_result device_commit(mimhid_device* device,
                                                  uint32_t reconnect_delay_ms) noexcept {
@@ -139,15 +144,15 @@ inline void spec_release(mimhid_spec* spec) noexcept { mimhid_spec_release(spec)
     return mimhid_spec_manifest(spec, manifest);
 }
 [[nodiscard]] inline mimhid_result node_open(mimhid_device* device, mimhid_spec* spec,
-                                             const mimhid_node_options* options,
+                                             const mimhid_node_config* config,
                                              mimhid_node** out_node) noexcept {
-    return mimhid_node_open(device, spec, options, out_node);
+    return mimhid_node_open(device, spec, config, out_node);
 }
 [[nodiscard]] inline mimhid_result node_open_raw(mimhid_device* device, const uint8_t* descriptor,
                                                  size_t descriptor_length,
-                                                 const mimhid_node_options* options,
+                                                 const mimhid_node_config* config,
                                                  mimhid_node** out_node) noexcept {
-    return mimhid_node_open_raw(device, descriptor, descriptor_length, options, out_node);
+    return mimhid_node_open_raw(device, descriptor, descriptor_length, config, out_node);
 }
 [[nodiscard]] inline mimhid_result node_close(mimhid_node* node) noexcept {
     return mimhid_node_close(node);

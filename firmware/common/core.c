@@ -377,7 +377,7 @@ static void cmd_device_config(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
-    if (len < 13 + 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (len < 18 + 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     memset(&g_staged, 0, sizeof(g_staged));
     mimhid_dev_cfg_t* d = &g_staged.dev;
@@ -388,9 +388,13 @@ static void cmd_device_config(const command_t* c) {
     d->device_subclass = p[7];
     d->device_protocol = p[8];
     d->language_id = (uint16_t)(p[9] | (p[10] << 8));
-    d->flags = p[11];
-    d->max_power = p[12];
-    uint16_t pos = 13;
+    d->bcd_usb = (uint16_t)(p[11] | (p[12] << 8));
+    d->ep0_max_packet_size = p[13];
+    d->configuration_value = p[14];
+    d->bm_attributes = p[15];
+    d->bmax_power = p[16];
+    d->flags = p[17];
+    uint16_t pos = 18;
     if (!read_string(d->manufacturer, p, len, &pos) || !read_string(d->product, p, len, &pos) ||
         !read_string(d->serial, p, len, &pos) || !read_string(d->configuration, p, len, &pos)) {
         g_staged.valid = false;
@@ -406,13 +410,16 @@ static void cmd_node_begin(const command_t* c) {
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
     if (!g_staged.valid) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
-    if (len < 16) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (len < 20) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     const uint8_t id = p[0];
     const uint16_t desc_len = (uint16_t)(p[2] | (p[3] << 8));
-    const uint16_t ep_size = (uint16_t)(p[5] | (p[6] << 8));
-    const uint16_t ep_out_size = (uint16_t)(p[13] | (p[14] << 8));
-    if (id >= MIMHID_MAX_NODES || desc_len == 0 || p[10] > 2 ||
+    const uint8_t itf_subcls = p[5];
+    const uint8_t itf_proto = p[6];
+    const uint16_t ep_size = (uint16_t)(p[11] | (p[12] << 8));
+    const uint16_t ep_out_size = (uint16_t)(p[15] | (p[16] << 8));
+    if (id >= MIMHID_MAX_NODES || desc_len == 0 || itf_subcls > 1 || itf_proto > 2 ||
+        (itf_subcls == 1 && itf_proto == 0) ||
         ep_size > MIMHID_MAX_ENDPOINT_BYTES || ep_out_size > MIMHID_MAX_ENDPOINT_BYTES) {
         send_nak(seq, c->type, MIMHID_NAK_PARAM);
         return;
@@ -437,13 +444,18 @@ static void cmd_node_begin(const command_t* c) {
     n->used = true;
     n->iface = p[1];
     n->desc_len = desc_len;
-    n->poll_interval = p[4];
-    n->ep_size = ep_size;
-    n->ep_out_size = ep_out_size;
+    n->interface_class = p[4];
+    n->interface_subclass = p[5];
+    n->interface_protocol = p[6];
     n->bcd_hid = (uint16_t)(p[7] | (p[8] << 8));
     n->country = p[9];
-    n->boot_protocol = p[10];
-    uint16_t pos = 15;
+    n->ep_in_addr = p[10];
+    n->ep_size = ep_size;
+    n->poll_interval = p[13];
+    n->ep_out_addr = p[14];
+    n->ep_out_size = ep_out_size;
+    n->poll_interval_out = p[17];
+    uint16_t pos = 20;
     if (!read_string(n->interface_string, p, len, &pos)) {
         n->used = false;
         send_nak(seq, c->type, MIMHID_NAK_PARAM);

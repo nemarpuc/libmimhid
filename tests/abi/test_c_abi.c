@@ -11,7 +11,6 @@
  * They remain true even when a consumer enables a short-enum compiler mode. */
 _Static_assert(sizeof(mimhid_result) == sizeof(int32_t), "mimhid_result ABI width");
 _Static_assert(sizeof(mimhid_event_kind) == sizeof(int32_t), "mimhid_event_kind ABI width");
-_Static_assert(sizeof(mimhid_boot_protocol) == sizeof(int32_t), "mimhid_boot_protocol ABI width");
 _Static_assert(sizeof(mimhid_log_level) == sizeof(int32_t), "mimhid_log_level ABI width");
 _Static_assert(sizeof(mimhid_profile_kind) == sizeof(int32_t), "mimhid_profile_kind ABI width");
 _Static_assert(sizeof(mimhid_axis_role) == sizeof(int32_t), "mimhid_axis_role ABI width");
@@ -29,17 +28,28 @@ _Static_assert(sizeof(mimhid_device_info) == 168, "device_info layout");
 _Static_assert(offsetof(mimhid_device_info, baud_rate) == 140, "device_info.baud_rate");
 _Static_assert(offsetof(mimhid_device_info, unique_id) == 149, "device_info.unique_id");
 _Static_assert(offsetof(mimhid_device_info, version_major) == 128, "device_info.version_major");
-_Static_assert(offsetof(mimhid_device_options, keep_attached) == 72, "device_options.keep_attached");
-_Static_assert(offsetof(mimhid_device_options, vendor_id) == 76, "device_options.vendor_id");
-_Static_assert(offsetof(mimhid_device_options, bcd_device) == 80, "device_options.bcd_device");
-_Static_assert(offsetof(mimhid_node_options, struct_size) == 0, "node_options.struct_size");
-_Static_assert(offsetof(mimhid_node_options, interface_number) == 4, "node_options.interface_number");
-_Static_assert(offsetof(mimhid_node_options, poll_interval_ms) == 8, "node_options.poll_interval_ms");
-_Static_assert(offsetof(mimhid_node_options, ep_in_size) == 12, "node_options.ep_in_size");
-_Static_assert(offsetof(mimhid_node_options, ep_out_size) == 16, "node_options.ep_out_size");
-_Static_assert(offsetof(mimhid_node_options, boot_protocol) == 20, "node_options.boot_protocol");
-_Static_assert(offsetof(mimhid_node_options, bcd_hid) == 24, "node_options.bcd_hid");
-_Static_assert(offsetof(mimhid_node_options, country_code) == 26, "node_options.country_code");
+
+_Static_assert(sizeof(mimhid_usb_endpoint) == 4, "usb_endpoint layout");
+_Static_assert(offsetof(mimhid_usb_endpoint, address) == 0, "usb_endpoint.address");
+_Static_assert(offsetof(mimhid_usb_endpoint, poll_interval_ms) == 1, "usb_endpoint.poll_interval_ms");
+_Static_assert(offsetof(mimhid_usb_endpoint, max_packet_size) == 2, "usb_endpoint.max_packet_size");
+
+_Static_assert(offsetof(mimhid_usb_interface, number) == 0, "usb_interface.number");
+_Static_assert(offsetof(mimhid_usb_interface, class_code) == 1, "usb_interface.class_code");
+_Static_assert(offsetof(mimhid_usb_interface, bcd_hid) == 4, "usb_interface.bcd_hid");
+
+_Static_assert(offsetof(mimhid_usb_config, configuration_value) == 0, "usb_config.configuration_value");
+_Static_assert(offsetof(mimhid_usb_config, bm_attributes) == 1, "usb_config.bm_attributes");
+_Static_assert(offsetof(mimhid_usb_config, bmax_power) == 2, "usb_config.bmax_power");
+
+_Static_assert(offsetof(mimhid_usb_device, bcd_usb) == 0, "usb_device.bcd_usb");
+_Static_assert(offsetof(mimhid_usb_device, vendor_id) == 6, "usb_device.vendor_id");
+_Static_assert(offsetof(mimhid_usb_device, product_id) == 8, "usb_device.product_id");
+_Static_assert(offsetof(mimhid_usb_device, bcd_device) == 10, "usb_device.bcd_device");
+
+_Static_assert(offsetof(mimhid_node_config, struct_size) == 0, "node_config.struct_size");
+_Static_assert(offsetof(mimhid_device_config, struct_size) == 0, "device_config.struct_size");
+
 _Static_assert(offsetof(mimhid_event, kind) == 8, "event.kind");
 _Static_assert(offsetof(mimhid_event, value) == 16, "event.value");
 

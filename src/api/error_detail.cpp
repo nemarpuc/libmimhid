@@ -82,20 +82,21 @@ const char* result_name(const mimhid_result result) noexcept {
 void log_message(const mimhid_device* device, const mimhid_log_level level,
                  const char* message) noexcept {
     if (device == nullptr || message == nullptr || level < MIMHID_LOG_ERROR ||
-        device->options.log_level == MIMHID_LOG_DISABLED || device->options.log_level < level ||
-        device->options.log_sink == nullptr) {
+        device->config.transport.log_level == MIMHID_LOG_DISABLED ||
+        device->config.transport.log_level < level ||
+        device->config.transport.log_sink == nullptr) {
         return;
     }
 #if defined(__cpp_exceptions) || defined(_CPPUNWIND)
     try {
-        device->options.log_sink(device->options.log_user, level, message);
+        device->config.transport.log_sink(device->config.transport.log_user, level, message);
     } catch (...) {
         // A sink is foreign callback code. It cannot report a failure through this void
         // callback and must never unwind through libmimhid, so logging is best-effort.
         return;
     }
 #else
-    device->options.log_sink(device->options.log_user, level, message);
+    device->config.transport.log_sink(device->config.transport.log_user, level, message);
 #endif
 }
 

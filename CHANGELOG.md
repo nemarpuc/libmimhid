@@ -3,6 +3,16 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-10-22
+
+### Added
+- **USB 2.0 and HID 1.11 descriptor layout decoupling.** Transport options and USB descriptor specifications are cleanly decoupled into `mimhid_device_config` and `mimhid_node_config` with zero implicit preset or inference.
+- **Dynamic Endpoint 0 packet size (`bMaxPacketSize0`) and USB specification version (`bcdUSB`).** Supports Full-Speed EP0 packet sizes (8, 16, 32, 64) and USB BCD versions (e.g. 0x0110, 0x0200, 0x0210) without clamping. Non-standard values are rejected strictly with `MIMHID_ERR_PARAM`.
+- **Dynamic Interface numbering and arbitrary Interrupt IN/OUT endpoint addresses.** Interfaces and endpoints can be assigned arbitrary numbers (supporting non-consecutive interface IDs) and endpoint addresses matching target hardware layouts, with independent IN and OUT polling intervals (`bInterval`).
+- **USB specification compliant string descriptors.** Strings support up to the USB 2.0 specification maximum of 126 characters (254-byte string descriptor including 2-byte header with UTF-16LE characters, preventing 1-byte `bLength` overflow) in zero-terminated ASCII buffers. Strings exceeding 126 characters are rejected strictly.
+- **Runtime USB identity updates.** `mimhid_device_set_usb_identity` allows updating USB device and configuration descriptors without re-establishing the serial link.
+
+
 ## [1.2.3] - 2026-10-21
 
 ### Fixed

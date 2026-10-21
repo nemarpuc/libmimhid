@@ -105,31 +105,35 @@ bool wait_event(mimhid_event_kind kind, EventRecord* out, int timeout_ms = 2000)
 }
 
 // ---- helpers ------------------------------------------------------------------------
-mimhid_device_options base_options() {
-    mimhid_device_options o{};
-    o.struct_size = sizeof(o);
-    o.baud_rate = 3000000;
-    o.control_timeout_ms = 500;
-    o.send_timeout_ms = 500;
-    o.reconnect_timeout_ms = 3000;
-    o.close_drain_timeout_ms = 1000;
-    o.language_id = 0x0409;
-    o.bcd_device = 0x0100;
-    o.max_power_ma = 100;
-    o.vendor_id = 0x046D;
-    o.product_id = 0xC52B;
-    o.linux_descriptor_policy_bytes = 4096;
-    o.linux_hid_fields_per_report_policy = 256;
-    o.linux_hid_global_stack_depth_policy = 4;
-    o.linux_hid_usages_policy = 1024;
-    o.linux_hid_report_data_policy_bits = 8192;
-    o.linux_hid_report_size_policy_bits = 32;
-    o.validate_reports = 1;
-    o.event_sink = on_event;
+mimhid_device_config base_options() {
+    mimhid_device_config o{};
+    mimhid_device_config_init(&o);
+    o.transport.baud_rate = 3000000;
+    o.transport.control_timeout_ms = 500;
+    o.transport.send_timeout_ms = 500;
+    o.transport.reconnect_timeout_ms = 3000;
+    o.transport.close_drain_timeout_ms = 1000;
+    o.usb_device.language_id = 0x0409;
+    o.usb_device.bcd_usb = 0x0200;
+    o.usb_device.ep0_max_packet_size = 64;
+    o.usb_device.vendor_id = 0x046D;
+    o.usb_device.product_id = 0xC52B;
+    o.usb_device.bcd_device = 0x0100;
+    o.usb_config.configuration_value = 1;
+    o.usb_config.bm_attributes = 0x80;
+    o.usb_config.bmax_power = 50;
+    o.transport.linux_descriptor_policy_bytes = 4096;
+    o.transport.linux_hid_fields_per_report_policy = 256;
+    o.transport.linux_hid_global_stack_depth_policy = 4;
+    o.transport.linux_hid_usages_policy = 1024;
+    o.transport.linux_hid_report_data_policy_bits = 8192;
+    o.transport.linux_hid_report_size_policy_bits = 32;
+    o.transport.validate_reports = 1;
+    o.transport.event_sink = on_event;
     return o;
 }
 
-mimhid_device* open_device(const mimhid_device_options& options) {
+mimhid_device* open_device(const mimhid_device_config& options) {
     mimhid_device_info info{};
     std::strncpy(info.port_name, g_slave.c_str(), sizeof(info.port_name) - 1);
     mimhid_device* device = nullptr;
@@ -231,13 +235,15 @@ mimhid_spec* raw_spec_io() {
 }
 
 mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
-                       const mimhid_node_options* options = nullptr) {
-    mimhid_node_options defaults{};
-    defaults.struct_size = sizeof(defaults);
-    defaults.interface_number = 0;
-    defaults.poll_interval_ms = 1;
-    defaults.ep_in_size = 64;
-    defaults.bcd_hid = 0x0111;
+                       const mimhid_node_config* options = nullptr) {
+    mimhid_node_config defaults{};
+    mimhid_node_config_init(&defaults);
+    defaults.iface.number = 0;
+    defaults.iface.class_code = 3;
+    defaults.iface.bcd_hid = 0x0111;
+    defaults.ep_in.address = 0x81;
+    defaults.ep_in.poll_interval_ms = 1;
+    defaults.ep_in.max_packet_size = 64;
     mimhid_node* node = nullptr;
     const mimhid_result r =
         mimhid_node_open(device, spec, options != nullptr ? options : &defaults, &node);
@@ -265,19 +271,18 @@ bool all_zero_after_id(const fake_report_t& r, bool has_id) {
 // ---- scenarios ----------------------------------------------------------------------
 
 void test_open_identity_and_descriptors() {
-    mimhid_device_options o = base_options();
-    o.manufacturer = "Maker";
-    o.product = "Gadget";
-    o.serial = "SN-42";
-    o.configuration = "Cfg";
-    o.bcd_device = 0x0234;
-    o.language_id = 0x0407;
-    o.self_powered = 1;
-    o.remote_wakeup = 1;
-    o.max_power_ma = 250;
-    o.device_class = 0xEF;
-    o.device_subclass = 2;
-    o.device_protocol = 1;
+    mimhid_device_config o = base_options();
+    o.usb_device.manufacturer = "Maker";
+    o.usb_device.product = "Gadget";
+    o.usb_device.serial = "SN-42";
+    o.usb_config.string = "Cfg";
+    o.usb_device.bcd_device = 0x0234;
+    o.usb_device.language_id = 0x0407;
+    o.usb_config.bm_attributes = 0x80 | 0x40 | 0x20;
+    o.usb_config.bmax_power = 125;
+    o.usb_device.device_class = 0xEF;
+    o.usb_device.device_subclass = 2;
+    o.usb_device.device_protocol = 1;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
@@ -299,19 +304,23 @@ void test_open_identity_and_descriptors() {
 
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_spec* mouse = mouse_spec(2);
-    mimhid_node_options no{};
-    no.struct_size = sizeof(no);
-    no.interface_number = 0;
-    no.interface_name = "Keys";
-    no.poll_interval_ms = 4;
-    no.ep_in_size = 16;
-    no.bcd_hid = 0x0111;
-    mimhid_node_options mo{};
-    mo.struct_size = sizeof(mo);
-    mo.interface_number = 1;
-    mo.poll_interval_ms = 1;
-    mo.ep_in_size = 64;
-    mo.bcd_hid = 0x0111;
+    mimhid_node_config no{};
+    mimhid_node_config_init(&no);
+    no.iface.number = 0;
+    no.iface.class_code = 3;
+    no.ep_in.address = 0x81;
+    no.iface.name = "Keys";
+    no.ep_in.poll_interval_ms = 4;
+    no.ep_in.max_packet_size = 16;
+    no.iface.bcd_hid = 0x0111;
+    mimhid_node_config mo{};
+    mimhid_node_config_init(&mo);
+    mo.iface.number = 1;
+    mo.iface.class_code = 3;
+    mo.ep_in.address = 0x82;
+    mo.ep_in.poll_interval_ms = 1;
+    mo.ep_in.max_packet_size = 64;
+    mo.iface.bcd_hid = 0x0111;
     mimhid_node* nk = open_node(device, kbd, &no);
     mimhid_node* nm = open_node(device, mouse, &mo);
     MIMHID_CHECK(nk != nullptr && nm != nullptr);
@@ -358,7 +367,7 @@ void test_open_identity_and_descriptors() {
 }
 
 void test_reports_and_neutral() {
-    mimhid_device_options o = base_options();
+    mimhid_device_config o = base_options();
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
@@ -447,12 +456,14 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
-        mimhid_node_options opt{};
-        opt.struct_size = sizeof(opt);
-        opt.interface_number = (E2E_HID_ITFS >= 4) ? (uint32_t)i : (uint32_t)(i % E2E_HID_ITFS);
-        opt.poll_interval_ms = 1;
-        opt.ep_in_size = 64;
-        opt.bcd_hid = 0x0111;
+        mimhid_node_config opt{};
+        mimhid_node_config_init(&opt);
+        opt.iface.number = static_cast<uint8_t>((E2E_HID_ITFS >= 4) ? (uint32_t)i : (uint32_t)(i % E2E_HID_ITFS));
+        opt.iface.class_code = 3;
+        opt.ep_in.address = static_cast<uint8_t>(0x81 + i);
+        opt.ep_in.poll_interval_ms = 1;
+        opt.ep_in.max_packet_size = 64;
+        opt.iface.bcd_hid = 0x0111;
         nodes[i] = open_node(device, specs[i], &opt);
     }
     // Nothing is committed inside the batch, and staged nodes refuse reports.
@@ -517,12 +528,14 @@ void test_limits() {
     const unsigned limit = E2E_HID_ITFS < 8 ? E2E_HID_ITFS : 8;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
-        mimhid_node_options no{};
-        no.struct_size = sizeof(no);
-        no.interface_number = i;
-        no.poll_interval_ms = 1;
-        no.ep_in_size = 64;
-        no.bcd_hid = 0x0111;
+        mimhid_node_config no{};
+        mimhid_node_config_init(&no);
+        no.iface.number = static_cast<uint8_t>(i);
+        no.iface.class_code = 3;
+        no.ep_in.address = static_cast<uint8_t>(0x81 + (i % 8));
+        no.ep_in.poll_interval_ms = 1;
+        no.ep_in.max_packet_size = 64;
+        no.iface.bcd_hid = 0x0111;
         mimhid_node* node = nullptr;
         last = mimhid_node_open(device, specs.back(), &no, &node);
         if (last != MIMHID_OK)
@@ -541,8 +554,8 @@ void test_limits() {
 }
 
 void test_events_and_raw() {
-    mimhid_device_options o = base_options();
-    o.remote_wakeup = 1;
+    mimhid_device_config o = base_options();
+    o.usb_config.bm_attributes |= 0x20;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
@@ -616,21 +629,26 @@ void test_events_and_raw() {
 }
 
 void test_chip_serial_and_boot() {
-    mimhid_device_options o = base_options();
-    o.serial_from_chip_id = 1;
+    mimhid_device_config o = base_options();
+    o.usb_device.serial_from_chip_id = 1;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
     mimhid_spec* raw = raw_spec_no_id();
-    mimhid_node_options no{};
-    no.struct_size = sizeof(no);
-    no.interface_number = 0;
-    no.poll_interval_ms = 1;
-    no.ep_in_size = 6;
-    no.ep_out_size = 5;
-    no.boot_protocol = MIMHID_BOOT_KEYBOARD;
-    no.country_code = 33;
-    no.bcd_hid = 0x0110;
+    mimhid_node_config no{};
+    mimhid_node_config_init(&no);
+    no.iface.number = 0;
+    no.iface.class_code = 3;
+    no.iface.subclass = 1;
+    no.iface.protocol = 1;
+    no.ep_in.poll_interval_ms = 1;
+    no.ep_in.address = 0x81;
+    no.ep_in.max_packet_size = 6;
+    no.ep_out.address = 0x01;
+    no.ep_out.max_packet_size = 5;
+    no.ep_out.poll_interval_ms = 1;
+    no.iface.country_code = 33;
+    no.iface.bcd_hid = 0x0110;
     mimhid_node* node = open_node(device, raw, &no);
     char text[64];
     MIMHID_CHECK(fake_board_string(3, text, sizeof(text)) &&
@@ -642,27 +660,26 @@ void test_chip_serial_and_boot() {
     // Packet sizes are taken as given, not rounded to a power of two.
     MIMHID_CHECK(c[9 + 20] == 0x81 && c[9 + 22] == 6 && c[9 + 23] == 0);
     MIMHID_CHECK(c[9 + 25 + 2] == 0x01 && c[9 + 25 + 4] == 5 && c[9 + 25 + 5] == 0);
-    // Defaults the board does not accept for a non-Raw Spec.
-    mimhid_spec* kbd = keyboard_spec(1);
     mimhid_node* bad = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, kbd, &no, &bad) == MIMHID_ERR_UNSUPPORTED &&
+    mimhid_node_config broken = no;
+    broken.iface.class_code = 0;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_UNSET_FIELD &&
                  bad == nullptr);
-    mimhid_node_options broken = no;
+    broken = no;
     // The board's endpoints hold 64 bytes.
-    broken.ep_in_size = 65;
+    broken.ep_in.max_packet_size = 65;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_OVERFLOW);
-    broken.ep_in_size = 64;
-    broken.ep_out_size = 65;
+    broken.ep_in.max_packet_size = 64;
+    broken.ep_out.max_packet_size = 65;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_OVERFLOW);
     MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
     mimhid_spec_release(raw);
-    mimhid_spec_release(kbd);
 }
 
 void test_keep_attached_and_discovery() {
-    mimhid_device_options o = base_options();
-    o.keep_attached = 1;
+    mimhid_device_config o = base_options();
+    o.transport.keep_attached = 1;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
@@ -730,8 +747,8 @@ void set_speed(int fd, std::uint32_t baud) {
 }
 
 mimhid_device* open_at(std::uint32_t baud, mimhid_result* result) {
-    mimhid_device_options o = base_options();
-    o.baud_rate = baud;
+    mimhid_device_config o = base_options();
+    o.transport.baud_rate = baud;
     mimhid_device* device = nullptr;
     *result = mimhid_device_open(g_slave.c_str(), &o, &device);
     return device;
@@ -834,33 +851,48 @@ void test_bad_arguments() {
     mimhid_device_info info{};
     std::strncpy(info.port_name, g_slave.c_str(), sizeof(info.port_name) - 1);
     mimhid_device* device = nullptr;
-    mimhid_device_options o = base_options();
-    o.vendor_id = 0;
+    mimhid_device_config o = base_options();
+    o.usb_device.vendor_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD &&
                  device == nullptr);
     o = base_options();
-    o.linux_hid_usages_policy = 0;
+    o.transport.linux_hid_usages_policy = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     // Nothing is chosen for the caller.
-    for (std::uint32_t mimhid_device_options::*field :
-         {&mimhid_device_options::control_timeout_ms, &mimhid_device_options::send_timeout_ms,
-          &mimhid_device_options::reconnect_timeout_ms,
-          &mimhid_device_options::close_drain_timeout_ms}) {
+    for (std::uint32_t mimhid_transport_options::*field :
+         {&mimhid_transport_options::control_timeout_ms, &mimhid_transport_options::send_timeout_ms,
+          &mimhid_transport_options::reconnect_timeout_ms,
+          &mimhid_transport_options::close_drain_timeout_ms}) {
         o = base_options();
-        o.*field = 0;
+        o.transport.*field = 0;
         MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     }
     o = base_options();
-    o.language_id = 0;
+    o.usb_device.language_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
-    o.baud_rate = 12345;
-    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSUPPORTED);
+    o.usb_device.bcd_usb = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
-    o.manufacturer = "caf\xC3\xA9";
+    o.usb_device.ep0_max_packet_size = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    o = base_options();
+    o.usb_device.ep0_max_packet_size = 48;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
     o = base_options();
-    o.max_power_ma = 501;
+    o.usb_config.configuration_value = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    o = base_options();
+    o.usb_config.bm_attributes = 0x00;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    o = base_options();
+    o.usb_config.bmax_power = 251;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    o = base_options();
+    o.transport.baud_rate = 12345;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSUPPORTED);
+    o = base_options();
+    o.usb_device.manufacturer = "caf\xC3\xA9";
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
     o = base_options();
     o.struct_size = 8;

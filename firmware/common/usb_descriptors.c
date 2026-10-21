@@ -157,11 +157,11 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     g_device = (tusb_desc_device_t){
         .bLength = sizeof(tusb_desc_device_t),
         .bDescriptorType = TUSB_DESC_DEVICE,
-        .bcdUSB = 0x0200,
+        .bcdUSB = dev->bcd_usb ? dev->bcd_usb : 0x0200,
         .bDeviceClass = dev->device_class,
         .bDeviceSubClass = dev->device_subclass,
         .bDeviceProtocol = dev->device_protocol,
-        .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+        .bMaxPacketSize0 = dev->ep0_max_packet_size ? dev->ep0_max_packet_size : CFG_TUD_ENDPOINT0_SIZE,
         .idVendor = dev->vendor_id,
         .idProduct = dev->product_id,
         .bcdDevice = dev->bcd_device,
@@ -212,18 +212,21 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
             return false;
         total = (uint16_t)(total + itf_len);
         copy_str(g_str_iface[i], first->interface_string);
-        const uint8_t boot = first->boot_protocol;
         const uint16_t ep_size = ep_in > 0 ? ep_in : first->ep_size;
         const uint8_t interval = min_interval != 255 ? min_interval : first->poll_interval;
+        const uint8_t itf_cls = first->interface_class ? first->interface_class : TUSB_CLASS_HID;
+        const uint8_t itf_subcls = first->interface_subclass;
+        const uint8_t itf_proto = first->interface_protocol;
+        const uint8_t ep_in_addr = first->ep_in_addr ? first->ep_in_addr : (uint8_t)(0x81 + i);
         const uint8_t itf_head[] = {
             IFACE_DESC_LEN,
             TUSB_DESC_INTERFACE,
-            i,
+            first->iface,
             0,
             (uint8_t)(ep_out > 0 ? 2 : 1),
-            TUSB_CLASS_HID,
-            boot ? HID_SUBCLASS_BOOT : HID_SUBCLASS_NONE,
-            boot ? (uint8_t)boot : HID_ITF_PROTOCOL_NONE,
+            itf_cls,
+            itf_subcls,
+            itf_proto,
             (uint8_t)(g_str_iface[i][0] ? STR_FIRST_INTERFACE + i : 0),
             HID_DESC_LEN,
             HID_DESC_TYPE_HID,
@@ -236,7 +239,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
             (uint8_t)(g_rd_len[i] >> 8),
             EP_DESC_LEN,
             TUSB_DESC_ENDPOINT,
-            (uint8_t)(0x81 + i),
+            ep_in_addr,
             TUSB_XFER_INTERRUPT,
             (uint8_t)(ep_size & 0xFF),
             (uint8_t)(ep_size >> 8),
@@ -246,24 +249,24 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         p += sizeof(itf_head);
 
         if (ep_out > 0) {
+            const uint8_t ep_out_addr = first->ep_out_addr ? first->ep_out_addr : (uint8_t)(0x01 + i);
+            const uint8_t interval_out = first->poll_interval_out ? first->poll_interval_out : interval;
             const uint8_t ep_out_desc[] = {
-                EP_DESC_LEN, TUSB_DESC_ENDPOINT, (uint8_t)(0x01 + i), TUSB_XFER_INTERRUPT,
-                (uint8_t)(ep_out & 0xFF), (uint8_t)(ep_out >> 8), interval,
+                EP_DESC_LEN, TUSB_DESC_ENDPOINT, ep_out_addr, TUSB_XFER_INTERRUPT,
+                (uint8_t)(ep_out & 0xFF), (uint8_t)(ep_out >> 8), interval_out,
             };
             memcpy(p, ep_out_desc, sizeof(ep_out_desc));
             p += sizeof(ep_out_desc);
         }
     }
 
-    uint8_t attr = 0x80;
-    if (dev->flags & MIMHID_DEVFLAG_SELF_POWERED)
-        attr |= 0x40;
-    if (dev->flags & MIMHID_DEVFLAG_REMOTE_WAKEUP)
-        attr |= 0x20;
+    const uint8_t cfg_val = dev->configuration_value ? dev->configuration_value : 1;
+    const uint8_t cfg_attr = dev->bm_attributes ? dev->bm_attributes : 0x80;
+    const uint8_t cfg_pwr = dev->bmax_power;
     const uint8_t head[] = {
-        TUD_CONFIG_DESCRIPTOR(1, count, g_str_config[0] ? 4 : 0, total, attr, 0)};
+        TUD_CONFIG_DESCRIPTOR(cfg_val, count, g_str_config[0] ? 4 : 0, total, cfg_attr, 0)};
     memcpy(g_cfg_desc, head, sizeof(head));
-    g_cfg_desc[8] = dev->max_power;
+    g_cfg_desc[8] = cfg_pwr;
 
     memcpy(g_feature, cfg->feature, sizeof(g_feature));
     g_iface_count = count;
@@ -301,6 +304,10 @@ void mimhid_active_set_feature(uint8_t node, uint8_t report_id, const uint8_t* d
     free_slot->report_id = report_id;
     free_slot->len = len;
     memcpy(free_slot->data, data, len);
+}
+
+uint8_t tud_control_ep0_size_cb(void) {
+    return g_device.bMaxPacketSize0 ? g_device.bMaxPacketSize0 : CFG_TUD_ENDPOINT0_SIZE;
 }
 
 uint8_t const* tud_descriptor_device_cb(void) { return (uint8_t const*)&g_device; }

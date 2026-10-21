@@ -235,7 +235,7 @@ struct mimhid_discovery {
 };
 
 struct mimhid_device {
-    mimhid_device_options options{};
+    mimhid_device_config config{};
     mimhid_device_info info{};
     mimhid::transport::BoardInfo board{};
     mimhid::transport::Link link;
@@ -262,7 +262,7 @@ struct mimhid_node {
     mimhid_device* device{};
     mimhid_spec* spec{};
     mimhid::detail::NodeState state;
-    mimhid_node_options options{};
+    mimhid_node_config config{};
     std::string interface_string;
     std::uint8_t node_id{};
     std::uint8_t iface{};

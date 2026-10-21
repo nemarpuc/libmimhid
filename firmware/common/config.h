@@ -58,8 +58,12 @@ typedef struct {
     uint8_t  device_subclass;
     uint8_t  device_protocol;
     uint16_t language_id;
-    uint8_t  flags;
-    uint8_t  max_power; // 2 mA units
+    uint16_t bcd_usb;
+    uint8_t  ep0_max_packet_size;
+    uint8_t  configuration_value;
+    uint8_t  bm_attributes;
+    uint8_t  bmax_power; // 2 mA units
+    uint8_t  flags;      // bit 0: serial from chip id
     char     manufacturer[MIMHID_STRING_MAX + 1];
     char     product[MIMHID_STRING_MAX + 1];
     char     serial[MIMHID_STRING_MAX + 1];
@@ -69,12 +73,17 @@ typedef struct {
 typedef struct {
     bool     used;
     uint8_t  iface;
-    uint8_t  poll_interval;
-    uint16_t ep_size;
-    uint16_t ep_out_size;
-    uint8_t  boot_protocol;
-    uint8_t  country;
+    uint8_t  interface_class;
+    uint8_t  interface_subclass;
+    uint8_t  interface_protocol;
     uint16_t bcd_hid;
+    uint8_t  country;
+    uint8_t  ep_in_addr;
+    uint16_t ep_size;
+    uint8_t  poll_interval;
+    uint8_t  ep_out_addr;
+    uint16_t ep_out_size;
+    uint8_t  poll_interval_out;
     uint16_t desc_len;
     uint16_t desc_recv;
     uint16_t desc_off; // into the pool

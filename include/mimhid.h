@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #if defined(_WIN32)
 #if defined(MIMHID_BUILDING_LIBRARY)
@@ -36,10 +37,10 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 1
-#define MIMHID_VERSION_MINOR 2
-#define MIMHID_VERSION_PATCH 3
+#define MIMHID_VERSION_MINOR 3
+#define MIMHID_VERSION_PATCH 1
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
-#define MIMHID_PROTOCOL_VERSION 5
+#define MIMHID_PROTOCOL_VERSION 6
 
 typedef struct mimhid_discovery mimhid_discovery;
 typedef struct mimhid_device mimhid_device;
@@ -259,91 +260,112 @@ typedef struct mimhid_board_limits {
     uint32_t max_control_rules;    /* rules mimhid_device_set_control_routing takes */
 } mimhid_board_limits;
 
-typedef struct mimhid_device_options {
-    uint32_t struct_size;
-    uint32_t reserved;
-    /* Every value is used as given; nothing is chosen for the caller. Fields marked required
-     * fail with MIMHID_ERR_UNSET_FIELD when zero. */
-    /* required: the line rate, one of MIMHID_BAUD_RATES. mimhid_discover reports the fastest
-     * one the board and the serial adapter carry. */
-    uint32_t baud_rate;
-    /* required: the wait for each configuration frame's answer; each frame is tried three
-     * times */
-    uint32_t control_timeout_ms;
-    /* required: a serial write that makes no progress for this long fails */
-    uint32_t send_timeout_ms;
-    /* required: how long to wait for the board to re-enumerate after a node is opened or
-     * closed */
-    uint32_t reconnect_timeout_ms;
-    /* zero -> the board's limit; otherwise at most that limit */
-    uint32_t maximum_report_bytes;
-    /* required: bound on the neutral reports sent when a node closes */
-    uint32_t close_drain_timeout_ms;
-    /* Caller-selected limits for the exact target HID parser revision. These are not universal
-     * Linux, HID, or library defaults. Each must be nonzero. */
+/* =========================================================================
+ * USB Standard Descriptor and Configuration Structures
+ * ========================================================================= */
+
+/* USB Interrupt Endpoint Descriptor */
+typedef struct mimhid_usb_endpoint {
+    uint8_t  address;          /* required: bEndpointAddress: IN (0x81..0x8F), OUT (0x01..0x0F, 0 = disabled) */
+    uint8_t  poll_interval_ms; /* required: bInterval in ms (1..255) */
+    uint16_t max_packet_size;  /* required: wMaxPacketSize (1..1024, or 0 if ep is disabled) */
+} mimhid_usb_endpoint;
+
+/* USB Interface Descriptor & HID Class Descriptor */
+typedef struct mimhid_usb_interface {
+    uint8_t     number;         /* required: bInterfaceNumber (0, 1, 2...) */
+    uint8_t     class_code;     /* required: bInterfaceClass (0x03 for HID) */
+    uint8_t     subclass;       /* bInterfaceSubClass (0: none, 1: boot) */
+    uint8_t     protocol;       /* bInterfaceProtocol (0: none, 1: keyboard, 2: mouse) */
+    uint16_t    bcd_hid;        /* required: bcdHID (e.g. 0x0111) */
+    uint8_t     country_code;   /* bCountryCode (0: not supported) */
+    uint8_t     reserved8;
+    const char* name;           /* iInterface string (NULL = omitted) */
+} mimhid_usb_interface;
+
+/* USB Configuration Descriptor */
+typedef struct mimhid_usb_config {
+    uint8_t     configuration_value; /* required: bConfigurationValue (e.g. 1) */
+    uint8_t     bm_attributes;       /* required: bmAttributes (bit 7 must be 1; bit 6 self-powered, bit 5 remote wakeup) */
+    uint8_t     bmax_power;          /* required: bMaxPower in 2mA units (0 to 250; e.g. 50 = 100mA) */
+    uint8_t     reserved8;
+    const char* string;              /* iConfiguration string (NULL = omitted) */
+} mimhid_usb_config;
+
+/* USB Device Descriptor & Device Identity */
+typedef struct mimhid_usb_device {
+    uint16_t    bcd_usb;             /* required: USB Spec version in BCD (e.g. 0x0200, 0x0110) */
+    uint8_t     device_class;        /* bDeviceClass (0 for HID composite) */
+    uint8_t     device_subclass;     /* bDeviceSubClass */
+    uint8_t     device_protocol;     /* bDeviceProtocol */
+    uint8_t     ep0_max_packet_size; /* required: bMaxPacketSize0 (8, 16, 32, 64) */
+    uint16_t    vendor_id;           /* required, nonzero: idVendor */
+    uint16_t    product_id;          /* idProduct */
+    uint16_t    bcd_device;          /* bcdDevice */
+    uint16_t    language_id;         /* required, nonzero: LANGID of strings (e.g. 0x0409) */
+    const char* manufacturer;        /* iManufacturer (printable ASCII <= 126 chars, NULL = omitted) */
+    const char* product;             /* iProduct */
+    const char* serial;              /* iSerialNumber */
+    uint32_t    serial_from_chip_id; /* 0 or 1: 1 with NULL serial uses MCU unique id */
+} mimhid_usb_device;
+
+/* Node settings: Interface descriptor + Interrupt IN/OUT Endpoints */
+typedef struct mimhid_node_config {
+    uint32_t             struct_size; /* sizeof(mimhid_node_config) */
+    mimhid_usb_interface iface;       /* USB interface and HID descriptor */
+    mimhid_usb_endpoint  ep_in;       /* required: Interrupt IN endpoint */
+    mimhid_usb_endpoint  ep_out;      /* optional: Interrupt OUT endpoint (address == 0 when disabled) */
+} mimhid_node_config;
+
+/* Transport & Host serial control options */
+typedef struct mimhid_transport_options {
+    uint32_t baud_rate;              /* required: line rate, one of MIMHID_BAUD_RATES */
+    uint32_t control_timeout_ms;     /* required: configuration frame timeout */
+    uint32_t send_timeout_ms;        /* required: serial write timeout */
+    uint32_t reconnect_timeout_ms;   /* required: board re-enumeration wait */
+    uint32_t close_drain_timeout_ms; /* required: bound on neutral reports sent on close */
+    uint32_t maximum_report_bytes;   /* zero -> the board's limit; otherwise at most that limit */
+
+    /* Linux parser policy limits (required, nonzero) */
     uint32_t linux_descriptor_policy_bytes;
     uint32_t linux_hid_fields_per_report_policy;
     uint32_t linux_hid_global_stack_depth_policy;
     uint64_t linux_hid_usages_policy;
     uint64_t linux_hid_report_data_policy_bits;
     uint32_t linux_hid_report_size_policy_bits;
-    /* 0 or 1. 1 decodes every generated report again before it is sent. */
-    uint32_t validate_reports;
-    /* 0 or 1. Zero: mimhid_device_close detaches the board's USB device from the target.
-     * One: the device stays attached with its last configuration. */
-    uint32_t keep_attached;
 
-    /* USB device identity and configuration. */
-    uint16_t vendor_id;   /* required, nonzero */
-    uint16_t product_id;
-    uint16_t bcd_device;  /* as given; 0x0000 is a valid release number */
-    uint16_t language_id; /* required, nonzero: the LANGID of every string */
-    /* NUL-terminated printable ASCII, at most 31 characters, or null. A null or empty string
-     * is left out of the USB device (its index is 0). */
-    const char* manufacturer;
-    const char* product;
-    const char* serial;
-    const char* configuration;
-    /* 0 or 1. 1 with a null serial uses the MCU's unique id as the serial number. */
-    uint32_t serial_from_chip_id;
-    uint8_t device_class;    /* 0 -> defined by the interfaces; 0xEF/2/1 for an IAD composite */
-    uint8_t device_subclass;
-    uint8_t device_protocol;
-    uint8_t reserved8;
-    /* 0 or 1. Written to the configuration's bmAttributes. */
-    uint32_t self_powered;
-    uint32_t remote_wakeup;
-    /* as given, 0 to 500 */
-    uint32_t max_power_ma;
+    uint32_t validate_reports;       /* 0 or 1 */
+    uint32_t keep_attached;          /* 0 or 1 */
 
-    /* Events from the target. Null disables them. */
+    /* Callbacks & Logging */
     mimhid_event_sink event_sink;
     void* event_user;
     mimhid_log_level log_level;
     mimhid_log_sink log_sink;
     void* log_user;
-} mimhid_device_options;
+} mimhid_transport_options;
 
-typedef int32_t mimhid_boot_protocol;
-enum {
-    MIMHID_BOOT_NONE = 0,
-    /* The two boot values require a Raw node whose descriptor follows HID 1.11 Appendix B. */
-    MIMHID_BOOT_KEYBOARD = 1,
-    MIMHID_BOOT_MOUSE = 2
-};
+/* Device Configuration: Transport + USB Device + USB Configuration */
+typedef struct mimhid_device_config {
+    uint32_t                 struct_size; /* sizeof(mimhid_device_config) */
+    mimhid_transport_options transport;   /* Serial link and host limits */
+    mimhid_usb_device        usb_device;  /* USB Device descriptor and strings */
+    mimhid_usb_config        usb_config;  /* USB Configuration descriptor */
+} mimhid_device_config;
 
-/* Settings of the USB interface that carries a node. */
-typedef struct mimhid_node_options {
-    uint32_t struct_size;       /* sizeof(mimhid_node_options) */
-    uint32_t interface_number;  /* 0, 1, 2... must be explicitly specified (no auto) */
-    uint32_t poll_interval_ms;  /* polling interval in ms (1..255 ms, typical 1) */
-    uint32_t ep_in_size;        /* IN packet size, 1 to the board's max_endpoint_bytes (typical 64) */
-    uint32_t ep_out_size;       /* OUT packet size (0: OUT disabled, else 1 to max_endpoint_bytes) */
-    uint32_t boot_protocol;     /* 0: None, 1: Keyboard, 2: Mouse */
-    uint16_t bcd_hid;           /* 0x0111 (HID 1.11) */
-    uint8_t  country_code;      /* 0: Not Supported */
-    const char* interface_name; /* interface string (NULL: none) */
-} mimhid_node_options;
+static inline void mimhid_device_config_init(mimhid_device_config* cfg) {
+    if (cfg) {
+        memset(cfg, 0, sizeof(*cfg));
+        cfg->struct_size = (uint32_t)sizeof(*cfg);
+    }
+}
+
+static inline void mimhid_node_config_init(mimhid_node_config* cfg) {
+    if (cfg) {
+        memset(cfg, 0, sizeof(*cfg));
+        cfg->struct_size = (uint32_t)sizeof(*cfg);
+    }
+}
 
 typedef struct mimhid_physical_properties {
     /* Disabled state is all-zero. When enabled, the four HID 1.11 Global
@@ -776,8 +798,19 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
  * may be open in another program) or configured;
  * MIMHID_ERR_INTERNAL for allocation or unexpected ABI-boundary failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
-                                                        const mimhid_device_options* options,
+                                                        const mimhid_device_config* config,
                                                         mimhid_device** out_device);
+
+/* mimhid_device_set_usb_identity
+ * Configures the USB Device Descriptor, Configuration Descriptor, and Strings on the board.
+ * Can be called after mimhid_device_open to set or update the USB identity without reopening
+ * the serial connection.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null arguments or invalid descriptor values;
+ * MIMHID_ERR_TIMEOUT, MIMHID_ERR_IO for serial communication errors. */
+MIMHID_API mimhid_result MIMHID_CALL
+mimhid_device_set_usb_identity(mimhid_device* device,
+                               const mimhid_usb_device* usb_device,
+                               const mimhid_usb_config* usb_config);
 
 /* mimhid_device_close
  * Ownership: A null call consumes nothing. The first valid call consumes Device and every
@@ -1176,11 +1209,11 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_spec_manifest(const mimhid_spec* spe
  * MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, or MIMHID_ERR_SHORT_TRANSFER for a serial failure;
  * MIMHID_ERR_INTERNAL for allocation, state initialization, or unexpected failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* spec,
-                                                      const mimhid_node_options* options,
+                                                      const mimhid_node_config* config,
                                                       mimhid_node** out_node);
 
 /* mimhid_node_open_raw
- * Ownership: Borrows Device, descriptor bytes, and options. Returns one Node owned by
+ * Ownership: Borrows Device, descriptor bytes, and config. Returns one Node owned by
  * the caller and Device.
  * Blocking: Stages the raw descriptor directly without parsing or validation, assigning
  * it to a USB interface. Commits immediately unless inside a batch.
@@ -1191,7 +1224,7 @@ MIMHID_API mimhid_result MIMHID_CALL
 mimhid_node_open_raw(mimhid_device* device,
                       const uint8_t* descriptor,
                       size_t descriptor_length,
-                      const mimhid_node_options* options,
+                      const mimhid_node_config* config,
                       mimhid_node** out_node);
 
 /* mimhid_node_close

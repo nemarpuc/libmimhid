@@ -14,31 +14,35 @@ int main() {
         return 1;
     }
 
-    mimhid_device_options options{};
-    options.struct_size = sizeof(options);
-    options.vendor_id = 0x04F3;
-    options.product_id = 0x2A15;
-    options.manufacturer = "Example";
-    options.product = "Touchscreen";
+    mimhid_device_config config{};
+    mimhid_device_config_init(&config);
+    config.usb_device.vendor_id = 0x04F3;
+    config.usb_device.product_id = 0x2A15;
+    config.usb_device.manufacturer = "Example";
+    config.usb_device.product = "Touchscreen";
     // The rate the search measured; the waits are this program's choice.
-    options.baud_rate = mimhid::discovery_get(found, 0)->baud_rate;
-    options.control_timeout_ms = 500;
-    options.send_timeout_ms = 500;
-    options.reconnect_timeout_ms = 3000;
-    options.close_drain_timeout_ms = 1000;
-    options.language_id = 0x0409;
-    options.bcd_device = 0x0100;
-    options.max_power_ma = 100;
-    options.linux_descriptor_policy_bytes = 4096;
-    options.linux_hid_fields_per_report_policy = 256;
-    options.linux_hid_global_stack_depth_policy = 4;
-    options.linux_hid_usages_policy = 1024;
-    options.linux_hid_report_data_policy_bits = 8192;
-    options.linux_hid_report_size_policy_bits = 32;
+    config.transport.baud_rate = mimhid::discovery_get(found, 0)->baud_rate;
+    config.transport.control_timeout_ms = 500;
+    config.transport.send_timeout_ms = 500;
+    config.transport.reconnect_timeout_ms = 3000;
+    config.transport.close_drain_timeout_ms = 1000;
+    config.usb_device.language_id = 0x0409;
+    config.usb_device.bcd_usb = 0x0200;
+    config.usb_device.ep0_max_packet_size = 64;
+    config.usb_device.bcd_device = 0x0100;
+    config.usb_config.configuration_value = 1;
+    config.usb_config.bm_attributes = 0x80;
+    config.usb_config.bmax_power = 50;
+    config.transport.linux_descriptor_policy_bytes = 4096;
+    config.transport.linux_hid_fields_per_report_policy = 256;
+    config.transport.linux_hid_global_stack_depth_policy = 4;
+    config.transport.linux_hid_usages_policy = 1024;
+    config.transport.linux_hid_report_data_policy_bits = 8192;
+    config.transport.linux_hid_report_size_policy_bits = 32;
 
     mimhid_device* device = nullptr;
     const mimhid_result opened =
-        mimhid::device_open(mimhid::discovery_get(found, 0)->port_name, &options, &device);
+        mimhid::device_open(mimhid::discovery_get(found, 0)->port_name, &config, &device);
     mimhid::discovery_destroy(found);
     if (opened != MIMHID_OK) {
         std::fprintf(stderr, "device_open: %s\n", mimhid::result_name(opened));
@@ -56,15 +60,17 @@ int main() {
     touch.enable_contact_count_maximum_feature_declaration = 1;
 
     mimhid_spec* spec = nullptr;
-    mimhid_node_options node_options{};
-    node_options.struct_size = sizeof(node_options);
-    node_options.interface_number = 0;
-    node_options.poll_interval_ms = 1;
-    node_options.ep_in_size = 64;
-    node_options.bcd_hid = 0x0111;
+    mimhid_node_config node_config{};
+    mimhid_node_config_init(&node_config);
+    node_config.iface.number = 0;
+    node_config.iface.class_code = 3;
+    node_config.iface.bcd_hid = 0x0111;
+    node_config.ep_in.address = 0x81;
+    node_config.ep_in.poll_interval_ms = 1;
+    node_config.ep_in.max_packet_size = 64;
     mimhid_node* node = nullptr;
     if (mimhid::spec_create_touchscreen(&touch, &spec) != MIMHID_OK ||
-        mimhid::node_open(device, spec, &node_options, &node) != MIMHID_OK ||
+        mimhid::node_open(device, spec, &node_config, &node) != MIMHID_OK ||
         mimhid::device_wait_ready(device, 5000) != MIMHID_OK) {
         std::fprintf(stderr, "setup failed: %s\n", mimhid::last_error()->reason);
         return 1;

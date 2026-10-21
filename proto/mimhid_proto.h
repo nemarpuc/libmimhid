@@ -20,7 +20,7 @@
  * target receives it, Report ID included, and are not acknowledged.
  */
 
-#define MIMHID_PROTO_VERSION 5
+#define MIMHID_PROTO_VERSION 6
 #define MIMHID_SYNC          0xA5
 
 /* Host to board. */
@@ -72,7 +72,10 @@
 #define MIMHID_PROTO_MAX_PAYLOAD 4096
 #define MIMHID_MIN_FRAME_PAYLOAD 255
 #define MIMHID_NODE_DATA_CHUNK  240
-#define MIMHID_STRING_MAX       31
+/* The largest USB string descriptor payload: USB 2.0 Spec section 9.6.7 defines bLength as 1 byte
+ * (<= 255). A string descriptor has a 2-byte header (bLength, bDescriptorType) followed by UNICODE
+ * UTF-16LE characters (2 bytes each). Total length is 2 + 2 * N <= 254 (even), so N <= 126 characters. */
+#define MIMHID_STRING_MAX       126
 #define MIMHID_CONTROL_RULES    8 /* rules a board holds at once */
 #define MIMHID_CONTROL_RULE_LEN 15
 
@@ -160,21 +163,21 @@
 /*
  * DEVICE_CONFIG payload after the sequence number:
  *   0..1 vendor_id  2..3 product_id  4..5 bcd_device  6 device_class  7 device_subclass
- *   8 device_protocol  9..10 language_id  11 flags  12 max_power (2 mA units)
- *   13.. four strings, each: length byte, then that many ASCII bytes
+ *   8 device_protocol  9..10 language_id  11..12 bcd_usb  13 ep0_max_packet_size
+ *   14 configuration_value  15 bm_attributes  16 bmax_power (2 mA units)
+ *   17 flags (bit 0: serial from chip id)
+ *   18.. four strings, each: length byte, then that many ASCII bytes
  *        (manufacturer, product, serial, configuration)
- * flags: bit 0 self powered, bit 1 remote wakeup, bit 2 serial from chip id
  */
-#define MIMHID_DEVFLAG_SELF_POWERED   0x01
-#define MIMHID_DEVFLAG_REMOTE_WAKEUP  0x02
-#define MIMHID_DEVFLAG_SERIAL_FROM_ID 0x04
+#define MIMHID_DEVFLAG_SERIAL_FROM_ID 0x01
 
 /*
  * NODE_BEGIN payload after the sequence number:
- *   0 node id  1 interface index  2..3 report descriptor length  4 poll interval (ms)
- *   5..6 IN endpoint size  7..8 bcdHID  9 country code  10 boot protocol (0 none, 1 keyboard, 2 mouse)
- *   11 idle rate  12 flags (reserved, zero)  13..14 OUT endpoint size (0: none)
- *   15 interface string length, then its bytes
+ *   0 node id  1 interface index  2..3 report descriptor length  4 interface_class
+ *   5 interface_subclass  6 interface_protocol  7..8 bcd_hid  9 country code
+ *   10 ep_in_addr  11..12 ep_in_size  13 poll_interval_ms  14 ep_out_addr
+ *   15..16 ep_out_size  17 poll_interval_out_ms  18 idle rate  19 flags (reserved, zero)
+ *   20 interface string length, then its bytes
  * NODE_DATA payload after the sequence number:
  *   0 node id  1..2 offset  3.. descriptor bytes
  * FEATURE payload after the sequence number:

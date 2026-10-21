@@ -208,8 +208,12 @@ static int device_config(uint8_t flags, const char* serial) {
     p[n++] = 0x00; p[n++] = 0x02;          // bcd
     p[n++] = 0xEF; p[n++] = 0x02; p[n++] = 0x01;
     p[n++] = 0x09; p[n++] = 0x04;          // language
-    p[n++] = flags;
-    p[n++] = 50;                           // 100 mA
+    p[n++] = 0x00; p[n++] = 0x02;          // bcdUSB 0x0200
+    p[n++] = 64;                           // ep0_max_packet_size
+    p[n++] = 1;                            // configuration_value
+    p[n++] = 0xA0;                         // bm_attributes (0x80 | 0x20 remote wakeup)
+    p[n++] = 50;                           // bmax_power (100 mA)
+    p[n++] = flags;                        // flags
     const char* strs[4] = {"Maker", "Product", serial, "Config"};
     for (int i = 0; i < 4; i++) {
         p[n++] = (uint8_t)strlen(strs[i]);
@@ -232,13 +236,19 @@ static int node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t 
     size_t n = 0;
     p[n++] = id; p[n++] = iface;
     p[n++] = (uint8_t)(desc_len & 0xFF); p[n++] = (uint8_t)(desc_len >> 8);
-    p[n++] = poll; p[n++] = (uint8_t)(ep & 0xFF); p[n++] = (uint8_t)(ep >> 8);
+    p[n++] = 0x03;                         // interface_class (HID)
+    p[n++] = boot ? 1 : 0;                 // interface_subclass
+    p[n++] = boot;                         // interface_protocol
     p[n++] = 0x11; p[n++] = 0x01;          // bcdHID 1.11
     p[n++] = 0;                            // country
-    p[n++] = boot;
-    p[n++] = 0;                            // idle
+    p[n++] = (uint8_t)(0x81 + iface);      // ep_in_addr
+    p[n++] = (uint8_t)(ep & 0xFF); p[n++] = (uint8_t)(ep >> 8); // ep_size
+    p[n++] = poll;                         // poll_interval
+    p[n++] = ep_out ? (uint8_t)(0x01 + iface) : 0; // ep_out_addr
+    p[n++] = (uint8_t)(ep_out & 0xFF); p[n++] = (uint8_t)(ep_out >> 8); // ep_out_size
+    p[n++] = ep_out ? poll : 0;            // poll_interval_out
+    p[n++] = 0;                            // idle_rate
     p[n++] = 0;                            // flags
-    p[n++] = (uint8_t)(ep_out & 0xFF); p[n++] = (uint8_t)(ep_out >> 8);
     p[n++] = (uint8_t)strlen(str);
     memcpy(p + n, str, strlen(str));
     n += strlen(str);
@@ -272,7 +282,7 @@ static void expect_nak(int r, int code) {
 
 static void test_descriptors_basic(void) {
     // device with two nodes, each on its own interface
-    assert(device_config(MIMHID_DEVFLAG_REMOTE_WAKEUP, "SN-1") == 1);
+    assert(device_config(0, "SN-1") == 1);
     assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys") == 1);
     assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
     assert(node_begin(1, 1, sizeof(k_desc_b), 1, 64, 0, "") == 1);
