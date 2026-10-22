@@ -3,6 +3,11 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-10-23
+
+### Fixed
+- **Transparent control transfer passthrough support.** Standard and non-standard control requests (including Interface `GET_STATUS` and zero-length control transfers with unexpected direction bits) are cleanly intercepted and held at the DCD layer, enabling full passthrough to target hardware without internal stack interference or deadlocks.
+
 ## [1.3.1] - 2026-10-22
 
 ### Added
