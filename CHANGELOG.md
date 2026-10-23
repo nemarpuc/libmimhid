@@ -3,6 +3,26 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-10-24
+
+### Changed (breaking)
+- **Every timeout is an argument of the call; none is set at open and none has a default.** The four `mimhid_transport_options` fields `control_timeout_ms`, `send_timeout_ms`, `reconnect_timeout_ms` and `close_drain_timeout_ms` are removed, and a zero timeout is refused with `MIMHID_ERR_UNSET_FIELD` before anything is sent. New signatures:
+  - `mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_device_commit`, `mimhid_device_connect`, `mimhid_device_batch_end` and `mimhid_device_set_usb_identity` take a `const mimhid_commit_timeouts*` (new: `struct_size`, `control_timeout_ms`, `reconnect_timeout_ms`; `mimhid_commit_timeouts_init`). `mimhid_node_close` takes it and `drain_timeout_ms`.
+  - `mimhid_device_close(device, control_timeout_ms, drain_timeout_ms)`; `mimhid_device_disconnect`, `mimhid_device_remote_wakeup`, `mimhid_device_set_control_routing` and `mimhid_node_set_feature_response` take `control_timeout_ms`.
+  - `mimhid_node_submit`, `mimhid_raw_submit`, `mimhid_report_send` and `mimhid_device_control_reply` take `send_timeout_ms`. `mimhid_node_submit_blocking` keeps its `timeout_ms` and now also bounds each write by what is left of it.
+  - `mimhid_transport_options.handshake_timeout_ms` (required) replaces the fixed 50 ms wait for each answer while the board is searched for in `mimhid_device_open`.
+  - The C++ forwarders in `mimhid.hpp` follow. A refused `mimhid_device_close` timeout consumes nothing.
+  - The internal defaults of `Link::commit`, `connect` and `disconnect` (2000 ms) are gone.
+
+### Fixed
+- **A zero-length device-to-host request answered with data gets its data stage.** `settle()` and `tud_vendor_control_xfer_cb()` treated every `wLength` 0 request as a status stage alone, so the data of an `ANSWER` was dropped. With data the answer now goes out whole, as it already did when `wLength` was shorter than the answer; an empty answer is the status stage as before. This is what a device does that ignores a zero length (the host then reports `EPROTO` or an overrun, depending on its controller; that is the host's, and untested here).
+
+### Known limits
+- A zero-length request that the real device refuses with a bus error, and not with data, still cannot be copied: the RP2040 USB controller answers every token with ACK, NAK or STALL on its own and cannot send a corrupt or absent handshake.
+
+### Documentation
+- `README.md`, `docs/API.md` (new Timeouts section; the device settings now describe `mimhid_device_config`), `docs/EXAMPLES.md` and `docs/PROTOCOL.md` follow the new signatures; their samples use `mimhid_device_config` and `mimhid_node_config`. The header comments of `mimhid.h` say which wait each call takes.
+
 ## [1.3.3] - 2026-10-23
 
 ### Fixed

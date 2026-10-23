@@ -307,7 +307,9 @@ static void settle(uint8_t token, uint8_t action, const uint8_t* data, uint16_t 
         g_answer.timeout_action = rule->action;
         if (length) memcpy(&g_answer.buf[1], data, length);
         uint8_t bm = (uint8_t)((event.setup_received.bmRequestType & 0x9F) | 0x40); // type: vendor
-        if (event.setup_received.wLength == 0) bm &= 0x7F; // zero length has no data stage; status stage is IN ZLP
+        // No data stage and no answer data: the status stage is an IN ZLP. An answer with data goes out
+        // whatever wLength says, as the real device does.
+        if (event.setup_received.wLength == 0 && length == 0) bm &= 0x7F;
         event.setup_received.bmRequestType = bm;
         g_answer.request = event.setup_received;
         g_answer.active = false;
@@ -380,7 +382,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
         g_answer.armed = false;
         if (g_answer.action == MIMHID_CONTROL_STALL) return false;
         g_answer.active = true;
-        if (request->wLength == 0) return tud_control_status(rhport, request);
+        if (request->wLength == 0 && g_answer.length == 0) return tud_control_status(rhport, request);
         if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
             tusb_control_request_t req = *request;
             req.wLength = g_answer.length;

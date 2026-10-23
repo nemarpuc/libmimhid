@@ -14,9 +14,10 @@ The C ABI and the C++ header follow [`libaoahid`](https://github.com/nemarpuc/li
 - **High customizability & clean HAL.** Every USB identity field (VID, PID, release number, language, device class, power, remote wakeup, and string descriptors) and per-interface parameter (`interface_number`, `poll_interval_ms`, `ep_in_size`, `ep_out_size`, `bcd_hid`, country code, boot protocol) is explicitly configured from the host without reflashing firmware. Hardware-specific code is isolated behind a five-function HAL (`firmware/common/hal.h`).
 - **libaoahid model.** `mimhid_spec_create_*` builds an immutable descriptor and layout from an options structure; `mimhid_node_open` stages it on the board with an explicit interface number; `mimhid_node_open_raw` does the same for custom raw descriptors; `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several opens into one re-enumeration; `mimhid_keyboard_key`, `mimhid_mouse_move`, `mimhid_touchscreen_contact`, and the rest mutate a node; `mimhid_node_submit` sends. Descriptors are byte-identical to `libaoahid`'s for equal options.
 - **Profiles.** Keyboard, mouse, toggle (consumer, system, telephony, camera), gamepad, touchscreen, touchpad, pen, digitizer, and raw HID (`mimhid_node_open_raw`). Battery Strength can be added to the profiles that support it.
-- **Physical bus control.** `mimhid_device_connect()` and `mimhid_device_disconnect()` command physical D+=3.3V attachment or D+=0V stealth/silent disconnection at will. `mimhid_device_commit(device, delay_ms)` handles staged dynamic re-enumeration with a controlled disconnect window.
+- **Physical bus control.** `mimhid_device_connect()` and `mimhid_device_disconnect()` command physical D+=3.3V attachment or D+=0V stealth/silent disconnection at will. `mimhid_device_commit(device, delay_ms, timeouts)` handles staged dynamic re-enumeration with a controlled disconnect window.
 - **Events from the target.** Output reports (keyboard LEDs), Feature reads, `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, and resume reach your callback. `mimhid_node_set_feature_response` answers Feature reads.
-- **Control transfers of the target.** Every request on endpoint 0 (descriptors, `GET_REPORT`, `SET_REPORT`, vendor requests) can be reported, and chosen ones answered from the program with data, an acknowledgement or a STALL: `mimhid_device_set_control_routing` takes up to 8 rules, each with a required time and a required action for when no answer comes. Off until asked; the board answers by itself as before.
+- **Control transfers of the target.** Every request on endpoint 0 (descriptors, `GET_REPORT`, `SET_REPORT`, vendor requests) can be reported, and chosen ones answered from the program with data (sent whole, whatever `wLength` says), an acknowledgement or a STALL: `mimhid_device_set_control_routing` takes up to 8 rules, each with a required time and a required action for when no answer comes. Off until asked; the board answers by itself as before.
+- **Timeouts at the call.** No wait has a default and the Device keeps none: every call that can wait takes its time as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)).
 - **No input shaping.** The library does not smooth, pace, or randomize input.
 - **Low level.** Applications that need no profile helper can stay at the low level: `mimhid_discover`, `mimhid_device_open`, `mimhid_node_open_raw`, `mimhid_raw_submit` / `mimhid_report_send`, and `event_sink`. The 35 low-level calls and the 23 profile calls are listed by layer in [`docs/API.md`](docs/API.md); every call is documented in [`include/mimhid.h`](include/mimhid.h).
 
@@ -77,23 +78,36 @@ Host test of the firmware core: `cmake -B build_fwtest -S firmware/tests -DTINYU
 
 ```c
 #include <mimhid.h>
-#include <string.h>
 
-mimhid_device_options options = {0};
-options.struct_size = sizeof(options);
-options.vendor_id = 0x046D;
-options.product_id = 0xC52B;
-options.serial_from_chip_id = 1;
+/* The waits are the program's choice; the library has no defaults. */
+#define CONTROL_TIMEOUT_MS 500
+#define SEND_TIMEOUT_MS 500
+#define RECONNECT_TIMEOUT_MS 3000
+#define DRAIN_TIMEOUT_MS 1000
+
+mimhid_device_config config;
+mimhid_device_config_init(&config);
+config.usb_device.vendor_id = 0x046D;
+config.usb_device.product_id = 0xC52B;
+config.usb_device.language_id = 0x0409;
+config.usb_device.bcd_usb = 0x0200;
+config.usb_device.ep0_max_packet_size = 64;
+config.usb_device.serial_from_chip_id = 1;
+config.usb_config.configuration_value = 1;
+config.usb_config.bm_attributes = 0x80;
+config.usb_config.bmax_power = 50;
+config.transport.baud_rate = 3000000;         /* one of MIMHID_BAUD_RATES; mimhid_discover() measures it */
+config.transport.handshake_timeout_ms = 50;
 /* limits of the target's HID parser, see docs/API.md */
-options.linux_descriptor_policy_bytes = 4096;
-options.linux_hid_fields_per_report_policy = 256;
-options.linux_hid_global_stack_depth_policy = 4;
-options.linux_hid_usages_policy = 1024;
-options.linux_hid_report_data_policy_bits = 8192;
-options.linux_hid_report_size_policy_bits = 32;
+config.transport.linux_descriptor_policy_bytes = 4096;
+config.transport.linux_hid_fields_per_report_policy = 256;
+config.transport.linux_hid_global_stack_depth_policy = 4;
+config.transport.linux_hid_usages_policy = 1024;
+config.transport.linux_hid_report_data_policy_bits = 8192;
+config.transport.linux_hid_report_size_policy_bits = 32;
 
 mimhid_device* device = NULL;
-mimhid_device_open("/dev/ttyUSB0", &options, &device); /* or use port from mimhid_discover() */
+mimhid_device_open("/dev/ttyUSB0", &config, &device); /* or use port from mimhid_discover() */
 
 mimhid_keyboard_options keyboard = {0};
 keyboard.struct_size = sizeof(keyboard);
@@ -104,25 +118,31 @@ keyboard.usage_maximum = 0x65;
 mimhid_spec* spec = NULL;
 mimhid_spec_create_keyboard(&keyboard, &spec);
 
-mimhid_node_options node = {0};
-node.struct_size = sizeof(node);
-node.interface_number = 0; /* explicit interface index required (no auto-assignment) */
-node.poll_interval_ms = 1;
-node.ep_in_size = 64;
-node.ep_out_size = 0;
-node.bcd_hid = 0x0111;
+mimhid_node_config node;
+mimhid_node_config_init(&node);
+node.iface.number = 0;                        /* explicit interface number required (no auto-assignment) */
+node.iface.class_code = 3;
+node.iface.bcd_hid = 0x0111;
+node.ep_in.address = 0x81;
+node.ep_in.poll_interval_ms = 1;
+node.ep_in.max_packet_size = 64;
+
+mimhid_commit_timeouts commit_timeouts;
+mimhid_commit_timeouts_init(&commit_timeouts);
+commit_timeouts.control_timeout_ms = CONTROL_TIMEOUT_MS;
+commit_timeouts.reconnect_timeout_ms = RECONNECT_TIMEOUT_MS;
 
 mimhid_node* keys = NULL;
-mimhid_node_open(device, spec, &node, &keys);   /* sends the configuration and attaches */
+mimhid_node_open(device, spec, &node, &commit_timeouts, &keys);   /* sends the configuration and attaches */
 mimhid_device_wait_ready(device, 5000);
 
 mimhid_keyboard_key(keys, 0x04, 1);
-mimhid_node_submit(keys);
+mimhid_node_submit(keys, SEND_TIMEOUT_MS);
 mimhid_keyboard_key(keys, 0x04, 0);
-mimhid_node_submit(keys);
+mimhid_node_submit(keys, SEND_TIMEOUT_MS);
 
-mimhid_node_close(keys);
-mimhid_device_close(device);
+mimhid_node_close(keys, &commit_timeouts, DRAIN_TIMEOUT_MS);
+mimhid_device_close(device, CONTROL_TIMEOUT_MS, DRAIN_TIMEOUT_MS);
 mimhid_spec_release(spec);
 ```
 

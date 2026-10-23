@@ -189,13 +189,13 @@ class Link final {
                           std::uint32_t timeout_ms, int attempts);
 
     // Sends a commit command with reconnect delay and waits for ACK or NAK.
-    CommandResult commit(std::uint16_t delay_ms, std::uint32_t timeout_ms = 2000);
+    CommandResult commit(std::uint16_t delay_ms, std::uint32_t timeout_ms);
 
     // Asserts physical D+ High (connect) and waits for ACK or NAK.
-    CommandResult connect(std::uint32_t timeout_ms = 2000);
+    CommandResult connect(std::uint32_t timeout_ms);
 
     // Asserts physical D+ Low (disconnect) and waits for ACK or NAK.
-    CommandResult disconnect(std::uint32_t timeout_ms = 2000);
+    CommandResult disconnect(std::uint32_t timeout_ms);
 
     // Sends a CONTROL_REPLY without waiting for the board's ACK or NAK: the board drops a reply it
     // no longer waits for. It only writes, so the event handler may call it.

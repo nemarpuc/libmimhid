@@ -38,7 +38,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 1
 #define MIMHID_VERSION_MINOR 3
-#define MIMHID_VERSION_PATCH 3
+#define MIMHID_VERSION_PATCH 4
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
 #define MIMHID_PROTOCOL_VERSION 6
 
@@ -320,10 +320,9 @@ typedef struct mimhid_node_config {
 /* Transport & Host serial control options */
 typedef struct mimhid_transport_options {
     uint32_t baud_rate;              /* required: line rate, one of MIMHID_BAUD_RATES */
-    uint32_t control_timeout_ms;     /* required: configuration frame timeout */
-    uint32_t send_timeout_ms;        /* required: serial write timeout */
-    uint32_t reconnect_timeout_ms;   /* required: board re-enumeration wait */
-    uint32_t close_drain_timeout_ms; /* required: bound on neutral reports sent on close */
+    uint32_t handshake_timeout_ms;   /* required: wait for each answer while the board is searched for
+                                      * on the port; a few frames at the boot rate plus the latency
+                                      * timer of a USB serial adapter (16 ms on FTDI chips) */
     uint32_t maximum_report_bytes;   /* zero -> the board's limit; otherwise at most that limit */
 
     /* Linux parser policy limits (required, nonzero) */
@@ -357,6 +356,33 @@ static inline void mimhid_device_config_init(mimhid_device_config* cfg) {
     if (cfg) {
         memset(cfg, 0, sizeof(*cfg));
         cfg->struct_size = (uint32_t)sizeof(*cfg);
+    }
+}
+
+/* ---- Timeouts --------------------------------------------------------------------------
+ * No wait in this library has a default and none is kept in the Device: every call that can
+ * wait takes its timeout in milliseconds as an argument, and zero is refused with
+ * MIMHID_ERR_UNSET_FIELD before anything is sent. The three waits are:
+ *  - control: how long each configuration frame waits for the board's ACK or NAK (a frame is
+ *    sent up to three times);
+ *  - send: how long a serial write may make no progress before MIMHID_ERR_TIMEOUT, with
+ *    nothing sent;
+ *  - reconnect: how long the board may take to re-enumerate its USB device after a commit.
+ * The fixed times of the wire protocol (MIMHID_BAUD_CONFIRM_MS, the board's 10 ms receive resync)
+ * belong to the protocol and cannot be changed by a call. */
+
+/* The waits of a call that configures the board and re-enumerates its USB device: Device
+ * connect, commit, batch end and set_usb_identity, and Node open and close. Both are required. */
+typedef struct mimhid_commit_timeouts {
+    uint32_t struct_size;          /* sizeof(mimhid_commit_timeouts) */
+    uint32_t control_timeout_ms;   /* required: each configuration frame */
+    uint32_t reconnect_timeout_ms; /* required: the board's re-enumeration */
+} mimhid_commit_timeouts;
+
+static inline void mimhid_commit_timeouts_init(mimhid_commit_timeouts* timeouts) {
+    if (timeouts) {
+        memset(timeouts, 0, sizeof(*timeouts));
+        timeouts->struct_size = (uint32_t)sizeof(*timeouts);
     }
 }
 
@@ -784,13 +810,15 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
  * On success, out_device receives one Device owned by the caller. A nonnull output stays null
  * on failure.
  * Blocking: Opens the serial port for this process alone, finds the board on it (at the boot
- * rate, else at each rate of MIMHID_BAUD_RATES), reads its limits, agrees the line rate
+ * rate, else at each rate of MIMHID_BAUD_RATES, waiting options->transport.handshake_timeout_ms
+ * for each answer), reads its limits, agrees the line rate
  * (options->baud_rate), and starts the reader thread. It sends no configuration: the board's
  * USB device stays disconnected from the target until nodes are opened and committed.
  * port_path is the serial device path (e.g., "/dev/ttyACM0" or "COM3").
  * Synchronization: Safe on concurrent threads for different ports.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid pointers/ABI fields/identity;
- * MIMHID_ERR_UNSET_FIELD for a missing vendor_id, baud_rate or required product policy;
+ * MIMHID_ERR_UNSET_FIELD for a missing vendor_id, baud_rate, handshake_timeout_ms or required
+ * product policy;
  * MIMHID_ERR_UNSUPPORTED for a rate not in MIMHID_BAUD_RATES, one the board cannot make, or
  * one the serial adapter or wiring did not carry; MIMHID_ERR_TIMEOUT when no board answered;
  * MIMHID_ERR_PROTOCOL when the board's firmware speaks another protocol version;
@@ -805,25 +833,33 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
  * Configures the USB Device Descriptor, Configuration Descriptor, and Strings on the board.
  * Can be called after mimhid_device_open to set or update the USB identity without reopening
  * the serial connection.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null arguments or invalid descriptor values;
+ * Blocking: Unless a batch is open, commits at once: it re-enumerates the board's USB device,
+ * waiting as timeouts says.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null arguments, a wrong timeouts struct_size or
+ * invalid descriptor values; MIMHID_ERR_UNSET_FIELD for a zero timeout;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_IO for serial communication errors. */
 MIMHID_API mimhid_result MIMHID_CALL
 mimhid_device_set_usb_identity(mimhid_device* device,
                                const mimhid_usb_device* usb_device,
-                               const mimhid_usb_config* usb_config);
+                               const mimhid_usb_config* usb_config,
+                               const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_close
  * Ownership: A null call consumes nothing. The first valid call consumes Device and every
  * child Node for every returned result; all those pointers become invalid and must never be
  * passed again.
- * Blocking: Sends neutral reports for every open node (bounded by close_drain_timeout_ms), then
- * detaches the board's USB device from the target unless options->keep_attached is 1, puts the
- * line back on the boot rate, and closes the serial port.
+ * Blocking: Sends neutral reports for every open node (all of them within drain_timeout_ms),
+ * then detaches the board's USB device from the target unless options->keep_attached is 1,
+ * puts the line back on the boot rate, and closes the serial port; each configuration frame
+ * waits up to control_timeout_ms.
  * Synchronization: Must be serialized against every Device and Node call.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null or for a Device already closing;
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout (nothing is consumed);
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, or MIMHID_ERR_SHORT_TRANSFER
  * for a retained neutral-report failure after ownership is consumed. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
+                                                         uint32_t control_timeout_ms,
+                                                         uint32_t drain_timeout_ms);
 
 /* mimhid_device_latched_error
  * Ownership: Borrows a live Device and consumes the reported non-NO_DEVICE latch;
@@ -858,17 +894,22 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_wait_ready(mimhid_device* dev
  * unplug and replug. Between begin and end, mimhid_node_open and mimhid_node_close only
  * stage their change; end applies all of them with one re-enumeration. A node opened inside a
  * batch rejects reports with MIMHID_ERR_BUSY until end succeeds.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null Device; MIMHID_ERR_BUSY for begin inside
- * a batch or end outside one; end also returns the errors of the commit it performs. */
+ * end waits as timeouts says.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null Device or (end) a null timeouts or wrong
+ * struct_size; MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_BUSY for begin inside a
+ * batch or end outside one; end also returns the errors of the commit it performs. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_batch_begin(mimhid_device* device);
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device,
+                                                             const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_remote_wakeup
  * Ownership: Borrows a live Device; no handle ownership changes.
  * Blocking: Waits for the board's answer (up to control_timeout_ms).
  * Returns: MIMHID_OK when the board signaled remote wakeup; MIMHID_ERR_BUSY when the target
- * has not suspended the device; MIMHID_ERR_PARAM for a null Device. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device);
+ * has not suspended the device; MIMHID_ERR_PARAM for a null Device; MIMHID_ERR_UNSET_FIELD for
+ * a zero control_timeout_ms. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
+                                                                 uint32_t control_timeout_ms);
 
 /* mimhid_device_board_info
  * Ownership: Borrows Device and fills caller-owned info; no handle ownership changes.
@@ -933,7 +974,8 @@ typedef struct mimhid_control_rule {
 
 /* mimhid_device_set_control_routing
  * Ownership: Borrows a live Device and the rules (copied before returning).
- * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms).
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms, the call's own
+ * argument; the rules' timeout_ms is a different wait, the board's, for a held request).
  * Replaces the whole set. report_all is 0 or 1: 1 reports every control transfer as
  * MIMHID_EVENT_CONTROL_SETUP (see its flags), also those no rule holds. With no rules and
  * report_all 0 the board handles everything itself, which is how it starts. Events are delivered
@@ -947,19 +989,25 @@ typedef struct mimhid_control_rule {
  * The rules stay on the board until replaced; mimhid_device_close removes them.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, report_all, count or rule (a value
  * outside its mask, a time outside 1..MIMHID_CONTROL_MAX_TIMEOUT_MS, an unknown action);
- * MIMHID_ERR_UNSET_FIELD for a zero timeout_ms or when_late; MIMHID_ERR_OVERFLOW for more rules
- * than the board holds; MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE or MIMHID_ERR_IO on a
+ * MIMHID_ERR_UNSET_FIELD for a zero control_timeout_ms, a zero rule timeout_ms or when_late;
+ * MIMHID_ERR_OVERFLOW for more rules than the board holds; MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE or MIMHID_ERR_IO on a
  * communication failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
-    mimhid_device* device, uint32_t report_all, const mimhid_control_rule* rules, size_t rule_count);
+    mimhid_device* device, uint32_t report_all, const mimhid_control_rule* rules, size_t rule_count,
+    uint32_t control_timeout_ms);
 
 /* mimhid_device_control_reply
  * Ownership: Borrows a live Device; data is copied before returning.
- * Blocking: Writes one frame to the serial port; it does not wait for the board. It may be called
- * from the event sink: that is the way to answer within a short time.
+ * Blocking: Writes one frame to the serial port, for up to send_timeout_ms without progress; it
+ * does not wait for the board. It may be called from the event sink: that is the way to answer
+ * within a short time.
  * Answers the held transfer with this token (from MIMHID_EVENT_CONTROL_SETUP, or from
  * MIMHID_EVENT_CONTROL_DATA for the verdict of a host-to-device transfer).
- *  - ANSWER on a device-to-host request: data is the data stage, cut to wLength (it may be empty).
+ *  - ANSWER on a device-to-host request: data is the data stage, sent whole whatever wLength
+ *    says (it may be empty). A device that sends more than the host asked for makes the host
+ *    report an overrun (for example EOVERFLOW for GET_STATUS with wLength 1); with wLength 0 the
+ *    data stage is still started, where a zero-length request has none. Data with a zero
+ *    wLength is the way to copy such a device; an empty answer is the acknowledgement.
  *  - ANSWER on any other request: data must be empty; the target sees an acknowledgement. On a
  *    host-to-device request with a data stage it lets the data stage happen; the board then reports
  *    it as MIMHID_EVENT_CONTROL_DATA and waits for the verdict, which is ANSWER (acknowledge) or
@@ -971,11 +1019,11 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
  * A reply the board no longer waits for (late, or for a request the target gave up) is dropped.
  * Returns: MIMHID_OK once the frame was written; MIMHID_ERR_PARAM for an invalid Device, a token
  * of 0 or above 255, an unknown action, or data with an action that takes none;
- * MIMHID_ERR_OVERFLOW for data longer than max_control_data_bytes; MIMHID_ERR_NO_DEVICE or
+ * MIMHID_ERR_UNSET_FIELD for a zero send_timeout_ms; MIMHID_ERR_OVERFLOW for data longer than max_control_data_bytes; MIMHID_ERR_NO_DEVICE or
  * MIMHID_ERR_IO on a communication failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(
     mimhid_device* device, uint32_t token, mimhid_control_action action, const uint8_t* data,
-    size_t length);
+    size_t length, uint32_t send_timeout_ms);
 
 /* mimhid_device_commit
  * Ownership: Borrows live Device.
@@ -983,31 +1031,36 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(
  * device. mimhid_node_open, mimhid_node_open_raw, mimhid_node_close, and mimhid_device_batch_end
  * already do this, so the call is only needed to choose reconnect_delay_ms: with a nonzero
  * delay on an attached device the board holds D+=0V for that many milliseconds before it
- * re-asserts D+=3.3V. Inside a batch it applies the staged nodes and ends the batch.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device;
+ * re-asserts D+=3.3V. Inside a batch it applies the staged nodes and ends the batch. The waits
+ * are those of timeouts.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or timeouts;
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, or MIMHID_ERR_IO on communication failure. */
 MIMHID_API mimhid_result MIMHID_CALL
-mimhid_device_commit(mimhid_device* device, uint32_t reconnect_delay_ms);
+mimhid_device_commit(mimhid_device* device, uint32_t reconnect_delay_ms,
+                     const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_connect
  * Ownership: Borrows a live Device; no handle ownership changes.
  * Blocking: Waits for the board's acknowledgement. If no node is configured it performs the
  * full commit instead of only a connect.
  * Commands the board to physically connect to the USB host (D+=3.3V pull-up active).
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device; MIMHID_ERR_TIMEOUT,
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or timeouts;
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_TIMEOUT,
  * MIMHID_ERR_NO_DEVICE, or MIMHID_ERR_IO on communication failure; plus commit errors
  * when the Device is not yet configured. */
 MIMHID_API mimhid_result MIMHID_CALL
-mimhid_device_connect(mimhid_device* device);
+mimhid_device_connect(mimhid_device* device, const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_disconnect
  * Ownership: Borrows a live Device and marks it unconfigured on success.
- * Blocking: Waits for the board's acknowledgement.
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms).
  * Commands the board to physically disconnect from the USB host (D+=0V stealth/silent).
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device; MIMHID_ERR_TIMEOUT,
- * MIMHID_ERR_NO_DEVICE, or MIMHID_ERR_IO on communication failure. */
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device; MIMHID_ERR_UNSET_FIELD for a zero
+ * control_timeout_ms; MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, or MIMHID_ERR_IO on
+ * communication failure. */
 MIMHID_API mimhid_result MIMHID_CALL
-mimhid_device_disconnect(mimhid_device* device);
+mimhid_device_disconnect(mimhid_device* device, uint32_t control_timeout_ms);
 
 /* mimhid_spec_create_keyboard
  * Ownership: Borrows options for the call and copies them. On success, out_spec
@@ -1204,20 +1257,23 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_spec_manifest(const mimhid_spec* spe
  * MIMHID_ERR_UNSUPPORTED for a nonzero boot_protocol on a non-Raw Spec;
  * MIMHID_ERR_OVERFLOW when the board has no free node, interface, or descriptor space, when a
  * report exceeds the board's or the caller's limit, or when a descriptor exceeds a parser
- * policy; MIMHID_ERR_DESCRIPTOR_REJECTED when the board refuses the configuration;
+ * policy; MIMHID_ERR_UNSET_FIELD for a zero timeout in timeouts (they are required also inside a
+ * batch, where they are not used); MIMHID_ERR_DESCRIPTOR_REJECTED when the board refuses the configuration;
  * MIMHID_ERR_TIMEOUT when the board or target does not answer in time;
  * MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, or MIMHID_ERR_SHORT_TRANSFER for a serial failure;
  * MIMHID_ERR_INTERNAL for allocation, state initialization, or unexpected failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* spec,
                                                       const mimhid_node_config* config,
+                                                      const mimhid_commit_timeouts* timeouts,
                                                       mimhid_node** out_node);
 
 /* mimhid_node_open_raw
  * Ownership: Borrows Device, descriptor bytes, and config. Returns one Node owned by
  * the caller and Device.
  * Blocking: Stages the raw descriptor directly without parsing or validation, assigning
- * it to a USB interface. Commits immediately unless inside a batch.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid handles/pointers;
+ * it to a USB interface. Commits immediately unless inside a batch, waiting as timeouts says.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid handles/pointers or timeouts;
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout;
  * MIMHID_ERR_OVERFLOW when board node or descriptor limits are exceeded;
  * MIMHID_ERR_INTERNAL for allocation failure. */
 MIMHID_API mimhid_result MIMHID_CALL
@@ -1225,22 +1281,27 @@ mimhid_node_open_raw(mimhid_device* device,
                       const uint8_t* descriptor,
                       size_t descriptor_length,
                       const mimhid_node_config* config,
+                      const mimhid_commit_timeouts* timeouts,
                       mimhid_node** out_node);
 
 /* mimhid_node_close
  * Ownership: Only MIMHID_OK consumes Node and its retained Spec reference. Every error leaves
  * Node live and caller-owned for a retry or a later Device close. After MIMHID_OK the Node
  * pointer is invalid and must never be passed again.
- * Blocking: Waits up to the configured close drain budget, finishes any touch frame, sends the
- * neutral reports, then commits the remaining nodes (a re-enumeration, as in mimhid_node_open;
- * the last node's close detaches the USB device). Inside a batch it only stages the removal.
+ * Blocking: Waits up to drain_timeout_ms, finishes any touch frame, sends the neutral reports,
+ * then commits the remaining nodes (a re-enumeration with the waits of timeouts, as in
+ * mimhid_node_open; the last node's close detaches the USB device). Inside a batch it only
+ * stages the removal.
  * Synchronization: Belongs to the parent Device domain and must be serialized against all
  * Device and Node calls; never call it from the event sink.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null or for a still-live closed Node;
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for null, a still-live closed Node or wrong timeouts;
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, MIMHID_ERR_SHORT_TRANSFER,
  * MIMHID_ERR_DESCRIPTOR_REJECTED, or MIMHID_ERR_OVERFLOW for a neutral-report or commit
  * failure; MIMHID_ERR_INTERNAL for an invariant, allocation, or unexpected failure. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node,
+                                                       const mimhid_commit_timeouts* timeouts,
+                                                       uint32_t drain_timeout_ms);
 
 /* mimhid_node_id
  * Ownership: Borrows a live Node and creates no reference.
@@ -1257,14 +1318,17 @@ MIMHID_API uint16_t MIMHID_CALL mimhid_node_id(const mimhid_node* node);
  * report report_id of this Node (GET_REPORT). A touch Spec with
  * enable_contact_count_maximum_feature_declaration gets its answer automatically.
  * Ownership: Borrows Node; copies data.
- * Blocking: Waits for the board's acknowledgement unless a batch is open or the Node is staged.
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms) unless a batch is
+ * open or the Node is staged.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or more than 32 bytes;
+ * MIMHID_ERR_UNSET_FIELD for a zero control_timeout_ms;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, MIMHID_ERR_IO, or MIMHID_ERR_OVERFLOW for a
  * board or link failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
                                                                       uint8_t report_id,
                                                                       const uint8_t* data,
-                                                                      size_t length);
+                                                                      size_t length,
+                                                                      uint32_t control_timeout_ms);
 
 /* mimhid_node_manifest
  * Ownership: Borrows Node, fills caller-owned manifest storage, and returns a
@@ -1282,20 +1346,23 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_manifest(const mimhid_node* nod
  * Ownership: Borrows Node; the library serializes the report into its own buffer, so no caller
  * buffer ownership changes.
  * Blocking: Writes one report to the serial port and returns once the bytes are handed to the
- * driver (a few microseconds on an idle port). It never waits for the target.
+ * driver (a few microseconds on an idle port). It never waits for the target; send_timeout_ms
+ * only bounds a write that makes no progress.
  * Synchronization: Belongs to the parent Device domain. Callers serialize state and submit
  * calls.
  * Returns: MIMHID_OK for clean state or an accepted report; MIMHID_ERR_PARAM for an invalid
- * Node; MIMHID_ERR_UNSUPPORTED for a Raw Node; MIMHID_ERR_BUSY while a batch is open or the
+ * Node; MIMHID_ERR_UNSET_FIELD for a zero send_timeout_ms; MIMHID_ERR_UNSUPPORTED for a Raw
+ * Node; MIMHID_ERR_BUSY while a batch is open or the
  * board is re-enumerating; MIMHID_ERR_NO_DEVICE,
  * MIMHID_ERR_IO, MIMHID_ERR_SHORT_TRANSFER, or MIMHID_ERR_TIMEOUT for a serial failure;
  * MIMHID_ERR_INTERNAL for serializer, validation, allocation, or unexpected failure. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node,
+                                                       uint32_t send_timeout_ms);
 
 /* mimhid_node_submit_blocking
  * Ownership: Borrows Node and changes no handle ownership.
  * Blocking: Sends every pending report fragment (a touch frame can take several reports) or
- * stops at the timeout.
+ * stops at the timeout, which also bounds each write by what is left of it.
  * Synchronization: Belongs to the parent Device domain and must be serialized against all
  * Device and Node application calls.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node; MIMHID_ERR_UNSET_FIELD for a
@@ -1515,28 +1582,31 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_battery_update(mimhid_node* node, in
 /* mimhid_raw_submit
  * Ownership: Borrows a Raw Node and report; no ownership changes.
  * Blocking: Validates the report and writes the framed report to the serial port
- * without waiting for the target USB host to poll the endpoint.
+ * without waiting for the target USB host to poll the endpoint; send_timeout_ms only bounds a
+ * write that makes no progress.
  * Synchronization: Belongs to the parent Device domain; serialize raw submissions
  * with other Device and Node calls on the same Device.
  * Returns: MIMHID_OK for accepted submission; MIMHID_ERR_PARAM for invalid
  * Node/profile/buffer, unaccepted ID/length, or nonzero trailing padding;
- * MIMHID_ERR_UNSUPPORTED, MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY,
+ * MIMHID_ERR_UNSET_FIELD for a zero send_timeout_ms; MIMHID_ERR_UNSUPPORTED, MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY,
  * MIMHID_ERR_NO_DEVICE, MIMHID_ERR_TIMEOUT,
  * MIMHID_ERR_SHORT_TRANSFER, MIMHID_ERR_IO, or MIMHID_ERR_OVERFLOW for deferred,
  * prior-completion, pool, or submit failure; MIMHID_ERR_INTERNAL for allocation
  * or unexpected ABI-boundary failure. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_raw_submit(mimhid_node* node, const uint8_t* report,
-                                                       size_t length);
+                                                       size_t length, uint32_t send_timeout_ms);
 
 /* mimhid_report_send
  * Ownership: Borrows Node and report_bytes; no ownership changes.
- * Blocking: Directly writes raw report bytes to the serial link for this node's ID.
- * Intermediate copy free.
+ * Blocking: Directly writes raw report bytes to the serial link for this node's ID, for up to
+ * send_timeout_ms without progress. Intermediate copy free.
  * Returns: MIMHID_OK on success; MIMHID_ERR_PARAM for invalid handles/buffers;
+ * MIMHID_ERR_UNSET_FIELD for a zero send_timeout_ms;
  * MIMHID_ERR_TIMEOUT, MIMHID_ERR_NO_DEVICE, MIMHID_ERR_SHORT_TRANSFER, or
  * MIMHID_ERR_IO on transport failure. */
 MIMHID_API mimhid_result MIMHID_CALL
-mimhid_report_send(mimhid_node* node, const uint8_t* report_bytes, size_t report_length);
+mimhid_report_send(mimhid_node* node, const uint8_t* report_bytes, size_t report_length,
+                   uint32_t send_timeout_ms);
 
 #ifdef __cplusplus
 }

@@ -26,6 +26,13 @@ int g_failures = 0;
 
 namespace {
 
+// The waits every call takes; the library keeps none.
+constexpr std::uint32_t kControlMs = 500;
+constexpr std::uint32_t kSendMs = 500;
+constexpr std::uint32_t kReconnectMs = 3000;
+constexpr std::uint32_t kDrainMs = 1000;
+const mimhid_commit_timeouts kCommit = {sizeof(mimhid_commit_timeouts), kControlMs, kReconnectMs};
+
 #ifndef E2E_HID_ITFS
 #define E2E_HID_ITFS 7
 #endif
@@ -82,7 +89,7 @@ void MIMHID_CALL on_event(void*, const mimhid_event* event) {
         g_sink_reply.enabled.load()) {
         g_sink_reply.result.store(static_cast<int>(mimhid_device_control_reply(
             g_sink_reply.device, event->control_token, g_sink_reply.action,
-            g_sink_reply.data.empty() ? nullptr : g_sink_reply.data.data(), g_sink_reply.data.size())));
+            g_sink_reply.data.empty() ? nullptr : g_sink_reply.data.data(), g_sink_reply.data.size(), kSendMs)));
     }
 }
 
@@ -109,10 +116,7 @@ mimhid_device_config base_options() {
     mimhid_device_config o{};
     mimhid_device_config_init(&o);
     o.transport.baud_rate = 3000000;
-    o.transport.control_timeout_ms = 500;
-    o.transport.send_timeout_ms = 500;
-    o.transport.reconnect_timeout_ms = 3000;
-    o.transport.close_drain_timeout_ms = 1000;
+    o.transport.handshake_timeout_ms = 50;
     o.usb_device.language_id = 0x0409;
     o.usb_device.bcd_usb = 0x0200;
     o.usb_device.ep0_max_packet_size = 64;
@@ -246,7 +250,7 @@ mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
     defaults.ep_in.max_packet_size = 64;
     mimhid_node* node = nullptr;
     const mimhid_result r =
-        mimhid_node_open(device, spec, options != nullptr ? options : &defaults, &node);
+        mimhid_node_open(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
     if (r != MIMHID_OK) {
         std::fprintf(stderr, "node_open: %s (%s)\n", mimhid_result_name(r),
                      mimhid_last_error()->reason);
@@ -357,11 +361,11 @@ void test_open_identity_and_descriptors() {
     rd = fake_board_report_descriptor(1, &rd_length);
     MIMHID_CHECK(rd_length == spec_length && std::memcmp(rd, bytes, spec_length) == 0);
 
-    MIMHID_CHECK(mimhid_node_close(nm) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_close(nm, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(fake_board_interface_count() == 1);
-    MIMHID_CHECK(mimhid_node_close(nk) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_close(nk, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(fake_board_interface_count() == 0);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(kbd);
     mimhid_spec_release(mouse);
 }
@@ -385,17 +389,19 @@ void test_reports_and_neutral() {
 
     // Key down, then up.
     MIMHID_CHECK(mimhid_keyboard_key(nk, 0x04, 1) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nk) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
     fake_report_t r{};
     MIMHID_CHECK(next_report(&r));
     MIMHID_CHECK(r.data[0] == 1 && r.length == kbd_bytes && !all_zero_after_id(r, true));
+    MIMHID_CHECK(mimhid_node_submit(nk, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_submit_blocking(nk, 0) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_keyboard_key(nk, 0x04, 0) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nk) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(next_report(&r) && all_zero_after_id(r, true));
 
     // Mouse motion lands in the 16-bit X and Y fields.
     MIMHID_CHECK(mimhid_mouse_move(nm, 5, -3) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nm) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nm, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(next_report(&r) && r.data[0] == 2);
     bool seen_x = false, seen_y = false;
     for (std::size_t i = 1; i + 1 < r.length; ++i) {
@@ -406,16 +412,16 @@ void test_reports_and_neutral() {
 
     // Closing a node with held input sends the neutral report first.
     MIMHID_CHECK(mimhid_keyboard_key(nk, 0x05, 1) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nk) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(next_report(&r) && !all_zero_after_id(r, true));
     fake_board_clear_reports();
-    MIMHID_CHECK(mimhid_node_close(nk) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_close(nk, &kCommit, kDrainMs) == MIMHID_OK);
     // The release was sent before the board re-enumerated without the keyboard.
     MIMHID_CHECK(next_report(&r) && r.data[0] == 1 && all_zero_after_id(r, true));
     MIMHID_CHECK(fake_board_interface_count() == 1);
 
     // Closing the Device detaches the last node.
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(fake_board_interface_count() == 0);
     mimhid_spec_release(kbd);
     mimhid_spec_release(mouse);
@@ -441,8 +447,8 @@ void test_touch_feature() {
     MIMHID_CHECK(mimhid_node_submit_blocking(node, 1000) == MIMHID_OK);
     MIMHID_CHECK(next_report(&r));
 
-    MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(touch);
 }
 
@@ -469,9 +475,9 @@ void test_batch_and_packing() {
     // Nothing is committed inside the batch, and staged nodes refuse reports.
     MIMHID_CHECK(fake_board_connects() == connects_before);
     MIMHID_CHECK(mimhid_keyboard_key(nodes[0], 0x04, 1) == MIMHID_ERR_BUSY);
-    MIMHID_CHECK(mimhid_node_submit(nodes[0]) == MIMHID_ERR_BUSY);
-    MIMHID_CHECK(mimhid_device_batch_end(device) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_batch_end(device) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(mimhid_node_submit(nodes[0], kSendMs) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_ERR_BUSY);
     MIMHID_CHECK(fake_board_connects() == connects_before + 1);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
 
@@ -496,22 +502,22 @@ void test_batch_and_packing() {
     // Reports of packed nodes all arrive, each with its own Report ID.
     fake_board_clear_reports();
     MIMHID_CHECK(mimhid_keyboard_key(nodes[0], 0x04, 1) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nodes[0]) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nodes[0], kSendMs) == MIMHID_OK);
     fake_report_t r{};
     MIMHID_CHECK(next_report(&r) && r.data[0] == 1);
     MIMHID_CHECK(mimhid_mouse_move(nodes[1], 1, 1) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_node_submit(nodes[1]) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nodes[1], kSendMs) == MIMHID_OK);
     MIMHID_CHECK(next_report(&r) && r.data[0] == 2);
 
     // Closing inside a batch only stages the change.
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
     const unsigned connects = fake_board_connects();
     for (auto* node : nodes)
-        MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(fake_board_connects() == connects);
-    MIMHID_CHECK(mimhid_device_batch_end(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
     MIMHID_CHECK(fake_board_interface_count() == 0);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     for (auto* spec : specs)
         mimhid_spec_release(spec);
 }
@@ -537,7 +543,7 @@ void test_limits() {
         no.ep_in.max_packet_size = 64;
         no.iface.bcd_hid = 0x0111;
         mimhid_node* node = nullptr;
-        last = mimhid_node_open(device, specs.back(), &no, &node);
+        last = mimhid_node_open(device, specs.back(), &no, &kCommit, &node);
         if (last != MIMHID_OK)
             break;
         nodes.push_back(node);
@@ -547,8 +553,8 @@ void test_limits() {
     // The failed open left the others working.
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
     for (auto* node : nodes)
-        MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     for (auto* spec : specs)
         mimhid_spec_release(spec);
 }
@@ -575,7 +581,7 @@ void test_events_and_raw() {
     MIMHID_CHECK(wait_event(MIMHID_EVENT_OUTPUT_REPORT, &ev));
     MIMHID_CHECK(ev.node_id == 1 && ev.report_id == 5 && ev.data.size() == 1 && ev.data[0] == 0x12);
     const std::uint8_t feature[] = {0xAB, 0xCD};
-    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature)) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) == MIMHID_OK);
     std::uint8_t buffer[8] = {};
     MIMHID_CHECK(fake_board_feature(0, 5, buffer, sizeof(buffer)) == 2 && buffer[0] == 0xAB &&
                  buffer[1] == 0xCD);
@@ -590,12 +596,12 @@ void test_events_and_raw() {
     std::vector<std::uint8_t> big(644);
     for (std::size_t i = 0; i < big.size(); ++i)
         big[i] = static_cast<std::uint8_t>(i * 7U + 3U);
-    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), big.size()) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), big.size(), kControlMs) == MIMHID_OK);
     std::vector<std::uint8_t> got(1024);
     MIMHID_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() &&
                  std::memcmp(got.data(), big.data(), big.size()) == 0);
-    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), 1025) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature)) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), 1025, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) == MIMHID_OK);
     fake_board_target_set_report(0, 2, 5, big.data(), 300);
     MIMHID_CHECK(wait_event(MIMHID_EVENT_OUTPUT_REPORT, &ev));
     MIMHID_CHECK(ev.report_id == 5 && ev.data.size() == 300 &&
@@ -607,24 +613,58 @@ void test_events_and_raw() {
     MIMHID_CHECK(wait_event(MIMHID_EVENT_SET_IDLE, &ev) && ev.value == 9);
 
     // Remote wakeup works only while the target has the device suspended.
-    MIMHID_CHECK(mimhid_device_remote_wakeup(device) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(mimhid_device_remote_wakeup(device, kControlMs) == MIMHID_ERR_BUSY);
     fake_board_target_suspend(1);
     MIMHID_CHECK(wait_event(MIMHID_EVENT_SUSPEND, &ev) && ev.value == 1);
-    MIMHID_CHECK(mimhid_device_remote_wakeup(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_remote_wakeup(device, kControlMs) == MIMHID_OK);
     fake_board_target_resume();
     MIMHID_CHECK(wait_event(MIMHID_EVENT_RESUME, &ev));
 
     // Raw reports: exact length and Report ID only.
     fake_board_clear_reports();
     const std::uint8_t good[] = {5, 0x01};
-    MIMHID_CHECK(mimhid_raw_submit(node, good, sizeof(good)) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_raw_submit(node, good, sizeof(good), kSendMs) == MIMHID_OK);
     fake_report_t r{};
     MIMHID_CHECK(next_report(&r) && r.length == 2 && r.data[0] == 5 && r.data[1] == 1);
     const std::uint8_t bad[] = {6, 0x01};
-    MIMHID_CHECK(mimhid_raw_submit(node, bad, sizeof(bad)) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_raw_submit(node, bad, sizeof(bad), kSendMs) == MIMHID_ERR_PARAM);
 
-    MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    // No wait has a default: a zero timeout is refused before anything is sent.
+    const std::uint8_t feature_zero[] = {1};
+    MIMHID_CHECK(mimhid_raw_submit(node, good, sizeof(good), 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_report_send(node, good, sizeof(good), 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature_zero, sizeof(feature_zero), 0) ==
+                 MIMHID_ERR_UNSET_FIELD);
+    const mimhid_commit_timeouts no_control = {sizeof(mimhid_commit_timeouts), 0, kReconnectMs};
+    const mimhid_commit_timeouts no_reconnect = {sizeof(mimhid_commit_timeouts), kControlMs, 0};
+    const mimhid_commit_timeouts wrong_size = {1, kControlMs, kReconnectMs};
+    MIMHID_CHECK(mimhid_node_close(node, &no_control, kDrainMs) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_close(node, &no_reconnect, kDrainMs) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_close(node, &wrong_size, kDrainMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_close(node, nullptr, kDrainMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, 0) == MIMHID_ERR_UNSET_FIELD);
+    mimhid_node* refused = nullptr;
+    MIMHID_CHECK(mimhid_node_open(device, raw, nullptr, &no_control, &refused) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_open_raw(device, good, sizeof(good), nullptr, &no_reconnect, &refused) ==
+                 MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_commit(device, 0, &no_control) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_commit(device, 0, &no_reconnect) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_commit(device, 0, &wrong_size) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_connect(device, &no_control) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &no_reconnect) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_usb_identity(device, nullptr, nullptr, &no_control) ==
+                 MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_disconnect(device, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_remote_wakeup(device, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 0, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_control_reply(device, 1, MIMHID_CONTROL_ACTION_STALL, nullptr, 0, 0) ==
+                 MIMHID_ERR_UNSET_FIELD);
+    // A refused close consumes nothing.
+    MIMHID_CHECK(mimhid_device_close(device, 0, kDrainMs) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, 0) == MIMHID_ERR_UNSET_FIELD);
+
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(raw);
 }
 
@@ -663,17 +703,17 @@ void test_chip_serial_and_boot() {
     mimhid_node* bad = nullptr;
     mimhid_node_config broken = no;
     broken.iface.class_code = 0;
-    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_UNSET_FIELD &&
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                  bad == nullptr);
     broken = no;
     // The board's endpoints hold 64 bytes.
     broken.ep_in.max_packet_size = 65;
-    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_OVERFLOW);
     broken.ep_in.max_packet_size = 64;
     broken.ep_out.max_packet_size = 65;
-    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &bad) == MIMHID_ERR_OVERFLOW);
-    MIMHID_CHECK(mimhid_node_close(node) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(raw);
 }
 
@@ -686,7 +726,7 @@ void test_keep_attached_and_discovery() {
     mimhid_spec* raw = raw_spec_no_id();
     mimhid_node* node = open_node(device, raw);
     MIMHID_CHECK(node != nullptr);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(fake_board_interface_count() == 1); // the USB device stays attached
     mimhid_spec_release(raw);
 
@@ -696,7 +736,7 @@ void test_keep_attached_and_discovery() {
         mimhid_device_info info{};
         MIMHID_CHECK(mimhid_device_board_info(again, &info) == MIMHID_OK &&
                      info.max_interfaces == E2E_HID_ITFS);
-        MIMHID_CHECK(mimhid_device_close(again) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_device_close(again, kControlMs, kDrainMs) == MIMHID_OK);
     }
 }
 
@@ -783,7 +823,7 @@ void test_line_rate() {
     device = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
     MIMHID_CHECK(fake_board_baud() == 3000000U);
-    mimhid_device_close(device);
+    mimhid_device_close(device, kControlMs, kDrainMs);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
     // An adapter that cannot go past 1,000,000 sends at that rate whatever it is set to: the
@@ -801,7 +841,7 @@ void test_line_rate() {
     MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
     device = open_at(921600U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 921600U && fake_board_baud() == 921600U);
-    mimhid_device_close(device);
+    mimhid_device_close(device, kControlMs, kDrainMs);
 
     // A program that went away left the board on 3,000,000: it is found there.
     const int fd = open(g_slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -819,7 +859,7 @@ void test_line_rate() {
     MIMHID_CHECK(fake_board_baud() == 3000000U);
     device = open_at(921600U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 921600U);
-    mimhid_device_close(device);
+    mimhid_device_close(device, kControlMs, kDrainMs);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
 #ifdef __linux__
@@ -829,7 +869,7 @@ void test_line_rate() {
     MIMHID_CHECK(r == MIMHID_OK);
     mimhid_device* second = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_ACCESS && second == nullptr);
-    mimhid_device_close(device);
+    mimhid_device_close(device, kControlMs, kDrainMs);
 #endif
 }
 
@@ -843,7 +883,7 @@ void test_no_names() {
     MIMHID_CHECK(node != nullptr);
     const std::uint8_t* d = fake_board_device_descriptor();
     MIMHID_CHECK(d[14] == 0 && d[15] == 0 && d[16] == 0); // iManufacturer, iProduct, iSerial
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(raw);
 }
 
@@ -859,14 +899,9 @@ void test_bad_arguments() {
     o.transport.linux_hid_usages_policy = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     // Nothing is chosen for the caller.
-    for (std::uint32_t mimhid_transport_options::*field :
-         {&mimhid_transport_options::control_timeout_ms, &mimhid_transport_options::send_timeout_ms,
-          &mimhid_transport_options::reconnect_timeout_ms,
-          &mimhid_transport_options::close_drain_timeout_ms}) {
-        o = base_options();
-        o.transport.*field = 0;
-        MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
-    }
+    o = base_options();
+    o.transport.handshake_timeout_ms = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
     o.usb_device.language_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
@@ -901,7 +936,7 @@ void test_bad_arguments() {
     MIMHID_CHECK(mimhid_device_open("/dev/does-not-exist", &o, &device) == MIMHID_ERR_ACCESS);
     MIMHID_CHECK(mimhid_device_open(nullptr, &o, &device) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_open("", &o, &device) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_close(nullptr) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_close(nullptr, kControlMs, kDrainMs) == MIMHID_ERR_PARAM);
 }
 
 void test_link_loss() {
@@ -925,7 +960,7 @@ void test_link_loss() {
     MIMHID_CHECK(r == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_keyboard_key(node, 0x04, 1) == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_device_is_ready(device) == 0);
-    mimhid_device_close(device);
+    mimhid_device_close(device, kControlMs, kDrainMs);
     mimhid_spec_release(kbd);
 }
 
@@ -983,45 +1018,45 @@ void test_control() {
 
     // Arguments.
     const mimhid_control_rule good = control_rule(0xC0, 0x42, 100, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(nullptr, 0, &good, 1) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 2, &good, 1) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 1) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(nullptr, 0, &good, 1, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 2, &good, 1, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 1, kControlMs) == MIMHID_ERR_PARAM);
     mimhid_control_rule many[MIMHID_CONTROL_MAX_RULES + 1];
     for (auto& r : many)
         r = good;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, many, MIMHID_CONTROL_MAX_RULES + 1) ==
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, many, MIMHID_CONTROL_MAX_RULES + 1, kControlMs) ==
                  MIMHID_ERR_PARAM);
     mimhid_control_rule bad = good;
     bad.timeout_ms = 0;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) == MIMHID_ERR_UNSET_FIELD);
     bad = good;
     bad.when_late = 0;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) == MIMHID_ERR_UNSET_FIELD);
     bad = good;
     bad.when_late = 5;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) == MIMHID_ERR_PARAM);
     bad = good;
     bad.timeout_ms = MIMHID_CONTROL_MAX_TIMEOUT_MS + 1;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) == MIMHID_ERR_PARAM);
     bad = good;
     bad.value_value = 1; // outside its mask of zero
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) == MIMHID_ERR_PARAM);
     const std::uint8_t one[1] = {1};
-    MIMHID_CHECK(mimhid_device_control_reply(device, 0, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0) ==
+    MIMHID_CHECK(mimhid_device_control_reply(device, 0, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0, kSendMs) ==
                  MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_control_reply(device, 256, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0) ==
+    MIMHID_CHECK(mimhid_device_control_reply(device, 256, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0, kSendMs) ==
                  MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_control_reply(device, 1, 0, nullptr, 0) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_control_reply(device, 1, MIMHID_CONTROL_ACTION_STALL, one, 1) ==
+    MIMHID_CHECK(mimhid_device_control_reply(device, 1, 0, nullptr, 0, kSendMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_control_reply(device, 1, MIMHID_CONTROL_ACTION_STALL, one, 1, kSendMs) ==
                  MIMHID_ERR_PARAM);
     std::vector<std::uint8_t> too_big(1025);
     MIMHID_CHECK(mimhid_device_control_reply(device, 1, MIMHID_CONTROL_ACTION_ANSWER, too_big.data(),
-                                             too_big.size()) == MIMHID_ERR_OVERFLOW);
+                                             too_big.size(), kSendMs) == MIMHID_ERR_OVERFLOW);
 
     // Reporting every transfer, holding none.
     fake_control_result_t r{};
     EventRecord ev;
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 1, nullptr, 0) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 1, nullptr, 0, kControlMs) == MIMHID_OK);
     target_control(0x80, 6, 0x0302, 0x0409, 255);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_LEFT);
     MIMHID_CHECK(wait_setup(&ev, 0x80, 6) && ev.flags == 0 && ev.token != 0 &&
@@ -1033,13 +1068,13 @@ void test_control() {
 
     // An answer with data, given by the program's own thread.
     const mimhid_control_rule vendor_in = control_rule(0xC0, 0x42, 1000, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &vendor_in, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &vendor_in, 1, kControlMs) == MIMHID_OK);
     target_control(0xC0, 0x42, 0x1234, 0x5678, 64);
     MIMHID_CHECK(wait_setup(&ev, 0xC0, 0x42) && ev.flags == MIMHID_CONTROL_FLAG_HELD &&
                  ev.data[2] == 0x34 && ev.data[3] == 0x12);
     const std::vector<std::uint8_t> payload = {9, 8, 7, 6, 5};
     MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_ANSWER,
-                                             payload.data(), payload.size()) == MIMHID_OK);
+                                             payload.data(), payload.size(), kSendMs) == MIMHID_OK);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == payload.size() &&
                  std::memcmp(r.data, payload.data(), payload.size()) == 0);
 
@@ -1053,6 +1088,16 @@ void test_control() {
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == payload.size() &&
                  std::memcmp(r.data, payload.data(), payload.size()) == 0);
     MIMHID_CHECK(g_sink_reply.result.load() == MIMHID_OK);
+
+    // A zero-length request answered with data still gets its data stage, as from the real device;
+    // an empty answer is the status stage alone.
+    target_control(0xC0, 0x42, 0, 0, 0);
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == payload.size() &&
+                 std::memcmp(r.data, payload.data(), payload.size()) == 0);
+    g_sink_reply.data.clear();
+    target_control(0xC0, 0x42, 0, 0, 0);
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ACKED);
+    g_sink_reply.data = payload;
     g_sink_reply.action = MIMHID_CONTROL_ACTION_STALL;
     g_sink_reply.data.clear();
     target_control(0xC0, 0x42, 0, 0, 3);
@@ -1061,7 +1106,7 @@ void test_control() {
 
     // Nobody answers: the rule's action after its time (a stall here).
     const mimhid_control_rule quick = control_rule(0xC0, 0x42, 60, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &quick, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &quick, 1, kControlMs) == MIMHID_OK);
     const auto start = std::chrono::steady_clock::now();
     target_control(0xC0, 0x42, 0, 0, 3);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_STALLED);
@@ -1070,53 +1115,53 @@ void test_control() {
 
     // A standard request answered after its time by an empty data stage, and one left to the stack.
     const mimhid_control_rule std_get = control_rule(0x80, 6, 40, MIMHID_CONTROL_ACTION_ANSWER);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &std_get, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &std_get, 1, kControlMs) == MIMHID_OK);
     target_control(0x80, 6, 0x0300, 0, 4);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 0 &&
                  r.setup[0] == 0xC0 && r.setup[1] == 6); // retyped
     const mimhid_control_rule std_leave = control_rule(0x80, 6, 40, MIMHID_CONTROL_ACTION_LEAVE);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &std_leave, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &std_leave, 1, kControlMs) == MIMHID_OK);
     target_control(0x80, 6, 0x0300, 0, 4);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_LEFT && r.setup[0] == 0x80);
     MIMHID_CHECK(wait_setup(&ev, 0x80, 6) && ev.flags == MIMHID_CONTROL_FLAG_HELD);
     target_control(0x80, 6, 0x0300, 0, 4);
     MIMHID_CHECK(wait_setup(&ev, 0x80, 6));
-    MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0) ==
+    MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0, kSendMs) ==
                  MIMHID_OK);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_LEFT && r.setup[0] == 0x80);
 
     // A request without a data stage: ANSWER is an acknowledgement.
     const mimhid_control_rule no_data = control_rule(0x00, 3, 500, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &no_data, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &no_data, 1, kControlMs) == MIMHID_OK);
     target_control(0x00, 3, 1, 0, 0);
     MIMHID_CHECK(wait_setup(&ev, 0x00, 3));
-    MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0) ==
+    MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_ANSWER, nullptr, 0, kSendMs) ==
                  MIMHID_OK);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ACKED);
 
     // Host to device with a data stage: the program sees the data and gives the verdict.
     const mimhid_control_rule set_report = control_rule(0x21, 9, 1000, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &set_report, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &set_report, 1, kControlMs) == MIMHID_OK);
     const std::uint8_t sent[3] = {0x11, 0x22, 0x33};
     for (int round = 0; round < 2; ++round) {
         target_control(0x21, 9, 0x0302, 0, 3, sent, sizeof(sent));
         MIMHID_CHECK(wait_setup(&ev, 0x21, 9) && ev.flags == MIMHID_CONTROL_FLAG_HELD);
         MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_ANSWER, nullptr,
-                                                 0) == MIMHID_OK);
+                                                 0, kSendMs) == MIMHID_OK);
         EventRecord data_ev;
         MIMHID_CHECK(wait_event(MIMHID_EVENT_CONTROL_DATA, &data_ev) && data_ev.token == ev.token &&
                      data_ev.data.size() == 3 && std::memcmp(data_ev.data.data(), sent, 3) == 0);
         MIMHID_CHECK(mimhid_device_control_reply(device, data_ev.token,
                                                  round == 0 ? MIMHID_CONTROL_ACTION_ANSWER
                                                             : MIMHID_CONTROL_ACTION_STALL,
-                                                 nullptr, 0) == MIMHID_OK);
+                                                 nullptr, 0, kSendMs) == MIMHID_OK);
         MIMHID_CHECK(next_control(&r) &&
                      r.outcome == (round == 0 ? FAKE_CONTROL_ACKED : FAKE_CONTROL_STALLED));
         MIMHID_CHECK(r.length == 3 && std::memcmp(r.data, sent, 3) == 0);
     }
     // A host-to-device transfer whose verdict never comes: the rule's action.
     const mimhid_control_rule slow = control_rule(0x21, 9, 50, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &slow, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &slow, 1, kControlMs) == MIMHID_OK);
     g_sink_reply.action = MIMHID_CONTROL_ACTION_ANSWER;
     g_sink_reply.data.clear();
     g_sink_reply.enabled.store(true);
@@ -1125,15 +1170,15 @@ void test_control() {
     g_sink_reply.enabled.store(false);
 
     // Taking the routing away, and closing the Device, leave the board answering for itself.
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 0) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 0, kControlMs) == MIMHID_OK);
     {
         std::lock_guard<std::mutex> lock(g_event_mutex);
         g_events.clear();
     }
     target_control(0x80, 6, 0x0100, 0, 18);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_LEFT);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 1, &std_get, 1) == MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 1, &std_get, 1, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     device = open_device(base_options());
     if (device == nullptr)
         return;
@@ -1149,7 +1194,7 @@ void test_control() {
         for (const auto& e : g_events)
             MIMHID_CHECK(e.kind != MIMHID_EVENT_CONTROL_SETUP);
     }
-    MIMHID_CHECK(mimhid_device_close(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
 } // namespace

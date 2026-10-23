@@ -832,6 +832,35 @@ static void test_control(void) {
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
     }
 
+    // With wLength 0 an answer with data still starts the data stage, as the real device does; an
+    // empty answer is the status stage alone.
+    reset_io();
+    setup(0xC0, 0x42, 0, 0, 0);
+    pump();
+    pos = 0;
+    assert(next_control_event(&pos, &token, &flags, raw));
+    assert(reply(token, MIMHID_CONTROL_ANSWER, answer, 2) == 1);
+    assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0xC0);
+    {
+        const tusb_control_request_t req = g_forwarded[0].setup_received;
+        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
+        assert(g_xfer.kind == 1 && g_xfer.length == 2 && memcmp(g_xfer.copy, answer, 2) == 0);
+        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
+    }
+    reset_io();
+    setup(0xC0, 0x42, 0, 0, 0);
+    pump();
+    pos = 0;
+    assert(next_control_event(&pos, &token, &flags, raw));
+    assert(reply(token, MIMHID_CONTROL_ANSWER, NULL, 0) == 1);
+    assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0x40); // direction dropped
+    {
+        const tusb_control_request_t req = g_forwarded[0].setup_received;
+        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
+        assert(g_xfer.kind == 2);
+        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
+    }
+
     // A stall.
     reset_io();
     setup(0xC0, 0x42, 0, 0, 2);

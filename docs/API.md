@@ -32,13 +32,27 @@ device_close                detaches the USB device (unless keep_attached)
 spec_release
 ```
 
-`mimhid_node_open`, `mimhid_node_open_raw`, and `mimhid_node_close` send the configuration to the board and re-enumerate the USB device at once; the target sees an unplug and replug. To change several nodes with one re-enumeration, wrap the calls in `mimhid_device_batch_begin` / `mimhid_device_batch_end`. Nodes opened inside a batch return `MIMHID_ERR_BUSY` from input calls until `mimhid_device_batch_end` succeeds. `mimhid_device_commit(device, reconnect_delay_ms)` is not needed after either; it re-sends the configuration and re-enumerates once more, and is the call that holds D+=0V for `reconnect_delay_ms` before reconnecting.
+`mimhid_node_open`, `mimhid_node_open_raw`, and `mimhid_node_close` send the configuration to the board and re-enumerate the USB device at once; the target sees an unplug and replug. To change several nodes with one re-enumeration, wrap the calls in `mimhid_device_batch_begin` / `mimhid_device_batch_end`. Nodes opened inside a batch return `MIMHID_ERR_BUSY` from input calls until `mimhid_device_batch_end` succeeds. `mimhid_device_commit(device, reconnect_delay_ms, timeouts)` is not needed after either; it re-sends the configuration and re-enumerates once more, and is the call that holds D+=0V for `reconnect_delay_ms` before reconnecting.
 
 Physical connection state can also be controlled manually using `mimhid_device_connect()` (assert D+=3.3V) and `mimhid_device_disconnect()` (stealth/silent D+=0V).
 
+## Timeouts
+
+No wait has a default and the Device keeps none: every call that can wait takes its time in milliseconds as an argument, and zero fails with `MIMHID_ERR_UNSET_FIELD` before anything is sent. There are three kinds:
+
+| Wait | Meaning | Taken by |
+|---|---|---|
+| control | each configuration frame waits this long for the board's ACK or NAK (a frame is sent up to three times) | `mimhid_device_disconnect`, `mimhid_device_remote_wakeup`, `mimhid_device_set_control_routing`, `mimhid_node_set_feature_response`, and `control_timeout_ms` of `mimhid_commit_timeouts` and `mimhid_device_close` |
+| reconnect | the board's re-enumeration after a commit | `reconnect_timeout_ms` of `mimhid_commit_timeouts` |
+| send | a serial write may make no progress this long before `MIMHID_ERR_TIMEOUT`, with nothing sent | `mimhid_node_submit`, `mimhid_raw_submit`, `mimhid_report_send`, `mimhid_device_control_reply` |
+
+`mimhid_commit_timeouts` (`struct_size`, `control_timeout_ms`, `reconnect_timeout_ms`; `mimhid_commit_timeouts_init`) is passed to every call that re-enumerates the board: `mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_batch_end`, `mimhid_device_commit`, `mimhid_device_connect` and `mimhid_device_set_usb_identity`. It is required also where the call only stages (inside a batch). The drain of the neutral reports on close is `drain_timeout_ms` of `mimhid_node_close` and `mimhid_device_close`. A close with a zero timeout consumes nothing.
+
+Already per call: `mimhid_discover` and `mimhid_device_wait_ready` (`timeout_ms`), `mimhid_node_submit_blocking` (`timeout_ms`, which also bounds each write by what is left of it), and each control rule (`timeout_ms`, how long the board holds a request; at most `MIMHID_CONTROL_MAX_TIMEOUT_MS`). The wire protocol's fixed times (`MIMHID_BAUD_CONFIRM_MS`, the board's 10 ms receive resync) are the protocol's and no call changes them.
+
 ## Input
 
-Input calls change the state of a node and send nothing. `mimhid_node_submit` encodes the state as a report and writes it to the serial port without waiting for the target. `mimhid_node_submit_blocking` also finishes the further reports of a touch frame. Mutating calls return `MIMHID_ERR_BUSY` while a report is in flight.
+Input calls change the state of a node and send nothing. `mimhid_node_submit(node, send_timeout_ms)` encodes the state as a report and writes it to the serial port without waiting for the target. `mimhid_node_submit_blocking` also finishes the further reports of a touch frame. Mutating calls return `MIMHID_ERR_BUSY` while a report is in flight.
 
 | Profile | Calls |
 |---|---|
@@ -58,18 +72,18 @@ All 23 profile-layer entries (9 Spec factories and 14 mutation calls) are retain
 
 ## Settings of the USB device
 
-`mimhid_device_options`: every value is used as given and none has a default. A required field that is zero fails with `MIMHID_ERR_UNSET_FIELD`.
+`mimhid_device_config` (`mimhid_device_config_init` sets `struct_size`) holds `transport`, `usb_device` and `usb_config`. Every value is used as given and none has a default. A required field that is zero fails with `MIMHID_ERR_UNSET_FIELD`.
 
-- Identity: `vendor_id` (required), `product_id`, `bcd_device`, `language_id` (required), `manufacturer`, `product`, `serial`, `configuration` (strings of at most 31 printable ASCII characters; NULL or empty leaves the string out), `serial_from_chip_id` (use the MCU's unique id when `serial` is NULL).
-- Descriptor: `device_class`, `device_subclass`, `device_protocol`.
-- Power: `self_powered`, `remote_wakeup`, `max_power_ma` (0 to 500).
-- Link, all required except `maximum_report_bytes`: `baud_rate` (one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `control_timeout_ms`, `send_timeout_ms`, `reconnect_timeout_ms`, `close_drain_timeout_ms`, and `maximum_report_bytes` (0: the limit the board reports).
-- Behavior: `validate_reports` (decode each generated report again), `keep_attached` (leave the USB device on the bus after `device_close`).
+- `usb_device`, identity: `vendor_id` (required), `product_id`, `bcd_device`, `language_id` (required), `manufacturer`, `product`, `serial` (printable ASCII, at most 126 characters; NULL leaves the string out), `serial_from_chip_id` (use the MCU's unique id when `serial` is NULL).
+- `usb_device`, descriptor: `bcd_usb` (required), `ep0_max_packet_size` (required: 8, 16, 32 or 64), `device_class`, `device_subclass`, `device_protocol`.
+- `usb_config`: `configuration_value` (required, nonzero), `bm_attributes` (bit 7 set), `bmax_power` (at most 250, in 2 mA units), `string`.
+- `transport`, link: `baud_rate` (required, one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `handshake_timeout_ms` (required: the wait for each answer while the board is searched for on the port), and `maximum_report_bytes` (0: the limit the board reports). The other waits are not here: see [Timeouts](#timeouts).
+- `transport`, behavior: `validate_reports` (decode each generated report again), `keep_attached` (leave the USB device on the bus after `device_close`).
 - Target parser limits `linux_*_policy`: nonzero values chosen by the caller for the HID parser of the target. A descriptor that exceeds them is rejected when the Spec is opened on the Device.
 - Callbacks: `event_sink` (everything the target sends: Output and Feature reports, `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, resume), `log_sink`.
 
-`mimhid_node_options` configures the USB interface that carries a node:
-- `interface_number`: explicit USB interface number (`0`, `1`, `2`...; required, no automatic allocation).
+`mimhid_node_config` configures the USB interface and endpoints that carry a node:
+- `iface.number`: explicit USB interface number (`0`, `1`, `2`...; required, no automatic allocation); `ep_in` and `ep_out` carry the endpoint addresses, sizes and polling intervals.
 - `poll_interval_ms`: polling interval in ms (1..255 ms, typical `1`).
 - `ep_in_size`: IN endpoint packet size (`1` to `64`; typical `64`).
 - `ep_out_size`: OUT endpoint packet size (`0`: OUT disabled, `1` to `64`: OUT enabled).
@@ -86,7 +100,7 @@ A USB device has one VID/PID, so those belong to the Device, not to a profile.
 
 `CONTROL_SETUP` and `CONTROL_DATA` events (with `control_token` and `control_flags`) come from [control transfers](PROTOCOL.md#control-transfers), which are off until `mimhid_device_set_control_routing` turns them on. `mimhid_device_control_reply` may be called from the event sink (it only writes a frame), which is the way to answer inside a short rule time.
 
-`mimhid_node_set_feature_response` sets the answer to a Feature read of a Report ID. A touch Spec with `enable_contact_count_maximum_feature_declaration` is answered automatically. `mimhid_device_remote_wakeup` wakes a suspended target when `remote_wakeup` was enabled.
+`mimhid_node_set_feature_response` sets the answer to a Feature read of a Report ID. A touch Spec with `enable_contact_count_maximum_feature_declaration` is answered automatically. `mimhid_device_remote_wakeup(device, control_timeout_ms)` wakes a suspended target when `remote_wakeup` was enabled.
 
 ## Control transfers of the target
 
@@ -94,8 +108,8 @@ Two calls, both on the Device and both off until used (see [PROTOCOL.md](PROTOCO
 
 | Call | Does |
 |---|---|
-| `mimhid_device_set_control_routing(device, report_all, rules, count)` | Replaces the set: `report_all` 1 reports every request on endpoint 0 as `MIMHID_EVENT_CONTROL_SETUP`; each `mimhid_control_rule` (up to `MIMHID_CONTROL_MAX_RULES`, the board's `max_control_rules`) holds the requests it matches. `timeout_ms` and `when_late` have no default and zero is refused. |
-| `mimhid_device_control_reply(device, token, action, data, length)` | Answers a held request: `ANSWER` (data for a device-to-host request, an acknowledgement otherwise), `STALL`, or `LEAVE` (the board's own handling). Writes one frame and returns; callable from the event sink. |
+| `mimhid_device_set_control_routing(device, report_all, rules, count, control_timeout_ms)` | Replaces the set: `report_all` 1 reports every request on endpoint 0 as `MIMHID_EVENT_CONTROL_SETUP`; each `mimhid_control_rule` (up to `MIMHID_CONTROL_MAX_RULES`, the board's `max_control_rules`) holds the requests it matches. `timeout_ms` and `when_late` have no default and zero is refused. |
+| `mimhid_device_control_reply(device, token, action, data, length, send_timeout_ms)` | Answers a held request: `ANSWER` (data for a device-to-host request, sent whole whatever `wLength` says, also when it is 0; an acknowledgement otherwise), `STALL`, or `LEAVE` (the board's own handling). Writes one frame and returns; callable from the event sink. |
 
 A held request that nobody answers within its rule's time gets the rule's `when_late` action. `MIMHID_EVENT_CONTROL_DATA` carries the data stage of a host-to-device request; the second reply is the verdict. Standard OUT SET_ADDRESS is reported and never held; SET_CONFIGURATION can be held and answered by rules; a host-to-device data stage longer than `max_control_data_bytes` is reported with `MIMHID_CONTROL_FLAG_TOO_LONG` and never held. `mimhid_device_close` removes the rules. A complete program: [`examples/c/control_transfers.c`](../examples/c/control_transfers.c).
 

@@ -6,7 +6,14 @@
 #include <cstdio>
 #include <thread>
 
+// The waits are this program's choice; the library has no defaults.
+constexpr std::uint32_t kControlTimeoutMs = 500;
+constexpr std::uint32_t kReconnectTimeoutMs = 3000;
+constexpr std::uint32_t kDrainTimeoutMs = 1000;
+
 int main() {
+    const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts),
+                                                    kControlTimeoutMs, kReconnectTimeoutMs};
     mimhid_discovery* found = nullptr;
     if (mimhid::discover(50, &found) != MIMHID_OK || mimhid::discovery_count(found) == 0) {
         mimhid::discovery_destroy(found);
@@ -20,12 +27,9 @@ int main() {
     config.usb_device.product_id = 0x2A15;
     config.usb_device.manufacturer = "Example";
     config.usb_device.product = "Touchscreen";
-    // The rate the search measured; the waits are this program's choice.
+    // The rate the search measured.
     config.transport.baud_rate = mimhid::discovery_get(found, 0)->baud_rate;
-    config.transport.control_timeout_ms = 500;
-    config.transport.send_timeout_ms = 500;
-    config.transport.reconnect_timeout_ms = 3000;
-    config.transport.close_drain_timeout_ms = 1000;
+    config.transport.handshake_timeout_ms = 50;
     config.usb_device.language_id = 0x0409;
     config.usb_device.bcd_usb = 0x0200;
     config.usb_device.ep0_max_packet_size = 64;
@@ -70,7 +74,7 @@ int main() {
     node_config.ep_in.max_packet_size = 64;
     mimhid_node* node = nullptr;
     if (mimhid::spec_create_touchscreen(&touch, &spec) != MIMHID_OK ||
-        mimhid::node_open(device, spec, &node_config, &node) != MIMHID_OK ||
+        mimhid::node_open(device, spec, &node_config, &commit_timeouts, &node) != MIMHID_OK ||
         mimhid::device_wait_ready(device, 5000) != MIMHID_OK) {
         std::fprintf(stderr, "setup failed: %s\n", mimhid::last_error()->reason);
         return 1;
@@ -88,8 +92,8 @@ int main() {
     (void)mimhid::touchscreen_contact(node, 1, 0, 840, 1200, nullptr);
     (void)mimhid::node_submit_blocking(node, 100);
 
-    (void)mimhid::node_close(node);
-    (void)mimhid::device_close(device);
+    (void)mimhid::node_close(node, &commit_timeouts, kDrainTimeoutMs);
+    (void)mimhid::device_close(device, kControlTimeoutMs, kDrainTimeoutMs);
     mimhid::spec_release(spec);
     return 0;
 }

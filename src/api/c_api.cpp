@@ -30,10 +30,9 @@ namespace tr = mimhid::transport;
 namespace {
 using mimhid::detail::set_error;
 
+// How often a configuration frame is sent before the board is given up on; each try waits for the
+// timeout the caller passed.
 constexpr int kCommandAttempts = 3;
-// How long a handshake waits for each answer: a few frames at the boot rate plus the latency
-// timer of a USB serial adapter (16 ms on FTDI chips).
-constexpr std::uint32_t kHandshakeWaitMs = 50U;
 
 // The public header repeats the wire protocol's tables.
 static_assert(MIMHID_PROTOCOL_VERSION == MIMHID_PROTO_VERSION);
@@ -138,10 +137,7 @@ mimhid_result prepare_device_config(const mimhid_device_config* config,
     // Transport required fields
     const std::pair<std::uint32_t, const char*> required_transport[] = {
         {effective->transport.baud_rate, "transport.baud_rate"},
-        {effective->transport.control_timeout_ms, "transport.control_timeout_ms"},
-        {effective->transport.send_timeout_ms, "transport.send_timeout_ms"},
-        {effective->transport.reconnect_timeout_ms, "transport.reconnect_timeout_ms"},
-        {effective->transport.close_drain_timeout_ms, "transport.close_drain_timeout_ms"},
+        {effective->transport.handshake_timeout_ms, "transport.handshake_timeout_ms"},
     };
     for (const auto& [value, field] : required_transport) {
         if (value == 0U) {
@@ -603,11 +599,47 @@ struct ReconfigGuard {
     mimhid_device* device;
 };
 
+// A wait the caller passed to a call has no default: zero is refused.
+mimhid_result require_timeout(const std::uint32_t timeout_ms, const char* field) noexcept {
+    if (timeout_ms == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, field, "This timeout must be set; it has no default.");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    return MIMHID_OK;
+}
+
+// The waits of a call that configures the board and re-enumerates its USB device.
+struct CommitWaits {
+    std::uint32_t control{};
+    std::uint32_t reconnect{};
+};
+
+mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
+                                   CommitWaits* waits) noexcept {
+    if (timeouts == nullptr ||
+        !mimhid::detail::valid_struct(timeouts, timeouts->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*timeouts)), "timeouts")) {
+        return MIMHID_ERR_PARAM;
+    }
+    if (const mimhid_result r = require_timeout(timeouts->control_timeout_ms,
+                                                "timeouts.control_timeout_ms");
+        r != MIMHID_OK)
+        return r;
+    if (const mimhid_result r = require_timeout(timeouts->reconnect_timeout_ms,
+                                                "timeouts.reconnect_timeout_ms");
+        r != MIMHID_OK)
+        return r;
+    waits->control = timeouts->control_timeout_ms;
+    waits->reconnect = timeouts->reconnect_timeout_ms;
+    return MIMHID_OK;
+}
+
 // Sends the complete configuration of every live node and commits it. The board drops its USB
 // device and re-enumerates it with exactly these nodes.
-mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms = 0U) {
+mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
+                            const CommitWaits& waits) {
     const ReconfigGuard guard(device);
-    const std::uint32_t control = device->config.transport.control_timeout_ms;
+    const std::uint32_t control = waits.control;
     const std::vector<mimhid_node*> nodes = live_nodes(device);
 
     if (nodes.empty()) {
@@ -738,7 +770,7 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms =
         if (reconnect_delay_ms > 0U)
             std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_delay_ms));
     }
-    r = command_error(device->link.connect(device->config.transport.reconnect_timeout_ms), "device.commit",
+    r = command_error(device->link.connect(waits.reconnect), "device.commit",
                       "The board did not connect or enumerate in time.", MIMHID_T_COMMIT);
     if (r != MIMHID_OK)
         return r;
@@ -1081,7 +1113,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         return MIMHID_ERR_IO;
     }
     // The board's own limits and the line rate come from talking to it.
-    tr::Handshaker handshake(device->link.port(), kHandshakeWaitMs);
+    tr::Handshaker handshake(device->link.port(), device->config.transport.handshake_timeout_ms);
     if (!handshake.find(&device->board)) {
         set_error(MIMHID_ERR_TIMEOUT, "port",
                   "No board answered on this port at any rate (check the firmware is libmimhid "
@@ -1137,12 +1169,16 @@ MIMHID_C_RESULT_CATCH("device.open")
 mimhid_result MIMHID_CALL
 mimhid_device_set_usb_identity(mimhid_device* device,
                                const mimhid_usb_device* usb_device,
-                               const mimhid_usb_config* usb_config) try {
+                               const mimhid_usb_config* usb_config,
+                               const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
     if (usb_device == nullptr) {
         set_error(MIMHID_ERR_PARAM, "usb_device", "usb_device cannot be null.");
         return MIMHID_ERR_PARAM;
@@ -1213,19 +1249,22 @@ mimhid_device_set_usb_identity(mimhid_device* device,
     device->config.usb_config.string = nullptr;
     device->dirty = true;
     if (!device->batch_open)
-        return commit_device(device, 0U);
+        return commit_device(device, 0U, waits);
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.set_usb_identity")
 
-mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device,
-                                               uint32_t reconnect_delay_ms) try {
+mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device, uint32_t reconnect_delay_ms,
+                                               const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
-    const mimhid_result res = commit_device(device, reconnect_delay_ms);
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
+    const mimhid_result res = commit_device(device, reconnect_delay_ms, waits);
     if (res == MIMHID_OK) {
         device->batch_open = false;
         std::lock_guard<std::mutex> lock(device->nodes_mutex);
@@ -1238,28 +1277,36 @@ mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device,
 }
 MIMHID_C_RESULT_CATCH("device.commit")
 
-mimhid_result MIMHID_CALL mimhid_device_connect(mimhid_device* device) try {
+mimhid_result MIMHID_CALL mimhid_device_connect(mimhid_device* device,
+                                                const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
     if (!device->configured) {
-        return commit_device(device, 0U);
+        return commit_device(device, 0U, waits);
     }
-    return command_error(device->link.connect(device->config.transport.control_timeout_ms), "device.connect",
+    return command_error(device->link.connect(waits.control), "device.connect",
                          "The board did not acknowledge connect.", MIMHID_T_COMMIT);
 }
 MIMHID_C_RESULT_CATCH("device.connect")
 
-mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* device) try {
+mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* device,
+                                                   const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     const mimhid_result r = command_error(
-        device->link.disconnect(device->config.transport.control_timeout_ms), "device.disconnect",
+        device->link.disconnect(control_timeout_ms), "device.disconnect",
         "The board did not acknowledge disconnect.", MIMHID_T_COMMIT);
     if (r == MIMHID_OK) {
         device->configured = false;
@@ -1268,19 +1315,28 @@ mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* device) try {
 }
 MIMHID_C_RESULT_CATCH("device.disconnect")
 
-mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
+mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
+                                              const uint32_t control_timeout_ms,
+                                              const uint32_t drain_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr) {
         set_error(MIMHID_ERR_PARAM, "device", "The Device handle is null.");
         return MIMHID_ERR_PARAM;
     }
+    // A refused timeout consumes nothing.
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
+    if (const mimhid_result t = require_timeout(drain_timeout_ms, "drain_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     if (device->closing.exchange(true, std::memory_order_acq_rel)) {
         set_error(MIMHID_ERR_PARAM, "device", "The Device is already closing.");
         return MIMHID_ERR_PARAM;
     }
     mimhid_result retained = MIMHID_OK;
     const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(device->config.transport.close_drain_timeout_ms);
+                          std::chrono::milliseconds(drain_timeout_ms);
     for (mimhid_node* node : live_nodes(device)) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
@@ -1293,13 +1349,13 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
     if (!device->link.failed() && device->control_routed.load(std::memory_order_acquire)) {
         // The next program finds the board answering everything itself.
         const std::uint8_t none[2] = {0U, 0U};
-        (void)device->link.command(MIMHID_T_CONTROL_CONFIG, none, sizeof(none),
-                                   device->config.transport.control_timeout_ms, 1);
+        (void)device->link.command(MIMHID_T_CONTROL_CONFIG, none, sizeof(none), control_timeout_ms,
+                                   1);
     }
     if (!device->link.failed() && device->configured && device->config.transport.keep_attached == 0U) {
         const std::uint8_t detach[1] = {1U};
         const tr::CommandResult sent = device->link.command(
-            MIMHID_T_COMMIT, detach, 1, device->config.transport.control_timeout_ms, kCommandAttempts);
+            MIMHID_T_COMMIT, detach, 1, control_timeout_ms, kCommandAttempts);
         if (sent.status != tr::CommandStatus::ack && retained == MIMHID_OK)
             retained = command_error(sent, "device.close", "The board did not go off the bus.",
                                      MIMHID_T_COMMIT);
@@ -1307,8 +1363,7 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device) try {
     // The next program to open the board, or a search, finds it at once on the boot rate.
     if (!device->link.failed() && device->info.baud_rate != MIMHID_BOOT_BAUD) {
         const std::uint8_t boot[1] = {0U};
-        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, device->config.transport.control_timeout_ms,
-                                   1);
+        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, control_timeout_ms, 1);
     }
     device->link.drain();
     device->link.close();
@@ -1383,12 +1438,16 @@ mimhid_result MIMHID_CALL mimhid_device_batch_begin(mimhid_device* device) try {
 }
 MIMHID_C_RESULT_CATCH("device.batch_begin")
 
-mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device) try {
+mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device,
+                                                  const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
     if (!device->batch_open) {
         set_error(MIMHID_ERR_BUSY, "device.batch", "No batch is open.");
         return MIMHID_ERR_BUSY;
@@ -1396,7 +1455,7 @@ mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device) try {
     device->batch_open = false;
     if (!device->dirty)
         return MIMHID_OK;
-    const mimhid_result committed = commit_device(device);
+    const mimhid_result committed = commit_device(device, 0U, waits);
     if (committed != MIMHID_OK) {
         device->batch_open = true; // staged changes stay; the caller may retry or close nodes
         return committed;
@@ -1412,14 +1471,18 @@ mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device) try {
 }
 MIMHID_C_RESULT_CATCH("device.batch_end")
 
-mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device) try {
+mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
+                                                      const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr) {
         set_error(MIMHID_ERR_PARAM, "device", "The Device handle is null.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     const tr::CommandResult result = device->link.command(
-        MIMHID_T_REMOTE_WAKEUP, nullptr, 0, device->config.transport.control_timeout_ms, kCommandAttempts);
+        MIMHID_T_REMOTE_WAKEUP, nullptr, 0, control_timeout_ms, kCommandAttempts);
     return command_error(result, "device.remote_wakeup", "The target has not suspended the device.",
                          MIMHID_T_REMOTE_WAKEUP);
 }
@@ -1464,12 +1527,16 @@ MIMHID_C_RESULT_CATCH("device.limits")
 mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* device,
                                                             const uint32_t report_all,
                                                             const mimhid_control_rule* rules,
-                                                            const size_t rule_count) try {
+                                                            const size_t rule_count,
+                                                            const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     if (!mimhid::detail::valid_boolean(report_all)) {
         set_error(MIMHID_ERR_PARAM, "report_all", "report_all must be 0 or 1.");
         return MIMHID_ERR_PARAM;
@@ -1524,8 +1591,8 @@ mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* devic
         payload[n++] = static_cast<std::uint8_t>(r.when_late - 1);
     }
     const mimhid_result result = command_error(
-        device->link.command(MIMHID_T_CONTROL_CONFIG, payload, n,
-                             device->config.transport.control_timeout_ms, kCommandAttempts),
+        device->link.command(MIMHID_T_CONTROL_CONFIG, payload, n, control_timeout_ms,
+                             kCommandAttempts),
         "device.set_control_routing", "The board did not accept the control routing.",
         MIMHID_T_CONTROL_CONFIG);
     if (result == MIMHID_OK)
@@ -1536,13 +1603,16 @@ MIMHID_C_RESULT_CATCH("device.set_control_routing")
 
 mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, const uint32_t token,
                                                       const mimhid_control_action action,
-                                                      const uint8_t* data,
-                                                      const size_t length) try {
+                                                      const uint8_t* data, const size_t length,
+                                                      const uint32_t send_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(send_timeout_ms, "send_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     if (token == 0U || token > 255U || action < MIMHID_CONTROL_ACTION_LEAVE ||
         action > MIMHID_CONTROL_ACTION_DROP ||
         (length != 0U && (data == nullptr || action != MIMHID_CONTROL_ACTION_ANSWER))) {
@@ -1558,7 +1628,7 @@ mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, con
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_control_reply(
         static_cast<std::uint8_t>(token), static_cast<std::uint8_t>(action - 1), data, length,
-        device->config.transport.send_timeout_ms, &os_error);
+        send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
         return MIMHID_OK;
@@ -1654,6 +1724,7 @@ mimhid_result validate_node_config(const mimhid_device* device,
 
 mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* spec,
                                            const mimhid_node_config* config,
+                                           const mimhid_commit_timeouts* timeouts,
                                            mimhid_node** out_node) try {
     mimhid::detail::clear_error();
     if (out_node == nullptr) {
@@ -1673,6 +1744,9 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
     if (config == nullptr || !mimhid::detail::valid_struct(
                                  config, config->struct_size,
                                  static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
@@ -1809,7 +1883,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
         *out_node = node.release();
         return MIMHID_OK;
     }
-    const mimhid_result committed = commit_device(device);
+    const mimhid_result committed = commit_device(device, 0U, waits);
     if (committed != MIMHID_OK) {
         // The board's active configuration is unchanged or unknown; drop this node again.
         {
@@ -1819,7 +1893,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
         mimhid::detail::release_spec(spec);
         node->spec = nullptr;
         if (device->configured) {
-            commit_device(device);
+            commit_device(device, 0U, waits);
         }
         return committed;
     }
@@ -1832,6 +1906,7 @@ MIMHID_C_RESULT_CATCH("node.open")
 mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint8_t* descriptor,
                                                size_t descriptor_length,
                                                const mimhid_node_config* config,
+                                               const mimhid_commit_timeouts* timeouts,
                                                mimhid_node** out_node) try {
     mimhid::detail::clear_error();
     if (out_node == nullptr) {
@@ -1852,6 +1927,9 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
     if (config == nullptr || !mimhid::detail::valid_struct(
                                  config, config->struct_size,
                                  static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
@@ -1922,7 +2000,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
         *out_node = node.release();
         return MIMHID_OK;
     }
-    const mimhid_result committed = commit_device(device);
+    const mimhid_result committed = commit_device(device, 0U, waits);
     if (committed != MIMHID_OK) {
         {
             std::lock_guard<std::mutex> lock(device->nodes_mutex);
@@ -1931,7 +2009,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
         mimhid::detail::release_spec(node->spec);
         node->spec = nullptr;
         if (device->configured) {
-            commit_device(device);
+            commit_device(device, 0U, waits);
         }
         return committed;
     }
@@ -1943,8 +2021,8 @@ MIMHID_C_RESULT_CATCH("node.open_raw")
 
 mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
                                                            const uint8_t report_id,
-                                                           const uint8_t* data,
-                                                           const size_t length) try {
+                                                           const uint8_t* data, const size_t length,
+                                                           const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr ||
         (data == nullptr && length != 0U) ||
@@ -1954,6 +2032,9 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
                   "required.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     mimhid_device* device = node->device;
     mimhid_node::FeatureEntry* entry = nullptr;
     for (auto& existing : node->features) {
@@ -1972,7 +2053,7 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
     payload.push_back(report_id);
     payload.insert(payload.end(), entry->data.begin(), entry->data.end());
     return command_error(device->link.command(MIMHID_T_FEATURE, payload.data(), payload.size(),
-                                              device->config.transport.control_timeout_ms, kCommandAttempts),
+                                              control_timeout_ms, kCommandAttempts),
                          "node.feature", "The board did not accept the Feature report answer.",
                          MIMHID_T_FEATURE, public_node_id(node));
 }
@@ -2007,11 +2088,11 @@ namespace {
 // as the completion of an asynchronous transfer would. A negative native status means that no
 // byte reached the serial driver, so the pending state is kept for a resend.
 mimhid_result write_report(mimhid_node* node, const std::uint8_t* report, std::size_t length,
-                           const char* field) noexcept {
+                           const char* field, std::uint32_t send_timeout_ms) noexcept {
     mimhid_device* device = node->device;
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_report(
-        node->node_id, report, length, device->config.transport.send_timeout_ms, &os_error);
+        node->node_id, report, length, send_timeout_ms, &os_error);
     mimhid_result result = MIMHID_OK;
     std::int32_t native = 0;
     switch (status) {
@@ -2055,7 +2136,11 @@ mimhid_result flush_node(mimhid_node* node, const std::uint32_t timeout_ms,
             node->battery_dirty = false;
         if (!node->dirty && !node->battery_dirty)
             return MIMHID_OK;
-        const mimhid_result submit = mimhid_node_submit(node);
+        // A write may wait for what is left of the deadline, and at least a millisecond.
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        const mimhid_result submit =
+            mimhid_node_submit(node, left.count() > 0 ? static_cast<std::uint32_t>(left.count()) : 1U);
         if (submit != MIMHID_OK)
             return submit;
         if (std::chrono::steady_clock::now() >= deadline)
@@ -2073,12 +2158,18 @@ mimhid_result flush_node(mimhid_node* node, const std::uint32_t timeout_ms,
 
 extern "C" {
 
-mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node) try {
+mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node,
+                                             const std::uint32_t send_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr) {
         set_error(MIMHID_ERR_PARAM, "node.submit",
                   "A live Node attached to a Device and Spec is required.");
         return MIMHID_ERR_PARAM;
+    }
+    if (send_timeout_ms == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "send_timeout_ms",
+                  "This timeout must be set; it has no default.");
+        return MIMHID_ERR_UNSET_FIELD;
     }
     if (node->spec->kind == MIMHID_PROFILE_RAW) {
         set_error(MIMHID_ERR_UNSUPPORTED, "node.submit",
@@ -2174,7 +2265,8 @@ mimhid_result MIMHID_CALL mimhid_node_submit(mimhid_node* node) try {
     node->submitted_non_neutral = !battery_report && has_non_neutral_state(node);
     node->submitted_report_length = report_length;
     node->submitted_report_id = battery_report ? layout.report_id : report_id(node);
-    const mimhid_result result = write_report(node, buffer.data(), report_length, "node.submit");
+    const mimhid_result result =
+        write_report(node, buffer.data(), report_length, "node.submit", send_timeout_ms);
     if (result != MIMHID_OK)
         rollback_scan_time();
     else
@@ -2198,12 +2290,18 @@ mimhid_result MIMHID_CALL mimhid_node_submit_blocking(mimhid_node* node,
 MIMHID_C_RESULT_CATCH("node.submit_blocking")
 
 mimhid_result MIMHID_CALL mimhid_raw_submit(mimhid_node* node, const std::uint8_t* report,
-                                            const std::size_t length) try {
+                                            const std::size_t length,
+                                            const std::uint32_t send_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr ||
         node->spec->kind != MIMHID_PROFILE_RAW || report == nullptr) {
         set_error(MIMHID_ERR_PARAM, "raw.submit", "A live raw node and a report are required.");
         return MIMHID_ERR_PARAM;
+    }
+    if (send_timeout_ms == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "send_timeout_ms",
+                  "This timeout must be set; it has no default.");
+        return MIMHID_ERR_UNSET_FIELD;
     }
     if (const mimhid_result link = mimhid::detail::link_available(node, "raw.submit");
         link != MIMHID_OK) {
@@ -2258,7 +2356,7 @@ mimhid_result MIMHID_CALL mimhid_raw_submit(mimhid_node* node, const std::uint8_
     node->submitted_non_neutral = false;
     node->submitted_report_length = length;
     node->submitted_report_id = submitted_id;
-    const mimhid_result result = write_report(node, report, length, "raw.submit");
+    const mimhid_result result = write_report(node, report, length, "raw.submit", send_timeout_ms);
     if (result == MIMHID_OK)
         mimhid::detail::clear_error();
     return result;
@@ -2266,7 +2364,8 @@ mimhid_result MIMHID_CALL mimhid_raw_submit(mimhid_node* node, const std::uint8_
 MIMHID_C_RESULT_CATCH("raw.submit")
 
 mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* report_bytes,
-                                             size_t report_length) try {
+                                             size_t report_length,
+                                             const uint32_t send_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr ||
         (report_bytes == nullptr && report_length != 0U)) {
@@ -2274,6 +2373,9 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
                   "A live Node and valid report buffer are required.");
         return MIMHID_ERR_PARAM;
     }
+    if (const mimhid_result t = require_timeout(send_timeout_ms, "send_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     if (const mimhid_result link = mimhid::detail::link_available(node, "report_send");
         link != MIMHID_OK) {
         return link;
@@ -2286,7 +2388,7 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
     }
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_report(
-        node->node_id, report_bytes, report_length, device->config.transport.send_timeout_ms, &os_error);
+        node->node_id, report_bytes, report_length, send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
         mimhid::detail::clear_error();
@@ -2311,7 +2413,9 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
 }
 MIMHID_C_RESULT_CATCH("report_send")
 
-mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node) try {
+mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node,
+                                            const mimhid_commit_timeouts* timeouts,
+                                            const uint32_t drain_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr ||
         node->device->closing.load(std::memory_order_acquire)) {
@@ -2319,8 +2423,14 @@ mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node) try {
                   "The Node handle is null, closed, detached, or owned by a closing Device.");
         return MIMHID_ERR_PARAM;
     }
+    CommitWaits waits;
+    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+        return r;
+    if (const mimhid_result t = require_timeout(drain_timeout_ms, "drain_timeout_ms");
+        t != MIMHID_OK)
+        return t;
     mimhid_device* device = node->device;
-    if (const mimhid_result neutral = send_neutral(node, device->config.transport.close_drain_timeout_ms);
+    if (const mimhid_result neutral = send_neutral(node, drain_timeout_ms);
         neutral != MIMHID_OK) {
         return neutral;
     }
@@ -2331,7 +2441,7 @@ mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node) try {
     }
     device->dirty = true;
     if (!device->batch_open && !node->staged_only) {
-        const mimhid_result committed = commit_device(device);
+        const mimhid_result committed = commit_device(device, 0U, waits);
         if (committed != MIMHID_OK) {
             std::lock_guard<std::mutex> lock(device->nodes_mutex);
             device->slots[node->node_id] = node;

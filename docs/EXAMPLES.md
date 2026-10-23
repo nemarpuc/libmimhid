@@ -10,27 +10,42 @@ The programs find a board with `mimhid_discover` (or connect directly via port p
 
 ## Patterns
 
+**The waits**
+
+Every call that can wait takes its time; the library has none of its own (see [API.md](API.md#timeouts)). The snippets below use these, which are the program's choice:
+
+```c
+#define CONTROL_TIMEOUT_MS 500
+#define SEND_TIMEOUT_MS 500
+#define RECONNECT_TIMEOUT_MS 3000
+#define DRAIN_TIMEOUT_MS 1000
+
+mimhid_commit_timeouts commit_timeouts;
+mimhid_commit_timeouts_init(&commit_timeouts);
+commit_timeouts.control_timeout_ms = CONTROL_TIMEOUT_MS;
+commit_timeouts.reconnect_timeout_ms = RECONNECT_TIMEOUT_MS;
+```
+
 **Open several nodes and commit in one re-enumeration**
 
 ```c
-mimhid_node_options kbd_node = {0};
-kbd_node.struct_size = sizeof(kbd_node);
-kbd_node.interface_number = 0;
-kbd_node.poll_interval_ms = 1;
-kbd_node.ep_in_size = 64;
-kbd_node.bcd_hid = 0x0111;
+mimhid_node_config kbd_node;
+mimhid_node_config_init(&kbd_node);
+kbd_node.iface.number = 0;
+kbd_node.iface.class_code = 3;
+kbd_node.iface.bcd_hid = 0x0111;
+kbd_node.ep_in.address = 0x81;
+kbd_node.ep_in.poll_interval_ms = 1;
+kbd_node.ep_in.max_packet_size = 64;
 
-mimhid_node_options mouse_node = {0};
-mouse_node.struct_size = sizeof(mouse_node);
-mouse_node.interface_number = 1;
-mouse_node.poll_interval_ms = 1;
-mouse_node.ep_in_size = 64;
-mouse_node.bcd_hid = 0x0111;
+mimhid_node_config mouse_node = kbd_node;
+mouse_node.iface.number = 1;
+mouse_node.ep_in.address = 0x82;
 
 mimhid_device_batch_begin(device);
-mimhid_node_open(device, keyboard_spec, &kbd_node, &keyboard);
-mimhid_node_open(device, mouse_spec, &mouse_node, &mouse);
-mimhid_device_batch_end(device);        /* one re-enumeration for both nodes */
+mimhid_node_open(device, keyboard_spec, &kbd_node, &commit_timeouts, &keyboard);
+mimhid_node_open(device, mouse_spec, &mouse_node, &commit_timeouts, &mouse);
+mimhid_device_batch_end(device, &commit_timeouts);   /* one re-enumeration for both nodes */
 mimhid_device_wait_ready(device, 5000);
 ```
 
@@ -58,10 +73,10 @@ mimhid_node_open_raw(device, raw_desc, sizeof(raw_desc), &node_options, &raw_nod
 
 ```c
 /* Disconnect physically from host (D+=0V stealth mode) */
-mimhid_device_disconnect(device);
+mimhid_device_disconnect(device, CONTROL_TIMEOUT_MS);
 
 /* Reconnect physically to host (D+=3.3V) */
-mimhid_device_connect(device);
+mimhid_device_connect(device, &commit_timeouts);
 ```
 
 **React to keyboard LEDs** (the target writes an Output report)
@@ -83,10 +98,11 @@ rule.request_type_mask = 0xFF; rule.request_type_value = 0xC0; /* vendor, device
 rule.request_mask = 0xFF;      rule.request_value = 0x42;
 rule.timeout_ms = 100;                        /* required: no default */
 rule.when_late = MIMHID_CONTROL_ACTION_STALL; /* required: what happens if no answer comes */
-mimhid_device_set_control_routing(device, 1 /* report every request */, &rule, 1);
+mimhid_device_set_control_routing(device, 1 /* report every request */, &rule, 1, CONTROL_TIMEOUT_MS);
 
 /* in event_sink, for MIMHID_EVENT_CONTROL_SETUP with MIMHID_CONTROL_FLAG_HELD: */
-mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER, data, length);
+mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER, data, length,
+                            SEND_TIMEOUT_MS);
 ```
 
 See [PROTOCOL.md](PROTOCOL.md#control-transfers) for what is held, the verdict of a host-to-device transfer, and the flags.

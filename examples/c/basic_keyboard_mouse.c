@@ -12,6 +12,15 @@
 #define sleep_ms(ms) usleep((ms) * 1000)
 #endif
 
+// The waits are this program's choice; the library has no defaults.
+#define CONTROL_TIMEOUT_MS 500
+#define SEND_TIMEOUT_MS 500
+#define RECONNECT_TIMEOUT_MS 3000
+#define DRAIN_TIMEOUT_MS 1000
+
+static const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts),
+                                                       CONTROL_TIMEOUT_MS, RECONNECT_TIMEOUT_MS};
+
 static int fail(const char* what, mimhid_result r) {
     fprintf(stderr, "%s: %s (%s)\n", what, mimhid_result_name(r), mimhid_last_error()->reason);
     return 1;
@@ -33,12 +42,9 @@ int main(void) {
     config.usb_device.manufacturer = "Example";
     config.usb_device.product = "Keyboard and Mouse";
     config.usb_device.serial_from_chip_id = 1;
-    // The rate the search measured; the waits are this program's choice.
+    // The rate the search measured.
     config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
-    config.transport.control_timeout_ms = 500;
-    config.transport.send_timeout_ms = 500;
-    config.transport.reconnect_timeout_ms = 3000;
-    config.transport.close_drain_timeout_ms = 1000;
+    config.transport.handshake_timeout_ms = 50;
     config.usb_device.language_id = 0x0409;
     config.usb_device.bcd_usb = 0x0200;
     config.usb_device.ep0_max_packet_size = 64;
@@ -94,34 +100,34 @@ int main(void) {
     mimhid_node* keyboard = NULL;
     mimhid_node* mouse = NULL;
     mimhid_device_batch_begin(device);
-    r = mimhid_node_open(device, keyboard_spec, &node_config, &keyboard);
+    r = mimhid_node_open(device, keyboard_spec, &node_config, &commit_timeouts, &keyboard);
     if (r == MIMHID_OK) {
         node_config.iface.number = 1;
         node_config.ep_in.address = 0x82;
-        r = mimhid_node_open(device, mouse_spec, &node_config, &mouse);
+        r = mimhid_node_open(device, mouse_spec, &node_config, &commit_timeouts, &mouse);
     }
     if (r != MIMHID_OK)
         return fail("node_open", r);
-    if ((r = mimhid_device_batch_end(device)) != MIMHID_OK ||
+    if ((r = mimhid_device_batch_end(device, &commit_timeouts)) != MIMHID_OK ||
         (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);
 
     mimhid_keyboard_key(keyboard, 0x04, 1);
-    mimhid_node_submit(keyboard);
+    mimhid_node_submit(keyboard, SEND_TIMEOUT_MS);
     sleep_ms(50);
     mimhid_keyboard_key(keyboard, 0x04, 0);
-    mimhid_node_submit(keyboard);
+    mimhid_node_submit(keyboard, SEND_TIMEOUT_MS);
 
     mimhid_mouse_move(mouse, 50, 50);
     mimhid_mouse_button(mouse, 1, 1);
-    mimhid_node_submit(mouse);
+    mimhid_node_submit(mouse, SEND_TIMEOUT_MS);
     sleep_ms(30);
     mimhid_mouse_button(mouse, 1, 0);
-    mimhid_node_submit(mouse);
+    mimhid_node_submit(mouse, SEND_TIMEOUT_MS);
 
-    mimhid_node_close(mouse);
-    mimhid_node_close(keyboard);
-    mimhid_device_close(device);
+    mimhid_node_close(mouse, &commit_timeouts, DRAIN_TIMEOUT_MS);
+    mimhid_node_close(keyboard, &commit_timeouts, DRAIN_TIMEOUT_MS);
+    mimhid_device_close(device, CONTROL_TIMEOUT_MS, DRAIN_TIMEOUT_MS);
     mimhid_spec_release(mouse_spec);
     mimhid_spec_release(keyboard_spec);
     return 0;

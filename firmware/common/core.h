@@ -8,7 +8,7 @@
 // Firmware version reported in the Pong frame; keep in step with the library version.
 #define FW_VERSION_MAJOR 1
 #define FW_VERSION_MINOR 3
-#define FW_VERSION_PATCH 3
+#define FW_VERSION_PATCH 4
 
 // Number of USB HID interfaces (one IN endpoint each) the MCU can provide. A port with fewer
 // than seven IN endpoints sets this in its build; the host packs nodes to fit.

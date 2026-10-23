@@ -13,6 +13,15 @@
 #define sleep_ms(ms) usleep((ms) * 1000)
 #endif
 
+// The waits are this program's choice; the library has no defaults.
+#define CONTROL_TIMEOUT_MS 500
+#define SEND_TIMEOUT_MS 500
+#define RECONNECT_TIMEOUT_MS 3000
+#define DRAIN_TIMEOUT_MS 1000
+
+static const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts),
+                                                       CONTROL_TIMEOUT_MS, RECONNECT_TIMEOUT_MS};
+
 static const uint8_t vendor_answer[] = {0x01, 0x02, 0x03, 0x04};
 
 static int fail(const char* what, mimhid_result r) {
@@ -30,7 +39,7 @@ static void on_event(void* user, const mimhid_event* event) {
            (event->control_flags & MIMHID_CONTROL_FLAG_FIXED) ? " fixed" : "");
     if (event->control_flags & MIMHID_CONTROL_FLAG_HELD)
         mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER,
-                                    vendor_answer, sizeof(vendor_answer));
+                                    vendor_answer, sizeof(vendor_answer), SEND_TIMEOUT_MS);
 }
 
 int main(void) {
@@ -51,10 +60,7 @@ int main(void) {
     config.usb_device.product = "Control transfers";
     config.usb_device.serial_from_chip_id = 1;
     config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
-    config.transport.control_timeout_ms = 500;
-    config.transport.send_timeout_ms = 500;
-    config.transport.reconnect_timeout_ms = 3000;
-    config.transport.close_drain_timeout_ms = 1000;
+    config.transport.handshake_timeout_ms = 50;
     config.usb_device.language_id = 0x0409;
     config.usb_device.bcd_usb = 0x0200;
     config.usb_device.ep0_max_packet_size = 64;
@@ -95,7 +101,7 @@ int main(void) {
     node_config.ep_in.poll_interval_ms = 1;
     node_config.ep_in.max_packet_size = 64;
     mimhid_node* keyboard = NULL;
-    if ((r = mimhid_node_open(device, keyboard_spec, &node_config, &keyboard)) != MIMHID_OK ||
+    if ((r = mimhid_node_open(device, keyboard_spec, &node_config, &commit_timeouts, &keyboard)) != MIMHID_OK ||
         (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);
 
@@ -108,14 +114,14 @@ int main(void) {
     rule.request_value = 0x42;
     rule.timeout_ms = 100;
     rule.when_late = MIMHID_CONTROL_ACTION_STALL;
-    if ((r = mimhid_device_set_control_routing(device, 1, &rule, 1)) != MIMHID_OK)
+    if ((r = mimhid_device_set_control_routing(device, 1, &rule, 1, CONTROL_TIMEOUT_MS)) != MIMHID_OK)
         return fail("set_control_routing", r);
 
     printf("Listening for 10 s; send vendor request 0x42 (read) from the target to get an answer.\n");
     sleep_ms(10000);
 
-    mimhid_node_close(keyboard);
-    mimhid_device_close(device); // takes the rules off the board
+    mimhid_node_close(keyboard, &commit_timeouts, DRAIN_TIMEOUT_MS);
+    mimhid_device_close(device, CONTROL_TIMEOUT_MS, DRAIN_TIMEOUT_MS); // takes the rules off the board
     mimhid_spec_release(keyboard_spec);
     return 0;
 }
