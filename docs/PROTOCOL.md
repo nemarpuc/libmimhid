@@ -51,7 +51,7 @@ Only the USB side of the firmware changes the active descriptors; the receive si
 
 ## Interfaces and nodes
 
-The caller explicitly assigns each node to a USB interface index (`interface_number` in `mimhid_node_options`), told to the board in `NODE_BEGIN`. With enough IN endpoints every node gets its own interface. The firmware does not look inside descriptors beyond what TinyUSB needs; it forwards reports unchanged.
+The caller explicitly assigns each node to a USB interface index (`iface.number` in `mimhid_node_config`), told to the board in `NODE_BEGIN`. With enough IN endpoints every node gets its own interface. The firmware does not look inside descriptors beyond what TinyUSB needs; it forwards reports unchanged.
 
 ## PONG
 

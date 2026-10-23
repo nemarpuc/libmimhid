@@ -31,7 +31,7 @@ constexpr std::uint32_t kControlMs = 500;
 constexpr std::uint32_t kSendMs = 500;
 constexpr std::uint32_t kReconnectMs = 3000;
 constexpr std::uint32_t kDrainMs = 1000;
-const mimhid_commit_timeouts kCommit = {sizeof(mimhid_commit_timeouts), kControlMs, kReconnectMs};
+const mimhid_commit_timeouts kCommit = {sizeof(mimhid_commit_timeouts), 0, kControlMs, kReconnectMs};
 
 #ifndef E2E_HID_ITFS
 #define E2E_HID_ITFS 7
@@ -117,6 +117,8 @@ mimhid_device_config base_options() {
     mimhid_device_config_init(&o);
     o.transport.baud_rate = 3000000;
     o.transport.handshake_timeout_ms = 50;
+    o.transport.maximum_report_bytes = 64;
+    o.transport.log_level = MIMHID_LOG_DISABLED;
     o.usb_device.language_id = 0x0409;
     o.usb_device.bcd_usb = 0x0200;
     o.usb_device.ep0_max_packet_size = 64;
@@ -593,6 +595,9 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_OK &&
                  limits.max_feature_bytes == 1024 && limits.max_report_bytes == 64 &&
                  limits.max_endpoint_bytes == 64);
+    limits.reserved = 1;
+    MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_ERR_PARAM);
+    limits.reserved = 0;
     std::vector<std::uint8_t> big(644);
     for (std::size_t i = 0; i < big.size(); ++i)
         big[i] = static_cast<std::uint8_t>(i * 7U + 3U);
@@ -635,9 +640,11 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_report_send(node, good, sizeof(good), 0) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature_zero, sizeof(feature_zero), 0) ==
                  MIMHID_ERR_UNSET_FIELD);
-    const mimhid_commit_timeouts no_control = {sizeof(mimhid_commit_timeouts), 0, kReconnectMs};
-    const mimhid_commit_timeouts no_reconnect = {sizeof(mimhid_commit_timeouts), kControlMs, 0};
-    const mimhid_commit_timeouts wrong_size = {1, kControlMs, kReconnectMs};
+    const mimhid_commit_timeouts no_control = {sizeof(mimhid_commit_timeouts), 0, 0, kReconnectMs};
+    const mimhid_commit_timeouts no_reconnect = {sizeof(mimhid_commit_timeouts), 0, kControlMs, 0};
+    const mimhid_commit_timeouts wrong_size = {1, 0, kControlMs, kReconnectMs};
+    const mimhid_commit_timeouts reserved_set = {sizeof(mimhid_commit_timeouts), 1, kControlMs, kReconnectMs};
+    MIMHID_CHECK(mimhid_device_commit(device, 0, &reserved_set) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_close(node, &no_control, kDrainMs) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_node_close(node, &no_reconnect, kDrainMs) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_node_close(node, &wrong_size, kDrainMs) == MIMHID_ERR_PARAM);
@@ -705,6 +712,9 @@ void test_chip_serial_and_boot() {
     broken.iface.class_code = 0;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                  bad == nullptr);
+    broken = no;
+    broken.reserved = 1;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
     broken = no;
     // The board's endpoints hold 64 bytes.
     broken.ep_in.max_packet_size = 65;
@@ -902,6 +912,22 @@ void test_bad_arguments() {
     o = base_options();
     o.transport.handshake_timeout_ms = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    // No default for the largest report, the log level or the reserved field.
+    o = base_options();
+    o.transport.maximum_report_bytes = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    o = base_options();
+    o.transport.maximum_report_bytes = 65;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_OVERFLOW);
+    o = base_options();
+    o.transport.log_level = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    o = base_options();
+    o.transport.log_level = MIMHID_LOG_ERROR; // a level other than DISABLED needs a sink
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    o = base_options();
+    o.reserved = 1;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
     o = base_options();
     o.usb_device.language_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);

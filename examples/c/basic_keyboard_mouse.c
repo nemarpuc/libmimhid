@@ -18,7 +18,7 @@
 #define RECONNECT_TIMEOUT_MS 3000
 #define DRAIN_TIMEOUT_MS 1000
 
-static const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts),
+static const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts), 0,
                                                        CONTROL_TIMEOUT_MS, RECONNECT_TIMEOUT_MS};
 
 static int fail(const char* what, mimhid_result r) {
@@ -45,6 +45,8 @@ int main(void) {
     // The rate the search measured.
     config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
     config.transport.handshake_timeout_ms = 50;
+    config.transport.maximum_report_bytes = 64;
+    config.transport.log_level = MIMHID_LOG_DISABLED;
     config.usb_device.language_id = 0x0409;
     config.usb_device.bcd_usb = 0x0200;
     config.usb_device.ep0_max_packet_size = 64;

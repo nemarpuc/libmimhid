@@ -3,6 +3,15 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-10-24
+
+### Changed (breaking)
+- **`transport.maximum_report_bytes` and `transport.log_level` have no default.** Zero was "the board's limit" and "disabled"; both are now `MIMHID_ERR_UNSET_FIELD`. A `log_level` other than `MIMHID_LOG_DISABLED` needs a `log_sink` (`MIMHID_ERR_PARAM`). `maximum_report_bytes` above the board's `max_report_bytes` or `MIMHID_HOST_MAX_REPORT_BYTES` (new, 1024) is `MIMHID_ERR_OVERFLOW`.
+- **`reserved` after `struct_size`** in `mimhid_device_config`, `mimhid_node_config`, `mimhid_commit_timeouts` and `mimhid_board_limits`, as in libaoahid. It must be zero (`MIMHID_ERR_PARAM`). The `_init` helpers set it.
+
+### Fixed
+- Documentation named structures and fields that no longer exist (`mimhid_node_options`, `mimhid_device_options`, `interface_number`, `ep_in_size`, `ep_out_size`); README, API, EXAMPLES, ARCHITECTURE, PROTOCOL, PROFILES, LIMITS and the header comments now use `mimhid_node_config`, `mimhid_device_config`, `iface.number` and `ep_in` / `ep_out`.
+
 ## [1.3.4] - 2026-10-24
 
 ### Changed (breaking)

@@ -40,7 +40,7 @@ The host builds every report. The firmware does not know what a keyboard or a to
 ## Host
 
 - `Spec` is immutable and reference counted; `Node` holds the mutable state (pressed keys, contact slots, pending motion) and the USB interface settings.
-- `mimhid_node_open` and `mimhid_node_open_raw` put nodes onto explicit interface numbers (`interface_number` in `mimhid_node_options`).
+- `mimhid_node_open` and `mimhid_node_open_raw` put nodes onto explicit interface numbers (`iface.number` in `mimhid_node_config`).
 - Applying the configuration (`mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_batch_end`, `mimhid_device_commit`) sends `DEVICE_CONFIG`, every `NODE_BEGIN` / `NODE_DATA`, the Feature answers, and `COMMIT`, then waits for the board's ACK (sent after reconnect). While this runs, input calls return `MIMHID_ERR_BUSY`.
 - `mimhid_device_connect` and `mimhid_device_disconnect` command physical D+=3.3V attachment or D+=0V stealth disconnection.
 - A reader thread parses frames from the board, answers nothing itself, completes pending commands, tracks the mounted state, and delivers events to `event_sink`.
@@ -49,7 +49,7 @@ The host builds every report. The firmware does not know what a keyboard or a to
 
 ## Interface configuration
 
-In `libmimhid`, each node explicitly specifies its USB `interface_number` (0, 1, 2...) via `mimhid_node_options`. There is no automatic interface assignment. Each interface specifies `ep_in_size` (e.g. 64) and optional `ep_out_size` (0 for disabled, 1 to 64 for enabled) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
+In `libmimhid`, each node explicitly specifies its USB `iface.number` (0, 1, 2...) via `mimhid_node_config`. There is no automatic interface assignment. Each interface specifies `ep_in.max_packet_size` (e.g. 64) and an optional OUT endpoint (`ep_out.address` 0 for disabled, otherwise `ep_out.max_packet_size` 1 to 64) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
 
 ## Firmware
 

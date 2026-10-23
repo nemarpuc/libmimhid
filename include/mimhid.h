@@ -38,7 +38,10 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 1
 #define MIMHID_VERSION_MINOR 3
-#define MIMHID_VERSION_PATCH 4
+#define MIMHID_VERSION_PATCH 5
+/* The largest report the library builds, whatever a board holds (transport.maximum_report_bytes
+ * is at most this). */
+#define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
 #define MIMHID_PROTOCOL_VERSION 6
 
@@ -252,9 +255,10 @@ typedef struct mimhid_device_info {
  * a packet because it travels on the control pipe. */
 typedef struct mimhid_board_limits {
     uint32_t struct_size;          /* set to sizeof(mimhid_board_limits) */
+    uint32_t reserved;             /* must be zero */
     uint32_t max_report_bytes;     /* largest report (Report ID included) */
     uint32_t max_feature_bytes;    /* largest Feature report answer */
-    uint32_t max_endpoint_bytes;   /* largest endpoint packet: ep_in_size and ep_out_size */
+    uint32_t max_endpoint_bytes;   /* largest endpoint packet: ep_in.max_packet_size and ep_out.max_packet_size */
     uint32_t max_frame_payload;    /* largest serial frame payload the board takes */
     uint32_t max_control_data_bytes; /* largest control transfer data stage the host may read or answer */
     uint32_t max_control_rules;    /* rules mimhid_device_set_control_routing takes */
@@ -312,6 +316,7 @@ typedef struct mimhid_usb_device {
 /* Node settings: Interface descriptor + Interrupt IN/OUT Endpoints */
 typedef struct mimhid_node_config {
     uint32_t             struct_size; /* sizeof(mimhid_node_config) */
+    uint32_t             reserved;    /* must be zero */
     mimhid_usb_interface iface;       /* USB interface and HID descriptor */
     mimhid_usb_endpoint  ep_in;       /* required: Interrupt IN endpoint */
     mimhid_usb_endpoint  ep_out;      /* optional: Interrupt OUT endpoint (address == 0 when disabled) */
@@ -323,7 +328,9 @@ typedef struct mimhid_transport_options {
     uint32_t handshake_timeout_ms;   /* required: wait for each answer while the board is searched for
                                       * on the port; a few frames at the boot rate plus the latency
                                       * timer of a USB serial adapter (16 ms on FTDI chips) */
-    uint32_t maximum_report_bytes;   /* zero -> the board's limit; otherwise at most that limit */
+    uint32_t maximum_report_bytes;   /* required: the largest report this Device sends, Report ID
+                                      * included; at most the board's max_report_bytes
+                                      * (mimhid_board_limits) and MIMHID_HOST_MAX_REPORT_BYTES */
 
     /* Linux parser policy limits (required, nonzero) */
     uint32_t linux_descriptor_policy_bytes;
@@ -339,7 +346,8 @@ typedef struct mimhid_transport_options {
     /* Callbacks & Logging */
     mimhid_event_sink event_sink;
     void* event_user;
-    mimhid_log_level log_level;
+    mimhid_log_level log_level;      /* required: one of MIMHID_LOG_*; any level but DISABLED needs
+                                      * log_sink */
     mimhid_log_sink log_sink;
     void* log_user;
 } mimhid_transport_options;
@@ -347,6 +355,7 @@ typedef struct mimhid_transport_options {
 /* Device Configuration: Transport + USB Device + USB Configuration */
 typedef struct mimhid_device_config {
     uint32_t                 struct_size; /* sizeof(mimhid_device_config) */
+    uint32_t                 reserved;    /* must be zero */
     mimhid_transport_options transport;   /* Serial link and host limits */
     mimhid_usb_device        usb_device;  /* USB Device descriptor and strings */
     mimhid_usb_config        usb_config;  /* USB Configuration descriptor */
@@ -375,6 +384,7 @@ static inline void mimhid_device_config_init(mimhid_device_config* cfg) {
  * connect, commit, batch end and set_usb_identity, and Node open and close. Both are required. */
 typedef struct mimhid_commit_timeouts {
     uint32_t struct_size;          /* sizeof(mimhid_commit_timeouts) */
+    uint32_t reserved;             /* must be zero */
     uint32_t control_timeout_ms;   /* required: each configuration frame */
     uint32_t reconnect_timeout_ms; /* required: the board's re-enumeration */
 } mimhid_commit_timeouts;
@@ -805,20 +815,21 @@ mimhid_discovery_get(const mimhid_discovery* discovery, size_t index);
 MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery);
 
 /* mimhid_device_open
- * Ownership: Borrows port_path and options for the call; it copies retained values and
- * normalizes documented zero-valued tuning fields only in that copy, never in caller storage.
+ * Ownership: Borrows port_path and config for the call; it copies retained values and
+ * changes nothing in caller storage.
  * On success, out_device receives one Device owned by the caller. A nonnull output stays null
  * on failure.
  * Blocking: Opens the serial port for this process alone, finds the board on it (at the boot
- * rate, else at each rate of MIMHID_BAUD_RATES, waiting options->transport.handshake_timeout_ms
+ * rate, else at each rate of MIMHID_BAUD_RATES, waiting config->transport.handshake_timeout_ms
  * for each answer), reads its limits, agrees the line rate
- * (options->baud_rate), and starts the reader thread. It sends no configuration: the board's
+ * (config->transport.baud_rate), and starts the reader thread. It sends no configuration: the board's
  * USB device stays disconnected from the target until nodes are opened and committed.
  * port_path is the serial device path (e.g., "/dev/ttyACM0" or "COM3").
  * Synchronization: Safe on concurrent threads for different ports.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for invalid pointers/ABI fields/identity;
- * MIMHID_ERR_UNSET_FIELD for a missing vendor_id, baud_rate, handshake_timeout_ms or required
- * product policy;
+ * MIMHID_ERR_UNSET_FIELD for a missing vendor_id, baud_rate, handshake_timeout_ms,
+ * maximum_report_bytes, log_level or required product policy; MIMHID_ERR_OVERFLOW for a
+ * maximum_report_bytes the board does not take;
  * MIMHID_ERR_UNSUPPORTED for a rate not in MIMHID_BAUD_RATES, one the board cannot make, or
  * one the serial adapter or wiring did not carry; MIMHID_ERR_TIMEOUT when no board answered;
  * MIMHID_ERR_PROTOCOL when the board's firmware speaks another protocol version;
@@ -1245,7 +1256,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_spec_manifest(const mimhid_spec* spe
  * Ownership: Borrows Device and options, retains Spec, and on success returns one Node owned
  * by the caller and Device. out_node is null on every failure.
  * Blocking: Stages the new node on the explicit USB interface specified by
- * options->interface_number, sends the configuration to the board, and commits it.
+ * config->iface.number, sends the configuration to the board, and commits it.
  * The board then drops its USB device from the
  * target and re-enumerates it with the new set of nodes, so the target sees an unplug and
  * replug and every other node is briefly unavailable. Inside mimhid_device_batch_begin the

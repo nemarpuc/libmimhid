@@ -52,14 +52,16 @@ mimhid_device_wait_ready(device, 5000);
 **Set properties of the USB interface a node uses**
 
 ```c
-mimhid_node_options node_options = {0};
-node_options.struct_size = sizeof(node_options);
-node_options.interface_number = 0; /* explicit interface index */
-node_options.poll_interval_ms = 4;
-node_options.ep_in_size = 64;
-node_options.ep_out_size = 0;      /* set 1 to 64 if OUT endpoint needed */
-node_options.interface_name = "Keys";
-node_options.bcd_hid = 0x0111;
+mimhid_node_config node_config;
+mimhid_node_config_init(&node_config);
+node_config.iface.number = 0;            /* explicit interface index */
+node_config.iface.class_code = 3;
+node_config.iface.bcd_hid = 0x0111;
+node_config.iface.name = "Keys";
+node_config.ep_in.address = 0x81;
+node_config.ep_in.poll_interval_ms = 4;
+node_config.ep_in.max_packet_size = 64;
+/* ep_out.address = 0x01 and ep_out.max_packet_size = 64 add an OUT endpoint */
 ```
 
 **Open a raw HID report descriptor directly**

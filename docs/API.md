@@ -23,7 +23,7 @@ A Device owns its Nodes: closing the Device closes every Node first. A Spec can 
 discover (optional)
 device_open                 opens serial port (e.g. "/dev/ttyACM0") and starts reader thread; USB stays disconnected
   spec_create_* / raw descriptor
-  node_open / node_open_raw adds the node on an explicit interface_number; the board re-enumerates (attaches on the first node)
+  node_open / node_open_raw adds the node on an explicit iface.number; the board re-enumerates (attaches on the first node)
   device_connect / disconnect command physical connection (D+=3.3V) or stealth disconnection (D+=0V)
   device_wait_ready         until the target mounts the USB device
   <mutate>  node_submit     repeat
@@ -77,19 +77,21 @@ All 23 profile-layer entries (9 Spec factories and 14 mutation calls) are retain
 - `usb_device`, identity: `vendor_id` (required), `product_id`, `bcd_device`, `language_id` (required), `manufacturer`, `product`, `serial` (printable ASCII, at most 126 characters; NULL leaves the string out), `serial_from_chip_id` (use the MCU's unique id when `serial` is NULL).
 - `usb_device`, descriptor: `bcd_usb` (required), `ep0_max_packet_size` (required: 8, 16, 32 or 64), `device_class`, `device_subclass`, `device_protocol`.
 - `usb_config`: `configuration_value` (required, nonzero), `bm_attributes` (bit 7 set), `bmax_power` (at most 250, in 2 mA units), `string`.
-- `transport`, link: `baud_rate` (required, one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `handshake_timeout_ms` (required: the wait for each answer while the board is searched for on the port), and `maximum_report_bytes` (0: the limit the board reports). The other waits are not here: see [Timeouts](#timeouts).
+- `transport`, link: `baud_rate` (required, one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `handshake_timeout_ms` (required: the wait for each answer while the board is searched for on the port), `maximum_report_bytes` (required: the largest report the Device sends, at most the board's `max_report_bytes` and `MIMHID_HOST_MAX_REPORT_BYTES`) and `log_level` (required: a `MIMHID_LOG_*` value; any level but `MIMHID_LOG_DISABLED` needs `log_sink`). The other waits are not here: see [Timeouts](#timeouts).
 - `transport`, behavior: `validate_reports` (decode each generated report again), `keep_attached` (leave the USB device on the bus after `device_close`).
 - Target parser limits `linux_*_policy`: nonzero values chosen by the caller for the HID parser of the target. A descriptor that exceeds them is rejected when the Spec is opened on the Device.
 - Callbacks: `event_sink` (everything the target sends: Output and Feature reports, `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, resume), `log_sink`.
 
 `mimhid_node_config` configures the USB interface and endpoints that carry a node:
 - `iface.number`: explicit USB interface number (`0`, `1`, `2`...; required, no automatic allocation); `ep_in` and `ep_out` carry the endpoint addresses, sizes and polling intervals.
-- `poll_interval_ms`: polling interval in ms (1..255 ms, typical `1`).
-- `ep_in_size`: IN endpoint packet size (`1` to `64`; typical `64`).
-- `ep_out_size`: OUT endpoint packet size (`0`: OUT disabled, `1` to `64`: OUT enabled).
-- `boot_protocol`: `0`: None, `1`: Keyboard, `2`: Mouse.
-- `bcd_hid`: HID version (default `0x0111`).
-- `country_code`: country code (default `0`).
+- `ep_in.poll_interval_ms`: polling interval in ms (required, 1..255).
+- `ep_in.max_packet_size`: IN endpoint packet size (required, 1 to the board's `max_endpoint_bytes`).
+- `ep_out.address`: 0 disables the OUT endpoint; otherwise `ep_out.max_packet_size` is its packet size (1 to the board's `max_endpoint_bytes`).
+- `iface.subclass`, `iface.protocol`: boot interface (`protocol` 0: none, 1: keyboard, 2: mouse).
+- `iface.bcd_hid`: HID version (required, e.g. `0x0111`).
+- `iface.country_code`: country code (0: not supported).
+
+Every top-level structure (`mimhid_device_config`, `mimhid_node_config`, `mimhid_commit_timeouts`, `mimhid_board_limits`) starts with `struct_size` and `reserved`; `reserved` must be zero.
 - `interface_name`: interface string descriptor (`NULL` for none).
 
 A USB device has one VID/PID, so those belong to the Device, not to a profile.
@@ -121,7 +123,7 @@ Calls return `mimhid_result`. `mimhid_last_error()` returns a thread-local `mimh
 
 - No context and no event mode: a Device owns its port and one reader thread.
 - `mimhid_device_open` takes a direct serial port path string (`const char* port_path`, e.g. `"/dev/ttyACM0"` or `"COM3"`) rather than a libusb device.
-- `mimhid_node_open` and `mimhid_node_open_raw` take an explicit `interface_number` and re-enumerate the board's USB device; `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several changes into one re-enumeration, and `mimhid_device_commit` controls the reconnect delay.
+- `mimhid_node_open` and `mimhid_node_open_raw` take an explicit `iface.number` and re-enumerate the board's USB device; `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several changes into one re-enumeration, and `mimhid_device_commit` controls the reconnect delay.
 - Direct physical USB bus control with `mimhid_device_connect()` and `mimhid_device_disconnect()`.
 - Extra Device and Node settings for the USB device, listed above.
 - No accessory or channel calls.

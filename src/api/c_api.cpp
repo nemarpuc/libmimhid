@@ -53,7 +53,7 @@ static_assert(MIMHID_CONTROL_ACTION_LEAVE == MIMHID_CONTROL_LEAVE + 1 &&
               MIMHID_CONTROL_ACTION_STALL == MIMHID_CONTROL_STALL + 1 &&
               MIMHID_CONTROL_ACTION_DROP == MIMHID_CONTROL_DROP + 1);
 // The largest report this library sends: a high-speed interrupt endpoint packet.
-constexpr std::size_t kMaximumReportBytes = 1024U;
+constexpr std::size_t kMaximumReportBytes = MIMHID_HOST_MAX_REPORT_BYTES;
 
 std::uint16_t report_id(const mimhid_node* node) noexcept {
     return node != nullptr && node->spec != nullptr && node->spec->layout.has_report_id
@@ -123,6 +123,16 @@ bool required_product_policies_nonzero(const mimhid_transport_options& options) 
            options.linux_hid_report_size_policy_bits != 0U;
 }
 
+// Room kept for later releases: a nonzero value is refused, so that an old binary and a new
+// header never read it differently.
+bool reserved_is_zero(const std::uint32_t reserved, const char* field) noexcept {
+    if (reserved != 0U) {
+        set_error(MIMHID_ERR_PARAM, field, "The reserved field must be zero.");
+        return false;
+    }
+    return true;
+}
+
 mimhid_result prepare_device_config(const mimhid_device_config* config,
                                     mimhid_device_config* effective) noexcept {
     if (config == nullptr || !mimhid::detail::valid_struct(
@@ -130,14 +140,16 @@ mimhid_result prepare_device_config(const mimhid_device_config* config,
                                  static_cast<std::uint32_t>(sizeof(*config)), "device_config")) {
         return MIMHID_ERR_PARAM;
     }
+    if (!reserved_is_zero(config->reserved, "device_config.reserved"))
+        return MIMHID_ERR_PARAM;
     *effective = *config;
-    if (effective->transport.log_level == 0)
-        effective->transport.log_level = MIMHID_LOG_DISABLED;
 
     // Transport required fields
     const std::pair<std::uint32_t, const char*> required_transport[] = {
         {effective->transport.baud_rate, "transport.baud_rate"},
         {effective->transport.handshake_timeout_ms, "transport.handshake_timeout_ms"},
+        {effective->transport.maximum_report_bytes, "transport.maximum_report_bytes"},
+        {static_cast<std::uint32_t>(effective->transport.log_level), "transport.log_level"},
     };
     for (const auto& [value, field] : required_transport) {
         if (value == 0U) {
@@ -159,9 +171,12 @@ mimhid_result prepare_device_config(const mimhid_device_config* config,
     if (!mimhid::detail::valid_boolean(effective->transport.validate_reports) ||
         !mimhid::detail::valid_boolean(effective->transport.keep_attached) ||
         effective->transport.log_level < MIMHID_LOG_DISABLED ||
-        effective->transport.log_level > MIMHID_LOG_TRACE) {
+        effective->transport.log_level > MIMHID_LOG_TRACE ||
+        (effective->transport.log_level != MIMHID_LOG_DISABLED &&
+         effective->transport.log_sink == nullptr)) {
         set_error(MIMHID_ERR_PARAM, "transport",
-                  "Every flag must be exactly zero or one and log_level a defined value.");
+                  "Every flag must be exactly zero or one, log_level a defined value, and a "
+                  "log_level other than DISABLED needs a log_sink.");
         return MIMHID_ERR_PARAM;
     }
 
@@ -520,8 +535,8 @@ mimhid_result command_error(const tr::CommandResult& result, const char* field, 
 
 // ---- interface assignment and commit ---------------------------------------------------
 
-// Gives every live node a USB interface based on its explicit interface_number.
-// Unique interface_numbers are mapped densely to 0..N-1 to maintain USB 2.0 compliance.
+// Gives every live node a USB interface based on its explicit iface.number.
+// Unique iface.number values are mapped densely to 0..N-1 to maintain USB 2.0 compliance.
 mimhid_result assign_interfaces(mimhid_device* device, const std::vector<mimhid_node*>& nodes) {
     const std::size_t limit = device->board.max_interfaces;
     std::set<std::uint32_t> unique_ifaces;
@@ -621,6 +636,8 @@ mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
                                       static_cast<std::uint32_t>(sizeof(*timeouts)), "timeouts")) {
         return MIMHID_ERR_PARAM;
     }
+    if (!reserved_is_zero(timeouts->reserved, "timeouts.reserved"))
+        return MIMHID_ERR_PARAM;
     if (const mimhid_result r = require_timeout(timeouts->control_timeout_ms,
                                                 "timeouts.control_timeout_ms");
         r != MIMHID_OK)
@@ -1151,10 +1168,7 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   "The limit exceeds what the board accepts.");
         return MIMHID_ERR_OVERFLOW;
     }
-    device->maximum_report_bytes =
-        effective.transport.maximum_report_bytes != 0U
-            ? effective.transport.maximum_report_bytes
-            : std::min<std::uint32_t>(device->board.max_report_bytes, kMaximumReportBytes);
+    device->maximum_report_bytes = effective.transport.maximum_report_bytes;
     device->info = describe_board(port_path, "", device->board, effective.transport.baud_rate);
 
     mimhid_device* raw = device.get();
@@ -1512,6 +1526,8 @@ mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
                   "A Device and an output with its struct_size set are required.");
         return MIMHID_ERR_PARAM;
     }
+    if (!reserved_is_zero(out_limits->reserved, "board_limits.reserved"))
+        return MIMHID_ERR_PARAM;
     out_limits->max_report_bytes = device->board.max_report_bytes;
     out_limits->max_feature_bytes = device->board.max_feature_bytes;
     out_limits->max_endpoint_bytes = device->board.max_endpoint_bytes;
@@ -1657,6 +1673,8 @@ MIMHID_C_RESULT_CATCH("device.control_reply")
 
 mimhid_result validate_node_config(const mimhid_device* device,
                                    const mimhid_node_config& effective) noexcept {
+    if (!reserved_is_zero(effective.reserved, "node_config.reserved"))
+        return MIMHID_ERR_PARAM;
     if (effective.ep_in.poll_interval_ms == 0U) {
         set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_in.poll_interval_ms",
                   "poll_interval_ms must be non-zero (1-255 ms).");
