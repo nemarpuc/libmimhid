@@ -105,9 +105,21 @@ static volatile uint8_t g_expect;
 
 static bool g_single_context;
 
-// The linker maps these to the stack's own dcd_event_handler (-Wl,--wrap=dcd_event_handler).
+// The linker maps these to the stack's own dcd functions (-Wl,--wrap=...).
 void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr);
 void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
+void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
+void __wrap_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
+
+static volatile bool g_suppress_stall;
+
+void __wrap_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    if (g_suppress_stall && (ep_addr == 0x00 || ep_addr == 0x80)) {
+        hal_control_silent_drop();
+        return;
+    }
+    __real_dcd_edpt_stall(rhport, ep_addr);
+}
 
 void mimhid_control_set_single_context(bool single) {
     g_single_context = single;
@@ -195,6 +207,7 @@ CONTROL_FAST static void drop_held(void) {
     g_hold.state = HOLD_IDLE;
     g_expect = 0;
     g_answer.armed = false;
+    g_suppress_stall = false;
 }
 
 CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
@@ -207,6 +220,7 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
         return;
     }
 
+    g_suppress_stall = false;
     const tusb_control_request_t* r = &event->setup_received;
     // A new request means the host gave up on the one it was waiting for.
     drop_held();
@@ -280,6 +294,8 @@ static void settle(uint8_t token, uint8_t action, const uint8_t* data, uint16_t 
     g_hold.state = HOLD_IDLE;
     g_expect = 0;
     if (action == MIMHID_CONTROL_DROP) {
+        g_suppress_stall = true;
+        hal_control_silent_drop();
         dcd_int_enable(RHPORT);
         return;
     }
@@ -348,7 +364,12 @@ static bool wait_for_verdict(void) {
         }
     }
     g_expect = 0;
-    return action != MIMHID_CONTROL_STALL && action != MIMHID_CONTROL_DROP;
+    if (action == MIMHID_CONTROL_DROP) {
+        g_suppress_stall = true;
+        hal_control_silent_drop();
+        return false;
+    }
+    return action != MIMHID_CONTROL_STALL;
 }
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {
@@ -361,8 +382,9 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
         g_answer.active = true;
         if (request->wLength == 0) return tud_control_status(rhport, request);
         if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
-            const uint16_t n = g_answer.length < request->wLength ? g_answer.length : request->wLength;
-            return tud_control_xfer(rhport, request, &g_answer.buf[1], n);
+            tusb_control_request_t req = *request;
+            req.wLength = g_answer.length;
+            return tud_control_xfer(rhport, &req, &g_answer.buf[1], g_answer.length);
         }
         // Host to device: take the data first; the verdict comes once it has been seen.
         memset(&g_answer.buf[1], 0, request->wLength);

@@ -35,7 +35,7 @@ set(MIMHID_DEFS MIMHID_HID_ITFS=3 CFG_BOARD_UART_BAUDRATE=115200)
 
 family_configure_device_example(mimhid_firmware_stm32f4 noos)
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
-target_link_options(mimhid_firmware_stm32f4 PUBLIC -Wl,--wrap=dcd_event_handler)
+target_link_options(mimhid_firmware_stm32f4 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall)
 target_include_directories(mimhid_firmware_stm32f4-tinyusb_config INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)

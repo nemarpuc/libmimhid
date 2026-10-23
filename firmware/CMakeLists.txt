@@ -36,7 +36,10 @@ target_link_libraries(mimhid_firmware
 )
 
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
-target_link_options(mimhid_firmware PRIVATE -Wl,--wrap=dcd_event_handler)
+target_link_options(mimhid_firmware PRIVATE
+    -Wl,--wrap=dcd_event_handler
+    -Wl,--wrap=dcd_edpt_stall
+)
 
 pico_enable_stdio_usb(mimhid_firmware 0)
 pico_enable_stdio_uart(mimhid_firmware 0)

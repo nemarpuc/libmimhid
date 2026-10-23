@@ -9,6 +9,8 @@
 #include "hardware/clocks.h"
 #include "bsp/board.h"
 #include "pico/unique_id.h"
+#include "hardware/structs/usb.h"
+#include "hardware/structs/usb_dpram.h"
 #include "hal.h"
 
 #ifndef MIMHID_UART_ID
@@ -144,4 +146,10 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     size_t n = sizeof(id.id) < max ? sizeof(id.id) : max;
     for (size_t i = 0; i < n; i++) out[i] = id.id[i];
     return n;
+}
+
+void hal_control_silent_drop(void) {
+    hw_clear_alias(usb_hw)->ep_stall_arm = USB_EP_STALL_ARM_EP0_IN_BITS | USB_EP_STALL_ARM_EP0_OUT_BITS;
+    usb_dpram->ep_buf_ctrl[0].in = 0;
+    usb_dpram->ep_buf_ctrl[0].out = 0;
 }

@@ -38,7 +38,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 1
 #define MIMHID_VERSION_MINOR 3
-#define MIMHID_VERSION_PATCH 2
+#define MIMHID_VERSION_PATCH 3
 /* The wire protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
 #define MIMHID_PROTOCOL_VERSION 6
 

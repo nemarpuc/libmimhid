@@ -1043,14 +1043,15 @@ void test_control() {
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == payload.size() &&
                  std::memcmp(r.data, payload.data(), payload.size()) == 0);
 
-    // The same, answered from inside the event sink, and cut to wLength.
+    // The same, answered from inside the event sink; the whole answer goes out even when wLength is
+    // shorter, as a device that overruns the host's length does.
     g_sink_reply.device = device;
     g_sink_reply.action = MIMHID_CONTROL_ACTION_ANSWER;
     g_sink_reply.data = payload;
     g_sink_reply.enabled.store(true);
     target_control(0xC0, 0x42, 0, 0, 3);
-    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 3 &&
-                 std::memcmp(r.data, payload.data(), 3) == 0);
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == payload.size() &&
+                 std::memcmp(r.data, payload.data(), payload.size()) == 0);
     MIMHID_CHECK(g_sink_reply.result.load() == MIMHID_OK);
     g_sink_reply.action = MIMHID_CONTROL_ACTION_STALL;
     g_sink_reply.data.clear();

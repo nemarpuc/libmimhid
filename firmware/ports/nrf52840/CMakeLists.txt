@@ -30,7 +30,7 @@ target_include_directories(mimhid_firmware_nrf52840 PUBLIC
 
 family_configure_device_example(mimhid_firmware_nrf52840 noos)
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
-target_link_options(mimhid_firmware_nrf52840 PUBLIC -Wl,--wrap=dcd_event_handler)
+target_link_options(mimhid_firmware_nrf52840 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall)
 target_include_directories(mimhid_firmware_nrf52840-tinyusb_config INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)

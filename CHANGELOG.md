@@ -3,6 +3,15 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-10-23
+
+### Fixed
+- **A device answer longer than the host's `wLength` is sent whole.** The answer to a held device-to-host control request was cut to `wLength`; it now goes out as the real device sends it, so the host sees the same overrun (`EOVERFLOW`) as with the real device (for example `GET_STATUS` with `wLength` 1).
+- **`MIMHID_CONTROL_ACTION_DROP` no longer stalls EP0 for a host-to-device request.** After the data stage the stack stalled EP0 on a drop; the firmware now wraps `dcd_edpt_stall` (`-Wl,--wrap=dcd_edpt_stall`, TinyUSB itself is not modified) and disarms EP0 through the new `hal_control_silent_drop`, so EP0 keeps NAKing as a silent drop is documented to do. Only the RP2040/RP2350 port implements it; the STM32F4, nRF52840 and ESP32-S3 ports have an empty stub and still stall.
+
+### Known limits
+- A zero-length device-to-host request (for example `GET_STATUS` with `wLength` 0) that the real device refuses with a bus error (`EPROTO`, -71 on Linux) cannot be copied: the RP2040 USB controller answers every token with ACK, NAK or STALL on its own and cannot send a corrupt or absent handshake. The host sees a STALL (`EPIPE`) instead.
+
 ## [1.3.2] - 2026-10-23
 
 ### Fixed

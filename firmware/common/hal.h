@@ -37,4 +37,7 @@ size_t hal_unique_id(uint8_t* out, size_t max);
 // The chip, as MIMHID_CHIP_* names it.
 uint8_t hal_chip(void);
 
+// Disarms EP0 IN and OUT without stalling, leaving EP0 to NAK incoming tokens indefinitely.
+void hal_control_silent_drop(void);
+
 #endif // MIMHID_HAL_H

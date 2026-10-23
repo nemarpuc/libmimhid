@@ -78,6 +78,8 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
 bool hal_uart_baud_ok(uint32_t baud) { return baud <= 3000000u; }
 void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
 uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
+void hal_control_silent_drop(void) {}
+void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) { (void)rhport; (void)ep_addr; }
 
 void hal_uart_write(const uint8_t* data, size_t len) {
     if (!line_matches()) return;
@@ -174,10 +176,9 @@ void dcd_int_enable(uint8_t rhport) { (void)rhport; }
 
 bool tud_control_xfer(uint8_t rhport, tusb_control_request_t const* request, void* buffer, uint16_t len) {
     (void)rhport;
-    (void)request;
     g_xfer.kind = 1;
     g_xfer.buffer = buffer;
-    g_xfer.length = len;
+    g_xfer.length = len < request->wLength ? len : request->wLength; // as tud_control_xfer cuts it
     return true;
 }
 

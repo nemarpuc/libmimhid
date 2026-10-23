@@ -54,6 +54,8 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     memcpy(out, id, n);
     return n;
 }
+void hal_control_silent_drop(void) {}
+void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) { (void)rhport; (void)ep_addr; }
 
 // ---- TinyUSB stubs ----
 static bool g_mounted = true, g_suspended;
@@ -816,7 +818,7 @@ static void test_control(void) {
     }
     expect_nak(reply(token, MIMHID_CONTROL_ANSWER, answer, 1), MIMHID_NAK_STATE); // too late
 
-    // A longer answer than wLength is cut to it.
+    // A longer answer than wLength is sent whole, as a device that overruns the host's length does.
     reset_io();
     setup(0xC0, 0x42, 0, 0, 2);
     pump();
@@ -826,7 +828,7 @@ static void test_control(void) {
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
-        assert(g_xfer.kind == 1 && g_xfer.length == 2);
+        assert(g_xfer.kind == 1 && g_xfer.length == 4);
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
     }
 

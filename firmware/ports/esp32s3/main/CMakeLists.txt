@@ -23,4 +23,4 @@ if(DEFINED MIMHID_UART_RX_PIN)
 endif()
 
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
-target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dcd_event_handler")
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dcd_event_handler" "-Wl,--wrap=dcd_edpt_stall")

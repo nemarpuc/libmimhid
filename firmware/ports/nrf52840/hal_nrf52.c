@@ -163,3 +163,5 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     }
     return n;
 }
+
+void hal_control_silent_drop(void) {}
