@@ -11,6 +11,7 @@
 
 #include "tusb.h"
 #include "device/dcd.h"
+#include "device/usbd_pvt.h"
 #include "config.h"
 #include "control.h"
 #include "core.h"
@@ -80,6 +81,14 @@ void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
 uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
 void hal_control_silent_drop(void) {}
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) { (void)rhport; (void)ep_addr; }
+bool __real_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
+    (void)rhport; (void)ep_addr; (void)buffer; (void)total_bytes;
+    return true;
+}
+void usbd_defer_func(osal_task_func_t func, void* param, bool in_isr) {
+    (void)in_isr;
+    func(param);
+}
 
 void hal_uart_write(const uint8_t* data, size_t len) {
     if (!line_matches()) return;

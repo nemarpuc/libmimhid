@@ -17,6 +17,7 @@ add_executable(mimhid_firmware
     rp/hal_rp.c
     common/core.c
     common/control.c
+    common/ep0.c
     common/usb_descriptors.c
 )
 
@@ -39,6 +40,7 @@ target_link_libraries(mimhid_firmware
 target_link_options(mimhid_firmware PRIVATE
     -Wl,--wrap=dcd_event_handler
     -Wl,--wrap=dcd_edpt_stall
+    -Wl,--wrap=dcd_edpt_xfer
 )
 
 pico_enable_stdio_usb(mimhid_firmware 0)

@@ -394,6 +394,11 @@ static void cmd_device_config(const command_t* c) {
     d->bm_attributes = p[15];
     d->bmax_power = p[16];
     d->flags = p[17];
+    if (d->ep0_max_packet_size != 8 && d->ep0_max_packet_size != 16 &&
+        d->ep0_max_packet_size != 32 && d->ep0_max_packet_size != 64) {
+        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
     uint16_t pos = 18;
     if (!read_string(d->manufacturer, p, len, &pos) || !read_string(d->product, p, len, &pos) ||
         !read_string(d->serial, p, len, &pos) || !read_string(d->configuration, p, len, &pos)) {

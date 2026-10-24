@@ -14,6 +14,7 @@
 #include "config.h"
 #include "control.h"
 #include "core.h"
+#include "ep0.h"
 #include "hal.h"
 
 // Code that runs in the USB interrupt sits in RAM where the port asks for it. The host-side tests
@@ -211,6 +212,7 @@ CONTROL_FAST static void drop_held(void) {
 }
 
 CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
+    if (mimhid_ep0_event(event, in_isr)) return;
     if (event->event_id != DCD_EVENT_SETUP_RECEIVED) {
         // The host has left or reset the bus: whatever it asked is void.
         if (event->event_id == DCD_EVENT_BUS_RESET || event->event_id == DCD_EVENT_UNPLUGGED ||
@@ -384,8 +386,10 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
         g_answer.active = true;
         if (request->wLength == 0 && g_answer.length == 0) return tud_control_status(rhport, request);
         if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
+            // An answer longer than wLength goes out whole; a shorter one keeps wLength, so the
+            // stack ends it with a zero-length packet when it fills its last packet.
             tusb_control_request_t req = *request;
-            req.wLength = g_answer.length;
+            if (req.wLength < g_answer.length) req.wLength = g_answer.length;
             return tud_control_xfer(rhport, &req, &g_answer.buf[1], g_answer.length);
         }
         // Host to device: take the data first; the verdict comes once it has been seen.

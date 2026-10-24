@@ -9,6 +9,8 @@
 #include "config.h"
 #include "control.h"
 #include "core.h"
+#include "ep0.h"
+#include "device/usbd_pvt.h"
 #include "hal.h"
 
 uint8_t const* tud_descriptor_device_cb(void);
@@ -22,6 +24,7 @@ bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate);
 void tud_suspend_cb(bool remote_wakeup_en);
 void tud_resume_cb(void);
 void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
+bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes);
 
 // ---- fake HAL ----
 static uint8_t  g_in[16384];
@@ -88,6 +91,7 @@ static struct {
     int kind; // 0 none, 1 data stage, 2 status only
     uint8_t* buffer;
     uint16_t length;
+    uint16_t w_length; // of the request given with it
     uint8_t copy[1100];
 } g_xfer;
 
@@ -100,12 +104,37 @@ void dcd_int_disable(uint8_t rhport) { (void)rhport; }
 void dcd_int_enable(uint8_t rhport) { (void)rhport; }
 bool tud_control_xfer(uint8_t rhport, tusb_control_request_t const* request, void* buffer, uint16_t len) {
     (void)rhport;
-    (void)request;
     g_xfer.kind = 1;
+    g_xfer.w_length = request->wLength;
     g_xfer.buffer = buffer;
     g_xfer.length = len;
     memcpy(g_xfer.copy, buffer, len);
     return true;
+}
+// What the controller is given on its endpoints, and the call the stack's task would make.
+static struct {
+    uint8_t ep_addr;
+    uint8_t* buffer;
+    uint16_t length;
+} g_dcd[32];
+static int g_ndcd;
+static osal_task_func_t g_deferred;
+static void* g_deferred_param;
+
+bool __real_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
+    (void)rhport;
+    assert(g_ndcd < 32);
+    g_dcd[g_ndcd].ep_addr = ep_addr;
+    g_dcd[g_ndcd].buffer = buffer;
+    g_dcd[g_ndcd].length = total_bytes;
+    g_ndcd++;
+    return true;
+}
+void usbd_defer_func(osal_task_func_t func, void* param, bool in_isr) {
+    (void)in_isr;
+    assert(g_deferred == NULL);
+    g_deferred = func;
+    g_deferred_param = param;
 }
 bool tud_control_status(uint8_t rhport, tusb_control_request_t const* request) {
     (void)rhport;
@@ -202,6 +231,8 @@ static int command(uint8_t type, const uint8_t* p, size_t n) {
     return result_of(type);
 }
 
+static uint8_t g_ep0_size = 64;
+
 static int device_config(uint8_t flags, const char* serial) {
     uint8_t p[160];
     size_t n = 0;
@@ -211,7 +242,7 @@ static int device_config(uint8_t flags, const char* serial) {
     p[n++] = 0xEF; p[n++] = 0x02; p[n++] = 0x01;
     p[n++] = 0x09; p[n++] = 0x04;          // language
     p[n++] = 0x00; p[n++] = 0x02;          // bcdUSB 0x0200
-    p[n++] = 64;                           // ep0_max_packet_size
+    p[n++] = g_ep0_size;                   // ep0_max_packet_size
     p[n++] = 1;                            // configuration_value
     p[n++] = 0xA0;                         // bm_attributes (0x80 | 0x20 remote wakeup)
     p[n++] = 50;                           // bmax_power (100 mA)
@@ -811,6 +842,7 @@ static void test_control(void) {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
         assert(g_xfer.kind == 1 && g_xfer.length == 4 && memcmp(g_xfer.copy, answer, 4) == 0);
+        assert(g_xfer.w_length == 64); // shorter than asked: the stack keeps wLength for its ZLP
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
         // The same request again, with nobody having been asked, is refused as before.
@@ -1041,6 +1073,160 @@ static void test_control(void) {
     mimhid_control_set_single_context(false);
 }
 
+// ---- endpoint 0 in the announced packet size ----
+// The controller has finished the packet it was given last, with `got` bytes.
+static void ep0_done(uint16_t got) {
+    dcd_event_t e;
+    memset(&e, 0, sizeof(e));
+    e.event_id = DCD_EVENT_XFER_COMPLETE;
+    e.xfer_complete.ep_addr = g_dcd[g_ndcd - 1].ep_addr;
+    e.xfer_complete.len = got;
+    e.xfer_complete.result = XFER_RESULT_SUCCESS;
+    __wrap_dcd_event_handler(&e, true);
+}
+
+static void run_deferred(void) {
+    assert(g_deferred != NULL);
+    const osal_task_func_t f = g_deferred;
+    g_deferred = NULL;
+    f(g_deferred_param);
+}
+
+// The one completion the stack was given: its length.
+static uint32_t ep0_whole(void) {
+    assert(g_nforwarded == 1 && g_forwarded[0].event_id == DCD_EVENT_XFER_COMPLETE);
+    g_nforwarded = 0;
+    return g_forwarded[0].xfer_complete.len;
+}
+
+static void ep0_begin(uint8_t bm, uint16_t length) {
+    setup(bm, TUSB_REQ_GET_DESCRIPTOR, 0x0100, 0, length);
+    g_nforwarded = 0;
+    g_ndcd = 0;
+    assert(g_deferred == NULL);
+}
+
+static void test_ep0(void) {
+    uint8_t buf[64];
+    for (int i = 0; i < 64; i++) buf[i] = (uint8_t)i;
+    reset_io();
+
+    // The board refuses a size USB does not have.
+    g_ep0_size = 48;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    g_ep0_size = 0;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+
+    // The size comes with the descriptor: 8, and the device descriptor reads 8.
+    g_ep0_size = 8;
+    assert(device_config(0, "") == 1);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
+    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    assert(commit() == 1);
+    assert(tud_descriptor_device_cb()[7] == 8);
+
+    // 18 bytes asked as 64: packets of 8, 8 and 2, the last one short.
+    ep0_begin(0x80, 64);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 18));
+    assert(g_ndcd == 1 && g_dcd[0].length == 8 && g_dcd[0].buffer == buf);
+    ep0_done(8);
+    assert(g_nforwarded == 0 && g_ndcd == 1); // the next packet waits for the task
+    run_deferred();
+    assert(g_ndcd == 2 && g_dcd[1].length == 8 && g_dcd[1].buffer == buf + 8);
+    ep0_done(8);
+    run_deferred();
+    assert(g_ndcd == 3 && g_dcd[2].length == 2 && g_dcd[2].buffer == buf + 16);
+    ep0_done(2);
+    assert(ep0_whole() == 18 && g_deferred == NULL);
+
+    // 16 of 64: two full packets, then the zero-length one.
+    ep0_begin(0x80, 64);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 16));
+    ep0_done(8);
+    run_deferred();
+    ep0_done(8);
+    assert(g_nforwarded == 0);
+    run_deferred();
+    assert(g_ndcd == 3 && g_dcd[2].length == 0);
+    ep0_done(0);
+    assert(ep0_whole() == 16);
+
+    // 16 of 16: the target has all it asked for, no zero-length packet.
+    ep0_begin(0x80, 16);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 16));
+    ep0_done(8);
+    run_deferred();
+    ep0_done(8);
+    assert(ep0_whole() == 16 && g_deferred == NULL && g_ndcd == 2);
+
+    // 64 of a longer answer: the stack goes on itself; its zero-length packet goes through as is.
+    ep0_begin(0x80, 255);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 64));
+    for (int i = 0; i < 7; i++) {
+        ep0_done(8);
+        run_deferred();
+    }
+    assert(g_ndcd == 8 && g_dcd[7].buffer == buf + 56);
+    ep0_done(8);
+    assert(ep0_whole() == 64 && g_deferred == NULL);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 8)); // the stack's next 8 bytes of 72
+    ep0_done(8);
+    assert(g_nforwarded == 0);
+    run_deferred(); // 72 of 255 ends on a full packet
+    assert(g_dcd[g_ndcd - 1].length == 0);
+    ep0_done(0);
+    assert(ep0_whole() == 8);
+
+    // Host to device: 20 bytes come as 8, 8 and 4; a short packet ends the data stage early.
+    ep0_begin(0x00, 20);
+    assert(__wrap_dcd_edpt_xfer(0, 0x00, buf, 20));
+    ep0_done(8);
+    run_deferred();
+    ep0_done(8);
+    run_deferred();
+    assert(g_dcd[2].length == 4);
+    ep0_done(4);
+    assert(ep0_whole() == 20);
+    ep0_begin(0x00, 20);
+    assert(__wrap_dcd_edpt_xfer(0, 0x00, buf, 20));
+    ep0_done(8);
+    run_deferred();
+    ep0_done(3);
+    assert(ep0_whole() == 11 && g_deferred == NULL);
+
+    // The status stage.
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, NULL, 0));
+    assert(g_dcd[g_ndcd - 1].length == 0);
+    ep0_done(0);
+    assert(ep0_whole() == 0);
+
+    // A new setup packet: the packet the task was about to start is not sent.
+    ep0_begin(0x80, 64);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 18));
+    ep0_done(8);
+    setup(0x80, TUSB_REQ_GET_DESCRIPTOR, 0x0100, 0, 64);
+    g_nforwarded = 0;
+    run_deferred();
+    assert(g_ndcd == 1);
+
+    // Other endpoints are not touched.
+    assert(__wrap_dcd_edpt_xfer(0, 0x81, buf, 40));
+    assert(g_ndcd == 2 && g_dcd[1].length == 40);
+
+    // 64: everything goes through as it came.
+    reset_io();
+    g_ep0_size = 64;
+    assert(device_config(0, "") == 1);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
+    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    assert(commit() == 1);
+    ep0_begin(0x80, 255);
+    assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 64));
+    assert(g_ndcd == 1 && g_dcd[0].length == 64);
+    ep0_done(64);
+    assert(ep0_whole() == 64 && g_deferred == NULL);
+}
+
 int main(void) {
     printf("firmware core, %d HID interfaces\n", MIMHID_HID_ITFS);
     mimhid_core_init();
@@ -1054,6 +1240,7 @@ int main(void) {
     test_packing();
     test_wide_values();
     test_control();
+    test_ep0();
     printf("firmware core OK\n");
     return 0;
 }

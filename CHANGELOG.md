@@ -3,6 +3,16 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6] - 2026-10-24
+
+### Fixed
+- **Endpoint 0 really runs at 8, 16 and 32 bytes.** Since 1.3.1 `usb_device.ep0_max_packet_size` reached the device descriptor, but the stack did not follow it: TinyUSB gives the controller up to `CFG_TUD_ENDPOINT0_SIZE` (64) bytes per transfer, the RP2040/RP2350 driver opens endpoint 0 at 64, and the `tud_control_ep0_size_cb` the firmware defined is not a TinyUSB callback and was never called. A board announcing 8 therefore answered the 18-byte device descriptor in one packet, which the target takes as a babble, and an IN data stage of a multiple of the packet size shorter than `wLength` had no zero-length packet. The firmware now wraps `dcd_edpt_xfer` (`-Wl,--wrap=dcd_edpt_xfer`, in every port; TinyUSB itself is not modified, new `firmware/common/ep0.c`): on endpoint 0 the controller is given one packet of the announced size at a time, the next started from the stack's task, the stack sees one completion for the whole, and the zero-length packet is added where the target waits for one. At 64 nothing changes. A board must be flashed again.
+- **The board refuses an endpoint 0 size USB does not have.** `DEVICE_CONFIG` with a size other than 8, 16, 32 or 64 is answered with `MIMHID_NAK_PARAM`; the host library already refused it.
+- **A held device-to-host request answered with less than `wLength` ends with a zero-length packet when its last packet is full.** The answer was given to the stack with `wLength` set to its own length, so the stack took it as complete (for example 64 bytes asked as 255). `wLength` now stays as the target sent it unless the answer is longer.
+
+### Known limits
+- Tested on the build host against the firmware core (`firmware/tests`). Only the RP2040/RP2350 images are built here; the STM32F4, nRF52840 and ESP32-S3 ports get the same link option but are not built or tried.
+
 ## [1.3.5] - 2026-10-24
 
 ### Changed (breaking)

@@ -3,6 +3,7 @@
 // Descriptors served to the target, built from the configuration the host committed.
 #include "config.h"
 #include "core.h"
+#include "ep0.h"
 #include "hal.h"
 #include "tusb.h"
 #include <string.h>
@@ -77,6 +78,7 @@ void mimhid_clear_config(void) {
         g_node_iface[n] = 0xFF;
     memset(g_feature, 0, sizeof(g_feature));
     g_device = k_fallback_device;
+    mimhid_ep0_set_size(g_device.bMaxPacketSize0);
     memcpy(g_cfg_desc, k_fallback_cfg_desc, sizeof(k_fallback_cfg_desc));
 }
 
@@ -180,6 +182,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         hex_serial(g_str_serial);
     }
     g_device.iSerialNumber = g_str_serial[0] ? 3 : 0;
+    mimhid_ep0_set_size(g_device.bMaxPacketSize0);
 
     // Configuration descriptor built in a single pass
     uint16_t total = TUD_CONFIG_DESC_LEN;
@@ -304,10 +307,6 @@ void mimhid_active_set_feature(uint8_t node, uint8_t report_id, const uint8_t* d
     free_slot->report_id = report_id;
     free_slot->len = len;
     memcpy(free_slot->data, data, len);
-}
-
-uint8_t tud_control_ep0_size_cb(void) {
-    return g_device.bMaxPacketSize0 ? g_device.bMaxPacketSize0 : CFG_TUD_ENDPOINT0_SIZE;
 }
 
 uint8_t const* tud_descriptor_device_cb(void) { return (uint8_t const*)&g_device; }

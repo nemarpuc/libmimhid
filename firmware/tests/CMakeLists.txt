@@ -14,6 +14,7 @@ foreach(itfs 7 4 3)
         test_core.c
         ../common/core.c
         ../common/control.c
+        ../common/ep0.c
         ../common/usb_descriptors.c
     )
     target_include_directories(test_core_${itfs} PRIVATE

@@ -24,7 +24,9 @@ proto/           wire protocol constants shared with the host (mimhid_proto.h)
 
 ## Control transfers
 
-`control.c` is built into every port and needs two things from the port's build: the link option `-Wl,--wrap=dcd_event_handler` (GNU ld; every port's project in this tree sets it), and no other definition of `tud_vendor_control_xfer_cb` (a vendor class would own it). It uses `dcd_int_disable` and `dcd_int_enable` of root hub port 0 around its shared state and `hal_millis` in the interrupt, so both must be callable there. A port that runs the receive side on another core (RP2040, RP2350) leaves it at that; a port that runs `mimhid_run` reads the UART from the USB side while it waits for a verdict, and nothing else is needed.
+`control.c` and `ep0.c` are built into every port and need two things from the port's build: the link options `-Wl,--wrap=dcd_event_handler`, `-Wl,--wrap=dcd_edpt_stall` and `-Wl,--wrap=dcd_edpt_xfer` (GNU ld; every port's project in this tree sets them), and no other definition of `tud_vendor_control_xfer_cb` (a vendor class would own it). It uses `dcd_int_disable` and `dcd_int_enable` of root hub port 0 around its shared state and `hal_millis` in the interrupt, so both must be callable there. A port that runs the receive side on another core (RP2040, RP2350) leaves it at that; a port that runs `mimhid_run` reads the UART from the USB side while it waits for a verdict, and nothing else is needed.
+
+`ep0.c` runs endpoint 0 in the size the device descriptor announces (`bMaxPacketSize0`). TinyUSB gives a controller driver up to `CFG_TUD_ENDPOINT0_SIZE` (64) bytes per endpoint 0 transfer, so below 64 the wrapped `dcd_edpt_xfer` passes one packet at a time and starts the next from the stack's task with `usbd_defer_func`; the port's `tusb_config.h` keeps `CFG_TUD_ENDPOINT0_SIZE` at 64.
 
 ## HAL
 
