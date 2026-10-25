@@ -369,11 +369,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=${{ needs.verify.outputs.source_sha }}&status=success" --jq '.total_count')"
-          if [ "$passed" -lt 1 ]; then
-            echo "No successful CI run exists for ${{ needs.verify.outputs.source_sha }}" >&2
-            exit 1
-          fi
+          # The tag is usually pushed together with the commit, so CI may still be running: wait for it.
+          sha="${{ needs.verify.outputs.source_sha }}"
+          url="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha"
+          for _ in $(seq 1 40); do
+            passed="$(gh api "$url" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+            if [ "$passed" -ge 1 ]; then
+              exit 0
+            fi
+            unfinished="$(gh api "$url" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            total="$(gh api "$url" --jq '.total_count')"
+            if [ "$unfinished" -eq 0 ] && [ "$total" -ge 1 ]; then
+              break
+            fi
+            sleep 15
+          done
+          echo "No successful CI run exists for $sha" >&2
+          exit 1
 
       - name: Publish the release
         if: github.ref_type == 'tag'
