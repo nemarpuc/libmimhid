@@ -37,8 +37,8 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 1
-#define MIMHID_VERSION_MINOR 3
-#define MIMHID_VERSION_PATCH 6
+#define MIMHID_VERSION_MINOR 4
+#define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds (transport.maximum_report_bytes
  * is at most this). */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024

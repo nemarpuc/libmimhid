@@ -3,7 +3,7 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-10-27
 
 ### Added
 - **`MIMHID_EVENT_REPORT_LOST`** (wire event `REPORT_LOST`, 11). A board whose report queue for an interface is full drops the newest report; it used to do so without a word, so a lost key-up or button release left the target with a stuck key. The board now counts the drops and tells the host (at most every 20 ms), and `value` is the count. Older boards never send it. A board must be flashed again.
