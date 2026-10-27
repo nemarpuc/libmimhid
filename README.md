@@ -156,6 +156,8 @@ Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md).
 | Link | USB to an Android device | UART to an MCU board, which presents USB to any target |
 | Open | `aoahid_context_*`, `aoahid_device_open` | `mimhid_device_open(port_path, ...)` (no context) |
 | Spec, options, node calls | `aoahid_spec_create_*`, `aoahid_node_*`, `aoahid_keyboard_key`, ... | same names with the `mimhid_` prefix |
+| Waits | every call that can wait takes its timeout as an argument (`control_timeout_ms`, `send_timeout_ms`, `drain_timeout_ms`; libaoahid 2.0 and later) | the same rule and names; `mimhid_commit_timeouts` adds the wait for the board's re-enumeration |
+| Node id, error detail | `aoahid_node_id`; `aoahid_error_detail.node_id`, `.transport_status` | `mimhid_node_id`; `mimhid_error_detail.node_id`, `.transport_status` |
 | Opening a node | registers an accessory HID device | `mimhid_node_open` / `mimhid_node_open_raw` (one re-enumeration each, or one per `mimhid_device_batch_begin` / `mimhid_device_batch_end`) |
 | Interface setup | implicit / accessory defined | `mimhid_node_config` with explicit `iface.number`, `ep_in.max_packet_size`, `ep_out.max_packet_size` |
 | USB identity | fixed Google accessory ID | set in `mimhid_device_config` |

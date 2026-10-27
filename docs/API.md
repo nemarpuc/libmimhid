@@ -119,8 +119,11 @@ A held request that nobody answers within its rule's time gets the rule's `when_
 
 Calls return `mimhid_result`. `mimhid_last_error()` returns a thread-local `mimhid_error_detail` (field, reason, node id, Report ID, offsets) valid until the next call on the thread. A serial failure latches `MIMHID_ERR_NO_DEVICE`: afterwards every Device and Node call fails with it, and `mimhid_device_latched_error` reports it. Recovery is to close the Device and open it again.
 
+Result codes with the same number mean the same in `libaoahid` and `libmimhid`: `OK` 0, `PARAM` 1, `UNSET_FIELD` 2, `UNSUPPORTED` 3, `ACCESS` 6, `BUSY` 7, `NO_DEVICE` 8, `TIMEOUT` 10, `SHORT_TRANSFER` 11, `DESCRIPTOR_REJECTED` 12, `IO` 13, `OVERFLOW` 14, `INTERNAL` 16. Number 4 is the transport's own: `MIMHID_ERR_PROTOCOL` here, `AOAHID_ERR_NOT_AOA` there; `AOAHID_ERR_STALL` (9) and `AOAHID_CLOSE_PENDING` (15) exist only in `libaoahid`, whose USB transfers can outlive a call.
+
 ## Differences from libaoahid
 
+- Waits follow the same rule as `libaoahid` 2.0 and later (see Timeouts above): every call that can wait takes its timeout as an argument, with the same argument names. The only extra is the wait for the board's re-enumeration, in `mimhid_commit_timeouts`. `libaoahid`'s `aoahid_node_submit` queues a USB transfer and returns, so its `send_timeout_ms` is that transfer's deadline; here it bounds a serial write that makes no progress.
 - No context and no event mode: a Device owns its port and one reader thread.
 - `mimhid_device_open` takes a direct serial port path string (`const char* port_path`, e.g. `"/dev/ttyACM0"` or `"COM3"`) rather than a libusb device.
 - `mimhid_node_open` and `mimhid_node_open_raw` take an explicit `iface.number` and re-enumerate the board's USB device; `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several changes into one re-enumeration, and `mimhid_device_commit` controls the reconnect delay.
