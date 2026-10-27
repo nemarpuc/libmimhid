@@ -175,7 +175,11 @@ enum {
     MIMHID_EVENT_CONTROL_SETUP = 9,
     /* The data stage of a held host-to-device transfer, the one the answer accepted. data/length:
      * the bytes. The board waits for a second answer (the verdict) with control_token. */
-    MIMHID_EVENT_CONTROL_DATA = 10
+    MIMHID_EVENT_CONTROL_DATA = 10,
+    /* The board's report queue for the node's interface was full and it dropped reports (the
+     * newest ones, so a key-up or a button release may be among them). value: how many since the
+     * last event of this kind, at most 65535. The program should send its current state again. */
+    MIMHID_EVENT_REPORT_LOST = 11
 };
 
 /* mimhid_event.control_flags */

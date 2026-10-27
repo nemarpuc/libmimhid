@@ -279,10 +279,16 @@ IoStatus SerialPort::write_all(const std::uint8_t* data, std::size_t length, std
             continue;
         if (n < 0 && errno == EAGAIN) {
             int w = wait_fd(fd, WAIT_OUT, stall_ms);
+            if (w < 0 && errno == EINTR)
+                continue; // a signal is not a failure; the stall clock starts again
             if (w > 0 && !(w & WAIT_ERR))
                 continue;
             if (w == 0)
                 return done == 0 ? IoStatus::timeout : IoStatus::short_write;
+            if (w > 0) {
+                // The adapter reports an error with no errno of its own to read.
+                errno = EIO;
+            }
         }
         if (os_error != nullptr)
             *os_error = errno;

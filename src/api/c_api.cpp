@@ -870,6 +870,13 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         event.data = d + 1;
         event.length = board.length - 1U;
         break;
+    case MIMHID_EV_REPORT_LOST:
+        if (board.length < 3U)
+            return;
+        iface = d[0];
+        event.kind = MIMHID_EVENT_REPORT_LOST;
+        event.value = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
+        break;
     default:
         return;
     }

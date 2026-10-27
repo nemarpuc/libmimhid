@@ -106,6 +106,7 @@ The host never trusts a rate it has not seen work, because a USB serial adapter 
 | `SET_IDLE` | interface, idle rate |
 | `CONTROL_SETUP` | token, flags, the 8 setup bytes (see [Control transfers](#control-transfers)) |
 | `CONTROL_DATA` | token, the data stage of a host-to-device transfer |
+| `REPORT_LOST` | interface, count (u16): reports dropped because the interface's queue was full; sent at most every 20 ms |
 
 The host maps the interface to the node and delivers `mimhid_event` on its reader thread.
 

@@ -417,6 +417,23 @@ static void test_reports(void) {
     }
     pump();
     assert(g_nsent == 0);
+    // the host is told how many were dropped: 30 sent, 15 fit
+    g_now += 25;
+    pump();
+    {
+        size_t pos = 0;
+        uint8_t p[16];
+        uint16_t n = 0;
+        uint8_t t;
+        int lost = 0;
+        while ((t = next_out(&pos, p, &n)) != 0) {
+            if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_REPORT_LOST) {
+                assert(n == 4 && p[1] == 0);
+                lost += p[2] | (p[3] << 8);
+            }
+        }
+        assert(lost == 15);
+    }
     g_busy[0] = false;
     for (int i = 0; i < 6; i++) pump();
     assert(g_nsent == 15 && g_sent[0].data[1] == 0 && g_sent[14].data[1] == 14);

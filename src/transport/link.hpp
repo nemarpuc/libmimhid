@@ -229,7 +229,10 @@ class Link final {
     std::mutex state_mutex_; // guards the reply slot and the pong
     std::condition_variable state_cv_;
     std::uint8_t seq_{0};
-    std::uint8_t pending_seq_{0};
+    // The sequence numbers of every attempt of the command in flight: a late ACK for an earlier
+    // attempt still answers it.
+    std::array<std::uint8_t, 16> pending_seqs_{};
+    std::size_t pending_count_{0};
     std::uint8_t pending_type_{0};
     bool reply_ready_{false};
     bool reply_nak_{false};

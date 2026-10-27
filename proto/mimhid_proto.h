@@ -56,6 +56,7 @@
 #define MIMHID_EV_OUTPUT_REPORT 8 /* data: interface, length, bytes... */
 #define MIMHID_EV_CONTROL_SETUP 9 /* data: token, flags, the 8 setup bytes */
 #define MIMHID_EV_CONTROL_DATA  10 /* data: token, the data stage of a host-to-device transfer */
+#define MIMHID_EV_REPORT_LOST   11 /* data: interface, count (u16 LE): reports dropped, queue full */
 
 /* NAK codes. */
 #define MIMHID_NAK_PARAM      1

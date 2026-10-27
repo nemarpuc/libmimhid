@@ -286,6 +286,13 @@ void Link::start(EventHandler handler) {
 }
 
 void Link::close() {
+    {
+        // Anything still waiting for an answer stops waiting.
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        failed_.store(true, std::memory_order_release);
+        ready_.store(false, std::memory_order_release);
+        state_cv_.notify_all();
+    }
     if (reader_.joinable()) {
         stop_.store(true, std::memory_order_release);
         reader_.join();
@@ -297,7 +304,8 @@ void Link::reader_loop() {
     FrameParser parser;
     std::uint8_t buf[4096];
     while (!stop_.load(std::memory_order_acquire)) {
-        const long got = port_.read(buf, sizeof(buf), 50);
+        // A partial frame is given up after the same quiet time the board allows itself.
+        const long got = port_.read(buf, sizeof(buf), parser.pending() ? 10 : 50);
         if (got < 0) {
             failed_.store(true, std::memory_order_release);
             ready_.store(false, std::memory_order_release);
@@ -333,8 +341,10 @@ void Link::handle_frame(const Frame& frame) {
         if (frame.length < need)
             break;
         std::lock_guard<std::mutex> lock(state_mutex_);
-        if (frame.payload[0] == pending_seq_ && frame.payload[1] == pending_type_ &&
-            !reply_ready_) {
+        bool ours = false;
+        for (std::size_t i = 0; i < pending_count_; ++i)
+            ours = ours || frame.payload[0] == pending_seqs_[i];
+        if (ours && frame.payload[1] == pending_type_ && !reply_ready_) {
             reply_ready_ = true;
             reply_nak_ = frame.type == MIMHID_T_NAK;
             reply_code_ = reply_nak_ ? frame.payload[2] : 0;
@@ -429,21 +439,34 @@ CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std:
         result.status = CommandStatus::io_error;
         return result;
     }
+    if (attempts < 1 || static_cast<std::size_t>(attempts) > pending_seqs_.size()) {
+        result.status = CommandStatus::io_error;
+        return result;
+    }
     std::lock_guard<std::mutex> cmd(cmd_mutex_);
     std::uint8_t body[MIMHID_PROTO_MAX_PAYLOAD];
     std::uint8_t frame[5 + MIMHID_PROTO_MAX_PAYLOAD];
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        pending_count_ = 0;
+    }
     for (int attempt = 0; attempt < attempts; ++attempt) {
         if (failed()) {
             result.status = CommandStatus::closed;
             return result;
         }
+        std::uint8_t seq;
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
-            pending_seq_ = ++seq_;
+            // Zero is the number of a frame nobody waits for (send_control_reply).
+            seq = ++seq_;
+            if (seq == 0)
+                seq = ++seq_;
+            pending_seqs_[pending_count_++] = seq;
             pending_type_ = type;
             reply_ready_ = false;
         }
-        body[0] = pending_seq_;
+        body[0] = seq;
         if (length != 0)
             std::memcpy(body + 1, payload, length);
         const std::size_t n = encode_frame(type, body, length + 1U, frame);
@@ -471,6 +494,10 @@ CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std:
             return result;
         }
         result.status = CommandStatus::timeout;
+    }
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        pending_count_ = 0;
     }
     return result;
 }

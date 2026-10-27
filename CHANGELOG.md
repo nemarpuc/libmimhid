@@ -3,6 +3,18 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`MIMHID_EVENT_REPORT_LOST`** (wire event `REPORT_LOST`, 11). A board whose report queue for an interface is full drops the newest report; it used to do so without a word, so a lost key-up or button release left the target with a stuck key. The board now counts the drops and tells the host (at most every 20 ms), and `value` is the count. Older boards never send it. A board must be flashed again.
+
+### Fixed
+- **A signal during a blocked write is not an I/O error.** `SerialPort::write_all` took `EINTR` from `poll` as a failure (`MIMHID_ERR_IO`, possibly mid-frame); it waits again. An error reported by `poll` itself is `EIO` instead of a stale `errno`.
+- **A late ACK of an earlier attempt answers the command.** A command re-sent after a timeout now accepts the ACK or NAK of any of its attempts, not only the last, so a slow board is not reported as a timeout after it did the work.
+- **Sequence number 0 is skipped** (it marks a `CONTROL_REPLY` nobody waits for).
+- **`Link::close` wakes a waiting command** instead of leaving it for its whole timeout.
+- **A partial board frame is given up after 10 ms of silence** (was 50 ms), the same quiet time the board allows itself.
+
 ## [1.3.6] - 2026-10-24
 
 ### Fixed

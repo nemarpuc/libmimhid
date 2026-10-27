@@ -32,6 +32,10 @@ typedef struct {
 } report_queue_t;
 
 static report_queue_t g_queue[MIMHID_HID_ITFS];
+// Reports dropped because a queue was full (RX side counts, USB side reports and clears).
+static uint32_t g_lost[MIMHID_HID_ITFS];
+static uint32_t g_lost_sent_ms;
+#define MIMHID_LOST_REPORT_MS 20
 
 static const report_t* queue_peek(uint8_t iface) {
     report_queue_t* q = &g_queue[iface];
@@ -312,6 +316,8 @@ static bool rx_step(void) {
         if (dst != NULL) {
             q->items[h].len = len;
             __atomic_store_n(&q->head, next_h, __ATOMIC_RELEASE);
+        } else if (q != NULL) {
+            __atomic_fetch_add(&g_lost[iface], 1u, __ATOMIC_RELAXED);
         }
     } else {
         for (uint16_t i = 0; i < len; i++) {
@@ -597,6 +603,18 @@ void mimhid_usb_poll(void) {
         }
     }
     if (count) g_rr = (uint8_t)((g_rr + 1) % count);
+
+    // A full queue drops the newest report; the host is told how many, at most every few ms.
+    if ((int32_t)(hal_millis() - g_lost_sent_ms) >= MIMHID_LOST_REPORT_MS) {
+        for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
+            if (__atomic_load_n(&g_lost[i], __ATOMIC_RELAXED) == 0) continue;
+            const uint32_t n = __atomic_exchange_n(&g_lost[i], 0u, __ATOMIC_RELAXED);
+            const uint16_t sat = n > 0xFFFFu ? 0xFFFFu : (uint16_t)n;
+            const uint8_t ev[3] = {i, (uint8_t)(sat & 0xFF), (uint8_t)(sat >> 8)};
+            mimhid_send_event(MIMHID_EV_REPORT_LOST, ev, sizeof(ev));
+            g_lost_sent_ms = hal_millis();
+        }
+    }
 }
 
 void mimhid_run(void) {
