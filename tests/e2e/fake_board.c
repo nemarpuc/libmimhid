@@ -153,7 +153,9 @@ bool tud_connect(void) {
 }
 
 bool tud_remote_wakeup(void) { return true; }
-bool tud_hid_n_ready(uint8_t itf) { (void)itf; return g_mounted; }
+static volatile int g_hold_reports;
+void fake_board_hold_reports(int hold) { g_hold_reports = hold; }
+bool tud_hid_n_ready(uint8_t itf) { (void)itf; return g_mounted && !g_hold_reports; }
 
 bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     (void)rid;

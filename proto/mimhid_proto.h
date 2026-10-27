@@ -36,6 +36,8 @@
 #define MIMHID_T_SET_BAUD      0x17 /* payload after sequence number: baud index (see below) */
 #define MIMHID_T_CONTROL_CONFIG 0x18 /* which control transfers of the target are reported or held */
 #define MIMHID_T_CONTROL_REPLY  0x19 /* the answer to a held control transfer */
+#define MIMHID_T_LOSS_CONFIG    0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
+#define MIMHID_T_QUEUE_DEPTH    0x1B /* payload after sequence number: node, reports that may wait (1..) */
 #define MIMHID_T_REPORT_BASE   0x40 /* 0x40 | node id, node id 0..15 */
 #define MIMHID_T_REPORT_LAST   0x4F
 
@@ -56,7 +58,7 @@
 #define MIMHID_EV_OUTPUT_REPORT 8 /* data: interface, length, bytes... */
 #define MIMHID_EV_CONTROL_SETUP 9 /* data: token, flags, the 8 setup bytes */
 #define MIMHID_EV_CONTROL_DATA  10 /* data: token, the data stage of a host-to-device transfer */
-#define MIMHID_EV_REPORT_LOST   11 /* data: interface, count (u16 LE): reports dropped, queue full */
+#define MIMHID_EV_REPORT_LOST   11 /* data: interface, count (u16 LE): reports dropped, queue full; only after LOSS_CONFIG enabled it */
 
 /* NAK codes. */
 #define MIMHID_NAK_PARAM      1

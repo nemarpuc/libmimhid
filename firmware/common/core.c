@@ -32,10 +32,17 @@ typedef struct {
 } report_queue_t;
 
 static report_queue_t g_queue[MIMHID_HID_ITFS];
+// How many reports may wait per interface: the least QUEUE_DEPTH of its nodes, 0 for all the
+// queue holds. A short queue bounds how late a report can reach the target. USB side writes.
+static uint8_t g_depth[MIMHID_HID_ITFS];
+
 // Reports dropped because a queue was full (RX side counts, USB side reports and clears).
 static uint32_t g_lost[MIMHID_HID_ITFS];
+// Loss reporting is off until the host asks (LOSS_CONFIG): nothing is counted or sent before.
+// Then at most one event per interval.
+static bool g_lost_on;
+static uint16_t g_lost_interval_ms;
 static uint32_t g_lost_sent_ms;
-#define MIMHID_LOST_REPORT_MS 20
 
 static const report_t* queue_peek(uint8_t iface) {
     report_queue_t* q = &g_queue[iface];
@@ -114,6 +121,32 @@ static void send_nak(uint8_t seq, uint8_t type, uint8_t code) {
 // -------------------------------------------------------------
 // Commands: parsed by the RX side, executed by the USB side
 // -------------------------------------------------------------
+// A host that heard nothing back sends the same command again with the same sequence number;
+// the board answers it again from here instead of running it twice. A PING (a new host, which
+// starts its numbers anew) makes it forget.
+typedef struct {
+    bool valid;
+    uint8_t seq;
+    uint8_t type;
+    uint8_t code; // 0 for an ACK
+    uint32_t ping;
+} answer_t;
+
+static answer_t g_answer_last;
+static uint32_t g_pings;     // RX side counts, USB side reads
+static uint32_t g_cmd_pings; // g_pings when the running command was taken
+
+// USB side only: answers the running command and keeps the answer.
+static void cmd_answer(uint8_t seq, uint8_t type, uint8_t code) {
+    g_answer_last.valid = true;
+    g_answer_last.seq = seq;
+    g_answer_last.type = type;
+    g_answer_last.code = code;
+    g_answer_last.ping = g_cmd_pings;
+    if (code) send_nak(seq, type, code);
+    else send_ack(seq, type);
+}
+
 #define CMD_SLOTS 4
 #define CMD_MASK  (CMD_SLOTS - 1)
 
@@ -185,7 +218,7 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_CONTROL_REPLY);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_QUEUE_DEPTH);
 }
 
 static void set_baud_index(uint8_t index) {
@@ -299,7 +332,9 @@ static bool rx_step(void) {
         if (q != NULL) {
             h = q->head;
             next_h = (h + 1) & MIMHID_QUEUE_MASK;
-            if (next_h != __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE)) {
+            const uint32_t waiting = (h - __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE)) & MIMHID_QUEUE_MASK;
+            const uint8_t depth = __atomic_load_n(&g_depth[iface], __ATOMIC_RELAXED);
+            if (waiting < (depth ? depth : MIMHID_QUEUE_MASK)) {
                 dst = q->items[h].data;
             }
         }
@@ -316,7 +351,7 @@ static bool rx_step(void) {
         if (dst != NULL) {
             q->items[h].len = len;
             __atomic_store_n(&q->head, next_h, __ATOMIC_RELEASE);
-        } else if (q != NULL) {
+        } else if (q != NULL && __atomic_load_n(&g_lost_on, __ATOMIC_ACQUIRE)) {
             __atomic_fetch_add(&g_lost[iface], 1u, __ATOMIC_RELAXED);
         }
     } else {
@@ -332,6 +367,7 @@ static bool rx_step(void) {
         g_baud_pending = false;
         g_rd = (read_idx + total) & RX_MASK;
         if (type == MIMHID_T_PING) {
+            __atomic_fetch_add(&g_pings, 1u, __ATOMIC_RELEASE);
             send_pong();
         } else if (type == MIMHID_T_SET_BAUD) {
             cmd_set_baud(g_rx_cmd, len);
@@ -383,7 +419,7 @@ static void cmd_device_config(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
-    if (len < 18 + 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (len < 18 + 4) { cmd_answer(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     memset(&g_staged, 0, sizeof(g_staged));
     mimhid_dev_cfg_t* d = &g_staged.dev;
@@ -402,26 +438,26 @@ static void cmd_device_config(const command_t* c) {
     d->flags = p[17];
     if (d->ep0_max_packet_size != 8 && d->ep0_max_packet_size != 16 &&
         d->ep0_max_packet_size != 32 && d->ep0_max_packet_size != 64) {
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
     uint16_t pos = 18;
     if (!read_string(d->manufacturer, p, len, &pos) || !read_string(d->product, p, len, &pos) ||
         !read_string(d->serial, p, len, &pos) || !read_string(d->configuration, p, len, &pos)) {
         g_staged.valid = false;
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
     g_staged.valid = true;
-    send_ack(seq, c->type);
+    cmd_answer(seq, c->type, 0);
 }
 
 static void cmd_node_begin(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
-    if (!g_staged.valid) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
-    if (len < 20) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (!g_staged.valid) { cmd_answer(seq, c->type, MIMHID_NAK_STATE); return; }
+    if (len < 20) { cmd_answer(seq, c->type, MIMHID_NAK_PARAM); return; }
 
     const uint8_t id = p[0];
     const uint16_t desc_len = (uint16_t)(p[2] | (p[3] << 8));
@@ -432,7 +468,7 @@ static void cmd_node_begin(const command_t* c) {
     if (id >= MIMHID_MAX_NODES || desc_len == 0 || itf_subcls > 1 || itf_proto > 2 ||
         (itf_subcls == 1 && itf_proto == 0) ||
         ep_size > MIMHID_MAX_ENDPOINT_BYTES || ep_out_size > MIMHID_MAX_ENDPOINT_BYTES) {
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
 
@@ -440,13 +476,13 @@ static void cmd_node_begin(const command_t* c) {
         // The host repeats a frame whose ACK it did not see; the same node is accepted again.
         const mimhid_node_cfg_t* n = &g_staged.node[id];
         bool same = n->iface == p[1] && n->desc_len == desc_len && n->ep_out_size == ep_out_size;
-        if (same) send_ack(seq, c->type);
-        else send_nak(seq, c->type, MIMHID_NAK_STATE);
+        if (same) cmd_answer(seq, c->type, 0);
+        else cmd_answer(seq, c->type, MIMHID_NAK_STATE);
         return;
     }
-    if (p[1] >= MIMHID_HID_ITFS) { send_nak(seq, c->type, MIMHID_NAK_OVERFLOW); return; }
+    if (p[1] >= MIMHID_HID_ITFS) { cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW); return; }
     if ((uint32_t)g_staged.pool_used + desc_len > MIMHID_MAX_DESC_BYTES) {
-        send_nak(seq, c->type, MIMHID_NAK_OVERFLOW);
+        cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
         return;
     }
 
@@ -469,53 +505,77 @@ static void cmd_node_begin(const command_t* c) {
     uint16_t pos = 20;
     if (!read_string(n->interface_string, p, len, &pos)) {
         n->used = false;
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
     n->desc_off = g_staged.pool_used;
     g_staged.pool_used = (uint16_t)(g_staged.pool_used + desc_len);
-    send_ack(seq, c->type);
+    cmd_answer(seq, c->type, 0);
 }
 
 static void cmd_node_data(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
-    if (len < 4) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (len < 4) { cmd_answer(seq, c->type, MIMHID_NAK_PARAM); return; }
     const uint8_t id = p[0];
     const uint16_t off = (uint16_t)(p[1] | (p[2] << 8));
     const uint16_t n = (uint16_t)(len - 3);
-    if (id >= MIMHID_MAX_NODES || !g_staged.node[id].used) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
+    if (id >= MIMHID_MAX_NODES || !g_staged.node[id].used) { cmd_answer(seq, c->type, MIMHID_NAK_STATE); return; }
     mimhid_node_cfg_t* node = &g_staged.node[id];
     if ((uint32_t)off + n > node->desc_len || off > node->desc_recv) {
-        send_nak(seq, c->type, MIMHID_NAK_PARAM);
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
     memcpy(&g_staged.pool[node->desc_off + off], &p[3], n); // a repeated chunk rewrites the same bytes
     if ((uint32_t)off + n > node->desc_recv) node->desc_recv = (uint16_t)(off + n);
-    send_ack(seq, c->type);
+    cmd_answer(seq, c->type, 0);
 }
 
 static void cmd_feature(const command_t* c) {
     const uint8_t seq = c->data[0];
     const uint8_t* p = &c->data[1];
     const uint16_t len = (uint16_t)(c->len - 1);
-    if (len < 2 || len - 2 > MIMHID_FEATURE_MAX) { send_nak(seq, c->type, MIMHID_NAK_PARAM); return; }
-    if (p[0] >= MIMHID_MAX_NODES || !g_staged.node[p[0]].used) { send_nak(seq, c->type, MIMHID_NAK_STATE); return; }
+    if (len < 2 || len - 2 > MIMHID_FEATURE_MAX) { cmd_answer(seq, c->type, MIMHID_NAK_PARAM); return; }
+    if (p[0] >= MIMHID_MAX_NODES || !g_staged.node[p[0]].used) { cmd_answer(seq, c->type, MIMHID_NAK_STATE); return; }
     mimhid_feature_t* slot = NULL;
     for (uint8_t i = 0; i < MIMHID_MAX_FEATURES; i++) {
         mimhid_feature_t* f = &g_staged.feature[i];
         if (f->used && f->node == p[0] && f->report_id == p[1]) { slot = f; break; }
         if (!f->used && !slot) slot = f;
     }
-    if (!slot) { send_nak(seq, c->type, MIMHID_NAK_OVERFLOW); return; }
+    if (!slot) { cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW); return; }
     slot->used = true;
     slot->node = p[0];
     slot->report_id = p[1];
     slot->len = (uint16_t)(len - 2);
     memcpy(slot->data, &p[2], slot->len);
     mimhid_active_set_feature(p[0], p[1], slot->data, slot->len); // takes effect without a COMMIT
-    send_ack(seq, c->type);
+    cmd_answer(seq, c->type, 0);
+}
+
+// The depth of every active interface from the staged nodes' QUEUE_DEPTH.
+static void apply_depths(void) {
+    uint8_t d[MIMHID_HID_ITFS] = {0};
+    for (uint8_t n = 0; n < MIMHID_MAX_NODES; n++) {
+        const mimhid_node_cfg_t* node = &g_staged.node[n];
+        if (!node->used || node->queue_depth == 0) continue;
+        const uint8_t i = mimhid_active_node_interface(n);
+        if (i >= MIMHID_HID_ITFS) continue;
+        if (d[i] == 0 || node->queue_depth < d[i]) d[i] = node->queue_depth;
+    }
+    for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) __atomic_store_n(&g_depth[i], d[i], __ATOMIC_RELAXED);
+}
+
+static void cmd_queue_depth(const command_t* c) {
+    const uint8_t seq = c->data[0];
+    if (c->len != 3 || c->data[2] == 0) { cmd_answer(seq, c->type, MIMHID_NAK_PARAM); return; }
+    const uint8_t id = c->data[1];
+    if (id >= MIMHID_MAX_NODES || !g_staged.node[id].used) { cmd_answer(seq, c->type, MIMHID_NAK_STATE); return; }
+    if (c->data[2] > MIMHID_QUEUE_MASK) { cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW); return; }
+    g_staged.node[id].queue_depth = c->data[2];
+    apply_depths(); // takes effect without a COMMIT on an active node
+    cmd_answer(seq, c->type, 0);
 }
 
 static void cmd_commit(const command_t* c) {
@@ -526,48 +586,70 @@ static void cmd_commit(const command_t* c) {
         queue_flush_all();
         mimhid_control_clear();
         mimhid_clear_config();
-        send_ack(seq, c->type);
+        apply_depths();
+        cmd_answer(seq, c->type, 0);
         return;
     }
     if (!mimhid_apply_config(&g_staged)) {
-        send_nak(seq, c->type, MIMHID_NAK_DESCRIPTOR);
+        cmd_answer(seq, c->type, MIMHID_NAK_DESCRIPTOR);
         return;
     }
     queue_flush_all();
+    apply_depths();
     mimhid_control_clear();
     tud_connect();
-    send_ack(seq, c->type);
+    cmd_answer(seq, c->type, 0);
 }
 
 static void run_command(const command_t* c) {
     if (c->type == MIMHID_T_PING) return;
     const uint8_t seq = c->data[0];
+    g_cmd_pings = __atomic_load_n(&g_pings, __ATOMIC_ACQUIRE);
+    const answer_t* last = &g_answer_last;
+    if (last->valid && last->ping == g_cmd_pings && last->seq == seq && last->type == c->type) {
+        if (last->code) send_nak(seq, c->type, last->code);
+        else send_ack(seq, c->type);
+        return;
+    }
     switch (c->type) {
     case MIMHID_T_DEVICE_CONFIG: cmd_device_config(c); break;
     case MIMHID_T_NODE_BEGIN:    cmd_node_begin(c); break;
     case MIMHID_T_NODE_DATA:     cmd_node_data(c); break;
     case MIMHID_T_FEATURE:       cmd_feature(c); break;
     case MIMHID_T_COMMIT:        cmd_commit(c); break;
+    case MIMHID_T_QUEUE_DEPTH:   cmd_queue_depth(c); break;
     case MIMHID_T_CONTROL_CONFIG: {
         const uint8_t code = mimhid_control_config(&c->data[1], (uint16_t)(c->len - 1));
-        if (code) send_nak(seq, c->type, code);
-        else send_ack(seq, c->type);
+        if (code) cmd_answer(seq, c->type, code);
+        else cmd_answer(seq, c->type, 0);
         break;
     }
+    case MIMHID_T_LOSS_CONFIG:
+        if (c->len != 4 || c->data[1] > 1 || (c->data[1] == 0 && (c->data[2] | c->data[3]))) {
+            cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+            break;
+        }
+        __atomic_store_n(&g_lost_on, false, __ATOMIC_RELEASE);
+        for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) __atomic_store_n(&g_lost[i], 0u, __ATOMIC_RELAXED);
+        g_lost_interval_ms = (uint16_t)(c->data[2] | (c->data[3] << 8));
+        g_lost_sent_ms = hal_millis() - g_lost_interval_ms;
+        __atomic_store_n(&g_lost_on, c->data[1] == 1, __ATOMIC_RELEASE);
+        cmd_answer(seq, c->type, 0);
+        break;
     case MIMHID_T_RESET:
         queue_flush_all();
-        send_ack(seq, c->type);
+        cmd_answer(seq, c->type, 0);
         break;
     case MIMHID_T_REMOTE_WAKEUP:
         if (tud_suspended()) {
             tud_remote_wakeup();
-            send_ack(seq, c->type);
+            cmd_answer(seq, c->type, 0);
         } else {
-            send_nak(seq, c->type, MIMHID_NAK_STATE);
+            cmd_answer(seq, c->type, MIMHID_NAK_STATE);
         }
         break;
     default:
-        send_nak(seq, c->type, MIMHID_NAK_UNSUPPORTED);
+        cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
         break;
     }
 }
@@ -604,8 +686,8 @@ void mimhid_usb_poll(void) {
     }
     if (count) g_rr = (uint8_t)((g_rr + 1) % count);
 
-    // A full queue drops the newest report; the host is told how many, at most every few ms.
-    if ((int32_t)(hal_millis() - g_lost_sent_ms) >= MIMHID_LOST_REPORT_MS) {
+    // A full queue drops the newest report; a host that asked is told how many.
+    if (g_lost_on && (int32_t)(hal_millis() - g_lost_sent_ms) >= (int32_t)g_lost_interval_ms) {
         for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
             if (__atomic_load_n(&g_lost[i], __ATOMIC_RELAXED) == 0) continue;
             const uint32_t n = __atomic_exchange_n(&g_lost[i], 0u, __ATOMIC_RELAXED);

@@ -37,7 +37,7 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 1
-#define MIMHID_VERSION_MINOR 4
+#define MIMHID_VERSION_MINOR 5
 #define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds (transport.maximum_report_bytes
  * is at most this). */
@@ -178,7 +178,8 @@ enum {
     MIMHID_EVENT_CONTROL_DATA = 10,
     /* The board's report queue for the node's interface was full and it dropped reports (the
      * newest ones, so a key-up or a button release may be among them). value: how many since the
-     * last event of this kind, at most 65535. The program should send its current state again. */
+     * last event of this kind, at most 65535. The program should send its current state again.
+     * Only after mimhid_device_set_loss_reporting enabled it; the board sends nothing otherwise. */
     MIMHID_EVENT_REPORT_LOST = 11
 };
 
@@ -1011,6 +1012,26 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
     mimhid_device* device, uint32_t report_all, const mimhid_control_rule* rules, size_t rule_count,
     uint32_t control_timeout_ms);
 
+/* The longest minimum interval between two MIMHID_EVENT_REPORT_LOST events. */
+#define MIMHID_LOSS_MAX_INTERVAL_MS 60000U
+
+/* mimhid_device_set_loss_reporting
+ * Ownership: Borrows a live Device.
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms).
+ * Whether the board tells the program about reports it dropped because its queue was full
+ * (MIMHID_EVENT_REPORT_LOST, delivered to event_sink). enabled is 0 or 1; the board starts with
+ * it off and then sends nothing extra, so the link carries no traffic for it. With enabled 1,
+ * interval_ms (0 to MIMHID_LOSS_MAX_INTERVAL_MS) is the least time between two events: 0 reports
+ * as soon as the board notices, a larger value gathers the drops of that time into one event. With
+ * enabled 0, interval_ms must be 0. Needs a board with firmware 1.5.0 or later.
+ * The setting stays on the board until replaced; mimhid_device_close turns it off.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, enabled, or an interval outside
+ * its range (or nonzero while disabled); MIMHID_ERR_UNSET_FIELD for a zero control_timeout_ms;
+ * MIMHID_ERR_TIMEOUT (an older board does not answer), MIMHID_ERR_NO_DEVICE or MIMHID_ERR_IO on a
+ * communication failure. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(
+    mimhid_device* device, uint32_t enabled, uint32_t interval_ms, uint32_t control_timeout_ms);
+
 /* mimhid_device_control_reply
  * Ownership: Borrows a live Device; data is copied before returning.
  * Blocking: Writes one frame to the serial port, for up to send_timeout_ms without progress; it
@@ -1344,6 +1365,25 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_nod
                                                                       const uint8_t* data,
                                                                       size_t length,
                                                                       uint32_t control_timeout_ms);
+
+/* mimhid_node_set_queue_depth
+ * How many of this Node's reports may wait on the board for the target to poll them. The board
+ * keeps one queue per USB interface; a report that finds it full is dropped (see
+ * MIMHID_EVENT_REPORT_LOST). A short queue bounds how late a report can be: with depth 1 a report
+ * waits for at most one poll interval behind the one being sent. Nodes sharing an interface share
+ * the queue, which takes the least depth any of them set. Until this is called the queue holds
+ * all it can, which is how the board starts: 15 reports on a board whose max_report_bytes is at
+ * most 64, 7 otherwise. The depth stays with the Node across commits.
+ * Needs a board with firmware 1.5.0 or later.
+ * Ownership: Borrows Node.
+ * Blocking: Waits for the board's acknowledgement (up to control_timeout_ms) unless a batch is
+ * open or the Node is staged; it is then sent with the commit.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or a depth of 0 or above 255;
+ * MIMHID_ERR_UNSET_FIELD for a zero control_timeout_ms; MIMHID_ERR_OVERFLOW for a depth beyond
+ * the board's queue; MIMHID_ERR_TIMEOUT (an older board does not answer), MIMHID_ERR_NO_DEVICE
+ * or MIMHID_ERR_IO for a board or link failure. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_queue_depth(mimhid_node* node, uint32_t depth,
+                                                                 uint32_t control_timeout_ms);
 
 /* mimhid_node_manifest
  * Ownership: Borrows Node, fills caller-owned manifest storage, and returns a

@@ -184,7 +184,9 @@ class Link final {
     // Pings until the board answers or the timeout passes.
     bool ping(std::uint32_t timeout_ms, BoardInfo* out);
 
-    // Sends a command frame (a sequence number is prepended) and waits for its ACK or NAK.
+    // Sends a command frame (a sequence number is prepended) and waits for its ACK or NAK. An
+    // attempt that heard nothing back is sent again unchanged, with the same sequence number, so
+    // the board answers it again instead of running it twice (and a late answer still counts).
     CommandResult command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                           std::uint32_t timeout_ms, int attempts);
 
@@ -229,10 +231,7 @@ class Link final {
     std::mutex state_mutex_; // guards the reply slot and the pong
     std::condition_variable state_cv_;
     std::uint8_t seq_{0};
-    // The sequence numbers of every attempt of the command in flight: a late ACK for an earlier
-    // attempt still answers it.
-    std::array<std::uint8_t, 16> pending_seqs_{};
-    std::size_t pending_count_{0};
+    std::uint8_t pending_seq_{0};
     std::uint8_t pending_type_{0};
     bool reply_ready_{false};
     bool reply_nak_{false};

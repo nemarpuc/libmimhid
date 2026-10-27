@@ -87,6 +87,7 @@ typedef struct {
     uint16_t desc_len;
     uint16_t desc_recv;
     uint16_t desc_off; // into the pool
+    uint8_t  queue_depth; // reports that may wait on the interface (QUEUE_DEPTH), 0: all it holds
     char     interface_string[MIMHID_STRING_MAX + 1];
 } mimhid_node_cfg_t;
 

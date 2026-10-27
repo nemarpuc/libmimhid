@@ -3,6 +3,22 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-27
+
+### Changed (breaking)
+- **`MIMHID_EVENT_REPORT_LOST` is off until the program asks for it.** 1.4.0 counted every dropped report and sent the event at most every 20 ms, a time nobody chose, to programs that did not want it. `mimhid_device_set_loss_reporting(device, enabled, interval_ms, control_timeout_ms)` (new, wire command `LOSS_CONFIG`) turns it on with the program's own interval (0 to `MIMHID_LOSS_MAX_INTERVAL_MS`, 0 for as soon as possible). Off, the board neither counts nor sends anything for it. `mimhid_device_close` turns it off.
+
+### Added
+- **`mimhid_node_set_queue_depth(node, depth, control_timeout_ms)`** (wire command `QUEUE_DEPTH`): how many reports may wait on the board for the node's interface, 1 up to what its queue holds (15, or 7 on a board taking reports longer than 64 bytes; `MIMHID_ERR_OVERFLOW` beyond). A short queue bounds how late a report reaches the target. The depth stays with the node across commits; nodes sharing an interface take the least depth any of them set. Until it is called the queue is as before.
+
+### Fixed
+- **A command sent again is not run twice.** The host re-sent a command that heard nothing back under a new sequence number, so the board ran it again and the answer to the first try was thrown away. It now sends the same frame with the same sequence number, as the protocol page always said, and the board answers a repeat of the last command from the answer it kept instead of running it again; a `PING` (a new host) makes it forget.
+
+### Removed
+- Two 1.4.0 changes that served no correct use: skipping sequence number 0 (no command ever waits on a `CONTROL_REPLY` answer, so nothing could collide) and `Link::close` waking a command another thread is still waiting in (`mimhid_device_close` must not run concurrently with other calls on the device).
+
+Both new commands need firmware 1.5.0; an older board does not answer them (`MIMHID_ERR_TIMEOUT`). A board must be flashed again.
+
 ## [1.4.0] - 2026-10-27
 
 ### Added

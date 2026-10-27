@@ -27,6 +27,8 @@ void fake_board_stop(void);
 // Waits for the next report the board sent to the target; returns 1, or 0 on timeout.
 int fake_board_wait_report(fake_report_t* out, uint32_t timeout_ms);
 void fake_board_clear_reports(void);
+/* While held, the target polls no interface, so reports wait in the board's queues. */
+void fake_board_hold_reports(int hold);
 
 // What the target would see right now.
 int fake_board_mounted(void);

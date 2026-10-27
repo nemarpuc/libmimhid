@@ -252,6 +252,7 @@ struct mimhid_device {
     bool batch_open{false};
     bool configured{false}; // the board holds a committed configuration
     bool dirty{false};      // staged changes not yet committed
+    std::atomic<bool> loss_reported{false}; // the board reports dropped reports
     std::atomic<bool> control_routed{false}; // the board holds control routing rules or reports
     std::atomic<bool> reconfiguring{false};
     std::atomic<bool> closing{false};
@@ -271,6 +272,7 @@ struct mimhid_node {
         std::vector<std::uint8_t> data;
     };
     std::vector<FeatureEntry> features; // answers to the target's Feature report reads
+    std::uint8_t queue_depth{0};        // mimhid_node_set_queue_depth, 0 when never set
     bool has_report_ids{false};         // the descriptor uses Report IDs
     std::bitset<256> report_ids;        // every Report ID the descriptor declares
     std::int64_t submitted_dx{};

@@ -13,7 +13,7 @@ A5  TYPE  LEN  payload[LEN]  XOR
 | Range | Direction | Meaning |
 |---|---|---|
 | `0x01` | host to board | `PING`. Payload: the host's protocol version. No sequence number. |
-| `0x10`..`0x19` | host to board | Commands. The payload starts with a sequence number. |
+| `0x10`..`0x1B` | host to board | Commands. The payload starts with a sequence number. |
 | `0x40`..`0x4F` | host to board | Report for node `TYPE & 0x0F`. Payload: the report exactly as the target receives it, Report ID included. No acknowledgement. |
 | `0x81` | board to host | `PONG` |
 | `0x82` / `0x83` | board to host | `ACK` (`seq, type`) / `NAK` (`seq, type, code`) |
@@ -36,10 +36,12 @@ A report payload is at most the board's `max_report_bytes`. Other payloads are a
 
 | `0x18` | `CONTROL_CONFIG` | which control transfers of the target are reported and which are held (see [Control transfers](#control-transfers)) |
 | `0x19` | `CONTROL_REPLY` | the answer to a held control transfer. Handled on the receive side, like `PING` and `SET_BAUD`; the host does not wait for its acknowledgement |
+| `0x1A` | `LOSS_CONFIG` | enabled (0 or 1), the least interval between two `REPORT_LOST` events in ms (two bytes; 0 while disabled). The board starts with it off, and then counts and sends nothing for it |
+| `0x1B` | `QUEUE_DEPTH` | node id, how many reports may wait on the node's interface (1 up to what the queue holds: NAK `OVERFLOW` beyond). Kept with the staged node, so it survives a `COMMIT`, and takes effect at once on a running configuration. Nodes sharing an interface share its queue, which takes the least depth they set. Without it the queue holds all it can: 15 reports on a board whose `max_report_bytes` is at most 64, 7 otherwise |
 
 Field layouts of `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA` are in the header comment.
 
-The board acknowledges each command. The host waits the call's `control_timeout_ms` (no default; every call that sends a configuration frame takes one) and sends the same frame up to three times. NAK codes: `PARAM`, `OVERFLOW`, `STATE`, `DESCRIPTOR`, `UNSUPPORTED`, `BUSY`; the host maps them to `MIMHID_ERR_*`.
+The board acknowledges each command. The host waits the call's `control_timeout_ms` (no default; every call that sends a configuration frame takes one) and sends the same frame, with the same sequence number, up to three times. The board keeps the answer to the last command it ran: a command arriving again with that sequence number and type is answered again and not run twice (a `COMMIT` does not re-enumerate, a `RESET` drops nothing more), and an answer that was only late still answers the host. A `PING` makes the board forget it, since a new host starts its numbers anew. NAK codes: `PARAM`, `OVERFLOW`, `STATE`, `DESCRIPTOR`, `UNSUPPORTED`, `BUSY`; the host maps them to `MIMHID_ERR_*`.
 
 ### Applying a configuration
 
@@ -106,7 +108,7 @@ The host never trusts a rate it has not seen work, because a USB serial adapter 
 | `SET_IDLE` | interface, idle rate |
 | `CONTROL_SETUP` | token, flags, the 8 setup bytes (see [Control transfers](#control-transfers)) |
 | `CONTROL_DATA` | token, the data stage of a host-to-device transfer |
-| `REPORT_LOST` | interface, count (u16): reports dropped because the interface's queue was full; sent at most every 20 ms |
+| `REPORT_LOST` | interface, count (u16, at most 65535): reports dropped because the interface's queue was full, since the last such event. Only after `LOSS_CONFIG` enabled it, at most once per its interval |
 
 The host maps the interface to the node and delivers `mimhid_event` on its reader thread.
 

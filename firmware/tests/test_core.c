@@ -206,6 +206,22 @@ static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
     return t;
 }
 
+// The dropped reports the board has reported so far in g_out.
+static int lost_reported(void) {
+    size_t pos = 0;
+    uint8_t p[16];
+    uint16_t n = 0;
+    uint8_t t;
+    int lost = 0;
+    while ((t = next_out(&pos, p, &n)) != 0) {
+        if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_REPORT_LOST) {
+            assert(n == 4 && p[1] == 0);
+            lost += p[2] | (p[3] << 8);
+        }
+    }
+    return lost;
+}
+
 // Result of the last command: 1 = ACK, 0 = NAK (code in g_nak_code), -1 = no reply.
 static int g_nak_code;
 
@@ -417,26 +433,86 @@ static void test_reports(void) {
     }
     pump();
     assert(g_nsent == 0);
-    // the host is told how many were dropped: 30 sent, 15 fit
+    // loss reporting is off until asked: nothing is said about the 15 that did not fit
     g_now += 25;
     pump();
-    {
-        size_t pos = 0;
-        uint8_t p[16];
-        uint16_t n = 0;
-        uint8_t t;
-        int lost = 0;
-        while ((t = next_out(&pos, p, &n)) != 0) {
-            if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_REPORT_LOST) {
-                assert(n == 4 && p[1] == 0);
-                lost += p[2] | (p[3] << 8);
-            }
-        }
-        assert(lost == 15);
-    }
+    assert(lost_reported() == 0);
     g_busy[0] = false;
     for (int i = 0; i < 6; i++) pump();
     assert(g_nsent == 15 && g_sent[0].data[1] == 0 && g_sent[14].data[1] == 14);
+
+    // LOSS_CONFIG checks its payload: enabled is 0 or 1, and the interval is 0 while disabled
+    {
+        const uint8_t bad_flag[3] = {2, 0, 0};
+        expect_nak(command(MIMHID_T_LOSS_CONFIG, bad_flag, 3), MIMHID_NAK_PARAM);
+        const uint8_t off_with_interval[3] = {0, 5, 0};
+        expect_nak(command(MIMHID_T_LOSS_CONFIG, off_with_interval, 3), MIMHID_NAK_PARAM);
+        const uint8_t short_payload[2] = {1, 0};
+        expect_nak(command(MIMHID_T_LOSS_CONFIG, short_payload, 2), MIMHID_NAK_PARAM);
+    }
+
+    // enabled with a 50 ms interval: drops are gathered and reported once per interval
+    reset_io();
+    {
+        const uint8_t on[3] = {1, 50, 0};
+        assert(command(MIMHID_T_LOSS_CONFIG, on, 3) == 1);
+    }
+    reset_io();
+    g_busy[0] = true;
+    for (int i = 0; i < 20; i++) {
+        uint8_t r[2] = {1, (uint8_t)i};
+        report(0, r, 2);
+    }
+    pump();
+    assert(lost_reported() == 5); // the first report after enabling goes out at once
+    g_out_len = 0;
+    for (int i = 0; i < 3; i++) {
+        uint8_t r[2] = {1, 0};
+        report(0, r, 2);
+    }
+    g_now += 10;
+    pump();
+    assert(lost_reported() == 0); // still inside the interval
+    g_now += 45;
+    pump();
+    assert(lost_reported() == 3);
+
+    // disabled again: silent
+    {
+        const uint8_t off[3] = {0, 0, 0};
+        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+    }
+    g_out_len = 0;
+    report(0, (const uint8_t[]){1, 0}, 2);
+    g_now += 100;
+    pump();
+    assert(lost_reported() == 0);
+
+    // a command sent again with the same sequence number is answered again, not run twice: the
+    // second payload (off) is not applied, so a drop is still reported
+    {
+        const uint8_t on[3] = {1, 0, 0};
+        const uint8_t off[3] = {0, 0, 0};
+        assert(command(MIMHID_T_LOSS_CONFIG, on, 3) == 1);
+        g_seq--;
+        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+        g_out_len = 0;
+        report(0, (const uint8_t[]){1, 0}, 2);
+        pump();
+        assert(lost_reported() == 1);
+        // a PING is a new host, whose numbers start anew: the same number runs the command
+        const uint8_t v = MIMHID_PROTO_VERSION;
+        put_frame(MIMHID_T_PING, &v, 1);
+        pump();
+        g_seq--;
+        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+        g_out_len = 0;
+        report(0, (const uint8_t[]){1, 0}, 2);
+        g_now += 1;
+        pump();
+        assert(lost_reported() == 0);
+    }
+    g_busy[0] = false;
 
     // RESET drops what is queued
     reset_io();

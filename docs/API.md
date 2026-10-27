@@ -42,7 +42,7 @@ No wait has a default and the Device keeps none: every call that can wait takes 
 
 | Wait | Meaning | Taken by |
 |---|---|---|
-| control | each configuration frame waits this long for the board's ACK or NAK (a frame is sent up to three times) | `mimhid_device_disconnect`, `mimhid_device_remote_wakeup`, `mimhid_device_set_control_routing`, `mimhid_node_set_feature_response`, and `control_timeout_ms` of `mimhid_commit_timeouts` and `mimhid_device_close` |
+| control | each configuration frame waits this long for the board's ACK or NAK (a frame is sent up to three times) | `mimhid_device_disconnect`, `mimhid_device_remote_wakeup`, `mimhid_device_set_control_routing`, `mimhid_device_set_loss_reporting`, `mimhid_node_set_feature_response`, `mimhid_node_set_queue_depth`, and `control_timeout_ms` of `mimhid_commit_timeouts` and `mimhid_device_close` |
 | reconnect | the board's re-enumeration after a commit | `reconnect_timeout_ms` of `mimhid_commit_timeouts` |
 | send | a serial write may make no progress this long before `MIMHID_ERR_TIMEOUT`, with nothing sent | `mimhid_node_submit`, `mimhid_raw_submit`, `mimhid_report_send`, `mimhid_device_control_reply` |
 
@@ -103,6 +103,17 @@ A USB device has one VID/PID, so those belong to the Device, not to a profile.
 `CONTROL_SETUP` and `CONTROL_DATA` events (with `control_token` and `control_flags`) come from [control transfers](PROTOCOL.md#control-transfers), which are off until `mimhid_device_set_control_routing` turns them on. `mimhid_device_control_reply` may be called from the event sink (it only writes a frame), which is the way to answer inside a short rule time.
 
 `mimhid_node_set_feature_response` sets the answer to a Feature read of a Report ID. A touch Spec with `enable_contact_count_maximum_feature_declaration` is answered automatically. `mimhid_device_remote_wakeup(device, control_timeout_ms)` wakes a suspended target when `remote_wakeup` was enabled.
+
+## Report queue and lost reports
+
+Reports wait on the board, in one queue per USB interface, until the target polls them; a report that finds the queue full is dropped. Both functions change nothing until they are called, and with neither the board sends nothing extra.
+
+| Call | What it does |
+|---|---|
+| `mimhid_node_set_queue_depth(node, depth, control_timeout_ms)` | How many reports may wait (1 up to what the board's queue holds, `MIMHID_ERR_OVERFLOW` beyond). A short queue bounds how late a report can be: with depth 1 a report waits at most one poll interval behind the one being sent. The depth stays with the node across commits; nodes sharing an interface take the least depth any of them set. |
+| `mimhid_device_set_loss_reporting(device, enabled, interval_ms, control_timeout_ms)` | With `enabled` 1 the board counts the reports it drops and sends `MIMHID_EVENT_REPORT_LOST` (`value`: the count, `node_id`: a node of the interface) at most once per `interval_ms` (0 to `MIMHID_LOSS_MAX_INTERVAL_MS`; 0 reports as soon as it can). With `enabled` 0 (and `interval_ms` 0) it counts nothing and sends nothing. `mimhid_device_close` turns it off. |
+
+A dropped report may be a key-up or a button release; a program that enabled the event sends its current state again when it comes. Both need firmware 1.5.0 or later; an older board does not answer (`MIMHID_ERR_TIMEOUT`).
 
 ## Control transfers of the target
 

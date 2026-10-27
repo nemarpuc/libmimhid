@@ -429,6 +429,95 @@ void test_reports_and_neutral() {
     mimhid_spec_release(mouse);
 }
 
+// Presses and releases a key in turn, count times, one report each (an unchanged state would
+// send nothing).
+void queue_key_reports(mimhid_node* node, int count) {
+    static bool down = false;
+    for (int i = 0; i < count; ++i) {
+        down = !down;
+        MIMHID_CHECK(mimhid_keyboard_key(node, 0x04, down ? 1 : 0) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_submit_blocking(node, kSendMs) == MIMHID_OK);
+    }
+}
+
+std::uint32_t lost_reports(std::uint16_t node_id, int timeout_ms) {
+    std::uint32_t lost = 0;
+    EventRecord e{};
+    while (wait_event(MIMHID_EVENT_REPORT_LOST, &e, timeout_ms)) {
+        MIMHID_CHECK(e.node_id == node_id);
+        lost += e.value;
+    }
+    return lost;
+}
+
+void test_queue_depth_and_loss() {
+    mimhid_device_config o = base_options();
+    mimhid_device* device = open_device(o);
+    if (device == nullptr)
+        return;
+    mimhid_spec* kbd = keyboard_spec(1);
+    mimhid_node* nk = open_node(device, kbd);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    const std::uint16_t id = mimhid_node_id(nk);
+    {
+        std::lock_guard<std::mutex> lock(g_event_mutex);
+        g_events.clear();
+    }
+
+    // Arguments.
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nullptr, 1, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 0, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 256, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 1, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 255, kControlMs) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(nullptr, 1, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 20, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 2, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, MIMHID_LOSS_MAX_INTERVAL_MS + 1, kControlMs) ==
+                 MIMHID_ERR_PARAM);
+
+    // Off by default: a full queue drops silently, and nothing extra crosses the link.
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 2, kControlMs) == MIMHID_OK);
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 5);
+    MIMHID_CHECK(lost_reports(id, 100) == 0);
+    fake_board_hold_reports(0);
+    fake_report_t r{};
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    // Asked for: the two that fit are sent, the three others are reported.
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 0, kControlMs) == MIMHID_OK);
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 5);
+    MIMHID_CHECK(lost_reports(id, 200) == 3);
+    fake_board_hold_reports(0);
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    // The depth stays with the node when another node's commit rebuilds the interfaces.
+    mimhid_spec* mouse = mouse_spec(2);
+    mimhid_node* nm = open_node(device, mouse);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    {
+        std::lock_guard<std::mutex> lock(g_event_mutex);
+        g_events.clear();
+    }
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 4);
+    MIMHID_CHECK(lost_reports(mimhid_node_id(nk), 200) == 2);
+    fake_board_hold_reports(0);
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 0, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    mimhid_spec_release(kbd);
+    mimhid_spec_release(mouse);
+    (void)nm;
+}
+
 void test_touch_feature() {
     mimhid_device* device = open_device(base_options());
     if (device == nullptr)
@@ -1238,6 +1327,7 @@ int main() {
     test_no_names();
     test_open_identity_and_descriptors();
     test_reports_and_neutral();
+    test_queue_depth_and_loss();
     test_touch_feature();
     test_batch_and_packing();
     test_limits();

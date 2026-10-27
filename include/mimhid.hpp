@@ -88,6 +88,11 @@ inline void discovery_destroy(mimhid_discovery* discovery) noexcept {
     return mimhid_device_set_control_routing(device, report_all, rules, rule_count,
                                              control_timeout_ms);
 }
+[[nodiscard]] inline mimhid_result device_set_loss_reporting(mimhid_device* device, uint32_t enabled,
+                                                             uint32_t interval_ms,
+                                                             uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_set_loss_reporting(device, enabled, interval_ms, control_timeout_ms);
+}
 [[nodiscard]] inline mimhid_result device_control_reply(mimhid_device* device, uint32_t token,
                                                         mimhid_control_action action,
                                                         const uint8_t* data, size_t length,
@@ -99,6 +104,10 @@ inline void discovery_destroy(mimhid_discovery* discovery) noexcept {
                                                              size_t length,
                                                              uint32_t control_timeout_ms) noexcept {
     return mimhid_node_set_feature_response(node, report_id, data, length, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_set_queue_depth(mimhid_node* node, uint32_t depth,
+                                                        uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_set_queue_depth(node, depth, control_timeout_ms);
 }
 [[nodiscard]] inline mimhid_result device_close(mimhid_device* device,
                                                   uint32_t control_timeout_ms,
