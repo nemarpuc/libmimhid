@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
+// The first board found presents a keyboard and a mouse, types "a" and clicks once.
 #include <mimhid.h>
 
 #include <stdio.h>
@@ -9,17 +10,8 @@
 #define sleep_ms(ms) Sleep(ms)
 #else
 #include <unistd.h>
-#define sleep_ms(ms) usleep((ms) * 1000)
+#define sleep_ms(ms) usleep((ms)*1000)
 #endif
-
-// The waits are this program's choice; the library has no defaults.
-#define CONTROL_TIMEOUT_MS 500
-#define SEND_TIMEOUT_MS 500
-#define RECONNECT_TIMEOUT_MS 3000
-#define DRAIN_TIMEOUT_MS 1000
-
-static const mimhid_commit_timeouts commit_timeouts = {sizeof(mimhid_commit_timeouts), 0,
-                                                       CONTROL_TIMEOUT_MS, RECONNECT_TIMEOUT_MS};
 
 static int fail(const char* what, mimhid_result r) {
     fprintf(stderr, "%s: %s (%s)\n", what, mimhid_result_name(r), mimhid_last_error()->reason);
@@ -37,30 +29,11 @@ int main(void) {
 
     mimhid_device_config config;
     mimhid_device_config_init(&config);
-    config.usb_device.vendor_id = 0x046D;
-    config.usb_device.product_id = 0xC52B;
-    config.usb_device.manufacturer = "Example";
+    // pid.codes test IDs, for testing in-house only: a device you hand out needs IDs of its own.
+    config.usb_device.vendor_id = 0x1209;
+    config.usb_device.product_id = 0x0001;
     config.usb_device.product = "Keyboard and Mouse";
-    config.usb_device.serial_from_chip_id = 1;
-    // The rate the search measured.
     config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
-    config.transport.handshake_timeout_ms = 50;
-    config.transport.maximum_report_bytes = 64;
-    config.transport.log_level = MIMHID_LOG_DISABLED;
-    config.usb_device.language_id = 0x0409;
-    config.usb_device.bcd_usb = 0x0200;
-    config.usb_device.ep0_max_packet_size = 64;
-    config.usb_device.bcd_device = 0x0100;
-    config.usb_config.configuration_value = 1;
-    config.usb_config.bm_attributes = 0x80;
-    config.usb_config.bmax_power = 50;
-    // Limits of the target's HID parser; choose the values of the system you attach to.
-    config.transport.linux_descriptor_policy_bytes = 4096;
-    config.transport.linux_hid_fields_per_report_policy = 256;
-    config.transport.linux_hid_global_stack_depth_policy = 4;
-    config.transport.linux_hid_usages_policy = 1024;
-    config.transport.linux_hid_report_data_policy_bits = 8192;
-    config.transport.linux_hid_report_size_policy_bits = 32;
 
     mimhid_device* device = NULL;
     r = mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &config, &device);
@@ -68,69 +41,50 @@ int main(void) {
     if (r != MIMHID_OK)
         return fail("device_open", r);
 
-    mimhid_keyboard_options keyboard_options = {0};
-    keyboard_options.struct_size = sizeof(keyboard_options);
-    keyboard_options.report_id.enabled = 1;
-    keyboard_options.report_id.value = 1;
-    keyboard_options.usage_minimum = 0x04;
-    keyboard_options.usage_maximum = 0x65;
-    mimhid_mouse_options mouse_options = {0};
-    mouse_options.struct_size = sizeof(mouse_options);
-    mouse_options.report_id.enabled = 1;
-    mouse_options.report_id.value = 2;
-    mouse_options.button_count = 3;
-    mouse_options.x.logical_minimum = -127;
-    mouse_options.x.logical_maximum = 127;
-    mouse_options.x.bit_width = 8;
-    mouse_options.y = mouse_options.x;
-
+    mimhid_keyboard_options keyboard_options;
+    mimhid_keyboard_options_init(&keyboard_options);
+    mimhid_mouse_options mouse_options;
+    mimhid_mouse_options_init(&mouse_options);
     mimhid_spec* keyboard_spec = NULL;
     mimhid_spec* mouse_spec = NULL;
     if ((r = mimhid_spec_create_keyboard(&keyboard_options, &keyboard_spec)) != MIMHID_OK ||
         (r = mimhid_spec_create_mouse(&mouse_options, &mouse_spec)) != MIMHID_OK)
         return fail("spec_create", r);
 
-    // One batch: the board re-enumerates once for both nodes.
-    mimhid_node_config node_config;
-    mimhid_node_config_init(&node_config);
-    node_config.iface.number = 0;
-    node_config.iface.class_code = 3;
-    node_config.iface.bcd_hid = 0x0111;
-    node_config.ep_in.address = 0x81;
-    node_config.ep_in.poll_interval_ms = 1;
-    node_config.ep_in.max_packet_size = 64;
+    // One interface each, opened in one batch so the board enumerates once.
+    mimhid_commit_timeouts timeouts;
+    mimhid_commit_timeouts_init(&timeouts);
+    mimhid_node_config keyboard_config;
+    mimhid_node_config_init(&keyboard_config, 0);
+    mimhid_node_config mouse_config;
+    mimhid_node_config_init(&mouse_config, 1);
     mimhid_node* keyboard = NULL;
     mimhid_node* mouse = NULL;
     mimhid_device_batch_begin(device);
-    r = mimhid_node_open(device, keyboard_spec, &node_config, &commit_timeouts, &keyboard);
-    if (r == MIMHID_OK) {
-        node_config.iface.number = 1;
-        node_config.ep_in.address = 0x82;
-        r = mimhid_node_open(device, mouse_spec, &node_config, &commit_timeouts, &mouse);
-    }
-    if (r != MIMHID_OK)
+    if ((r = mimhid_node_open(device, keyboard_spec, &keyboard_config, &timeouts, &keyboard)) !=
+            MIMHID_OK ||
+        (r = mimhid_node_open(device, mouse_spec, &mouse_config, &timeouts, &mouse)) != MIMHID_OK)
         return fail("node_open", r);
-    if ((r = mimhid_device_batch_end(device, &commit_timeouts)) != MIMHID_OK ||
+    mimhid_spec_release(keyboard_spec); // each Node keeps its own reference
+    mimhid_spec_release(mouse_spec);
+    if ((r = mimhid_device_batch_end(device, &timeouts)) != MIMHID_OK ||
         (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);
 
-    mimhid_keyboard_key(keyboard, 0x04, 1);
-    mimhid_node_submit(keyboard, SEND_TIMEOUT_MS);
+    mimhid_keyboard_key(keyboard, 0x04, 1); // Keyboard a
+    mimhid_node_submit(keyboard, MIMHID_SEND_TIMEOUT_MS);
     sleep_ms(50);
     mimhid_keyboard_key(keyboard, 0x04, 0);
-    mimhid_node_submit(keyboard, SEND_TIMEOUT_MS);
+    mimhid_node_submit(keyboard, MIMHID_SEND_TIMEOUT_MS);
 
     mimhid_mouse_move(mouse, 50, 50);
     mimhid_mouse_button(mouse, 1, 1);
-    mimhid_node_submit(mouse, SEND_TIMEOUT_MS);
+    mimhid_node_submit(mouse, MIMHID_SEND_TIMEOUT_MS);
     sleep_ms(30);
     mimhid_mouse_button(mouse, 1, 0);
-    mimhid_node_submit(mouse, SEND_TIMEOUT_MS);
+    mimhid_node_submit(mouse, MIMHID_SEND_TIMEOUT_MS);
 
-    mimhid_node_close(mouse, &commit_timeouts, DRAIN_TIMEOUT_MS);
-    mimhid_node_close(keyboard, &commit_timeouts, DRAIN_TIMEOUT_MS);
-    mimhid_device_close(device, CONTROL_TIMEOUT_MS, DRAIN_TIMEOUT_MS);
-    mimhid_spec_release(mouse_spec);
-    mimhid_spec_release(keyboard_spec);
-    return 0;
+    // Closing the Device closes its Nodes too.
+    r = mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+    return r == MIMHID_OK ? 0 : fail("device_close", r);
 }

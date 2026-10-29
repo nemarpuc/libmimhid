@@ -67,6 +67,34 @@ jobs:
       - name: Run the end-to-end tests
         run: ctest --test-dir build_e2e -R e2e --output-on-failure
 
+  sanitizers:
+    name: Sanitizers (${{ matrix.sanitizers }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizers: [ 'address,undefined', thread ]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Fetch TinyUSB
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Build every test with the sanitizers
+        run: |
+          set -euo pipefail
+          cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_WERROR=ON \
+            -DMIMHID_SANITIZERS=${{ matrix.sanitizers }} -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_san --parallel
+
+      - name: Run the tests
+        env:
+          TSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/e2e/tsan.supp halt_on_error=1
+        run: ctest --test-dir build_san --output-on-failure
+
   release-tools:
     name: Release tooling
     runs-on: ubuntu-24.04
@@ -76,10 +104,18 @@ jobs:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Test the tools and check the header against the export list
+      - name: Check formatting
+        run: |
+          set -euo pipefail
+          pipx install clang-format==14.0.6
+          git ls-files -z -- ':!firmware' '*.c' '*.cpp' '*.h' '*.hpp' |
+            xargs -0 --no-run-if-empty clang-format --dry-run --Werror
+
+      - name: Test the tools and check the header against its contracts and the export list
         run: |
           set -euo pipefail
           python3 tools/check_license_headers.py
+          python3 tools/check_public_contracts.py
           python3 tests/release/test_release_tools.py
           python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
 

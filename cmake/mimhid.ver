@@ -1,4 +1,4 @@
-MIMHID_0 {
+MIMHID_2.0 {
   global:
     mimhid_*;
   local:

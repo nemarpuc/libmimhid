@@ -30,7 +30,7 @@ Battery Strength is a second Input report that profiles with `enable_battery` ca
 1. The library does not shape input. Coordinates, pressure, tilt, and timing are sent as given.
 2. There are no timers: no key repeat, no debounce, no automatic release (closing a node sends the neutral report).
 3. Mutating calls change state; `mimhid_node_submit` sends. A touch frame with more contacts than fit in one report takes several reports.
-4. The target's HID parser limits are policy: `mimhid_device_config` requires the `linux_*_policy` values to be nonzero, and `node_open` rejects a descriptor that exceeds them.
+4. The target's HID parser limits are the caller's: `mimhid_device_config.transport.linux_hid` requires nonzero values (`mimhid_device_config_init` fills in those of [LIMITS.md](LIMITS.md#linux-hid-parser)), and `mimhid_node_open` refuses a descriptor that exceeds them with `MIMHID_ERR_OVERFLOW`.
 5. Several profiles can run at once. Each is one node with an explicit `iface.number`; see [LIMITS.md](LIMITS.md) for how many a board holds.
 
 ## Target behavior

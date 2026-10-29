@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 1.5.0 LANGUAGES C CXX
+project(libmimhid VERSION 2.0.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -15,6 +15,17 @@ option(MIMHID_BUILD_SHARED "Build the shared library" ON)
 option(MIMHID_BUILD_STATIC "Build the static library" ON)
 option(MIMHID_BUILD_TESTS "Build verification test suite" ON)
 option(MIMHID_BUILD_EXAMPLES "Build example programs" ON)
+set(MIMHID_SANITIZERS "" CACHE STRING
+    "Sanitizers for every target, as -fsanitize takes them: address,undefined or thread")
+
+if(MIMHID_SANITIZERS)
+    if(MSVC)
+        message(FATAL_ERROR "MIMHID_SANITIZERS needs GCC or Clang")
+    endif()
+    add_compile_options(-fsanitize=${MIMHID_SANITIZERS} -fno-sanitize-recover=all
+                        -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${MIMHID_SANITIZERS})
+endif()
 
 if(WIN32)
     # Put the DLL next to the test and example executables so they run without PATH changes.
@@ -106,7 +117,7 @@ if(MIMHID_BUILD_SHARED)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_link_libraries(mimhid PRIVATE Threads::Threads)
-    set_target_properties(mimhid PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 0)
+    set_target_properties(mimhid PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 2)
     if(WIN32)
         target_link_libraries(mimhid PRIVATE setupapi advapi32)
         target_compile_definitions(mimhid INTERFACE MIMHID_SHARED=1)
@@ -121,7 +132,10 @@ if(MIMHID_BUILD_SHARED)
     else()
         # The ABI is plain C: the C++ runtime stays private to the shared object.
         set(MIMHID_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mimhid.ver")
-        target_link_options(mimhid PRIVATE -static-libstdc++ -static-libgcc
+        if(NOT MIMHID_SANITIZERS)
+            target_link_options(mimhid PRIVATE -static-libstdc++ -static-libgcc)
+        endif()
+        target_link_options(mimhid PRIVATE
             "-Wl,--exclude-libs,ALL" "-Wl,--version-script=${MIMHID_VERSION_SCRIPT}")
         set_property(TARGET mimhid APPEND PROPERTY LINK_DEPENDS "${MIMHID_VERSION_SCRIPT}")
     endif()

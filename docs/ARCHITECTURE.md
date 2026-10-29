@@ -41,7 +41,7 @@ The host builds every report. The firmware does not know what a keyboard or a to
 
 - `Spec` is immutable and reference counted; `Node` holds the mutable state (pressed keys, contact slots, pending motion) and the USB interface settings.
 - `mimhid_node_open` and `mimhid_node_open_raw` put nodes onto explicit interface numbers (`iface.number` in `mimhid_node_config`).
-- Applying the configuration (`mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_batch_end`, `mimhid_device_commit`) sends `DEVICE_CONFIG`, every `NODE_BEGIN` / `NODE_DATA`, the Feature answers, and `COMMIT`, then waits for the board's ACK (sent after reconnect). While this runs, input calls return `MIMHID_ERR_BUSY`.
+- Applying the configuration (`mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_batch_end`, `mimhid_device_commit`) sends `DEVICE_CONFIG`, every `NODE_BEGIN` / `NODE_DATA`, the Feature answers, and `COMMIT`, then waits for the board's ACK (sent after reconnect). While this runs, input calls return `MIMHID_ERR_BUSY`. `mimhid_device_set_usb_identity` and `mimhid_device_connect` commit the same way.
 - `mimhid_device_connect` and `mimhid_device_disconnect` command physical D+=3.3V attachment or D+=0V stealth disconnection.
 - A reader thread parses frames from the board, answers nothing itself, completes pending commands, tracks the mounted state, and delivers events to `event_sink`.
 - Reports are written from the caller's thread, one `write` each, under a transmit lock. No allocation happens on this path.

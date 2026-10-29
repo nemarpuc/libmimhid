@@ -1,4 +1,4 @@
-# Wire protocol (version 5)
+# Wire protocol (version 6)
 
 The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which both the host library and the firmware include. This page describes how they are used. The link is UART, 8N1. A board starts at 115,200 baud; the host then agrees a faster rate with it (see [Line rate](#line-rate)).
 
@@ -26,7 +26,7 @@ A report payload is at most the board's `max_report_bytes`. Other payloads are a
 | Type | Name | Payload after the sequence number |
 |---|---|---|
 | `0x10` | `DEVICE_CONFIG` | USB identity and power; starts a new staged configuration and clears every staged node |
-| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length, poll interval, IN and OUT endpoint sizes (two bytes each), `bcdHID`, country, boot protocol, interface string. A repeated begin for a node that has not changed is acknowledged again. |
+| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length (two bytes), interface class, subclass and protocol, `bcdHID` (two bytes), country code, then for the IN and the OUT endpoint its address, packet size (two bytes) and poll interval, the idle rate, flags, and the interface string. A repeated begin for a node that has not changed is acknowledged again. |
 | `0x12` | `NODE_DATA` | node id, offset, up to 240 descriptor bytes |
 | `0x13` | `COMMIT` | apply the staged configuration. Reconnect delay in payload. With payload byte `1`: detach from the bus and forget the configuration |
 | `0x14` | `FEATURE` | node id, Report ID, up to `max_feature_bytes` returned for a Feature `GET_REPORT`; takes effect at once, also on a running configuration |

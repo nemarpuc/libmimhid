@@ -6,8 +6,8 @@
 #include <stdint.h>
 
 // Firmware version reported in the Pong frame; keep in step with the library version.
-#define FW_VERSION_MAJOR 1
-#define FW_VERSION_MINOR 5
+#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MINOR 0
 #define FW_VERSION_PATCH 0
 
 // Number of USB HID interfaces (one IN endpoint each) the MCU can provide. A port with fewer

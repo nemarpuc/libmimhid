@@ -6,6 +6,7 @@
  */
 
 #include "api/internal.hpp"
+#include "mimhid_proto.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,8 @@ void set_error(const mimhid_result result, const char* field, const char* reason
 void clear_error() noexcept {
     g_error = mimhid_error_detail{MIMHID_OK, nullptr, "No error.", 0, 0, 0, 0, 0, 0};
 }
+
+void restore_error(const mimhid_error_detail& detail) noexcept { g_error = detail; }
 
 mimhid_result finish_result(const mimhid_result result, const char* field, const char* reason,
                             const std::int32_t transport_status, const std::int32_t frame_type,
@@ -100,6 +103,49 @@ void log_message(const mimhid_device* device, const mimhid_log_level level,
 #endif
 }
 
+const char* frame_type_name(const std::int32_t frame_type) noexcept {
+    if (frame_type >= MIMHID_T_REPORT_BASE && frame_type <= MIMHID_T_REPORT_LAST)
+        return "REPORT";
+    switch (frame_type) {
+    case MIMHID_T_PING:
+        return "PING";
+    case MIMHID_T_DEVICE_CONFIG:
+        return "DEVICE_CONFIG";
+    case MIMHID_T_NODE_BEGIN:
+        return "NODE_BEGIN";
+    case MIMHID_T_NODE_DATA:
+        return "NODE_DATA";
+    case MIMHID_T_COMMIT:
+        return "COMMIT";
+    case MIMHID_T_FEATURE:
+        return "FEATURE";
+    case MIMHID_T_RESET:
+        return "RESET";
+    case MIMHID_T_REMOTE_WAKEUP:
+        return "REMOTE_WAKEUP";
+    case MIMHID_T_SET_BAUD:
+        return "SET_BAUD";
+    case MIMHID_T_CONTROL_CONFIG:
+        return "CONTROL_CONFIG";
+    case MIMHID_T_CONTROL_REPLY:
+        return "CONTROL_REPLY";
+    case MIMHID_T_LOSS_CONFIG:
+        return "LOSS_CONFIG";
+    case MIMHID_T_QUEUE_DEPTH:
+        return "QUEUE_DEPTH";
+    case MIMHID_T_PONG:
+        return "PONG";
+    case MIMHID_T_ACK:
+        return "ACK";
+    case MIMHID_T_NAK:
+        return "NAK";
+    case MIMHID_T_EVENT:
+        return "EVENT";
+    default:
+        return nullptr;
+    }
+}
+
 bool valid_boolean(const std::uint32_t value) noexcept { return value == 0U || value == 1U; }
 
 bool valid_struct(const void* value, const std::uint32_t actual_size,
@@ -141,6 +187,21 @@ const char* MIMHID_CALL mimhid_result_name(const mimhid_result result) try {
     mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "result.name",
                               "An internal C++ operation failed inside the public C ABI call.");
     return "MIMHID_ERR_INTERNAL";
+}
+
+const char* MIMHID_CALL mimhid_frame_type_name(const std::int32_t frame_type) try {
+    const char* name = mimhid::detail::frame_type_name(frame_type);
+    if (name == nullptr) {
+        mimhid::detail::set_error(MIMHID_ERR_PARAM, "frame_type",
+                                  "The value is not a frame type of the serial protocol.");
+        return "UNKNOWN";
+    }
+    mimhid::detail::clear_error();
+    return name;
+} catch (...) {
+    mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "frame_type.name",
+                              "An internal C++ operation failed inside the public C ABI call.");
+    return "UNKNOWN";
 }
 
 std::uint32_t MIMHID_CALL mimhid_version(void) try {

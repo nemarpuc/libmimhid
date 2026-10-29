@@ -92,11 +92,11 @@ build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 
 | Symptom | Likely cause |
 | :--- | :--- |
-| `No mimhid device discovered.` | TX and RX swapped, no common ground, board not flashed, or no access to the port (Linux: udev rules and group; Windows: bridge driver). |
+| `No mimhid board found.` | TX and RX swapped, no common ground, board not flashed, or no access to the port (Linux: udev rules and group; Windows: bridge driver). |
 | `MIMHID_ERR_ACCESS` | The port cannot be opened: no permission, wrong name, or another program holds it. |
 | `MIMHID_ERR_TIMEOUT` from `mimhid_device_wait_ready` | The target did not enumerate the board: check the USB cable, OTG adapter, and that the target supplies USB host mode. |
-| `MIMHID_ERR_BUSY` on an input call | The board is re-enumerating after a node was opened or closed, or a batch is open. Wait with `mimhid_device_wait_ready`. |
-| `MIMHID_ERR_PROTOCOL` on open | The board runs firmware of another protocol version (0.1 and 0.2 firmware speak version 1). Flash the firmware that matches the library. |
+| `MIMHID_ERR_BUSY` on an input call | The board is enumerating again after a node was opened or closed (wait with `mimhid_device_wait_ready`), the node was opened in a batch that has not ended, or the node's last report is still being sent. |
+| `MIMHID_ERR_PROTOCOL` on open | The board runs firmware of another protocol version (the library speaks `MIMHID_PROTOCOL_VERSION`, the board reports its own in `mimhid_device_info.protocol_version`). Flash the firmware that matches the library. |
 | `MIMHID_ERR_OVERFLOW` on `mimhid_node_open` | The board has no interface, node, or descriptor space left for this node (see [LIMITS.md](LIMITS.md)). |
 | A held control transfer never completes (the target retries or gives up) | The rule's `timeout_ms` is longer than the target waits, or nothing calls `mimhid_device_control_reply`. Keep the time short and answer from the event sink. |
 | `MIMHID_ERR_UNSET_FIELD` from `mimhid_device_set_control_routing` | A rule has `timeout_ms` or `when_late` at zero. Both are required. |

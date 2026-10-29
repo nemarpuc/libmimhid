@@ -4,7 +4,7 @@
 #define MIMHID_PROTO_H
 
 /*
- * Serial wire protocol v5, shared by the host library and the firmware.
+ * Serial wire protocol, version MIMHID_PROTO_VERSION, shared by the host library and the firmware.
  *
  *   frame  = SYNC TYPE LEN payload[LEN] XOR
  *   LEN    = one byte when the payload is shorter than 128 bytes, else two: (0x80 | LEN & 0x7F)
@@ -21,65 +21,72 @@
  */
 
 #define MIMHID_PROTO_VERSION 6
-#define MIMHID_SYNC          0xA5
+#define MIMHID_SYNC 0xA5
 
 /* Host to board. */
-#define MIMHID_T_PING          0x01 /* payload: host protocol version (no sequence number) */
+#define MIMHID_T_PING 0x01          /* payload: host protocol version (no sequence number) */
 #define MIMHID_T_DEVICE_CONFIG 0x10 /* starts a new staged configuration, clearing all nodes */
-#define MIMHID_T_NODE_BEGIN    0x11
-#define MIMHID_T_NODE_DATA     0x12
-#define MIMHID_T_COMMIT        0x13 /* apply: disconnect, rebuild descriptors, reconnect, then ACK;
-                                        payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian] */
-#define MIMHID_T_FEATURE       0x14 /* data returned for GET_REPORT of a feature report */
-#define MIMHID_T_RESET         0x15 /* drop every queued report */
+#define MIMHID_T_NODE_BEGIN 0x11
+#define MIMHID_T_NODE_DATA 0x12
+#define MIMHID_T_COMMIT                                                                            \
+    0x13                      /* apply: disconnect, rebuild descriptors, reconnect, then ACK;      \
+                                  payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian] */
+#define MIMHID_T_FEATURE 0x14 /* data returned for GET_REPORT of a feature report */
+#define MIMHID_T_RESET 0x15   /* drop every queued report */
 #define MIMHID_T_REMOTE_WAKEUP 0x16
-#define MIMHID_T_SET_BAUD      0x17 /* payload after sequence number: baud index (see below) */
-#define MIMHID_T_CONTROL_CONFIG 0x18 /* which control transfers of the target are reported or held */
-#define MIMHID_T_CONTROL_REPLY  0x19 /* the answer to a held control transfer */
-#define MIMHID_T_LOSS_CONFIG    0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
-#define MIMHID_T_QUEUE_DEPTH    0x1B /* payload after sequence number: node, reports that may wait (1..) */
-#define MIMHID_T_REPORT_BASE   0x40 /* 0x40 | node id, node id 0..15 */
-#define MIMHID_T_REPORT_LAST   0x4F
+#define MIMHID_T_SET_BAUD 0x17 /* payload after sequence number: baud index (see below) */
+#define MIMHID_T_CONTROL_CONFIG                                                                    \
+    0x18                            /* which control transfers of the target are reported or held */
+#define MIMHID_T_CONTROL_REPLY 0x19 /* the answer to a held control transfer */
+#define MIMHID_T_LOSS_CONFIG                                                                       \
+    0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
+#define MIMHID_T_QUEUE_DEPTH                                                                       \
+    0x1B /* payload after sequence number: node, reports that may wait (1..) */
+#define MIMHID_T_REPORT_BASE 0x40 /* 0x40 | node id, node id 0..15 */
+#define MIMHID_T_REPORT_LAST 0x4F
 
 /* Board to host. */
-#define MIMHID_T_PONG  0x81
-#define MIMHID_T_ACK   0x82 /* payload: seq, type */
-#define MIMHID_T_NAK   0x83 /* payload: seq, type, code */
+#define MIMHID_T_PONG 0x81
+#define MIMHID_T_ACK 0x82   /* payload: seq, type */
+#define MIMHID_T_NAK 0x83   /* payload: seq, type, code */
 #define MIMHID_T_EVENT 0x84 /* payload: kind, ... */
 
 /* Events. */
-#define MIMHID_EV_MOUNTED       1
-#define MIMHID_EV_UNMOUNTED     2
-#define MIMHID_EV_SUSPEND       3 /* data: remote wakeup enabled by the target (0/1) */
-#define MIMHID_EV_RESUME        4
-#define MIMHID_EV_SET_REPORT    5 /* data: interface, report type, report id, bytes... */
-#define MIMHID_EV_SET_PROTOCOL  6 /* data: interface, protocol (0 boot, 1 report) */
-#define MIMHID_EV_SET_IDLE      7 /* data: interface, idle rate */
+#define MIMHID_EV_MOUNTED 1
+#define MIMHID_EV_UNMOUNTED 2
+#define MIMHID_EV_SUSPEND 3 /* data: remote wakeup enabled by the target (0/1) */
+#define MIMHID_EV_RESUME 4
+#define MIMHID_EV_SET_REPORT 5    /* data: interface, report type, report id, bytes... */
+#define MIMHID_EV_SET_PROTOCOL 6  /* data: interface, protocol (0 boot, 1 report) */
+#define MIMHID_EV_SET_IDLE 7      /* data: interface, idle rate */
 #define MIMHID_EV_OUTPUT_REPORT 8 /* data: interface, length, bytes... */
 #define MIMHID_EV_CONTROL_SETUP 9 /* data: token, flags, the 8 setup bytes */
-#define MIMHID_EV_CONTROL_DATA  10 /* data: token, the data stage of a host-to-device transfer */
-#define MIMHID_EV_REPORT_LOST   11 /* data: interface, count (u16 LE): reports dropped, queue full; only after LOSS_CONFIG enabled it */
+#define MIMHID_EV_CONTROL_DATA 10 /* data: token, the data stage of a host-to-device transfer */
+#define MIMHID_EV_REPORT_LOST                                                                      \
+    11 /* data: interface, count (u16 LE): reports dropped, queue full; only after LOSS_CONFIG     \
+          enabled it */
 
 /* NAK codes. */
-#define MIMHID_NAK_PARAM      1
-#define MIMHID_NAK_OVERFLOW   2
-#define MIMHID_NAK_STATE      3
+#define MIMHID_NAK_PARAM 1
+#define MIMHID_NAK_OVERFLOW 2
+#define MIMHID_NAK_STATE 3
 #define MIMHID_NAK_DESCRIPTOR 4
 #define MIMHID_NAK_UNSUPPORTED 5
-#define MIMHID_NAK_BUSY       6
+#define MIMHID_NAK_BUSY 6
 
 /* Limits that are part of the wire format. */
-#define MIMHID_MAX_NODES        8
+#define MIMHID_MAX_NODES 8
 /* The largest payload a frame may carry on any board. A board's own limit is in its PONG, and
  * is never below MIMHID_MIN_FRAME_PAYLOAD, so that every configuration command fits. */
 #define MIMHID_PROTO_MAX_PAYLOAD 4096
 #define MIMHID_MIN_FRAME_PAYLOAD 255
-#define MIMHID_NODE_DATA_CHUNK  240
+#define MIMHID_NODE_DATA_CHUNK 240
 /* The largest USB string descriptor payload: USB 2.0 Spec section 9.6.7 defines bLength as 1 byte
  * (<= 255). A string descriptor has a 2-byte header (bLength, bDescriptorType) followed by UNICODE
- * UTF-16LE characters (2 bytes each). Total length is 2 + 2 * N <= 254 (even), so N <= 126 characters. */
-#define MIMHID_STRING_MAX       126
-#define MIMHID_CONTROL_RULES    8 /* rules a board holds at once */
+ * UTF-16LE characters (2 bytes each). Total length is 2 + 2 * N <= 254 (even), so N <= 126
+ * characters. */
+#define MIMHID_STRING_MAX 126
+#define MIMHID_CONTROL_RULES 8 /* rules a board holds at once */
 #define MIMHID_CONTROL_RULE_LEN 15
 
 /*
@@ -114,16 +121,17 @@
  * request within 500 ms, and a control transfer is allowed 5 s in all (9.2.6.1); hosts may give
  * up earlier, and a request without a data stage may be held to a shorter time still.
  */
-#define MIMHID_CONTROL_LEAVE  0 /* the board's own handling, as if the host had not been asked */
+#define MIMHID_CONTROL_LEAVE 0  /* the board's own handling, as if the host had not been asked */
 #define MIMHID_CONTROL_ANSWER 1 /* the data (device to host) or an empty status (otherwise) */
-#define MIMHID_CONTROL_STALL  2
-#define MIMHID_CONTROL_DROP   3 /* silent drop: do not stall, do not arm, keep NAKing until host aborts */
+#define MIMHID_CONTROL_STALL 2
+#define MIMHID_CONTROL_DROP                                                                        \
+    3 /* silent drop: do not stall, do not arm, keep NAKing until host aborts */
 #define MIMHID_CONTROL_TIMEOUT_MAX 4000
 
-#define MIMHID_CONTROL_F_HELD     0x01
+#define MIMHID_CONTROL_F_HELD 0x01
 #define MIMHID_CONTROL_F_TOO_LONG 0x02
-#define MIMHID_CONTROL_F_FIXED    0x04
-#define MIMHID_CONTROL_F_LOST     0x08
+#define MIMHID_CONTROL_F_FIXED 0x04
+#define MIMHID_CONTROL_F_LOST 0x08
 
 /*
  * Line rates. A board starts at the boot rate, index 0, and the host asks for another with
@@ -131,18 +139,19 @@
  * new rate only when a valid frame arrives at it within MIMHID_BAUD_CONFIRM_MS; otherwise it
  * goes back to the boot rate. A switch to the boot rate needs no confirmation.
  */
-#define MIMHID_BAUD_RATES      {115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u}
-#define MIMHID_BAUD_COUNT      9
-#define MIMHID_BOOT_BAUD       115200u
+#define MIMHID_BAUD_RATES                                                                          \
+    { 115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u }
+#define MIMHID_BAUD_COUNT 9
+#define MIMHID_BOOT_BAUD 115200u
 #define MIMHID_BAUD_CONFIRM_MS 100
 
 /* Chips, as the PONG names them. */
-#define MIMHID_CHIP_UNKNOWN  0
-#define MIMHID_CHIP_RP2040   1
-#define MIMHID_CHIP_RP2350   2
-#define MIMHID_CHIP_ESP32S3  3
+#define MIMHID_CHIP_UNKNOWN 0
+#define MIMHID_CHIP_RP2040 1
+#define MIMHID_CHIP_RP2350 2
+#define MIMHID_CHIP_ESP32S3 3
 #define MIMHID_CHIP_NRF52840 4
-#define MIMHID_CHIP_STM32F4  5
+#define MIMHID_CHIP_STM32F4 5
 
 /*
  * PONG payload (all single bytes unless noted; every two-byte value is little endian):
@@ -159,8 +168,8 @@
  * the same, so a host reads the version of a board on another protocol. A reader ignores bytes
  * past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN   27
-#define MIMHID_UNIQUE_ID_MAX  16
+#define MIMHID_PONG_MIN_LEN 27
+#define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
 
 /*

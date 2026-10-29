@@ -272,7 +272,7 @@ mimhid_result build_generated_spec(const GeneratedSpecIdentity identity,
         return validation.result;
     }
     spec->kind = identity.kind;
-        spec->descriptor = std::move(construction);
+    spec->descriptor = std::move(construction);
     spec->config = std::move(config);
     spec->report_capabilities.push_back(mimhid_report_capability{
         {spec->layout.has_report_id ? 1U : 0U, spec->layout.report_id, {0U, 0U, 0U}},
@@ -517,8 +517,8 @@ mimhid_result create_usage_control_spec(const mimhid_toggle_options* options,
         return MIMHID_ERR_PARAM;
     }
     return build_generated_spec(
-        GeneratedSpecIdentity{MIMHID_PROFILE_TOGGLE}, std::move(config),
-        battery, [=](DescriptorBuilder& builder) { return emit_usage_controls(builder, *options); },
+        GeneratedSpecIdentity{MIMHID_PROFILE_TOGGLE}, std::move(config), battery,
+        [=](DescriptorBuilder& builder) { return emit_usage_controls(builder, *options); },
         out_spec);
 }
 
@@ -731,8 +731,7 @@ static mimhid_result mimhid_spec_create_mouse_impl(const mimhid_mouse_options* o
         return MIMHID_ERR_PARAM;
     }
     return build_generated_spec(
-        GeneratedSpecIdentity{MIMHID_PROFILE_MOUSE}, config,
-        battery,
+        GeneratedSpecIdentity{MIMHID_PROFILE_MOUSE}, config, battery,
         [=](DescriptorBuilder& builder) {
             if (!builder.begin_application(mimhid::hid::usage::page_generic_desktop,
                                            mimhid::hid::usage::mouse) ||
@@ -853,9 +852,8 @@ static mimhid_result create_controller_spec(const mimhid_gamepad_options* option
             options->axes[index].usage_page == 0U || options->axes[index].usage == 0U ||
             options->axes[index].expected_linux_code == nullptr ||
             options->axes[index].expected_linux_code[0] == '\0') {
-            set_error(
-                MIMHID_ERR_UNSET_FIELD, "gamepad.axes",
-                "Every axis requires Usage, range, width, and Linux code.");
+            set_error(MIMHID_ERR_UNSET_FIELD, "gamepad.axes",
+                      "Every axis requires Usage, range, width, and Linux code.");
             return MIMHID_ERR_UNSET_FIELD;
         }
         if (!controller_axis_domain_matches_usage(options->axes[index])) {
@@ -1064,8 +1062,7 @@ static mimhid_result create_touch_spec_from_fields(
     const mimhid::detail::TouchFields& fields, const TouchFieldNames& names,
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const mimhid_profile_kind profile_kind, const std::uint16_t application_usage,
-    const BatteryRequest& battery,
-    mimhid_spec** out_spec) {
+    const BatteryRequest& battery, mimhid_spec** out_spec) {
     if (!validate_report_id(fields.report_id, names.report_id) ||
         !validate_field(fields.x, names.x) || !validate_field(fields.y, names.y) ||
         fields.x.logical_minimum > 0 || fields.x.logical_maximum < 0 ||
@@ -1497,8 +1494,7 @@ static mimhid_result create_stylus_spec(const mimhid_pen_options* options,
         return MIMHID_ERR_PARAM;
     }
     return build_generated_spec(
-        GeneratedSpecIdentity{kind},
-        config, battery,
+        GeneratedSpecIdentity{kind}, config, battery,
         [=](DescriptorBuilder& builder) {
             const std::uint16_t application = kind == MIMHID_PROFILE_PEN
                                                   ? mimhid::hid::usage::pen

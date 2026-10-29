@@ -610,14 +610,10 @@ void test_hat_domain() {
 
 void test_controller_dpad_and_extended_axes() {
     std::array<mimhid_gamepad_axis_option, 6U> axes{
-        mimhid_gamepad_axis_option{
-            MIMHID_AXIS_X, 0x01U, 0x30U, {-127, 127, 8U, {}}, 0, "ABS_X"},
-        mimhid_gamepad_axis_option{
-            MIMHID_AXIS_Y, 0x01U, 0x31U, {-127, 127, 8U, {}}, 0, "ABS_Y"},
-        mimhid_gamepad_axis_option{
-            MIMHID_AXIS_DIAL, 0x01U, 0x37U, {-127, 127, 8U, {}}, 0, "TEST"},
-        mimhid_gamepad_axis_option{
-            MIMHID_AXIS_WHEEL, 0x01U, 0x38U, {-127, 127, 8U, {}}, 0, "TEST"},
+        mimhid_gamepad_axis_option{MIMHID_AXIS_X, 0x01U, 0x30U, {-127, 127, 8U, {}}, 0, "ABS_X"},
+        mimhid_gamepad_axis_option{MIMHID_AXIS_Y, 0x01U, 0x31U, {-127, 127, 8U, {}}, 0, "ABS_Y"},
+        mimhid_gamepad_axis_option{MIMHID_AXIS_DIAL, 0x01U, 0x37U, {-127, 127, 8U, {}}, 0, "TEST"},
+        mimhid_gamepad_axis_option{MIMHID_AXIS_WHEEL, 0x01U, 0x38U, {-127, 127, 8U, {}}, 0, "TEST"},
         mimhid_gamepad_axis_option{
             MIMHID_AXIS_SIMULATION_RUDDER, 0x02U, 0xBAU, {-127, 127, 8U, {}}, 0, "TEST"},
         mimhid_gamepad_axis_option{
@@ -1409,14 +1405,8 @@ void test_raw_report_table_report_id_rules() {
 
     // The raw spec reports the table back through the manifest unchanged.
     const mimhid_raw_report report{{1U, 1U, {}}, 2U};
-    const mimhid_raw_options options{sizeof(mimhid_raw_options),
-                                     0U,
-                                     descriptor.data(),
-                                     descriptor.size(),
-                                     &report,
-                                     1U,
-                                     0U,
-                                     0U};
+    const mimhid_raw_options options{
+        sizeof(mimhid_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U};
     mimhid_spec* spec = nullptr;
     MIMHID_CHECK(mimhid_spec_create_raw(&options, &spec) == MIMHID_OK);
     if (spec != nullptr) {

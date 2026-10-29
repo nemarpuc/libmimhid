@@ -47,7 +47,8 @@ inline constexpr std::array<std::uint32_t, MIMHID_BAUD_COUNT> kBaudRates = MIMHI
 struct Frame {
     std::uint8_t type{};
     std::uint16_t length{};
-    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> payload; // not zeroed: length says what is in it
+    // Not zeroed: length says what is in it.
+    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> payload;
 };
 
 // Splits a byte stream into valid frames, skipping garbage one byte at a time.
@@ -92,7 +93,9 @@ class FrameParser final {
 
   private:
     [[nodiscard]] std::size_t size() const noexcept { return (head_ - tail_) & kMask; }
-    [[nodiscard]] std::uint8_t at(std::size_t i) const noexcept { return ring_[(tail_ + i) & kMask]; }
+    [[nodiscard]] std::uint8_t at(std::size_t i) const noexcept {
+        return ring_[(tail_ + i) & kMask];
+    }
     bool next(Frame* out) noexcept;
 
     std::array<std::uint8_t, kCapacity> ring_{};
@@ -163,7 +166,8 @@ class Handshaker final {
 struct BoardEvent {
     std::uint8_t kind{};
     std::size_t length{};
-    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> data; // not zeroed: length says what is in it
+    // Not zeroed: length says what is in it.
+    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> data;
 };
 
 class Link final {

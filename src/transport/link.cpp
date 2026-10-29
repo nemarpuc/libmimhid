@@ -49,7 +49,8 @@ bool FrameParser::next(Frame* out) noexcept {
             if (available < 4U)
                 return false;
             len_high = at(3U);
-            len = static_cast<std::size_t>(len_low & 0x7FU) | (static_cast<std::size_t>(len_high) << 7);
+            len = static_cast<std::size_t>(len_low & 0x7FU) |
+                  (static_cast<std::size_t>(len_high) << 7);
             header = 4U;
         }
         const bool board_type = type == MIMHID_T_PONG || type == MIMHID_T_ACK ||
@@ -247,7 +248,8 @@ Handshake Handshaker::try_rate(std::uint8_t index, BoardInfo* info) {
     rate_ = MIMHID_BOOT_BAUD;
     if (!port_.set_baud(MIMHID_BOOT_BAUD))
         return Handshake::io_error;
-    std::this_thread::sleep_until(switched + std::chrono::milliseconds(MIMHID_BAUD_CONFIRM_MS + 20));
+    std::this_thread::sleep_until(switched +
+                                  std::chrono::milliseconds(MIMHID_BAUD_CONFIRM_MS + 20));
     if (!ping(info) && !find(info))
         return Handshake::io_error;
     return Handshake::rate_failed;
@@ -515,9 +517,9 @@ IoStatus Link::send_report(std::uint8_t node, const std::uint8_t* report, std::s
     return port_.write_all(frame, n, stall_ms, os_error);
 }
 
-IoStatus Link::send_control_reply(std::uint8_t token, std::uint8_t action,
-                                  const std::uint8_t* data, std::size_t length,
-                                  std::uint32_t timeout_ms, std::int32_t* os_error) {
+IoStatus Link::send_control_reply(std::uint8_t token, std::uint8_t action, const std::uint8_t* data,
+                                  std::size_t length, std::uint32_t timeout_ms,
+                                  std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;
     if (length + 3U > MIMHID_PROTO_MAX_PAYLOAD)

@@ -165,9 +165,8 @@ bool emit_descriptor(const std::filesystem::path& directory, const char* name,
         reports += std::to_string(report.wire_length);
     }
     manifest_records.push_back(manifest_record{
-        name, manifest.input_supported,
-        manifest.output_supported, manifest.feature_transport_supported, manifest.descriptor_length,
-        std::move(reports)});
+        name, manifest.input_supported, manifest.output_supported,
+        manifest.feature_transport_supported, manifest.descriptor_length, std::move(reports)});
 
     const std::filesystem::path output = directory / (std::string{name} + ".bin");
     std::ofstream stream(output, std::ios::binary | std::ios::trunc);
@@ -495,9 +494,9 @@ int main(const int argc, char** argv) {
         catalog << "key\tinput\toutput\tfeature_transport\tdescriptor_"
                    "length\treports\n";
         for (const manifest_record& record : manifest_records) {
-            catalog << record.key << '\t' << record.input_supported
-                    << '\t' << record.output_supported << '\t' << record.feature_transport_supported
-                    << '\t' << record.descriptor_length << '\t' << record.reports << '\n';
+            catalog << record.key << '\t' << record.input_supported << '\t'
+                    << record.output_supported << '\t' << record.feature_transport_supported << '\t'
+                    << record.descriptor_length << '\t' << record.reports << '\n';
         }
         catalog.close();
         if (!catalog) {

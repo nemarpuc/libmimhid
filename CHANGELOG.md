@@ -3,6 +3,47 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-10-29
+
+Not run on a board: this release changes the API around the serial link and the profiles, not the wire protocol (still 6) or the firmware, whose only change is its version number; a board on 1.5.0 firmware works with this library. The changes are tested by the unit, ABI and end-to-end tests (the host library against the firmware core through a pseudo-terminal), also under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.
+
+The ABI changes so that libmimhid and libaoahid follow the same rules for waits, closing and initial values, and use the same names for the same things.
+
+### Changed (breaking)
+
+- **One ownership rule for every close and destroy.** `MIMHID_ERR_PARAM` or `MIMHID_ERR_UNSET_FIELD`: nothing was done. Any other result: the object is gone, and an error says what failed on the way out. Before, `mimhid_node_close` returned at the first failure and left the Node with the caller, so a Node whose link was lost could only be freed by closing its Device.
+  - `mimhid_node_close` sends the neutral report, takes the Node out of the configuration and commits it, even when a step fails, and returns the first failure.
+  - `mimhid_device_close` returns `MIMHID_ERR_NO_DEVICE` when the link was already gone, so the board could not be reset; it returned `MIMHID_OK`.
+- **The Linux HID parser limits are one structure,** `mimhid_linux_hid_policy`, in `mimhid_device_config.transport.linux_hid`: `descriptor_bytes`, `fields_per_report`, `global_stack_depth`, `report_size_bits`, `usages` and `report_data_bits` replace `linux_descriptor_policy_bytes` and the five `linux_hid_*_policy` fields. The error field is `transport.linux_hid`.
+- **`mimhid_node_config_init(config, interface_number)`** takes the interface number, because the values it fills in depend on it (the IN endpoint is `0x81 + interface_number`); zero for every Node would have put them all on one interface.
+- **`mimhid_discover` with a zero timeout returns `MIMHID_ERR_UNSET_FIELD`**, as every other zero timeout does (it returned `MIMHID_ERR_PARAM`).
+- **Nodes sharing an interface must agree.** Nodes with the same `iface.number` must have the same interface and endpoint settings, and Nodes on different interfaces different endpoint addresses; `mimhid_node_open` returns `MIMHID_ERR_PARAM` (field `node_config.iface` or `node_config.ep_in.address`) instead of sending the board one interface with two sets of settings, or two interfaces with one endpoint.
+- **`mimhid_error_detail.code` is typed `mimhid_result`** (the same `int32_t`).
+- **The shared library's SONAME is `libmimhid.so.2`** (`libmimhid.2.dylib`) and its ELF version node is `MIMHID_2.0`, so a program built against 1.x fails to load against this library instead of reading the moved structure fields.
+
+### Added
+
+- **Initial values.** `mimhid_device_config_init`, `mimhid_commit_timeouts_init` and `mimhid_node_config_init` fill in values that work with a Linux, Windows or macOS target, and every profile options structure has an initializer (`mimhid_keyboard_options_init`, ...) with the values libaoahid's have; `mimhid_integer_field_make` builds one field. The USB vendor and product ID stay zero, and the library still never puts a value of its own in place of a zero. `MIMHID_CONTROL_TIMEOUT_MS`, `MIMHID_SEND_TIMEOUT_MS`, `MIMHID_DRAIN_TIMEOUT_MS` and `MIMHID_RECONNECT_TIMEOUT_MS` are timeouts that work. All are `static inline` or macros, so the binary ABI has nothing new for them. The values are listed in "Structures and initial values" in `docs/API.md`.
+- `mimhid_frame_type_name(frame_type)` names the serial frame of `mimhid_error_detail.frame_type`.
+- `mimhid.hpp` returns initialized structures (`mimhid::device_config()`, `mimhid::node_config(n)`, ...) and has `mimhid::SpecPtr` and `mimhid::DiscoveryPtr`, `std::unique_ptr` types that release a Spec or a discovery snapshot.
+- The CMake option `MIMHID_SANITIZERS` (for example `address,undefined` or `thread`), and CI jobs that run every test with each.
+- CI checks the formatting (clang-format 14) and that every exported function has its Ownership / Blocking / Synchronization / Returns contract (`tools/check_public_contracts.py`).
+
+### Fixed
+
+- `mimhid.h` said `mimhid_node_open` returns `MIMHID_ERR_UNSUPPORTED` for a boot protocol, which it never did, and that the event sink must not call the library, while `mimhid_device_control_reply` is meant to be called from it.
+- The `MIMHID_ERR_BUSY` cases of the input calls list a Node opened in an unfinished batch and a board that is enumerating, as the library does.
+- The documentation said strings hold at most 31 characters (126) and named `max_power_ma` (`usb_config.bmax_power`, 0 to 250 in 2 mA units); `docs/PROTOCOL.md` said protocol version 5 (6).
+
+### Migration
+
+- Start from `mimhid_device_config_init` and set `usb_device.vendor_id` and `product_id`, or move the Linux policy values into `config.transport.linux_hid`.
+- Call `mimhid_node_config_init(&config, n)` with each Node's interface number.
+- Treat a Node as gone after any `mimhid_node_close` result but `MIMHID_ERR_PARAM` and `MIMHID_ERR_UNSET_FIELD`.
+- Give Nodes that share an interface the same `mimhid_node_config`.
+
+The C++ forwarders and the examples follow the same signatures.
+
 ## [1.5.0] - 2026-10-27
 
 ### Changed (breaking)

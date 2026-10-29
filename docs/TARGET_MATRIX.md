@@ -20,7 +20,7 @@ The portable firmware core is tested on the build host against a fake HAL for 7,
 
 ## Control transfers (1.2.0)
 
-The control-transfer routing is the only part of the firmware that sits between TinyUSB and the USB controller, so its status is listed apart. "Logic" means the firmware core's host-side tests and the end-to-end test (a simulated TinyUSB around the same `control.c`), which run for every target; none of it has been run with a real USB host holding a request.
+The control-transfer routing is the only part of the firmware that sits between TinyUSB and the USB controller, so its status is listed apart. "Logic" means the firmware core's host-side tests and the end-to-end test (a simulated TinyUSB around the same `control.c`), which run for every target. The last column says what has run on a board with a real USB host.
 
 | Board | Builds (wrap applied) | Run on a board |
 |---|---|---|

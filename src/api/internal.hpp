@@ -191,6 +191,8 @@ mimhid_result finish_result(mimhid_result result, const char* field, const char*
                             std::uint16_t node_id = 0, std::uint16_t report_id = 0,
                             std::uint32_t offset = 0, std::uint32_t length = 0) noexcept;
 const char* result_name(mimhid_result result) noexcept;
+const char* frame_type_name(std::int32_t frame_type) noexcept;
+void restore_error(const mimhid_error_detail& detail) noexcept;
 bool retain_spec(struct mimhid_spec* spec) noexcept;
 bool release_spec(struct mimhid_spec* spec) noexcept;
 void log_message(const struct mimhid_device* device, mimhid_log_level level,
@@ -250,9 +252,9 @@ struct mimhid_device {
     std::array<struct mimhid_node*, MIMHID_MAX_NODES> slots{};
 
     bool batch_open{false};
-    bool configured{false}; // the board holds a committed configuration
-    bool dirty{false};      // staged changes not yet committed
-    std::atomic<bool> loss_reported{false}; // the board reports dropped reports
+    bool configured{false};                  // the board holds a committed configuration
+    bool dirty{false};                       // staged changes not yet committed
+    std::atomic<bool> loss_reported{false};  // the board reports dropped reports
     std::atomic<bool> control_routed{false}; // the board holds control routing rules or reports
     std::atomic<bool> reconfiguring{false};
     std::atomic<bool> closing{false};

@@ -209,7 +209,7 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
         return result;
     }
 #ifdef __linux__
-    struct serial_struct ser{};
+    struct serial_struct ser {};
     if (ioctl(fd, TIOCGSERIAL, &ser) == 0) {
         ser.flags |= static_cast<int>(ASYNC_LOW_LATENCY);
         (void)ioctl(fd, TIOCSSERIAL, &ser);
