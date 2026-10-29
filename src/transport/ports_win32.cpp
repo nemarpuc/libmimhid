@@ -3,8 +3,11 @@
 #include "transport/serial_port.hpp"
 
 #include <cstring>
-#include <setupapi.h>
+
+// setupapi.h needs the types of windows.h.
 #include <windows.h>
+
+#include <setupapi.h>
 
 namespace mimhid::transport {
 
