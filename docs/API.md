@@ -34,7 +34,7 @@ Every enumeration is an `int32_t` typedef with integral constants, so structure 
 - A required field left zero is refused with `MIMHID_ERR_UNSET_FIELD`; the library never puts a value of its own in its place. Every enumeration starts at 1, so a zeroed enumeration field is refused rather than read as a choice. Where zero is a real value (a logical minimum, interface number 0, country code 0) the field has no "unset" meaning, and what is optional has its own `enable_*` flag or count.
 - `enable_*` and the other flags are exactly 0 or 1.
 
-Each structure has an initializer, `mimhid_<structure>_init`, that zeroes it, sets `struct_size`, and fills in values that work with a Linux, Windows or macOS target. Start from it and change only what you need; a value set afterwards is used as given. The initializers are `static inline` functions in the header, so they are not part of the binary ABI. `mimhid.hpp` has the same as functions that return the structure (`mimhid::device_config()`, `mimhid::node_config(n)`, `mimhid::keyboard_options()`, ...).
+Each structure has an initializer, `mimhid_<structure>_init`, that zeroes it, sets `struct_size`, and fills in values that work with a Linux target; Windows and macOS targets have not been tried ([TARGET_MATRIX.md](TARGET_MATRIX.md)). Start from it and change only what you need; a value set afterwards is used as given. The initializers are `static inline` functions in the header, so they are not part of the binary ABI. `mimhid.hpp` has the same as functions that return the structure (`mimhid::device_config()`, `mimhid::node_config(n)`, `mimhid::keyboard_options()`, ...).
 
 | Initializer | What it fills in |
 |---|---|

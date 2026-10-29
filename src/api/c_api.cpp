@@ -848,10 +848,6 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
 
 // ---- events from the board -------------------------------------------------------------
 
-#ifndef MIMHID_EV_OUTPUT_REPORT
-#define MIMHID_EV_OUTPUT_REPORT 8
-#endif
-
 void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept {
     const std::uint8_t* d = board.data.data();
 

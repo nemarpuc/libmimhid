@@ -17,4 +17,5 @@ extern int g_failures;
     } while (false)
 
 void test_item_writer();
+void test_link();
 void test_profiles();

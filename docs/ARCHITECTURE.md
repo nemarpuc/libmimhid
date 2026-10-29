@@ -49,13 +49,13 @@ The host builds every report. The firmware does not know what a keyboard or a to
 
 ## Interface configuration
 
-In `libmimhid`, each node explicitly specifies its USB `iface.number` (0, 1, 2...) via `mimhid_node_config`. There is no automatic interface assignment. Each interface specifies `ep_in.max_packet_size` (e.g. 64) and an optional OUT endpoint (`ep_out.address` 0 for disabled, otherwise `ep_out.max_packet_size` 1 to 64) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
+In `libmimhid`, each node explicitly specifies its USB `iface.number` (0, 1, 2...) via `mimhid_node_config`. There is no automatic interface assignment. Each interface specifies `ep_in.max_packet_size` (e.g. 64) and an optional OUT endpoint (`ep_out.address` 0 for disabled, otherwise `ep_out.max_packet_size` 1 to the board's `max_endpoint_bytes`) along with poll intervals and protocol parameters. If a configuration exceeds the board's `max_interfaces` or descriptor memory, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
 
 ## Firmware
 
 `firmware/common/core.c` has two halves that a port runs in one loop or on two cores:
 
-- **Receive side** (`mimhid_rx_poll`): reads bytes through `hal_uart_read` into a 512-byte ring, parses frames, and handles reports and commands. Reports go to a per-interface single-producer single-consumer queue of 16. Commands are pushed to a small mailbox so that the USB side executes them; the receive side never touches the active descriptors.
+- **Receive side** (`mimhid_rx_poll`): reads bytes through `hal_uart_read` into a ring of a few of the longest frames (4,096 bytes with the default limits), parses frames, and handles reports and commands. Reports go to a per-interface single-producer single-consumer queue that holds 15 reports (7 when a report may be longer than 64 bytes); `mimhid_node_set_queue_depth` can shorten it. Commands are pushed to a small mailbox so that the USB side executes them; the receive side never touches the active descriptors.
 - **USB side** (`mimhid_usb_poll`, with `tud_task`): executes commands (`COMMIT` rebuilds the descriptors with `mimhid_apply_config`, disconnects, and reconnects), and services the interface queues in rotation, one report per ready endpoint.
 
 `firmware/common/control.c` sits between the controller driver and TinyUSB: it wraps `dcd_event_handler` to see the setup packet of every control transfer, reports it, and for chosen requests holds it until the host answers (see [PROTOCOL.md](PROTOCOL.md#control-transfers)). It is inert until the host configures it.

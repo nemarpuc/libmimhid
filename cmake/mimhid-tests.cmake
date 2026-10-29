@@ -16,6 +16,7 @@ endfunction()
 add_executable(mimhid_tests
     tests/unit/test_main.cpp
     tests/unit/test_item_writer.cpp
+    tests/unit/test_link.cpp
     tests/unit/test_profiles.cpp
     $<TARGET_OBJECTS:mimhid_test_objects>)
 target_include_directories(mimhid_tests PRIVATE include src proto tests)

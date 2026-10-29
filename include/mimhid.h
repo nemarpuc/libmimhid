@@ -82,7 +82,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 2
 #define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 0
+#define MIMHID_VERSION_PATCH 1
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
@@ -724,10 +724,10 @@ typedef struct mimhid_digitizer_sample {
 
 /* ---- Initializers -----------------------------------------------------------------------
  * Each *_init function zeroes a structure, sets struct_size, and fills in values that work with a
- * Linux, Windows or macOS target, so a caller changes only what it needs. Fields that only the
- * caller can know (the USB vendor and product ID, a Raw descriptor, the keys a Toggle Node may
- * press) stay zero and are still required. A value the caller sets afterwards is used as given,
- * zero included where zero is valid.
+ * Linux target (Windows and macOS targets have not been tried; docs/TARGET_MATRIX.md), so a caller
+ * changes only what it needs. Fields that only the caller can know (the USB vendor and product ID,
+ * a Raw descriptor, the keys a Toggle Node may press) stay zero and are still required. A value
+ * the caller sets afterwards is used as given, zero included where zero is valid.
  *
  * The timeouts are values that work for a board on a USB serial adapter; the library never uses
  * them itself. */
@@ -1063,7 +1063,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_usb_identity(
  * Ownership: Nothing.
  * Blocking: None.
  * Synchronization: Device domain.
- * Returns the error the reader thread recorded for the link, and forgets it unless it is
+ * Reads the error the reader thread recorded for the link, and forgets it unless it is
  * MIMHID_ERR_NO_DEVICE, which stays.
  * Returns: MIMHID_OK when there is none; MIMHID_ERR_PARAM for an invalid Device;
  * MIMHID_ERR_NO_DEVICE after the port failed or was unplugged; MIMHID_ERR_IO for another link
@@ -1251,7 +1251,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* 
                                                                  const uint8_t* data, size_t length,
                                                                  uint32_t send_timeout_ms);
 
-/* The longest least interval between two MIMHID_EVENT_REPORT_LOST events. */
+/* The largest interval_ms of mimhid_device_set_loss_reporting, which is the least time between two
+ * MIMHID_EVENT_REPORT_LOST events. */
 #define MIMHID_LOSS_MAX_INTERVAL_MS 60000U
 
 /* mimhid_device_set_loss_reporting
@@ -1451,12 +1452,13 @@ MIMHID_API uint16_t MIMHID_CALL mimhid_node_id(const mimhid_node* node);
  * Blocking: Waits up to control_timeout_ms for the board's answer; inside a batch, or for a Node
  * not yet committed, it is sent with the commit instead.
  * Synchronization: Device domain.
- * Sets what the board answers (the bytes after the Report ID, at most 32) when the target reads
- * Feature report report_id of this Node. A touch Spec with
- * enable_contact_count_maximum_feature_declaration has its answer set already.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or more than 32 bytes;
- * MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_OVERFLOW when the board has no room;
- * a link error. */
+ * Sets what the board answers (the bytes after the Report ID, at most the board's
+ * max_feature_bytes; mimhid_device_limits) when the target reads Feature report report_id of this
+ * Node. A touch Spec with enable_contact_count_maximum_feature_declaration has its answer set
+ * already.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node, null data with a nonzero length, or
+ * more than max_feature_bytes; MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_OVERFLOW when
+ * the board has no room; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
                                                                       uint8_t report_id,
                                                                       const uint8_t* data,
@@ -1642,7 +1644,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_touchpad_button(mimhid_node* node, u
  * Synchronization: Device domain.
  * Sets the whole pen state. in_range 0 takes the pen away: In Range, Tip, pressure, Invert and the
  * barrel bits go out as 0 with the sample's own X, Y, tilt and twist, so repeat the last position
- * to leave the pointer where it was.
+ * to leave the pointer where it was. Switching between tip and eraser while in range first sends
+ * an out-of-range report.
  * Returns: As every input call, MIMHID_OK through MIMHID_ERR_NO_DEVICE. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_pen_update(mimhid_node* node,
                                                        const mimhid_pen_sample* sample);
@@ -1661,7 +1664,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_digitizer_update(mimhid_node* node,
  * Blocking: None.
  * Synchronization: Device domain.
  * Sets the battery level of a Node whose Spec has enable_battery. It goes out with the next
- * mimhid_node_submit that has no input report to send, and only when it changed.
+ * mimhid_node_submit that has no input report to send, and only when it changed. A level not yet
+ * sent is dropped on close.
  * Returns: As every input call, MIMHID_OK through MIMHID_ERR_NO_DEVICE; MIMHID_ERR_PARAM also for
  * a Node without a battery report. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_battery_update(mimhid_node* node, int32_t strength);

@@ -3,6 +3,18 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-10-30
+
+Not run on a board: the host library's ABI and the wire protocol (still 6) are those of 2.0.0, and the firmware changes only its version number, so a board on 2.0.0 or 1.5.0 firmware works with this library. Tested by the unit, ABI and end-to-end tests, also under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.
+
+### Fixed
+
+- **The frame parser takes only the frames a board sends.** It also took frame types 5 and 8, the numbers of the event kinds `MIMHID_EV_SET_REPORT` and `MIMHID_EV_OUTPUT_REPORT`, which travel inside an `EVENT` frame and are no frame types. No firmware sends such a frame, so this code never ran, but noise on the line that happened to form one was delivered as an event. New unit tests (`mimhid.unit`, suite `link`) cover the parser.
+- `mimhid.h` said `mimhid_node_set_feature_response` takes at most 32 bytes; the limit is the board's `max_feature_bytes` (1024 with the firmware's defaults), as the library checks since 1.1.0.
+- `mimhid.h` now says, as libaoahid does and as the library has always done, that switching a pen between tip and eraser while in range first sends an out-of-range report, and that a battery level not yet sent is dropped on close.
+- The initializers are said to fill in values that work with a Linux target; Windows and macOS targets have not been tried (`docs/TARGET_MATRIX.md`). They were said to work with all three.
+- The documentation still named fields that no longer exist (`interface_number`, `ep_in_size`, `ep_out_size`, `mimhid_node_options`) in `README.md` and `docs/PORTING.md`; the HAL was called five functions in the README and eight in `docs/PORTING.md`, which now lists all nine (`hal_control_silent_drop` was missing); `docs/ARCHITECTURE.md` gave a 512-byte receive ring (4,096 bytes), a report queue of 16 (15 reports, 7 when a report may be longer than 64 bytes) and OUT endpoints of at most 64 bytes (the board's `max_endpoint_bytes`). An internal header called the wire protocol version 3.
+
 ## [2.0.0] - 2026-10-29
 
 Not run on a board: this release changes the API around the serial link and the profiles, not the wire protocol (still 6) or the firmware, whose only change is its version number; a board on 1.5.0 firmware works with this library. The changes are tested by the unit, ABI and end-to-end tests (the host library against the firmware core through a pseudo-terminal), also under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.

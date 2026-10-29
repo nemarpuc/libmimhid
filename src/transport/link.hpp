@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Wire protocol v3 client: framing, the line rate, acknowledged commands, and board events. It
- * knows nothing about HID; the layers above give it bytes. */
+/* Client of the serial wire protocol (mimhid_proto.h, MIMHID_PROTO_VERSION): framing, the line
+ * rate, acknowledged commands, and board events. It knows nothing about HID; the layers above give
+ * it bytes. */
 #pragma once
 
 #include "mimhid_proto.h"
@@ -106,10 +107,6 @@ class FrameParser final {
 [[nodiscard]] bool decode_pong(const Frame& frame, BoardInfo* out) noexcept;
 std::size_t encode_frame(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                          std::uint8_t* out) noexcept;
-
-#ifndef MIMHID_EV_OUTPUT_REPORT
-#define MIMHID_EV_OUTPUT_REPORT 8
-#endif
 
 enum class CommandStatus : std::uint8_t { ack, nak, timeout, closed, io_error, short_write };
 

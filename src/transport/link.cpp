@@ -54,8 +54,7 @@ bool FrameParser::next(Frame* out) noexcept {
             header = 4U;
         }
         const bool board_type = type == MIMHID_T_PONG || type == MIMHID_T_ACK ||
-                                type == MIMHID_T_NAK || type == MIMHID_T_EVENT ||
-                                type == MIMHID_EV_OUTPUT_REPORT || type == MIMHID_EV_SET_REPORT;
+                                type == MIMHID_T_NAK || type == MIMHID_T_EVENT;
         if (!board_type) {
             tail_ = (tail_ + 1U) & kMask;
             continue;
@@ -367,28 +366,6 @@ void Link::handle_frame(const Frame& frame) {
             if (ev.length < 3)
                 break;
         }
-        if (handler_)
-            handler_(ev);
-        break;
-    }
-    case MIMHID_EV_OUTPUT_REPORT: {
-        if (frame.length < 2)
-            break;
-        BoardEvent ev;
-        ev.kind = MIMHID_EV_OUTPUT_REPORT;
-        ev.length = frame.length;
-        std::memcpy(ev.data.data(), frame.payload.data(), ev.length);
-        if (handler_)
-            handler_(ev);
-        break;
-    }
-    case MIMHID_EV_SET_REPORT: {
-        if (frame.length < 3)
-            break;
-        BoardEvent ev;
-        ev.kind = MIMHID_EV_SET_REPORT;
-        ev.length = frame.length;
-        std::memcpy(ev.data.data(), frame.payload.data(), ev.length);
         if (handler_)
             handler_(ev);
         break;

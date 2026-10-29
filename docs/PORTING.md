@@ -30,7 +30,7 @@ proto/           wire protocol constants shared with the host (mimhid_proto.h)
 
 ## HAL
 
-A port implements eight functions (see `common/hal.h`):
+A port implements nine functions (see `common/hal.h`):
 
 | Function | Contract |
 |---|---|
@@ -42,10 +42,11 @@ A port implements eight functions (see `common/hal.h`):
 | `hal_uart_write(data, len)` | Blocking send; callable from both the receive and USB contexts. |
 | `hal_millis()` | Milliseconds since boot. |
 | `hal_unique_id(out, max)` | Copy the chip's unique id and return its length, or 0 when there is none. Used for `serial_from_chip_id`. |
+| `hal_control_silent_drop()` | Disarm endpoint 0 IN and OUT without a STALL, so that it NAKs until the target gives up. `control.c` calls it for `MIMHID_CONTROL_ACTION_DROP`, and in place of the endpoint 0 stall the stack makes after a dropped transfer. Only the RP2040/RP2350 port implements it; the other ports have an empty function. |
 
 The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the official RP2040 and RP2350 dual-core Pico builds do this).
 
-The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 5 bytes (1,045 with the defaults). The core keeps its own ring of 4,096 bytes (1,024 when the frame limit is 250 or less), so a port buffer of 512 bytes is a reasonable minimum.
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 5 bytes (1,045 with the defaults). The core keeps its own ring of a few of the longest frames (4,096 bytes with the default limits, 8,192 when `MIMHID_MAX_FRAME_PAYLOAD` is above 1,500), so a port buffer of 512 bytes is a reasonable minimum.
 
 ## Endpoint count and the HID layout
 
@@ -57,7 +58,7 @@ Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT e
 | 4 | ESP32-S3 (four usable IN endpoints) |
 | 3 | STM32F4 full speed (three usable IN endpoints) |
 
-Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the firmware, host library, and wire protocol do not depend on the value. In `libmimhid`, callers explicitly configure each node's `interface_number`, `ep_in_size`, and `ep_out_size` via `mimhid_node_options`.
+Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the firmware, host library, and wire protocol do not depend on the value. In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`.
 
 `MIMHID_MAX_DESC_BYTES` (default 2048) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
 

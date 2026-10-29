@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Runs the allocation-free HID/profile unit suite; integration executables
- * own transport and threading coverage. */
+/* Runs the unit suites: the HID layer, the profile state machines and the frame parser.
+ * Integration executables own serial port and threading coverage. */
 #include "test.hpp"
 
 #include <cstring>
@@ -14,7 +14,8 @@ struct Suite {
     void (*run)();
 };
 
-constexpr Suite kSuites[] = {{"item_writer", test_item_writer}, {"profiles", test_profiles}};
+constexpr Suite kSuites[] = {
+    {"item_writer", test_item_writer}, {"link", test_link}, {"profiles", test_profiles}};
 } // namespace
 
 // With no arguments every suite runs; otherwise only the named ones.
