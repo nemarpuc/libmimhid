@@ -1,8 +1,8 @@
 # libmimhid
 
-Physical USB HID emulation for a target device, driven from a Linux, macOS, or Windows PC. The PC sends reports over a high-speed serial link to a microcontroller board—with official dual-core support for both the Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350), as well as ports for nRF52840, STM32F4, and ESP32-S3—which presents them to the target as a composite USB HID device.
+Physical USB HID emulation for a target device, driven from a Linux, macOS, or Windows PC. The PC sends reports over a high-speed serial link to a microcontroller board (Raspberry Pi Pico or Pico 2, with ports for other chips), which presents them to the target as a composite USB HID device. The target needs no driver, software, or special mode.
 
-The C ABI and the C++ header follow [`libaoahid`](https://github.com/nemarpuc/libaoahid): Specs, Nodes, the same option structures, the same input calls. Code written for one library moves to the other with minimal changes. The transport differs: `libaoahid` speaks Android Open Accessory over USB, whereas `libmimhid` speaks framed binary UART to an MCU coprocessor and requires no special mode, driver, or debugging setting on the target.
+Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
 > Version 2.0.1. Version 2.0.0 changed the API; see [CHANGELOG.md](CHANGELOG.md).
