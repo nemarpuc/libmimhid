@@ -25,6 +25,6 @@ or public bug trackers; reproduce bugs with synthetic, non-sensitive input.
 
 Serial device nodes (`/dev/ttyUSB*`, `/dev/ttyACM*` on Linux, `/dev/cu.*` on macOS) and COM ports
 on Windows are privileged system resources. Any process that can open the port can inject keystrokes
-and touch input into the target, so restrict access to trusted users. On Linux, the rules provided in `udev/99-mimhid.rules` configure
+and touch input into the target, so restrict access to trusted users. On Linux, the rules provided in `udev/51-mimhid.rules` configure
 desktop seat permissions (`TAG+="uaccess"`) and group access (mode `0660`) for specific USB-UART bridge IDs only. Audit and review
 these rules against your target environment's access control policies before deployment.

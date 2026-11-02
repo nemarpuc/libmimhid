@@ -52,7 +52,7 @@ The firmware keeps USB disconnected until the host library opens the first node 
 ### Linux
 
 ```bash
-sudo cp udev/99-mimhid.rules /etc/udev/rules.d/
+sudo cp udev/51-mimhid.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```

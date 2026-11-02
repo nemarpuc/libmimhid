@@ -1,5 +1,8 @@
 # udev rules for libmimhid: access to the USB-UART bridges and the RP2040 board's serial port.
 # The group is uucp on Arch; change GROUP to dialout on Debian and Ubuntu.
+# The file number must stay below 73: systemd-logind's uaccess builtin runs in
+# 73-seat-late.rules and only sees the TAG+="uaccess" set by rules that ran before it.
+# (The same number as libaoahid's 51-aoahid.rules.)
 
 # Raspberry Pi RP2040 (USB serial / debug probe)
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000a", MODE="0660", GROUP="uucp", TAG+="uaccess"

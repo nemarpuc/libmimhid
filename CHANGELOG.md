@@ -24,6 +24,10 @@ Build layout brought in line with libaoahid. The library, the C ABI and the wire
 - The linker version script is `cmake/mimhid.map` (was `mimhid.ver`). The shared objects are compiled only when the shared library is built.
 - The CI job `host` is `native`.
 
+### Fixed
+
+- The udev rules file is `udev/51-mimhid.rules` (was `99-mimhid.rules`). `TAG+="uaccess"` only takes effect when set before `73-seat-late.rules`, where logind's uaccess builtin runs, so under the old number only the `MODE`/`GROUP` half worked and a user outside `uucp`/`dialout` got no access to the port. Remove an installed `/etc/udev/rules.d/99-mimhid.rules` when you install the new file.
+
 ### Removed
 
 - `MIMHID_SANITIZERS`: use `MIMHID_SANITIZE` or `MIMHID_TSAN`.
