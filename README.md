@@ -5,7 +5,7 @@ Physical USB HID emulation for a target device, driven from a Linux, macOS, or W
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
-> Version 2.0.2. Version 2.0.0 changed the API; see [CHANGELOG.md](CHANGELOG.md).
+> Version 2.0.3. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Core Design
 

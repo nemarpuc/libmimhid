@@ -18,7 +18,7 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 
 The portable firmware core is tested on the build host against a fake HAL for 7, 4, and 3 interfaces (`firmware/tests`), and together with the real host library through a pseudo-terminal (`tests/e2e`).
 
-## Control transfers (1.2.0)
+## Control transfers
 
 The control-transfer routing is the only part of the firmware that sits between TinyUSB and the USB controller, so its status is listed apart. "Logic" means the firmware core's host-side tests and the end-to-end test (a simulated TinyUSB around the same `control.c`), which run for every target. The last column says what has run on a board with a real USB host.
 

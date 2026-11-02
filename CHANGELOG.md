@@ -3,9 +3,12 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.3] - 2026-11-02
 
-Build layout brought in line with libaoahid. The library, the C ABI and the wire protocol are unchanged.
+Not hardware-verified: the host library's ABI and the wire protocol (still 6) are those
+of 2.0.2, and the firmware changes only its version number. The changes are in the build
+files, the CMake package, the tests, the tooling and the udev rules file; the build
+layout is now the one libaoahid has.
 
 ### Added
 
@@ -14,6 +17,7 @@ Build layout brought in line with libaoahid. The library, the C ABI and the wire
 - The `tsan` CMake preset.
 - `mimhid.abi-layout-oracle`: every size, field offset and constant of the C ABI (441 entries) is compared with `tests/abi/abi_layout.golden`, so an ABI change fails a test until the golden file is edited on purpose. Unlike libaoahid's hand-written schema, this one is a recorded snapshot of the 2.0.2 header.
 - `tools/check_input_provenance.py`, run by CI: every `MIMHID_*` build option that the README, CONTRIBUTING and the docs name (in a `-D` argument or, for option-shaped names, in code quotes) must be declared by the CMake files. A misspelled or removed option is otherwise accepted by CMake as an unused cache entry.
+- `mimhid.package-multiarch-layout` and `mimhid.package-component-contract`: a multiarch libdir must reach the `.pc` files and the package config, and `find_package(mimhid COMPONENTS shared|static)` must refuse a component that was not built. Ported from libaoahid's tests of the same names, minus the libusb parts libmimhid has no use for.
 - A Linux CI step installs the library, moves the install tree and builds a program through `pkg-config` (static and shared), which is what the relocatable `prefix=${pcfiledir}/../..` of the `.pc` files promises.
 
 ### Changed
@@ -27,6 +31,8 @@ Build layout brought in line with libaoahid. The library, the C ABI and the wire
 ### Fixed
 
 - The udev rules file is `udev/51-mimhid.rules` (was `99-mimhid.rules`). `TAG+="uaccess"` only takes effect when set before `73-seat-late.rules`, where logind's uaccess builtin runs, so under the old number only the `MODE`/`GROUP` half worked and a user outside `uucp`/`dialout` got no access to the port. Remove an installed `/etc/udev/rules.d/99-mimhid.rules` when you install the new file.
+- The Windows port listing copies its fallback description with `memcpy` instead of `strcpy`, which MSVC reports as C4996 and `MIMHID_WERROR` turns into an error.
+- `README.md` no longer carries a note about the 2.0.0 API change; `docs/TARGET_MATRIX.md` drops the version label of its control-transfer section. The history is this file.
 
 ### Removed
 

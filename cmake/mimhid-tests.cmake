@@ -44,6 +44,25 @@ add_test(NAME mimhid.golden-descriptors
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
         ${CMAKE_CURRENT_BINARY_DIR}/support-manifests.tsv)
 
+# The installed package: a multiarch libdir must reach the .pc and the package config, and the
+# component selection of find_package(mimhid COMPONENTS shared|static) must follow what was built.
+add_test(NAME mimhid.package-multiarch-layout
+    COMMAND ${CMAKE_COMMAND}
+        -DMIMHID_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DMIMHID_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/package-multiarch-layout
+        -DMIMHID_GENERATOR=${CMAKE_GENERATOR}
+        -DMIMHID_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DMIMHID_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/package_multiarch_layout.cmake)
+add_test(NAME mimhid.package-component-contract
+    COMMAND ${CMAKE_COMMAND}
+        -DMIMHID_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DMIMHID_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/package-component-contract
+        -DMIMHID_GENERATOR=${CMAKE_GENERATOR}
+        -DMIMHID_PROJECT_VERSION=${PROJECT_VERSION}
+        -DMIMHID_PROJECT_HOMEPAGE_URL=${PROJECT_HOMEPAGE_URL}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/package_component_contract.cmake)
+
 # Every size, offset and constant of the C ABI must match the golden layout.
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 add_executable(mimhid_abi_layout_oracle tests/abi/layout_oracle.c)

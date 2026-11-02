@@ -51,7 +51,8 @@ std::vector<PortCandidate> list_candidate_ports() {
         if (!SetupDiGetDeviceRegistryPropertyA(set, &dev, SPDRP_FRIENDLYNAME, nullptr,
                                                reinterpret_cast<PBYTE>(friendly),
                                                sizeof(friendly) - 1, nullptr)) {
-            std::strcpy(friendly, "USB Serial Device");
+            static constexpr char fallback[] = "USB Serial Device";
+            std::memcpy(friendly, fallback, sizeof(fallback));
         }
         out.push_back({name, friendly});
     }
