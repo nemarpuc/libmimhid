@@ -5,6 +5,7 @@
 
 from pathlib import Path
 import json
+import re
 import sys
 import tarfile
 import tempfile
@@ -213,6 +214,16 @@ class Collect(unittest.TestCase):
             (dist / release_names.source_name("1.2.3")).unlink()
             with self.assertRaises(release_names.ReleaseError):
                 collect_release.collect(dist, "1.2.3", SHA)
+
+
+class Readme(unittest.TestCase):
+    def test_asset_count_matches_the_release(self) -> None:
+        # The README states how many assets a release uploads; it must follow release_names.
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        match = re.search(r"exactly (\d+) uploaded assets", text)
+        self.assertIsNotNone(match, "README does not state the number of uploaded assets")
+        assert match is not None
+        self.assertEqual(int(match.group(1)), len(release_names.expected_assets("1.2.3")))
 
 
 if __name__ == "__main__":
