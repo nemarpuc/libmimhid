@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 2.0.1 LANGUAGES C CXX
+project(libmimhid VERSION 2.0.2 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -15,6 +15,7 @@ option(MIMHID_BUILD_SHARED "Build the shared library" ON)
 option(MIMHID_BUILD_STATIC "Build the static library" ON)
 option(MIMHID_BUILD_TESTS "Build verification test suite" ON)
 option(MIMHID_BUILD_EXAMPLES "Build example programs" ON)
+option(MIMHID_BUILD_FUZZ "Build the libFuzzer target (Clang only)" OFF)
 set(MIMHID_SANITIZERS "" CACHE STRING
     "Sanitizers for every target, as -fsanitize takes them: address,undefined or thread")
 
@@ -178,6 +179,28 @@ endif()
 
 if(MIMHID_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(MIMHID_BUILD_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "MIMHID_BUILD_FUZZ needs Clang (libFuzzer).")
+    endif()
+    if(MIMHID_SANITIZERS)
+        message(FATAL_ERROR "MIMHID_BUILD_FUZZ sets its own sanitizers; leave MIMHID_SANITIZERS empty.")
+    endif()
+    mimhid_add_objects(mimhid_fuzz_objects FALSE)
+    target_compile_options(mimhid_fuzz_objects PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+    add_executable(mimhid_fuzz_descriptor
+        tests/fuzz/fuzz_descriptor.cpp
+        $<TARGET_OBJECTS:mimhid_fuzz_objects>)
+    set_target_properties(mimhid_fuzz_descriptor PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO)
+    target_include_directories(mimhid_fuzz_descriptor PRIVATE include src proto)
+    target_compile_options(mimhid_fuzz_descriptor PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_options(mimhid_fuzz_descriptor PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_libraries(mimhid_fuzz_descriptor PRIVATE Threads::Threads)
 endif()
 
 include(GNUInstallDirs)

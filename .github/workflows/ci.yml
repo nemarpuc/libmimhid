@@ -67,6 +67,245 @@ jobs:
       - name: Run the end-to-end tests
         run: ctest --test-dir build_e2e -R e2e --output-on-failure
 
+  fuzz-smoke:
+    name: libFuzzer builder/serializer/raw/frame smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure the libFuzzer target
+        run: >-
+          cmake -S . -B build_fuzz
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DMIMHID_BUILD_SHARED=OFF
+          -DMIMHID_BUILD_TESTS=OFF
+          -DMIMHID_BUILD_EXAMPLES=OFF
+          -DMIMHID_BUILD_FUZZ=ON
+
+      - name: Run bounded fuzz smoke
+        run: |
+          cmake --build build_fuzz --target mimhid_fuzz_descriptor --parallel
+          ./build_fuzz/mimhid_fuzz_descriptor -runs=10000 -max_len=4096 -timeout=5 -print_final_stats=1
+
+  bindings:
+    name: Language bindings (Python, C#, Rust)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Select .NET 8 SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Select exact Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal --no-self-update
+
+      - name: Check the generated files against the header
+        run: python3 tools/bindings/generate.py --check
+
+      - name: Build the C layout oracle and the shared library
+        run: |
+          set -euo pipefail
+          mkdir -p build_bindings
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude tests/abi/layout_oracle.c -o build_bindings/layout_oracle
+          cmake -S . -B build_bindings/lib -DCMAKE_BUILD_TYPE=Release \
+            -DMIMHID_BUILD_STATIC=OFF -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF
+          cmake --build build_bindings/lib --parallel
+
+      # No step runs the enumerate examples: mimhid_discover messages every serial port of the
+      # host, and these runners are no place for that. They are built, and Python imports them.
+      - name: Python layout and example
+        run: |
+          set -euo pipefail
+          PYTHONPATH=bindings/python python3 bindings/python/tests/test_contract.py
+          PYTHONPATH=bindings/python MIMHID_ABI_ORACLE="$PWD/build_bindings/layout_oracle" \
+            python3 bindings/python/tests/test_layout.py
+          PYTHONPATH=bindings/python python3 -c "
+          import mimhid
+          mimhid.load('$PWD/build_bindings/lib/libmimhid.so')"
+          python3 -m py_compile examples/python/enumerate.py
+
+      - name: C# layout against compiled C, and the example
+        run: |
+          set -euo pipefail
+          dotnet run --project bindings/csharp/MimHid.Tests/MimHid.Tests.csproj \
+            --configuration Release -- "$PWD/build_bindings/layout_oracle"
+          dotnet build examples/csharp/Enumerate.csproj --configuration Release
+
+      - name: Rust FFI layout against compiled C, and the example
+        env:
+          MIMHID_ABI_ORACLE: ${{ github.workspace }}/build_bindings/layout_oracle
+          MIMHID_LIB_DIR: ${{ github.workspace }}/build_bindings/lib
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build_bindings/lib
+        run: |
+          set -euo pipefail
+          cargo +1.89.0 test --manifest-path bindings/rust/Cargo.toml --workspace --all-targets
+          cargo +1.89.0 build --manifest-path bindings/rust/Cargo.toml --examples
+
+  musl:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux musl x86-64
+            os: ubuntu-22.04
+          - name: Linux musl AArch64
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test against real musl libc
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Docker Official Image alpine:3.22.5 multi-platform manifest,
+          # recorded by docker-library/repo-info revision
+          # f0a59cf38d485bddce545ac0360a9116a02cadc3.
+          image='alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce'
+          docker pull "$image"
+          docker run --rm \
+            --volume "$PWD:/src" \
+            --workdir /src \
+            "$image" \
+            sh -euc '
+              apk add --no-cache build-base cmake python3
+              cmake -S . -B build/musl -G "Unix Makefiles" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DMIMHID_WERROR=ON \
+                -DMIMHID_BUILD_SHARED=ON \
+                -DMIMHID_BUILD_STATIC=ON \
+                -DMIMHID_BUILD_TESTS=ON \
+                -DMIMHID_BUILD_EXAMPLES=ON \
+                -DCMAKE_INSTALL_LIBDIR=lib
+              cmake --build build/musl --parallel
+              ctest --test-dir build/musl --output-on-failure
+              cmake --install build/musl --prefix build/musl-stage
+              version="$(sed -n "s/^project(libmimhid VERSION \([0-9.]*\).*/\1/p" CMakeLists.txt)"
+              cmake -S tools/release/consumer -B build/musl-consumer \
+                -DCMAKE_PREFIX_PATH=/src/build/musl-stage \
+                -DMIMHID_VERSION="$version" -DMIMHID_COMPONENT=shared
+              cmake --build build/musl-consumer --parallel
+              LD_LIBRARY_PATH=/src/build/musl-stage/lib \
+                ./build/musl-consumer/consumer
+              ldd build/musl/libmimhid.so | grep -E "musl|ld-musl"
+            '
+
+  hid-tools:
+    name: hid-tools descriptor parse
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Select Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Check out pinned official hid-tools parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://gitlab.freedesktop.org/libevdev/hid-tools.git build/hid-tools
+          git -C build/hid-tools checkout --detach f4a32530ea548df2ae5efd2ebfd16d4c3e658875
+          test "$(git -C build/hid-tools rev-parse HEAD)" = \
+            f4a32530ea548df2ae5efd2ebfd16d4c3e658875
+          # hidtools.hid at this revision imports only parse beyond the Python
+          # standard library.  Keep the parser gate independent of hid-tools'
+          # unrelated CLI/device dependencies and verify the exact PyPI wheel.
+          printf '%s\n' \
+            'parse==1.20.2 --hash=sha256:967095588cb802add9177d0c0b6133b5ba33b1ea9007ca800e526f42a85af558' \
+            > build/hid-tools-requirements.txt
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-deps \
+            --require-hashes \
+            --requirement build/hid-tools-requirements.txt
+
+      - name: Build representative generated descriptors
+        run: |
+          cmake -S . -B build/hid-parse -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMIMHID_WERROR=ON \
+            -DMIMHID_BUILD_SHARED=OFF \
+            -DMIMHID_BUILD_STATIC=ON \
+            -DMIMHID_BUILD_TESTS=ON \
+            -DMIMHID_BUILD_EXAMPLES=OFF
+          cmake --build build/hid-parse --target mimhid_export_descriptors --parallel
+          ./build/hid-parse/mimhid_export_descriptors build/hid-descriptors
+          generated_count="$(find build/hid-descriptors -maxdepth 1 -type f -name '*.bin' | wc -l)"
+          golden_count="$(find tests/golden -maxdepth 1 -type f -name '*.hex' | wc -l)"
+          test "$generated_count" -eq "$golden_count"
+
+      - name: Parse every descriptor with the pinned hid-tools parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r descriptor; do
+            PYTHONPATH="$PWD/build/hid-tools" python - "$descriptor" \
+              > "${descriptor%.bin}.hid.txt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          from hidtools.hid import ReportDescriptor
+
+          encoded = Path(sys.argv[1]).read_bytes()
+          parsed = ReportDescriptor.from_bytes(encoded)
+          if parsed.size != len(encoded):
+              raise RuntimeError("hid-tools did not consume the complete descriptor")
+          parsed.dump()
+          PY
+            test -s "${descriptor%.bin}.hid.txt"
+          done < <(find build/hid-descriptors -maxdepth 1 -type f -name '*.bin' -print | sort)
+
+  clang-tidy:
+    name: Build with Clang 14 and run clang-tidy 14
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Build and test with Clang
+        run: |
+          set -euo pipefail
+          cmake -S . -B build_tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-14 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMIMHID_BUILD_TESTS=ON \
+            -DMIMHID_BUILD_EXAMPLES=ON
+          cmake --build build_tidy --parallel
+          ctest --test-dir build_tidy --output-on-failure
+
+      # The Windows sources need windows.h and cannot be parsed on Linux; every other
+      # production source must pass, with the checks of .clang-tidy.
+      - name: Run clang-tidy on the production sources
+        run: >-
+          find src -type f -name '*.cpp' ! -name '*_win32.cpp' -print0
+          | sort -z
+          | xargs -0 --no-run-if-empty -n 1
+          clang-tidy-14 -p build_tidy '--warnings-as-errors=*'
+
   sanitizers:
     name: Sanitizers (${{ matrix.sanitizers }})
     runs-on: ubuntu-24.04

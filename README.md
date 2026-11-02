@@ -5,7 +5,7 @@ Physical USB HID emulation for a target device, driven from a Linux, macOS, or W
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
-> Version 2.0.1. Version 2.0.0 changed the API; see [CHANGELOG.md](CHANGELOG.md).
+> Version 2.0.2. Version 2.0.0 changed the API; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Core Design
 
@@ -61,7 +61,7 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.lib`. Options: `MIMHID_BUILD_TESTS`, `MIMHID_BUILD_EXAMPLES`, `MIMHID_WERROR`, `MIMHID_SANITIZERS` (for example `address,undefined` or `thread`). To also run the end-to-end tests, pass `-DMIMHID_TINYUSB_PATH=<TinyUSB 0.18.0 checkout>` (POSIX only).
+This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.lib`. Options: `MIMHID_BUILD_TESTS`, `MIMHID_BUILD_EXAMPLES`, `MIMHID_WERROR`, `MIMHID_SANITIZERS` (for example `address,undefined` or `thread`), `MIMHID_BUILD_FUZZ` (the libFuzzer target, Clang only; it sets its own sanitizers). To also run the end-to-end tests, pass `-DMIMHID_TINYUSB_PATH=<TinyUSB 0.18.0 checkout>` (POSIX only).
 
 ### Firmware
 
@@ -112,7 +112,21 @@ mimhid_node_submit(keys, MIMHID_SEND_TIMEOUT_MS);
 mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS); /* closes keys too */
 ```
 
-Every call returns a `mimhid_result`; check it, and read `mimhid_last_error()` for the details. Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md).
+Every call returns a `mimhid_result`; check it, and read `mimhid_last_error()` for the details. Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md). For a single profile in isolation, [`examples/c/profiles/`](examples/c/profiles) has one self-contained program per HID profile kind and one for the battery report, all ten of which run without a board. [`examples/c/verify/`](examples/c/verify) holds programs built to be watched on a real target (typing, dragging, moving the mouse); [QUICKSTART.md](docs/QUICKSTART.md) walks through them.
+
+## Language bindings
+
+The C ABI of `mimhid.h` can be called from Python, C# and Rust through declarations in [`bindings/`](bindings/):
+
+| Language | Path | Package | Layout check |
+|---|---|---|---|
+| Python 3.9+ | `bindings/python` (`ctypes`) | wheel `mimhid` | `tests/test_layout.py` |
+| C# (.NET 8) | `bindings/csharp/MimHid` (P/Invoke) | NuGet `MimHid` | `MimHid.Tests` |
+| Rust 1.89+ | `bindings/rust/mimhid-sys` (FFI), `bindings/rust/mimhid` (owning wrappers) | crates `mimhid-sys`, `mimhid` | `tests/layout.rs` |
+
+They hold declarations only: no native library, and no default for any field. The caller passes the path of the matching shared library (Python `mimhid.load(path)`), or makes it findable under the name `mimhid` (C#, Rust). The inline `*_init` functions of the header are C code, not part of the ABI, so a binding fills `struct_size` and every field itself. The `mimhid` crate adds typed ownership on top of the FFI declarations: a Spec that releases itself, and one node type per profile with `bool` instead of `0/1`. Each language has a short `enumerate` example (`examples/python`, `examples/csharp`, `bindings/rust/mimhid-sys/examples`); the full life cycle is shown in C only.
+
+The declarations and the C layout oracle are generated from `include/mimhid.h` by `tools/bindings/generate.py` (needs Clang); `--check` fails when a file differs from the header, and each layout test compares its language's sizes, offsets and constants with what the C compiler produced. Wheel and NuGet packages are built, checked and kept by the release workflow; they reach PyPI and NuGet only when the repository variable `MIMHID_PUBLISH_BINDINGS` is `true`.
 
 ## Moving between libaoahid and libmimhid
 
@@ -135,12 +149,14 @@ Every call returns a `mimhid_result`; check it, and read `mimhid_last_error()` f
 
 A pushed `v*` tag builds and checks the release, then publishes a GitHub Release. For version `X.Y.Z` it uploads, in the same layout as `libaoahid`:
 
-- twelve archives: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04-{shared,static}.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}-{shared,static}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}-{shared,static}.zip`, each with headers, the library, CMake package files, and pkg-config files;
+- twelve archives: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04-{shared,static}.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}-{shared,static}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}-{shared,static}.zip`, each with headers, the library, CMake package files, pkg-config files, and the `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`);
 - twelve matching `.spdx.json` SBOM sidecars;
 - six runtime bundles (`...-runtime.tar.gz`, `...-runtime.zip`) with only the shared library and the license/notice documents (`LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `CHANGELOG.md`);
 - the tagged tree as `libmimhid-X.Y.Z-source.tar.gz`;
 - `release-manifest.json` and `SHA256SUMS`;
 - the firmware images: `mimhid_firmware-<board>-X.Y.Z.{uf2,hex,bin}` for rp2040, rp2350, nrf52840, stm32f4, and esp32s3, accompanied by `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt`.
+
+The bindings are in the source archive (`bindings/`); the binary archives carry no binding. The Python wheel and the NuGet package are built and checked by the release workflow and kept as workflow artifacts, not as release assets; they go to PyPI and NuGet only when the repository variable `MIMHID_PUBLISH_BINDINGS` is `true`. The binary archives hold `examples/` (see its README for the binding examples).
 
 Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 and are signed ad hoc, not notarized; Windows archives use the dynamic MSVC runtime. The AArch64 Linux and ARM64 Windows libraries are cross-built and are not run in CI. Consume an archive with `find_package(mimhid COMPONENTS shared)` (or `static`) or with pkg-config (`mimhid`, `mimhid-static`).
 
@@ -152,6 +168,8 @@ Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 
 - [Profiles](docs/PROFILES.md)
 - [Architecture](docs/ARCHITECTURE.md) and [wire protocol](docs/PROTOCOL.md)
 - [Limits](docs/LIMITS.md), [latency](docs/LATENCY.md), [porting](docs/PORTING.md), [target matrix](docs/TARGET_MATRIX.md)
+- [Language bindings](#language-bindings) and [how they are generated](docs/INTERNALS.md#language-bindings)
+- [Internals](docs/INTERNALS.md): ownership, locks, the report and commit paths, for people changing the library
 
 ## License
 

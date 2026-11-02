@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mimhid"
+version = "2.0.2"
+description = "Explicit ctypes bindings for libmimhid"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/nemarpuc/libmimhid"
+Repository = "https://github.com/nemarpuc/libmimhid"
+Issues = "https://github.com/nemarpuc/libmimhid/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

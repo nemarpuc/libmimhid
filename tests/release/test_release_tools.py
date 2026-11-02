@@ -72,6 +72,28 @@ class Names(unittest.TestCase):
 
 
 class Validate(unittest.TestCase):
+    @staticmethod
+    def write_tree(root, version, cmake=None, binding=None):
+        """Writes every file version_files.SITES reads; `cmake` and `binding` override one version."""
+        major, minor, patch = version.split(".")
+        binding = binding or version
+        files = {
+            "CMakeLists.txt": f"project(libmimhid VERSION {cmake or version} LANGUAGES C)\n",
+            "include/mimhid.h": f"#define MIMHID_VERSION_MAJOR {major}\n"
+            f"#define MIMHID_VERSION_MINOR {minor}\n#define MIMHID_VERSION_PATCH {patch}\n",
+            "firmware/common/core.h": f"#define FW_VERSION_MAJOR {major}\n"
+            f"#define FW_VERSION_MINOR {minor}\n#define FW_VERSION_PATCH {patch}\n",
+            "README.md": f"> Version {version}. Version 2.0.0 changed the API.\n",
+            "bindings/python/pyproject.toml": f'version = "{binding}"\n',
+            "bindings/csharp/MimHid/MimHid.csproj": f"<Version>{binding}</Version>\n",
+            "bindings/rust/mimhid/Cargo.toml": f'version = "{binding}"\n'
+            f'mimhid-sys = {{ path = "../mimhid-sys", version = "{binding}" }}\n',
+            "bindings/rust/mimhid-sys/Cargo.toml": f'version = "{binding}"\n',
+        }
+        for path, text in files.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text)
+
     def test_current_tree_versions_agree(self):
         versions = set(release_names.read_versions(ROOT).values())
         self.assertEqual(len(versions), 1, versions)
@@ -84,29 +106,40 @@ class Validate(unittest.TestCase):
     def test_changelog_must_be_dated(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "include").mkdir()
-            (root / "firmware/common").mkdir(parents=True)
             (root / "LICENSE").write_text("MIT\n")
             (root / "NOTICE").write_text("NOTICE\n")
             (root / "THIRD_PARTY_NOTICES.md").write_text("THIRD_PARTY\n")
-            (root / "include/mimhid.h").write_text(
-                "#define MIMHID_VERSION_MAJOR 1\n#define MIMHID_VERSION_MINOR 2\n#define MIMHID_VERSION_PATCH 3\n")
-            (root / "firmware/common/core.h").write_text(
-                "#define FW_VERSION_MAJOR 1\n#define FW_VERSION_MINOR 2\n#define FW_VERSION_PATCH 3\n")
-            (root / "CMakeLists.txt").write_text("project(libmimhid VERSION 1.2.3 LANGUAGES C)\n")
+            self.write_tree(root, "1.2.3")
             (root / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] - unreleased\n\n- x\n")
             with self.assertRaises(release_names.ReleaseError):
                 validate_release.validate(root, "v1.2.3")
             (root / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] - 2026-01-02\n\n- x\n\n## [1.2.2] - 2026-01-01\n\n- y\n")
             version, notes = validate_release.validate(root, "v1.2.3")
             self.assertEqual((version, notes), ("1.2.3", "- x"))
-            (root / "CMakeLists.txt").write_text("project(libmimhid VERSION 1.2.4 LANGUAGES C)\n")
+            self.write_tree(root, "1.2.3", cmake="1.2.4")
             with self.assertRaises(release_names.ReleaseError):
                 validate_release.validate(root, "v1.2.3")
-            (root / "CMakeLists.txt").write_text("project(libmimhid VERSION 1.2.3 LANGUAGES C)\n")
+            self.write_tree(root, "1.2.3", binding="1.2.2")  # a binding left on the old version
+            with self.assertRaises(release_names.ReleaseError):
+                validate_release.validate(root, "v1.2.3")
+            self.write_tree(root, "1.2.3")
             (root / "THIRD_PARTY_NOTICES.md").unlink()
             with self.assertRaises(release_names.ReleaseError):
                 validate_release.validate(root, "v1.2.3")
+
+
+class SyncVersion(unittest.TestCase):
+    def test_every_site_follows_the_new_version(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Validate.write_tree(root, "1.2.3")
+            tool = [sys.executable, str(ROOT / "tools/release/sync_version.py"), "--root", str(root), "--no-generate"]
+            subprocess.check_call(tool + ["1.3.0"], stdout=subprocess.DEVNULL)
+            self.assertEqual(set(release_names.read_versions(root).values()), {"1.3.0"})
+            self.assertIn("Version 1.3.0.", (root / "README.md").read_text())
+            self.assertNotEqual(subprocess.call(tool + ["1.3"], stderr=subprocess.DEVNULL), 0)
 
 
 class Package(unittest.TestCase):
@@ -131,6 +164,8 @@ class Package(unittest.TestCase):
             root = release_names.base_name("1.2.3", "linux", "x86_64", "shared")
             self.assertIn(f"{root}/lib/libmimhid.so", names)
             self.assertIn(f"{root}/share/doc/libmimhid/build-metadata.json", names)
+            self.assertIn(f"{root}/share/doc/libmimhid/examples/README.md", names)
+            self.assertIn(f"{root}/share/doc/libmimhid/examples/c/profiles/keyboard.c", names)
             spdx = json.loads(first.with_name(root + ".spdx.json").read_text())
             self.assertEqual(spdx["spdxVersion"], "SPDX-2.3")
             self.assertEqual(spdx["name"], first.name)
@@ -145,6 +180,7 @@ class Package(unittest.TestCase):
             self.assertTrue(any(n.endswith("bin/mimhid.dll") for n in names))
             self.assertFalse(any(n.endswith("mimhid.h") for n in names))
             self.assertFalse(any(n.endswith(".lib") for n in names))
+            self.assertFalse(any("/examples/" in n for n in names))
 
     def test_missing_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

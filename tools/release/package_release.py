@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tarfile
@@ -21,6 +22,7 @@ import generate_spdx
 import release_names
 
 DOC = "share/doc/libmimhid"
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def collect(stage: Path, platform: str, variant: str) -> list[Path]:
@@ -31,6 +33,8 @@ def collect(stage: Path, platform: str, variant: str) -> list[Path]:
     keep = []
     for path in everything:
         text = path.as_posix()
+        if text.startswith(DOC + "/examples/"):
+            continue  # the runtime bundle has no headers to build them against
         if text.startswith(DOC + "/"):
             keep.append(path)
         elif platform == "windows" and text.startswith("bin/") and text.endswith(".dll"):
@@ -50,6 +54,7 @@ def validate_layout(stage: Path, platform: str, variant: str) -> None:
         f"{DOC}/CHANGELOG.md",
     ]
     if variant in ("shared", "static"):
+        required.append(f"{DOC}/examples/README.md")
         required += ["include/mimhid.h", "include/mimhid.hpp"]
         flavor = "shared" if variant == "shared" else "static"
         required += [f"lib/cmake/mimhid/mimhid-{flavor}-targets.cmake", "lib/cmake/mimhid/mimhid-config.cmake"]
@@ -138,11 +143,17 @@ def main() -> int:
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--epoch", type=int, required=True, help="commit time, seconds since 1970")
     parser.add_argument("--build-metadata", action="append", default=[], metavar="KEY=VALUE")
+    parser.add_argument("--source-root", type=Path, default=SOURCE_ROOT,
+                        help="the source tree whose examples/ goes into the archive")
     args = parser.parse_args()
     try:
         if len(args.source_sha) != 40 or any(c not in "0123456789abcdef" for c in args.source_sha):
             raise release_names.ReleaseError("source SHA must be 40 lowercase hexadecimal characters")
         base = release_names.base_name(args.version, args.platform, args.arch, args.variant)
+        if args.variant != "runtime":
+            shutil.copytree(args.source_root / "examples", args.stage / DOC / "examples",
+                            dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         validate_layout(args.stage, args.platform, args.variant)
         metadata = {
             "project": release_names.PROJECT,

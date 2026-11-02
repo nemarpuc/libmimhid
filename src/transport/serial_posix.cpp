@@ -24,6 +24,7 @@ namespace {
 enum { WAIT_IN = 1, WAIT_OUT = 2, WAIT_ERR = 4 };
 
 // poll() on tty devices is unreliable on macOS, so select() is used there.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int wait_fd(int fd, int events, std::uint32_t timeout_ms) noexcept {
 #ifdef __APPLE__
     if (fd < 0 || fd >= FD_SETSIZE)
@@ -263,6 +264,7 @@ void SerialPort::close() noexcept {
     }
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 IoStatus SerialPort::write_all(const std::uint8_t* data, std::size_t length, std::uint32_t stall_ms,
                                std::int32_t* os_error) noexcept {
     const int fd = static_cast<int>(handle_);
@@ -297,6 +299,7 @@ IoStatus SerialPort::write_all(const std::uint8_t* data, std::size_t length, std
     return IoStatus::ok;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 long SerialPort::read(std::uint8_t* buffer, std::size_t capacity,
                       std::uint32_t timeout_ms) noexcept {
     const int fd = static_cast<int>(handle_);

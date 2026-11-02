@@ -19,6 +19,7 @@ std::string device_path(const char* port) {
     return "\\\\.\\" + name;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool set_read_timeout(HANDLE h, DWORD timeout_ms, DWORD write_stall_ms) noexcept {
     // MAXDWORD / MAXDWORD / N: a read returns at once when bytes are queued, otherwise it
     // waits up to N ms for the first byte, so the reader wakes on the first received byte.
@@ -155,6 +156,7 @@ void SerialPort::close() noexcept {
     read_event_ = write_event_ = nullptr;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 IoStatus SerialPort::write_all(const std::uint8_t* data, std::size_t length, std::uint32_t stall_ms,
                                std::int32_t* os_error) noexcept {
     if (!is_open())
@@ -193,6 +195,7 @@ IoStatus SerialPort::write_all(const std::uint8_t* data, std::size_t length, std
     return IoStatus::ok;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 long SerialPort::read(std::uint8_t* buffer, std::size_t capacity,
                       std::uint32_t timeout_ms) noexcept {
     if (!is_open())

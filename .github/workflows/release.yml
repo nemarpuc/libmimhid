@@ -321,9 +321,135 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  binding-packages:
+    name: Build and validate Python/NuGet packages
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      MIMHID_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.verify.outputs.epoch }}
+      PYTHONHASHSEED: '0'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Select Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Select exact .NET SDK with deterministic NuGet pack support
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '10.0.400'
+
+      - name: Build and test a reproducible Python wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv build/bindings/build-env
+          build/bindings/build-env/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            --requirement tools/release/python-build-requirements.txt
+          build/bindings/build-env/bin/python -m build --no-isolation \
+            --wheel --outdir build/bindings/python-dist \
+            bindings/python
+          build/bindings/build-env/bin/python -m build --no-isolation \
+            --wheel --outdir build/bindings/python-rebuild \
+            bindings/python
+          test "$(find build/bindings/python-dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
+          test "$(find build/bindings/python-rebuild -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
+          test "$(sha256sum build/bindings/python-dist/*.whl | cut -d' ' -f1)" = \
+            "$(sha256sum build/bindings/python-rebuild/*.whl | cut -d' ' -f1)"
+          python -m venv build/bindings/python-venv
+          build/bindings/python-venv/bin/python -m pip install \
+            --disable-pip-version-check build/bindings/python-dist/*.whl
+          build/bindings/python-venv/bin/python -I - <<'PY'
+          import os
+
+          import mimhid
+
+          expected = tuple(
+              int(component)
+              for component in os.environ["MIMHID_RELEASE_VERSION"].split(".")
+          )
+          actual = (
+              mimhid.MIMHID_VERSION_MAJOR,
+              mimhid.MIMHID_VERSION_MINOR,
+              mimhid.MIMHID_VERSION_PATCH,
+          )
+          if actual != expected:
+              raise SystemExit(f"binding version {actual!r} != release version {expected!r}")
+          PY
+
+      - name: Build and test a reproducible NuGet package
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore bindings/csharp/MimHid/MimHid.csproj
+          for output in nuget nuget-rebuild; do
+            dotnet pack bindings/csharp/MimHid/MimHid.csproj \
+              --configuration Release \
+              --no-restore \
+              --output "build/bindings/$output" \
+              -p:PackageVersion='${{ needs.verify.outputs.version }}' \
+              -p:ContinuousIntegrationBuild=true \
+              -p:Deterministic=true \
+              -p:DeterministicTimestamp="$SOURCE_DATE_EPOCH" \
+              -p:RepositoryCommit='${{ needs.verify.outputs.source_sha }}'
+          done
+          test "$(find build/bindings/nuget -maxdepth 1 -type f -name '*.nupkg' | wc -l)" -eq 1
+          test "$(find build/bindings/nuget-rebuild -maxdepth 1 -type f -name '*.nupkg' | wc -l)" -eq 1
+          test "$(sha256sum build/bindings/nuget/*.nupkg | cut -d' ' -f1)" = \
+            "$(sha256sum build/bindings/nuget-rebuild/*.nupkg | cut -d' ' -f1)"
+          dotnet new console --framework net8.0 --output build/bindings/nuget-consumer
+          dotnet add build/bindings/nuget-consumer package MimHid \
+            --version '${{ needs.verify.outputs.version }}' \
+            --source "$PWD/build/bindings/nuget"
+          printf '%s\n' \
+            'using System;' \
+            'using MimHid;' \
+            'var expectedText = Environment.GetEnvironmentVariable("MIMHID_RELEASE_VERSION");' \
+            'var parts = expectedText?.Split(new[] { "." }, StringSplitOptions.None);' \
+            'if (parts is null || parts.Length != 3 ||' \
+            '    !uint.TryParse(parts[0], out var major) ||' \
+            '    !uint.TryParse(parts[1], out var minor) ||' \
+            '    !uint.TryParse(parts[2], out var patch)) return 2;' \
+            'if (Native.MIMHID_VERSION_MAJOR != major || Native.MIMHID_VERSION_MINOR != minor || Native.MIMHID_VERSION_PATCH != patch) return 1;' \
+            'return 0;' \
+            > build/bindings/nuget-consumer/Program.cs
+          dotnet run --project build/bindings/nuget-consumer --configuration Release
+
+      - name: Validate exact package metadata and native dependency boundary
+        run: >-
+          python tools/release/validate_binding_packages.py
+          --python-directory build/bindings/python-dist
+          --nuget-directory build/bindings/nuget
+          --csharp-project bindings/csharp/MimHid/MimHid.csproj
+          --version '${{ needs.verify.outputs.version }}'
+
+      - name: Upload validated binding packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binding-packages
+          path: |
+            build/bindings/python-dist/*.whl
+            build/bindings/nuget/*.nupkg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   publish:
     name: Publish GitHub Release
-    needs: [ verify, host, firmware-pico, firmware-bsp, firmware-esp32s3 ]
+    needs: [ verify, host, binding-packages, firmware-pico, firmware-bsp, firmware-esp32s3 ]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -394,3 +520,64 @@ jobs:
           files: dist/*
           body_path: parts/release-notes/release-notes.md
           fail_on_unmatched_files: true
+
+  publish-pypi:
+    name: Publish Python wheel through PyPI Trusted Publishing
+    if: vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    needs:
+      - publish
+      - binding-packages
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download validated binding packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: binding-packages
+          path: build/bindings
+
+      - name: Publish the wheel without a long-lived credential
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          packages-dir: build/bindings/python-dist
+          verify-metadata: true
+          attestations: true
+
+  publish-nuget:
+    name: Publish NuGet package with a scoped API key
+    if: vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    needs:
+      - publish
+      - binding-packages
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Download validated binding packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: binding-packages
+          path: build/bindings
+
+      - name: Select exact .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '10.0.400'
+
+      - name: Publish the exact package
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$NUGET_API_KEY"
+          mapfile -t packages < <(find build/bindings/nuget -maxdepth 1 \
+            -type f -name 'MimHid.*.nupkg' -print)
+          test "${#packages[@]}" -eq 1
+          dotnet nuget push "${packages[0]}" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json

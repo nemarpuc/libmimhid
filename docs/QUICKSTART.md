@@ -88,6 +88,30 @@ build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 
 ---
 
+## 5. Run the programs made to be watched
+
+`examples/c/verify/` holds small programs for a person to watch. Each prints what to prepare, waits three seconds, then does one clearly described thing. They are built with the examples (`-DMIMHID_BUILD_EXAMPLES=ON`) as `mimhid_verify_<name>`.
+
+| Program | Prepare on the target | Expected result |
+|---|---|---|
+| `mimhid_verify_keyboard` | Open a text field | The text `hello from libmimhid` typed out, three times |
+| `mimhid_verify_mouse` | Nothing | The cursor moves in a circle for a few seconds; a touch-first target may show no cursor, and a clean exit then means the reports were accepted |
+| `mimhid_verify_touch` | Have any screen open | A left-right drag, repeated five times |
+| `mimhid_verify_toggle` | Unlock the target, put a media app in the foreground | Play/Pause, Volume Increment, Mute and "AC New" fire in turn; only Consumer Control Usages are sent (the comment at the top of the file says why System Control is left out) |
+| `mimhid_verify_all` | Open a text field | Touch circles, `hello world` typed and mouse circles, one profile at a time for two rounds, then all three interleaved |
+
+```bash
+build/examples/mimhid_verify_keyboard
+build/examples/mimhid_verify_touch
+build/examples/mimhid_verify_mouse
+build/examples/mimhid_verify_toggle
+build/examples/mimhid_verify_all
+```
+
+Each uses the first board `mimhid_discover` finds, with the pid.codes test USB identity (`1209:0001`). That pair is for testing in-house only.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

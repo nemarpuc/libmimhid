@@ -1548,11 +1548,10 @@ MIMHID_C_RESULT_CATCH("device.limits")
 
 // ---- control transfers of the target ---------------------------------------------------
 
-mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* device,
-                                                            const uint32_t report_all,
-                                                            const mimhid_control_rule* rules,
-                                                            const size_t rule_count,
-                                                            const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_device_set_control_routing(
+    mimhid_device* device, const uint32_t report_all, const mimhid_control_rule* rules,
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const size_t rule_count, const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
@@ -1627,10 +1626,10 @@ mimhid_result MIMHID_CALL mimhid_device_set_control_routing(mimhid_device* devic
 }
 MIMHID_C_RESULT_CATCH("device.set_control_routing")
 
-mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(mimhid_device* device,
-                                                           const uint32_t enabled,
-                                                           const uint32_t interval_ms,
-                                                           const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(
+    mimhid_device* device, const uint32_t enabled,
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const uint32_t interval_ms, const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
         set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
@@ -2061,10 +2060,10 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
 }
 MIMHID_C_RESULT_CATCH("node.open_raw")
 
-mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
-                                                           const uint8_t report_id,
-                                                           const uint8_t* data, const size_t length,
-                                                           const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_node_set_feature_response(
+    mimhid_node* node, const uint8_t report_id,
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const uint8_t* data, const size_t length, const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr ||
         (data == nullptr && length != 0U) || length > node->device->board.max_feature_bytes) {
@@ -2100,6 +2099,7 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_node* node,
 }
 MIMHID_C_RESULT_CATCH("node.set_feature_response")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimhid_result MIMHID_CALL mimhid_node_set_queue_depth(mimhid_node* node, const uint32_t depth,
                                                       const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();

@@ -359,10 +359,7 @@ void Link::handle_frame(const Frame& frame) {
             state_cv_.notify_all();
         } else if (ev.kind == MIMHID_EV_UNMOUNTED) {
             ready_.store(false, std::memory_order_release);
-        } else if (ev.kind == MIMHID_EV_OUTPUT_REPORT) {
-            if (ev.length < 3)
-                break;
-        } else if (ev.kind == MIMHID_EV_SET_REPORT) {
+        } else if (ev.kind == MIMHID_EV_OUTPUT_REPORT || ev.kind == MIMHID_EV_SET_REPORT) {
             if (ev.length < 3)
                 break;
         }
@@ -402,6 +399,7 @@ bool Link::ping(std::uint32_t timeout_ms, BoardInfo* out) {
     return false;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                             std::uint32_t timeout_ms, int attempts) {
     CommandResult result;
@@ -455,6 +453,7 @@ CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std:
     return result;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 CommandResult Link::commit(std::uint16_t delay_ms, std::uint32_t timeout_ms) {
     clear_ready();
     const std::uint8_t payload[3] = {
@@ -481,6 +480,7 @@ CommandResult Link::disconnect(std::uint32_t timeout_ms) {
     return command(MIMHID_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 IoStatus Link::send_report(std::uint8_t node, const std::uint8_t* report, std::size_t length,
                            std::uint32_t stall_ms, std::int32_t* os_error) {
     if (failed())
@@ -494,7 +494,9 @@ IoStatus Link::send_report(std::uint8_t node, const std::uint8_t* report, std::s
     return port_.write_all(frame, n, stall_ms, os_error);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 IoStatus Link::send_control_reply(std::uint8_t token, std::uint8_t action, const std::uint8_t* data,
+                                  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                                   std::size_t length, std::uint32_t timeout_ms,
                                   std::int32_t* os_error) {
     if (failed())

@@ -8,6 +8,47 @@ The programs find a board with `mimhid_discover` (or connect directly via port p
 | [`examples/c/control_transfers.c`](../examples/c/control_transfers.c) | Control transfers of the target: report every request, hold one by a rule, and answer it from the event sink. Runs for 10 s and types nothing. |
 | [`examples/cpp/multitouch_gesture.cpp`](../examples/cpp/multitouch_gesture.cpp) | A two-finger touchscreen Spec and a pinch-out gesture through the `mimhid::` forwarders. |
 
+libaoahid has one large program, `multi_profile.c`, that CI runs against a fake transport that finds no device. libmimhid has no such transport for its examples: `mimhid_discover` messages every serial port of the host, so a CI run would touch real ports. The same ground is covered by `basic_keyboard_mouse.c` (open, Specs, batch, submit, close), `control_transfers.c` (the event sink and control routing) and `examples/c/verify/verify_all.c` (three profiles interleaved against one real target); the build of each is a CTest case only for the per-profile programs, which need no board.
+
+## One example per profile kind
+
+`examples/c/profiles/` holds one small, self-contained program for each of the nine `mimhid_profile_kind` values, plus `keyboard_battery.c` for the battery report any generated profile can carry. Each file starts from its profile's `*_init` function and sets only what it changes, so it can be copied into a product and edited directly. None of them opens a board, so they run anywhere the library links. With both `MIMHID_BUILD_EXAMPLES` and `MIMHID_BUILD_TESTS` on, CTest runs each one as `mimhid.example-profile-<name>`.
+
+| # | Profile kind | Example file | Factory |
+|---:|---|---|---|
+| 1 | `MIMHID_PROFILE_KEYBOARD` | `keyboard.c` | `mimhid_spec_create_keyboard` |
+| 2 | `MIMHID_PROFILE_MOUSE` | `mouse.c` | `mimhid_spec_create_mouse` |
+| 3 | `MIMHID_PROFILE_TOUCHSCREEN` | `touchscreen.c` | `mimhid_spec_create_touchscreen` |
+| 4 | `MIMHID_PROFILE_TOUCHPAD` | `touchpad.c` | `mimhid_spec_create_touchpad` |
+| 5 | `MIMHID_PROFILE_PEN` | `pen.c` | `mimhid_spec_create_pen` |
+| 6 | `MIMHID_PROFILE_DIGITIZER` | `digitizer.c` | `mimhid_spec_create_digitizer` |
+| 7 | `MIMHID_PROFILE_GAMEPAD` | `gamepad.c` | `mimhid_spec_create_gamepad` |
+| 8 | `MIMHID_PROFILE_TOGGLE` | `toggle.c` | `mimhid_spec_create_toggle` (Consumer, System, Camera or Telephony keys, selected by `application_page`, `application_usage` and `field_page`) |
+| 9 | `MIMHID_PROFILE_RAW` | `raw.c` | `mimhid_spec_create_raw` |
+| - | `MIMHID_PROFILE_KEYBOARD` with `enable_battery` | `keyboard_battery.c` | `mimhid_spec_create_keyboard` (the same two option fields exist on every generated profile) |
+
+`profile_example.h` is shared by all ten. It holds only the reporting helper and no product values. The helper prints the descriptor size and report layout the library derived from the caller's options, then the call sequence that would send the profile through a real board: `mimhid_discover`, `mimhid_device_open`, `mimhid_node_open`, `mimhid_device_wait_ready`, the profile's own mutation calls, and `mimhid_device_close`. Each example supplies its own mutation steps. The sequence is printed, not executed, because these programs open no board.
+
+## Programs to watch on a real target
+
+`examples/c/verify/` holds programs for a person to run with a board attached and to watch on the target machine. Each prints what to prepare, waits a few seconds, then does one clearly described thing. They are built with the other examples as `mimhid_verify_<name>` and are never registered as CTest cases. [QUICKSTART.md](QUICKSTART.md) has the walkthrough.
+
+| Program | What it does |
+|---|---|
+| `verify_keyboard.c` | Types a short message three times. |
+| `verify_mouse.c` | Moves the cursor in circles. |
+| `verify_touch.c` | Drags one finger across the screen five times. |
+| `verify_toggle.c` | Taps Consumer Control Usages (Play/Pause, Volume, Mute, AC New); System Control is left out on purpose, since Power Down and Sleep cannot be undone from here. |
+| `verify_all.c` | Touch, keyboard and mouse, one at a time for two rounds, then interleaved from one thread. Opens its three Nodes in one batch, so the board enumerates once. |
+
+`verify_common.h` finds the first board and opens a Node. Its USB identity is the pid.codes test pair, for testing in-house only.
+
+The commands to compile all of them against a release archive are in [`examples/README.md`](../examples/README.md).
+
+## Other languages
+
+`examples/python/enumerate.py`, `examples/csharp/Program.cs` and `bindings/rust/mimhid-sys/examples/enumerate.rs` list the boards `mimhid_discover` finds. They are deliberately short: the life cycle with Nodes, a batch and the event sink is shown once, in C. `mimhid_discover` messages every serial port of the host, so run them only when that is acceptable. See [the README](../README.md#language-bindings) for the bindings.
+
 ## Patterns
 
 **The waits**

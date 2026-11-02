@@ -70,3 +70,10 @@ Thumbs.db
 # Temporary / scratch
 scratch/
 
+
+# Language bindings
+*.egg-info/
+Cargo.lock
+target/
+obj/
+*.pdb

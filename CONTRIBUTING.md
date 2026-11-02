@@ -19,6 +19,14 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
 - C++ headers and tests must adhere to modern C++20.
 - All code must conform to `.clang-format` and `.clang-tidy`.
 
+## Bindings
+
+`bindings/*/` declarations and `tests/abi/layout_oracle.c` are generated. After changing `include/mimhid.h`, run `python3 tools/bindings/generate.py`, and commit the result; CI runs it with `--check`.
+
+## Releasing
+
+`python3 tools/release/sync_version.py X.Y.Z` writes the version into every file that carries it (the list is `tools/release/version_files.py`; `validate_release.py` reads the same list). Then run `python3 tools/bindings/generate.py` for the constants in the generated bindings, add the dated `CHANGELOG.md` section, and tag.
+
 ## Development Workflow
 
 1. Configure with standard CMake presets:

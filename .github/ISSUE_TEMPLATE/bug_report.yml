@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible library, serial link, firmware, descriptor, or target issue.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include HID report payloads that may contain passwords, medical
+        data, or other sensitive input. Attach the exact evidence needed to
+        distinguish host library, serial link, board firmware, USB enumeration,
+        and target operating system or application behavior.
+  - type: input
+    id: revision
+    attributes:
+      label: libmimhid revision
+      description: Commit SHA or release version of the host library, and the firmware version the board reports.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Exact environment
+      description: Host OS and architecture, serial adapter and baud rate, board chip (RP2040 or RP2350) and wiring, target OS and version, and physical topology.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include explicit option values, call order, result codes, `mimhid_last_error()` output, and sanitized diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence layers
+      description: The serial frames, the board's reply, the target's USB trace or kernel log, and an input viewer's output, as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true

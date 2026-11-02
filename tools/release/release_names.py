@@ -8,6 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+import version_files
+
 PROJECT = "libmimhid"
 REPOSITORY = "nemarpuc/libmimhid"
 REPOSITORY_URL = f"https://github.com/{REPOSITORY}"
@@ -97,30 +99,11 @@ def expected_assets(version: str) -> list[str]:
 
 
 def read_versions(root: Path) -> dict[str, str]:
-    """The version recorded in every file that carries one."""
-    header = (root / "include/mimhid.h").read_text(encoding="utf-8")
-    parts = []
-    for part in ("MAJOR", "MINOR", "PATCH"):
-        match = re.search(rf"^#define MIMHID_VERSION_{part} ([0-9]+)$", header, re.MULTILINE)
-        if match is None:
-            raise ReleaseError(f"include/mimhid.h has no MIMHID_VERSION_{part}")
-        parts.append(match.group(1))
-    firmware = (root / "firmware/common/core.h").read_text(encoding="utf-8")
-    fw = []
-    for part in ("MAJOR", "MINOR", "PATCH"):
-        match = re.search(rf"^#define FW_VERSION_{part} ([0-9]+)$", firmware, re.MULTILINE)
-        if match is None:
-            raise ReleaseError(f"firmware/common/core.h has no FW_VERSION_{part}")
-        fw.append(match.group(1))
-    cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-    match = re.search(r"^project\(libmimhid VERSION ([0-9.]+)", cmake, re.MULTILINE)
-    if match is None:
-        raise ReleaseError("CMakeLists.txt has no project version")
-    return {
-        "include/mimhid.h": ".".join(parts),
-        "firmware/common/core.h": ".".join(fw),
-        "CMakeLists.txt": match.group(1),
-    }
+    """The version recorded in every file that carries one (the list is version_files.SITES)."""
+    try:
+        return version_files.assembled_versions(root)
+    except (OSError, version_files.VersionFileError) as error:
+        raise ReleaseError(str(error)) from error
 
 
 def changelog_section(root: Path, version: str) -> tuple[str, str]:

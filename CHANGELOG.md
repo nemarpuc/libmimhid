@@ -3,6 +3,28 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-11-02
+
+Not hardware-verified: the host library, the firmware and the wire protocol are
+those of 2.0.1; the version number of the firmware image changes with the release
+and nothing else in it. The additions are examples, bindings, tests and tooling,
+and one change of code layout in `src/` that keeps the behavior (see Changed).
+
+### Added
+
+- `examples/c/profiles/`: one program per profile kind and one for the battery report. None opens a board; each builds a Spec, checks its manifest against the descriptor, and prints the call sequence that would send it. CTest runs them as `mimhid.example-profile-*`.
+- `examples/c/verify/`: five programs (`keyboard`, `mouse`, `touch`, `toggle`, `all`) to run with a board and watch on the target. Built as `mimhid_verify_*`, never registered as CTest cases. `docs/QUICKSTART.md` has a step for them.
+- `examples/README.md`: the commands to compile every example against a release archive.
+- The `shared` and `static` release archives carry `share/doc/libmimhid/examples/`; the runtime bundles do not. `package_release.py` copies it and `validate_layout` requires it.
+- `MIMHID_BUILD_FUZZ`: a libFuzzer target (`tests/fuzz/fuzz_descriptor.cpp`) for the descriptor builder, the serializer, the raw-descriptor validator and the frame parser, and a `fuzz-smoke` CI job.
+- Language bindings for Python (`ctypes`), C# (P/Invoke) and Rust (FFI) in `bindings/`, generated from `include/mimhid.h` by `tools/bindings/generate.py`, with a C layout oracle (`tests/abi/layout_oracle.c`), a layout test per language and a short `enumerate` example each. The release workflow builds and checks the wheel and the NuGet package (reproducibly, with no native library inside) and keeps them; they are published to PyPI and NuGet only when the repository variable `MIMHID_PUBLISH_BINDINGS` is `true`. The package versions are checked against the tag. The Rust crate `mimhid` wraps `mimhid-sys` with owning Spec types and one node type per profile. C# enum members drop the `ERR_` of `Result` (`Result.Parameter`, as in libaoahid).
+- `tools/release/sync_version.py` and `version_files.py`: one list of the files that carry the version, written by one command and checked by `validate_release.py`.
+- `docs/INTERNALS.md`, `tools/docs/Doxyfile` with a `docs.yml` workflow that builds the API documentation, and a bug report issue template.
+
+### Changed
+
+- `Link::handle_frame` tests the two output-report event kinds in one condition; the behavior is the same. `NOLINTNEXTLINE(bugprone-easily-swappable-parameters)` marks the functions whose parameters follow the wire or the C ABI order. CI builds with Clang 14 and runs clang-tidy 14 on the production sources, and has `musl` and `hid-tools` jobs.
+
 ## [2.0.1] - 2026-10-30
 
 Not run on a board: the host library's ABI and the wire protocol (still 6) are those of 2.0.0, and the firmware changes only its version number, so a board on 2.0.0 or 1.5.0 firmware works with this library. Tested by the unit, ABI and end-to-end tests, also under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.
