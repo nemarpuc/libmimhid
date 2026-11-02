@@ -183,7 +183,7 @@ jobs:
             --workdir /src \
             "$image" \
             sh -euc '
-              apk add --no-cache build-base cmake python3
+              apk add --no-cache build-base cmake python3 linux-headers
               cmake -S . -B build/musl -G "Unix Makefiles" \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DMIMHID_WERROR=ON \
