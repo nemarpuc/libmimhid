@@ -1,12 +1,12 @@
 {
-  "version": 3,
+  "version": 2,
   "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
   "configurePresets": [
     {
-      "name": "debug",
-      "displayName": "Debug build",
+      "name": "dev",
+      "displayName": "Developer build",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/debug",
+      "binaryDir": "${sourceDir}/build/dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MIMHID_BUILD_TESTS": "ON",
@@ -20,49 +20,36 @@
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "MIMHID_BUILD_TESTS": "OFF",
-        "MIMHID_BUILD_EXAMPLES": "OFF"
+        "MIMHID_BUILD_TESTS": "OFF"
       }
     },
     {
-      "name": "test",
-      "displayName": "Test build",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/build/test",
+      "name": "tsan",
+      "displayName": "ThreadSanitizer race-detection build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/tsan",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MIMHID_BUILD_TESTS": "ON",
-        "MIMHID_BUILD_EXAMPLES": "ON"
+        "MIMHID_BUILD_EXAMPLES": "ON",
+        "MIMHID_TSAN": "ON"
       }
-    },
-    {
-      "name": "dev",
-      "displayName": "Developer build",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/build/dev"
     }
   ],
   "buildPresets": [
-    { "name": "debug", "configurePreset": "debug" },
+    { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "test", "configurePreset": "test" },
-    { "name": "dev", "configurePreset": "dev" }
+    { "name": "tsan", "configurePreset": "tsan" }
   ],
   "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
     {
-      "name": "debug",
-      "configurePreset": "debug",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "test",
-      "configurePreset": "test",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "dev",
-      "configurePreset": "dev",
-      "output": { "outputOnFailure": true }
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/e2e/tsan.supp halt_on_error=1"
+      }
     }
   ]
 }

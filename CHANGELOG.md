@@ -3,6 +3,29 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Build layout brought in line with libaoahid. The library, the C ABI and the wire protocol are unchanged.
+
+### Added
+
+- `mimhid::cpp` and `mimhid::cpp_static`: the C++ facade of `mimhid.hpp` as a CMake target that asks for C++20, so a project that enables only C can still link `mimhid::mimhid`.
+- `MIMHID_SANITIZE` (AddressSanitizer and UBSan) and `MIMHID_TSAN` (ThreadSanitizer), with the configure-time checks libaoahid has: Linux only, GCC 12 or Clang, a usable runtime, PIE. Findings stop the process (`-fno-sanitize-recover=all`).
+- The `tsan` CMake preset.
+- `mimhid.abi-layout-oracle`: every size, field offset and constant of the C ABI (441 entries) is compared with `tests/abi/abi_layout.golden`, so an ABI change fails a test until the golden file is edited on purpose. Unlike libaoahid's hand-written schema, this one is a recorded snapshot of the 2.0.2 header.
+
+### Changed
+
+- `MIMHID_BUILD_TESTS` and `MIMHID_BUILD_EXAMPLES` are off by default, so a project that takes libmimhid with `add_subdirectory` or `FetchContent` no longer builds them. The `dev` and `tsan` presets and every CI job turn them on.
+- `MIMHID_WERROR` is on by default, tests and the ABI check included; CI also builds Windows with it.
+- The CMake presets are `dev`, `release` and `tsan` (as in libaoahid), at preset version 2, which is what `cmake_minimum_required 3.20` can read. `debug` and `test` are gone.
+- The linker version script is `cmake/mimhid.map` (was `mimhid.ver`). The shared objects are compiled only when the shared library is built.
+- The CI job `host` is `native`.
+
+### Removed
+
+- `MIMHID_SANITIZERS`: use `MIMHID_SANITIZE` or `MIMHID_TSAN`.
+
 ## [2.0.2] - 2026-11-02
 
 Not hardware-verified: the host library, the firmware and the wire protocol are

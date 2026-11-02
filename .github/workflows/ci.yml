@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  host:
+  native:
     name: Host library (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -32,9 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          werror=ON
-          if [ "$RUNNER_OS" = Windows ]; then werror=OFF; fi
-          cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=ON -DMIMHID_WERROR=$werror
+          cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
 
       - name: Build
         run: cmake --build build_host --config Release --parallel
@@ -61,7 +59,7 @@ jobs:
       - name: Build the host library against the firmware core
         run: |
           set -euo pipefail
-          cmake -B build_e2e -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_WERROR=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_e2e -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
           cmake --build build_e2e --parallel
 
       - name: Run the end-to-end tests
@@ -307,13 +305,17 @@ jobs:
           clang-tidy-14 -p build_tidy '--warnings-as-errors=*'
 
   sanitizers:
-    name: Sanitizers (${{ matrix.sanitizers }})
+    name: Sanitizers (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        sanitizers: [ 'address,undefined', thread ]
+        include:
+          - name: address,undefined
+            flag: MIMHID_SANITIZE
+          - name: thread
+            flag: MIMHID_TSAN
 
     steps:
       - name: Check out source
@@ -325,8 +327,8 @@ jobs:
       - name: Build every test with the sanitizers
         run: |
           set -euo pipefail
-          cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_WERROR=ON \
-            -DMIMHID_SANITIZERS=${{ matrix.sanitizers }} -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
+            -D${{ matrix.flag }}=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
           cmake --build build_san --parallel
 
       - name: Run the tests

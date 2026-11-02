@@ -72,7 +72,7 @@ No permissions are needed. The bridge appears as a COM port (`COM3`); discovery 
 ## 4. Build the library and check the link
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release
 ```

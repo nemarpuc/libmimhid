@@ -7,8 +7,14 @@ function(mimhid_test_flags target)
     if(MSVC)
         # The tests rely on assert() and checks that must stay active in Release builds.
         target_compile_options(${target} PRIVATE /W4 /EHsc /GR- /UNDEBUG)
+        if(MIMHID_WERROR)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -fno-rtti -UNDEBUG)
+        if(MIMHID_WERROR)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
     endif()
 endfunction()
 
@@ -38,11 +44,42 @@ add_test(NAME mimhid.golden-descriptors
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
         ${CMAKE_CURRENT_BINARY_DIR}/support-manifests.tsv)
 
+# Every size, offset and constant of the C ABI must match the golden layout.
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+add_executable(mimhid_abi_layout_oracle tests/abi/layout_oracle.c)
+target_include_directories(mimhid_abi_layout_oracle PRIVATE include)
+set_target_properties(mimhid_abi_layout_oracle PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO)
+if(MSVC)
+    target_compile_options(mimhid_abi_layout_oracle PRIVATE /W4 /utf-8)
+    if(MIMHID_WERROR)
+        target_compile_options(mimhid_abi_layout_oracle PRIVATE /WX)
+    endif()
+else()
+    target_compile_options(mimhid_abi_layout_oracle PRIVATE -Wall -Wextra -Wpedantic -fshort-enums)
+    if(MIMHID_WERROR)
+        target_compile_options(mimhid_abi_layout_oracle PRIVATE -Werror)
+    endif()
+endif()
+add_test(NAME mimhid.abi-layout-oracle
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/abi/check_abi_golden.py
+        $<TARGET_FILE:mimhid_abi_layout_oracle>)
+
 # The public headers must be usable from C and from C++.
 add_executable(mimhid_c_abi_test tests/abi/test_c_abi.c)
 target_link_libraries(mimhid_c_abi_test PRIVATE mimhid::mimhid)
-if(NOT MSVC)
-    target_compile_options(mimhid_c_abi_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(MSVC)
+    target_compile_options(mimhid_c_abi_test PRIVATE /W4 /utf-8)
+    if(MIMHID_WERROR)
+        target_compile_options(mimhid_c_abi_test PRIVATE /WX)
+    endif()
+else()
+    target_compile_options(mimhid_c_abi_test PRIVATE -Wall -Wextra -Wpedantic)
+    if(MIMHID_WERROR)
+        target_compile_options(mimhid_c_abi_test PRIVATE -Werror)
+    endif()
 endif()
 add_test(NAME mimhid.c-abi COMMAND mimhid_c_abi_test)
 

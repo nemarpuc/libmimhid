@@ -10,22 +10,82 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(MIMHID_WERROR "Treat compiler warnings as errors" OFF)
-option(MIMHID_BUILD_SHARED "Build the shared library" ON)
-option(MIMHID_BUILD_STATIC "Build the static library" ON)
-option(MIMHID_BUILD_TESTS "Build verification test suite" ON)
-option(MIMHID_BUILD_EXAMPLES "Build example programs" ON)
-option(MIMHID_BUILD_FUZZ "Build the libFuzzer target (Clang only)" OFF)
-set(MIMHID_SANITIZERS "" CACHE STRING
-    "Sanitizers for every target, as -fsanitize takes them: address,undefined or thread")
+option(MIMHID_WERROR "Treat compiler warnings as errors." ON)
+option(MIMHID_BUILD_SHARED "Build the shared library." ON)
+option(MIMHID_BUILD_STATIC "Build the static library." ON)
+option(MIMHID_BUILD_TESTS "Build tests." OFF)
+option(MIMHID_BUILD_EXAMPLES "Build examples." OFF)
+option(MIMHID_BUILD_FUZZ "Build fuzz targets (Clang only)." OFF)
+option(MIMHID_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer." OFF)
+option(MIMHID_TSAN "Enable ThreadSanitizer for race detection." OFF)
 
-if(MIMHID_SANITIZERS)
-    if(MSVC)
-        message(FATAL_ERROR "MIMHID_SANITIZERS needs GCC or Clang")
+if(MIMHID_SANITIZE AND MIMHID_TSAN)
+    message(FATAL_ERROR
+        "MIMHID_SANITIZE and MIMHID_TSAN are mutually exclusive because "
+        "ThreadSanitizer cannot be combined with AddressSanitizer.")
+endif()
+if(MIMHID_TSAN)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR
+            "MIMHID_TSAN is supported only for Linux host builds; "
+            "CMAKE_SYSTEM_NAME is '${CMAKE_SYSTEM_NAME}'.")
     endif()
-    add_compile_options(-fsanitize=${MIMHID_SANITIZERS} -fno-sanitize-recover=all
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang)$" OR
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+        message(FATAL_ERROR
+            "MIMHID_TSAN requires GNU or Clang C and C++ compilers; found "
+            "C='${CMAKE_C_COMPILER_ID}' and CXX='${CMAKE_CXX_COMPILER_ID}'.")
+    endif()
+    if((CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_LESS 12) OR
+       (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12))
+        message(FATAL_ERROR
+            "MIMHID_TSAN requires GCC 12 or newer when using the GNU ThreadSanitizer runtime. "
+            "GCC 11 has the unresolved condition-variable false positive tracked as GCC bug 101978.")
+    endif()
+    if(MIMHID_BUILD_FUZZ)
+        message(FATAL_ERROR
+            "MIMHID_TSAN cannot be combined with MIMHID_BUILD_FUZZ because the "
+            "fuzz target uses the incompatible AddressSanitizer runtime.")
+    endif()
+
+    # TSan requires a usable compiler runtime and position-independent executables. Probe both
+    # languages and fail during configuration instead of leaving an obscure linker error.
+    include(CheckPIESupported)
+    check_pie_supported(LANGUAGES C CXX OUTPUT_VARIABLE MIMHID_TSAN_PIE_DIAGNOSTIC)
+    if(NOT CMAKE_C_LINK_PIE_SUPPORTED OR NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+        message(FATAL_ERROR
+            "MIMHID_TSAN requires PIE support for C and C++ executables. "
+            "CMake's PIE probe reported: ${MIMHID_TSAN_PIE_DIAGNOSTIC}")
+    endif()
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+    include(CheckCSourceCompiles)
+    include(CheckCXXSourceCompiles)
+    set(MIMHID_SAVED_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
+    set(MIMHID_SAVED_REQUIRED_LINK_OPTIONS "${CMAKE_REQUIRED_LINK_OPTIONS}")
+    string(APPEND CMAKE_REQUIRED_FLAGS " -fsanitize=thread")
+    list(APPEND CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=thread)
+    check_c_source_compiles("int main(void) { return 0; }" MIMHID_C_TSAN_COMPILES_AND_LINKS)
+    check_cxx_source_compiles("int main() { return 0; }" MIMHID_CXX_TSAN_COMPILES_AND_LINKS)
+    set(CMAKE_REQUIRED_FLAGS "${MIMHID_SAVED_REQUIRED_FLAGS}")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "${MIMHID_SAVED_REQUIRED_LINK_OPTIONS}")
+    if(NOT MIMHID_C_TSAN_COMPILES_AND_LINKS OR NOT MIMHID_CXX_TSAN_COMPILES_AND_LINKS)
+        message(FATAL_ERROR
+            "MIMHID_TSAN was requested, but the selected C/C++ toolchain cannot "
+            "compile and link against a usable ThreadSanitizer runtime.")
+    endif()
+endif()
+
+# Every target of this build, tests and examples included, carries the instrumentation: a
+# sanitizer runtime cannot observe accesses in uninstrumented code. -fno-sanitize-recover makes
+# the first finding fail the process instead of scrolling past.
+if(MIMHID_SANITIZE AND NOT MSVC)
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all
                         -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=${MIMHID_SANITIZERS})
+    add_link_options(-fsanitize=address,undefined)
+elseif(MIMHID_TSAN)
+    add_compile_options(-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
 endif()
 
 if(WIN32)
@@ -109,10 +169,9 @@ if(MIMHID_BUILD_STATIC AND NOT MSVC AND NOT WIN32)
     endif()
 endif()
 
-mimhid_add_objects(mimhid_objects TRUE)
-
 if(MIMHID_BUILD_SHARED)
-    add_library(mimhid SHARED $<TARGET_OBJECTS:mimhid_objects>)
+    mimhid_add_objects(mimhid_shared_objects TRUE)
+    add_library(mimhid SHARED $<TARGET_OBJECTS:mimhid_shared_objects>)
     add_library(mimhid::shared ALIAS mimhid)
     target_include_directories(mimhid PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -132,8 +191,8 @@ if(MIMHID_BUILD_SHARED)
         set_property(TARGET mimhid APPEND PROPERTY LINK_DEPENDS "${MIMHID_APPLE_EXPORT_LIST}")
     else()
         # The ABI is plain C: the C++ runtime stays private to the shared object.
-        set(MIMHID_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mimhid.ver")
-        if(NOT MIMHID_SANITIZERS)
+        set(MIMHID_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mimhid.map")
+        if(NOT MIMHID_SANITIZE AND NOT MIMHID_TSAN)
             target_link_options(mimhid PRIVATE -static-libstdc++ -static-libgcc)
         endif()
         target_link_options(mimhid PRIVATE
@@ -171,6 +230,32 @@ if(MIMHID_BUILD_SHARED)
 endif()
 add_library(mimhid::mimhid ALIAS ${MIMHID_PRIMARY_TARGET})
 
+# The stable C ABI remains usable from a project that enables only C. The separate C++ facade
+# carries the language-level requirement of mimhid.hpp without making such pure-C consumers enable
+# CXX merely to link the library.
+if(MIMHID_BUILD_SHARED)
+    add_library(mimhid_cpp INTERFACE)
+    add_library(mimhid::cpp ALIAS mimhid_cpp)
+    target_link_libraries(mimhid_cpp INTERFACE mimhid)
+    target_compile_features(mimhid_cpp INTERFACE cxx_std_20)
+    set_target_properties(mimhid_cpp PROPERTIES EXPORT_NAME cpp)
+endif()
+if(MIMHID_BUILD_STATIC)
+    if(MIMHID_BUILD_SHARED)
+        add_library(mimhid_cpp_static INTERFACE)
+        add_library(mimhid::cpp_static ALIAS mimhid_cpp_static)
+        target_link_libraries(mimhid_cpp_static INTERFACE mimhid_static)
+        target_compile_features(mimhid_cpp_static INTERFACE cxx_std_20)
+        set_target_properties(mimhid_cpp_static PROPERTIES EXPORT_NAME cpp_static)
+    else()
+        add_library(mimhid_cpp INTERFACE)
+        add_library(mimhid::cpp ALIAS mimhid_cpp)
+        target_link_libraries(mimhid_cpp INTERFACE mimhid_static)
+        target_compile_features(mimhid_cpp INTERFACE cxx_std_20)
+        set_target_properties(mimhid_cpp PROPERTIES EXPORT_NAME cpp)
+    endif()
+endif()
+
 if(MIMHID_BUILD_TESTS)
     include(CTest)
     mimhid_add_objects(mimhid_test_objects FALSE)
@@ -185,8 +270,8 @@ if(MIMHID_BUILD_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "MIMHID_BUILD_FUZZ needs Clang (libFuzzer).")
     endif()
-    if(MIMHID_SANITIZERS)
-        message(FATAL_ERROR "MIMHID_BUILD_FUZZ sets its own sanitizers; leave MIMHID_SANITIZERS empty.")
+    if(MIMHID_SANITIZE)
+        message(FATAL_ERROR "MIMHID_BUILD_FUZZ sets its own sanitizers; leave MIMHID_SANITIZE off.")
     endif()
     mimhid_add_objects(mimhid_fuzz_objects FALSE)
     target_compile_options(mimhid_fuzz_objects PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
@@ -210,7 +295,7 @@ set(MIMHID_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/mimhid")
 set(MIMHID_PC_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
 if(MIMHID_BUILD_SHARED)
-    install(TARGETS mimhid EXPORT mimhid-shared-targets
+    install(TARGETS mimhid mimhid_cpp EXPORT mimhid-shared-targets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -219,7 +304,13 @@ if(MIMHID_BUILD_SHARED)
         NAMESPACE mimhid:: DESTINATION ${MIMHID_CMAKE_INSTALL_DIR})
 endif()
 if(MIMHID_BUILD_STATIC)
-    install(TARGETS mimhid_static EXPORT mimhid-static-targets
+    set(MIMHID_STATIC_INSTALL_TARGETS mimhid_static)
+    if(MIMHID_BUILD_SHARED)
+        list(APPEND MIMHID_STATIC_INSTALL_TARGETS mimhid_cpp_static)
+    else()
+        list(APPEND MIMHID_STATIC_INSTALL_TARGETS mimhid_cpp)
+    endif()
+    install(TARGETS ${MIMHID_STATIC_INSTALL_TARGETS} EXPORT mimhid-static-targets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

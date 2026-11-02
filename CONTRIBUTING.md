@@ -31,12 +31,12 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
 
 1. Configure with standard CMake presets:
    ```bash
-   cmake --preset debug
-   cmake --build --preset debug
+   cmake --preset dev
+   cmake --build --preset dev
    ```
 2. Run the test suite:
    ```bash
-   ctest --preset test
+   ctest --preset dev
    ```
 3. Format code:
    ```bash
@@ -54,7 +54,7 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
    ```
 6. Run the end-to-end tests (POSIX; they need a TinyUSB checkout):
    ```bash
-   cmake -B build_e2e -S . -DMIMHID_TINYUSB_PATH=<tinyusb>
+   cmake -B build_e2e -S . -DMIMHID_BUILD_TESTS=ON -DMIMHID_TINYUSB_PATH=<tinyusb>
    cmake --build build_e2e && ctest --test-dir build_e2e -R e2e
    ```
 7. Submit pull requests with concise descriptions and test verification evidence.

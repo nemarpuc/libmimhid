@@ -123,7 +123,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_EXAMPLES=ON
+          cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
           cmake --build build_test --config Release --parallel
           ctest --test-dir build_test -C Release --output-on-failure
 

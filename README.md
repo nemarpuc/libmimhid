@@ -56,12 +56,12 @@ Wiring and pins are in [QUICKSTART.md](docs/QUICKSTART.md).
 Requirements: CMake 3.20+, a C11/C++20 compiler (GCC, Clang, MSVC 2019+, MinGW-w64). Firmware also needs `arm-none-eabi-gcc` and the SDK of the port.
 
 ```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.lib`. Options: `MIMHID_BUILD_TESTS`, `MIMHID_BUILD_EXAMPLES`, `MIMHID_WERROR`, `MIMHID_SANITIZERS` (for example `address,undefined` or `thread`), `MIMHID_BUILD_FUZZ` (the libFuzzer target, Clang only; it sets its own sanitizers). To also run the end-to-end tests, pass `-DMIMHID_TINYUSB_PATH=<TinyUSB 0.18.0 checkout>` (POSIX only).
+This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.lib`. Options: `MIMHID_BUILD_TESTS` and `MIMHID_BUILD_EXAMPLES` (both off by default), `MIMHID_WERROR` (on by default), `MIMHID_SANITIZE` (AddressSanitizer and UBSan), `MIMHID_TSAN` (ThreadSanitizer, Linux, GCC 12+ or Clang; not together with `MIMHID_SANITIZE` or `MIMHID_BUILD_FUZZ`), `MIMHID_BUILD_FUZZ` (the libFuzzer target, Clang only; it sets its own sanitizers). The CMake presets `dev`, `release` and `tsan` set these for you. To also run the end-to-end tests, pass `-DMIMHID_TINYUSB_PATH=<TinyUSB 0.18.0 checkout>` (POSIX only).
 
 ### Firmware
 
