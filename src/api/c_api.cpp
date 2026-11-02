@@ -988,11 +988,16 @@ mimhid_result send_neutral(mimhid_node* node, std::uint32_t timeout_ms) {
     return MIMHID_OK;
 }
 
+// Copies as much of text as fits with its terminating NUL; destination is zero-initialized.
+template <std::size_t N> void copy_text(char (&destination)[N], const std::string& text) noexcept {
+    std::memcpy(destination, text.data(), std::min(text.size(), N - 1U));
+}
+
 mimhid_device_info describe_board(const std::string& port, const std::string& description,
                                   const tr::BoardInfo& board, std::uint32_t baud) noexcept {
     mimhid_device_info info{};
-    std::strncpy(info.port_name, port.c_str(), sizeof(info.port_name) - 1U);
-    std::strncpy(info.description, description.c_str(), sizeof(info.description) - 1U);
+    copy_text(info.port_name, port);
+    copy_text(info.description, description);
     info.version_major = board.version[0];
     info.version_minor = board.version[1];
     info.version_patch = board.version[2];

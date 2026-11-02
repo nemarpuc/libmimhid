@@ -31,7 +31,7 @@ layout is now the one libaoahid has.
 ### Fixed
 
 - The udev rules file is `udev/51-mimhid.rules` (was `99-mimhid.rules`). `TAG+="uaccess"` only takes effect when set before `73-seat-late.rules`, where logind's uaccess builtin runs, so under the old number only the `MODE`/`GROUP` half worked and a user outside `uucp`/`dialout` got no access to the port. Remove an installed `/etc/udev/rules.d/99-mimhid.rules` when you install the new file.
-- The Windows port listing copies its fallback description with `memcpy` instead of `strcpy`, which MSVC reports as C4996 and `MIMHID_WERROR` turns into an error.
+- The Windows port listing and `mimhid_device_info` fill their text with `memcpy` instead of `strcpy` and `strncpy`, which MSVC reports as C4996 and `MIMHID_WERROR` turns into an error.
 - `README.md` no longer carries a note about the 2.0.0 API change; `docs/TARGET_MATRIX.md` drops the version label of its control-transfer section. The history is this file.
 
 ### Removed
