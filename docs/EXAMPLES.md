@@ -43,11 +43,11 @@ libaoahid has one large program, `multi_profile.c`, that CI runs against a fake 
 
 `verify_common.h` finds the first board and opens a Node. Its USB identity is the pid.codes test pair, for testing in-house only.
 
-The commands to compile all of them against a release archive are in [`examples/README.md`](../examples/README.md).
+The commands to compile all of them against a release archive are in `examples/README.md`.
 
 ## Other languages
 
-`examples/python/enumerate.py`, `examples/csharp/Program.cs` and `bindings/rust/mimhid-sys/examples/enumerate.rs` list the boards `mimhid_discover` finds. They are deliberately short: the life cycle with Nodes, a batch and the event sink is shown once, in C. `mimhid_discover` messages every serial port of the host, so run them only when that is acceptable. See [the README](../README.md#language-bindings) for the bindings.
+`examples/python/enumerate.py`, `examples/csharp/Program.cs` and `bindings/rust/mimhid-sys/examples/enumerate.rs` list the boards `mimhid_discover` finds. They are deliberately short: the life cycle with Nodes, a batch and the event sink is shown once, in C. `mimhid_discover` messages every serial port of the host, so run them only when that is acceptable. See the Language bindings section of `README.md` for the bindings.
 
 ## Patterns
 
