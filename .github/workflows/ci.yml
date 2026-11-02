@@ -40,6 +40,22 @@ jobs:
       - name: Test
         run: ctest --test-dir build_host -C Release --output-on-failure
 
+      - name: Check the pkg-config files after the install tree is moved
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          cmake --install build_host --config Release --prefix "$PWD/stage"
+          mv stage moved
+          pc="$(dirname "$(find "$PWD/moved" -name mimhid.pc)")"
+          export PKG_CONFIG_PATH="$pc"
+          pkg-config --cflags --libs mimhid
+          pkg-config --static --cflags --libs mimhid-static
+          printf '#include <mimhid.h>\nint main(void) { return mimhid_version() == 0; }\n' > pkgconfig_check.c
+          cc $(pkg-config --cflags mimhid-static) pkgconfig_check.c $(pkg-config --static --libs mimhid-static) -o pkgconfig_check
+          ./pkgconfig_check
+          cc $(pkg-config --cflags mimhid) pkgconfig_check.c $(pkg-config --libs mimhid) -o pkgconfig_check_shared
+          LD_LIBRARY_PATH="$(dirname "$pc")" ./pkgconfig_check_shared
+
   e2e:
     name: End to end (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

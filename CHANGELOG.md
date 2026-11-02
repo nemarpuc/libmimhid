@@ -14,6 +14,7 @@ Build layout brought in line with libaoahid. The library, the C ABI and the wire
 - The `tsan` CMake preset.
 - `mimhid.abi-layout-oracle`: every size, field offset and constant of the C ABI (441 entries) is compared with `tests/abi/abi_layout.golden`, so an ABI change fails a test until the golden file is edited on purpose. Unlike libaoahid's hand-written schema, this one is a recorded snapshot of the 2.0.2 header.
 - `tools/check_input_provenance.py`, run by CI: every `MIMHID_*` build option that the README, CONTRIBUTING and the docs name (in a `-D` argument or, for option-shaped names, in code quotes) must be declared by the CMake files. A misspelled or removed option is otherwise accepted by CMake as an unused cache entry.
+- A Linux CI step installs the library, moves the install tree and builds a program through `pkg-config` (static and shared), which is what the relocatable `prefix=${pcfiledir}/../..` of the `.pc` files promises.
 
 ### Changed
 
