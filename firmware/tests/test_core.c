@@ -901,6 +901,82 @@ static int reply(uint8_t token, uint8_t action, const uint8_t* data, size_t n) {
     return command(MIMHID_T_CONTROL_REPLY, p, 2 + n);
 }
 
+// What the board answers by itself when no rule holds a request, where the specifications fix the
+// answer: GetStatus() to an interface (USB 2.0 9.4.5) and Get_Report of an Input report (HID 1.11 7.2.1).
+static void test_specified_answers(void) {
+    assert(device_config(0, "") == 1);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
+    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    assert(commit() == 1);
+    g_mounted = true;
+    reset_io();
+
+    // GetStatus() to the interface that exists: two bytes of zero, sent through the vendor callback.
+    setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
+    assert(g_nforwarded == 1);
+    tusb_control_request_t req = g_forwarded[0].setup_received;
+    assert(req.bmRequestType == 0xC1 && req.bRequest == TUSB_REQ_GET_STATUS && req.wLength == 2);
+    assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
+    assert(g_xfer.kind == 1 && g_xfer.length == 2 && g_xfer.copy[0] == 0 && g_xfer.copy[1] == 0);
+    assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
+    assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
+    // Answered once: the same setup stage again is refused.
+    assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
+
+    // Everything the specification leaves open goes to TinyUSB as it came.
+    reset_io();
+    setup(0x81, TUSB_REQ_GET_STATUS, 0, 1, 2); // an interface that does not exist: a Request Error
+    setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 1); // wLength other than 2: not specified
+    setup(0x81, TUSB_REQ_GET_STATUS, 1, 0, 2); // wValue other than 0: not specified
+    setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2); // the device: TinyUSB answers
+    setup(0x82, TUSB_REQ_GET_STATUS, 0, 0x81, 2); // an endpoint: TinyUSB answers
+    assert(g_nforwarded == 5);
+    for (int i = 0; i < 5; i++) assert(g_forwarded[i].setup_received.bmRequestType != 0xC1);
+    g_mounted = false; // address state: a Request Error
+    reset_io();
+    setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
+    assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0x81);
+    g_mounted = true;
+
+    // A rule that matches it is stronger: the request is held for the host.
+    trule_t held = rule_for(0x81, TUSB_REQ_GET_STATUS, 100, MIMHID_CONTROL_STALL);
+    assert(control_config(0, &held, 1) == 1);
+    reset_io();
+    setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
+    assert(g_nforwarded == 0);
+    pump();
+    size_t pos = 0;
+    uint8_t token, flags, raw[8];
+    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMHID_CONTROL_F_HELD) && raw[0] == 0x81);
+    assert(control_config(0, NULL, 0) == 1);
+
+    // Get_Report of an Input report is the last report sent on the interface, and only that.
+    uint8_t buf[8];
+    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // none sent yet
+    const uint8_t a[] = {1, 0x02, 0x03};
+    const uint8_t b[] = {1, 0x05, 0x06};
+    reset_io();
+    report(0, a, sizeof(a));
+    pump();
+    assert(g_nsent == 1);
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 && buf[0] == 0x02 && buf[1] == 0x03);
+    assert(tud_hid_get_report_cb(0, 2, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // another Report ID
+    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 3 && buf[0] == 1 && buf[2] == 0x03);
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, 1) == 1 && buf[0] == 0x02); // cut to wLength
+    report(0, b, sizeof(b));
+    pump();
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 && buf[0] == 0x05);
+    assert(tud_hid_get_report_cb(1, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // another interface
+    assert(tud_hid_get_report_cb(MIMHID_HID_ITFS, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0);
+
+    // A new configuration forgets it.
+    assert(device_config(0, "") == 1);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
+    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    assert(commit() == 1);
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0);
+}
+
 static void test_control(void) {
     assert(device_config(0, "") == 1);
     assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
@@ -1452,6 +1528,7 @@ int main(void) {
     test_sixteen_nodes();
     test_packing();
     test_wide_values();
+    test_specified_answers();
     test_control();
     test_ep0();
     printf("firmware core OK\n");

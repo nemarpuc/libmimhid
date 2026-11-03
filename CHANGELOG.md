@@ -3,6 +3,25 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-11-03
+
+What the board answers on its own, where no control-routing rule holds the request, now follows the specifications in two more places. The wire protocol stays 6 and the host library is unchanged; reflash the firmware to get the new answers.
+
+### Fixed
+
+- `GET_STATUS` to an interface of the configuration returns two bytes of zero (USB 2.0 9.4.5, figure 9-5). The stack's HID driver does not answer it, so the board used to STALL a request every device must serve. It answers when the board is configured, the interface exists and `wLength` is 2; any other case is left to the stack.
+- `GET_REPORT` for an Input report returns the last report sent on that interface (HID 1.11 7.2 makes `GET_REPORT` mandatory, 7.2.1 gives the answer the format of the interrupt reports). With a Report ID the report must carry that ID; an interface that has sent nothing since the configuration was committed gives no data, as before, because the board does not invent a report. It used to answer with the Report ID alone, or stall.
+
+### Documentation
+
+- `docs/LIMITS.md` lists who answers each control request without a rule (the program's configuration, the stack, or a STALL) and what a rule changes, and says that a rule with every mask zero hands all requests but `SET_ADDRESS` and `SET_CONFIGURATION(1)` to the program.
+- `GET_DESCRIPTOR` for the BOS descriptor is not answered by the board. USB 3.2 9.2.6.6 requires it from `bcd_usb` 0x0210; `LIMITS.md` and `mimhid.h` say that such a device needs a rule that answers it, measured with 0x0210, 0x0300 and 0x0320 behind a Windows host and a Linux guest. The speed a target sees is measured by the host from the signalling, not taken from `bcd_usb`.
+- `SET_INTERFACE` is acknowledged by the stack whatever the setting; the earlier notes that said it stalls were wrong.
+
+### Tests
+
+- Firmware: the interface status in every case it answers and every case it leaves to the stack, its rule taking precedence, and `GET_REPORT` of an Input report (last report, Report ID, `wLength`, another interface, and forgetting it on a new configuration).
+
 ## [2.0.4] - 2026-11-03
 
 Limits brought to what the specifications and the chips allow, and values the board cannot present refused where they are given. The wire protocol stays 6; the firmware must be reflashed for the new limits (a host library newer than the firmware takes the smaller numbers the board reports).

@@ -52,9 +52,33 @@ The board takes the speed it runs at from its chip: the Pico, the Pico 2, the nR
 
 The board's numbers are fixed when its firmware is built, at the most the chip can hold, and the board reports them in its PONG. The host library cannot raise them. `MIMHID_MAX_ENDPOINT_BYTES`, `MIMHID_MAX_REPORT_BYTES` and `MIMHID_FEATURE_MAX` (`firmware/common/config.h`) can be set by a port before the header is read; the endpoint size follows the port's USB speed.
 
-## What the board does not answer by itself
+## Who answers a control request
 
-The board answers a `GET_REPORT` for a Feature report from the answers the program gave it (`FEATURE`), and nothing else by itself. A `GET_REPORT` for an Input or Output report gets no data from the board (HID 1.11 7.2 makes `GET_REPORT` mandatory, and 7.2.1 says an Input answer has the format of the interrupt reports); with a Report ID (and a `wLength` above 1) the stack replies with that one byte, and without one it stalls. `SET_IDLE` and `SET_PROTOCOL` are kept and reported, and the board neither repeats reports at the idle rate (HID 1.11 7.2.4) nor changes report format for the boot protocol. These are left to the program on purpose: a rule of `mimhid_device_set_control_routing` with a mask of zero hands every request but `SET_ADDRESS` and `SET_CONFIGURATION(1)` to the program, which answers each one itself, from the real device in a proxy.
+A rule of `mimhid_device_set_control_routing` hands a request to the program, and a rule is stronger than everything below. One rule with every mask zero matches every request except `SET_ADDRESS`, `SET_CONFIGURATION(1)` and a host-to-device data stage longer than `max_control_data_bytes`; the program then answers each of the others itself (from the real device in a proxy). A request is held for at most the rule's `timeout_ms` (5000 at the most), which the program must meet, so with such a rule the target depends on the program for every request, descriptors included.
+
+When no rule matches, the board answers from what the program gave it, from the stack, or with a STALL (the USB 2.0 Request Error, 9.2.7):
+
+| Request | Without a rule | Source of the answer |
+|---|---|---|
+| `GET_DESCRIPTOR` device, configuration, string, HID, report | The descriptors of the committed configuration | The program's configuration, byte for byte |
+| `GET_DESCRIPTOR` device qualifier, other speed | STALL on a full-speed board | USB 2.0 9.6.2: "If a full-speed only device (with a device descriptor version number equal to 0200H) receives a GetDescriptor() request for a device_qualifier, it must respond with a request error." The board has no other speed to describe; for a `bcd_usb` other than 0x0200 the sentence does not apply, and the board answers the same way |
+| `GET_DESCRIPTOR` BOS | STALL: the board has no BOS to give | Not invented. USB 3.2 9.2.6.6: "Devices with a value of at least 0210H in the bcdUSB field ... shall support GetDescriptor (BOS Descriptor) requests". With `usb_device.bcd_usb` of 0x0210 or more, add a rule for it (request type `0x80`, request `0x06`, `wValue` high byte `0x0F`) and answer it; without one the target's enumeration fails (measured with `bcd_usb` 0x0210, 0x0300 and 0x0320: the host asks for the BOS right after the configuration descriptor, gets a STALL, resets the port and tries again until it gives up; with a rule that answered it all three enumerated, a Linux guest behind a Windows host) |
+| `GET_STATUS` to the device, to an endpoint | `00 00` | The stack |
+| `GET_STATUS` to an interface of the configuration | `00 00` | USB 2.0 9.4.5, figure 9-5: all bits reserved, zero. Answered by the board when it is configured and `wLength` is 2; another interface, the address state or another `wLength` is the stack's (a STALL) |
+| `GET_CONFIGURATION` | The configuration value, 1 | The stack |
+| `SET_ADDRESS`, `SET_CONFIGURATION(1)`, bus reset, suspend | The board's own state | Never held (they change the controller) |
+| `GET_REPORT` Feature | The answer the program gave (`FEATURE`) | The program |
+| `GET_REPORT` Input | The last report sent on that interface, if one was; without a Report ID it is the whole report, with one the report whose first byte is that ID (the stack puts the ID in front). None sent since the configuration was committed: no data, as below | HID 1.11 7.2 (mandatory) and 7.2.1. Not invented: only a report the program sent is returned, so with several Report IDs on an interface only the latest report is known |
+| `GET_REPORT` Output; Input with no report to give | With a Report ID (and a `wLength` above 1) the stack replies with that one byte; without one it stalls | The stack |
+| `SET_REPORT` | The data is reported to the program (Output on Report ID 0 as `OUTPUT_REPORT`, the others as `SET_REPORT`); a Feature value the target writes is not stored, so the next `GET_REPORT` returns the program's answer | The program decides what a write means |
+| `GET_IDLE`, `SET_IDLE`, `GET_PROTOCOL`, `SET_PROTOCOL` | The stack keeps the value it was given and returns it; the program is told of `SET_IDLE` and `SET_PROTOCOL` | The stack. The board neither repeats reports at the idle rate (HID 1.11 7.2.4) nor changes report format for the boot protocol; the real device's state is not read |
+| `SET_FEATURE`, `CLEAR_FEATURE` (remote wakeup, `ENDPOINT_HALT`) | Handled by the stack on the board's own endpoints | The stack; not measured. The state of a real device's endpoint is not reflected |
+| `SET_INTERFACE`, `GET_INTERFACE` | `SET_INTERFACE` is acknowledged whatever the setting, and `GET_INTERFACE` returns 0: the board has one alternate setting | The stack (TinyUSB `usbd.c`: "it is mandatory to respond even if the class driver doesn't use alternate settings") |
+| Any other class or vendor request | STALL | The stack |
+
+The first column is what the target sees without a rule. A request in the table that the real device answers differently (a Feature that changes when written, an idle rate, a protocol, a vendor request) is made transparent by a rule that hands it to the program: a rule per request, or one with every mask zero. The program can also answer `LEAVE` to a held request, which gives it back to the board's own handling in this table.
+
+The speed the target sees is the speed of the link, which the host measures from the signalling and not from `bcd_usb`; a board on a USB 3 port is a full-speed device on its USB 2 pair (the port takes it), and no value of `bcd_usb` changes that.
 
 Each Node names its interface with `iface.number`. The board numbers its interfaces 0, 1, 2, ... in the order of those labels, so a gap in the labels is closed and the interface number the target sees can differ from the label. Nodes with the same number share the interface, and must then all have Report IDs, all different, and the same interface and endpoint settings; Nodes on different interfaces need different endpoint addresses (`MIMHID_ERR_PARAM` otherwise). `mimhid_node_open` and `mimhid_node_open_raw` return `MIMHID_ERR_OVERFLOW` when the board's interface or descriptor limits are exceeded.
 

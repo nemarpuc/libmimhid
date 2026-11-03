@@ -57,12 +57,40 @@ static void queue_pop(uint8_t iface) {
     __atomic_store_n(&q->tail, (t + 1) & MIMHID_QUEUE_MASK, __ATOMIC_RELEASE);
 }
 
+// The latest report sent on each interface, for GET_REPORT: HID 1.11 7.2 makes it mandatory for
+// every device, and the state a device reports is the last one it sent. Nothing is invented: an
+// interface that has sent no report has none to give. The USB side writes it (mimhid_usb_poll) and
+// reads it (tud_hid_get_report_cb); the sequence number is odd while a copy is being made, so a
+// reader on another core can tell a torn copy and try again.
+static struct {
+    volatile uint32_t seq;
+    report_t report;
+} g_last[MIMHID_HID_ITFS];
+
+static void last_store(uint8_t iface, const report_t* item) {
+    const uint32_t s = g_last[iface].seq;
+    __atomic_store_n(&g_last[iface].seq, s + 1u, __ATOMIC_RELEASE);
+    g_last[iface].report.len = item->len;
+    memcpy(g_last[iface].report.data, item->data, item->len);
+    __atomic_store_n(&g_last[iface].seq, s + 2u, __ATOMIC_RELEASE);
+}
+
+static void last_clear(void) {
+    for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
+        const uint32_t s = g_last[i].seq;
+        __atomic_store_n(&g_last[i].seq, s + 1u, __ATOMIC_RELEASE);
+        g_last[i].report.len = 0;
+        __atomic_store_n(&g_last[i].seq, s + 2u, __ATOMIC_RELEASE);
+    }
+}
+
 // Consumer side only: discards everything queued so far.
 static void queue_flush_all(void) {
     for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
         report_queue_t* q = &g_queue[i];
         __atomic_store_n(&q->tail, __atomic_load_n(&q->head, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE);
     }
+    last_clear();
 }
 
 // -------------------------------------------------------------
@@ -722,6 +750,7 @@ void mimhid_usb_poll(void) {
         if (!tud_hid_n_ready(iface)) continue;
         const report_t* item = queue_peek(iface);
         if (item && tud_hid_n_report(iface, 0, item->data, item->len)) {
+            last_store(iface, item);
             queue_pop(iface);
         }
     }
@@ -776,6 +805,23 @@ void tud_hid_report_complete_cb(uint8_t itf, uint8_t const* report, uint16_t len
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) {
+    if (report_type == HID_REPORT_TYPE_INPUT && itf < MIMHID_HID_ITFS) {
+        // TinyUSB puts a nonzero Report ID in front of what is returned here, so the copy starts after it.
+        const uint16_t skip = report_id ? 1u : 0u;
+        for (uint8_t tries = 0; tries < 4; tries++) {
+            const uint32_t s = __atomic_load_n(&g_last[itf].seq, __ATOMIC_ACQUIRE);
+            if (s & 1u) continue;
+            const report_t* r = &g_last[itf].report;
+            uint16_t n = 0;
+            if (r->len > skip && (skip == 0 || r->data[0] == report_id)) {
+                n = (uint16_t)(r->len - skip);
+                if (n > reqlen) n = reqlen;
+                memcpy(buffer, &r->data[skip], n);
+            }
+            if (__atomic_load_n(&g_last[itf].seq, __ATOMIC_ACQUIRE) == s) return n;
+        }
+        return 0;
+    }
     if (report_type == HID_REPORT_TYPE_FEATURE) {
         const mimhid_feature_t* f = mimhid_find_feature(itf, report_id);
         if (f) {

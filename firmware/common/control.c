@@ -211,6 +211,37 @@ CONTROL_FAST static void drop_held(void) {
     g_suppress_stall = false;
 }
 
+// The one request whose answer the specification fixes whatever the product is: GetStatus() to an
+// interface that exists returns two bytes of zero (USB 2.0 9.4.5, figure 9-5). TinyUSB's HID driver
+// does not answer it, so without a rule the board would STALL a request every device must serve.
+// An address-state device, a missing interface or a wLength other than 2 is left to TinyUSB.
+CONTROL_FAST static bool is_interface_status(const tusb_control_request_t* r) {
+    return r->bmRequestType == 0x81 && r->bRequest == TUSB_REQ_GET_STATUS && r->wValue == 0 &&
+           r->wLength == 2 && r->wIndex < mimhid_active_interfaces() && tud_mounted();
+}
+
+// Gives a request nothing holds to TinyUSB. An interface status is retyped as a vendor request, as
+// an answer from the host is, and tud_vendor_control_xfer_cb sends its two zero bytes.
+CONTROL_FAST static void pass_on(const dcd_event_t* event, bool in_isr) {
+    if (!is_interface_status(&event->setup_received)) {
+        __real_dcd_event_handler(event, in_isr);
+        return;
+    }
+    dcd_event_t retyped = *event;
+    retyped.setup_received.bmRequestType = 0xC1; // vendor, device to host, interface
+    g_answer.action = MIMHID_CONTROL_ANSWER;
+    g_answer.token = 0;
+    g_answer.length = 2;
+    g_answer.timeout_ms = 0;
+    g_answer.timeout_action = MIMHID_CONTROL_STALL;
+    g_answer.buf[1] = 0;
+    g_answer.buf[2] = 0;
+    g_answer.request = retyped.setup_received;
+    g_answer.active = false;
+    g_answer.armed = true;
+    __real_dcd_event_handler(&retyped, in_isr);
+}
+
 CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
     if (mimhid_ep0_event(event, in_isr)) return;
     if (event->event_id != DCD_EVENT_SETUP_RECEIVED) {
@@ -232,12 +263,12 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
                           r->wLength > MIMHID_CONTROL_DATA_MAX;
     const int rule = (fixed || too_long) ? -1 : match_rule(r);
     if (rule < 0 && !g_report_all) {
-        __real_dcd_event_handler(event, in_isr);
+        pass_on(event, in_isr);
         return;
     }
     if (!note_room()) {
         g_lost = true;
-        __real_dcd_event_handler(event, in_isr);
+        pass_on(event, in_isr);
         return;
     }
 
@@ -253,7 +284,7 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
     note_push(g_token, flags, r);
 
     if (rule < 0) {
-        __real_dcd_event_handler(event, in_isr);
+        pass_on(event, in_isr);
         return;
     }
     g_hold.event = *event;

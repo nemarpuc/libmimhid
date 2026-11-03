@@ -82,7 +82,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 2
 #define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 4
+#define MIMHID_VERSION_PATCH 5
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
@@ -308,7 +308,7 @@ typedef struct mimhid_board_limits {
 /* The Device descriptor and its strings. vendor_id, bcd_usb, ep0_max_packet_size and language_id
  * are required. */
 typedef struct mimhid_usb_device {
-    uint16_t bcd_usb;        /* e.g. 0x0200 */
+    uint16_t bcd_usb;        /* e.g. 0x0200; 0x0210 or more needs a BOS rule: docs/LIMITS.md */
     uint8_t device_class;    /* 0: each interface says its own class */
     uint8_t device_subclass; /* 0 when device_class is 0 (USB 2.0 9.6.1) */
     uint8_t device_protocol;
