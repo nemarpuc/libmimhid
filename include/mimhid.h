@@ -308,8 +308,8 @@ typedef struct mimhid_board_limits {
 /* The Device descriptor and its strings. vendor_id, bcd_usb, ep0_max_packet_size and language_id
  * are required. */
 typedef struct mimhid_usb_device {
-    uint16_t bcd_usb;     /* e.g. 0x0200 */
-    uint8_t device_class; /* 0: each interface says its own class */
+    uint16_t bcd_usb;        /* e.g. 0x0200 */
+    uint8_t device_class;    /* 0: each interface says its own class */
     uint8_t device_subclass; /* 0 when device_class is 0 (USB 2.0 9.6.1) */
     uint8_t device_protocol;
     uint8_t ep0_max_packet_size; /* 8, 16, 32 or 64; 64 on a high-speed board (USB 2.0 9.6.1) */

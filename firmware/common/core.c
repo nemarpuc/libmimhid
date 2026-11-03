@@ -499,13 +499,6 @@ static void cmd_node_begin(const command_t* c) {
         return;
     }
 #endif
-    // USB 2.0 9.6.6: bits 3..0 of an endpoint address are its number (not 0, the control
-    // endpoint), bits 6..4 are zero and bit 7 is the direction. Zero asks for the default.
-    if ((p[10] != 0 && ((p[10] & 0x80) == 0 || (p[10] & 0x70) != 0 || (p[10] & 0x0F) == 0)) ||
-        (p[14] != 0 && ((p[14] & 0xF0) != 0 || (p[14] & 0x0F) == 0))) {
-        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
-        return;
-    }
     // The stack opens HID interfaces only (CFG_TUD_HID in tusb_config.h); any other class would
     // make SET_CONFIGURATION fail and leave the whole device unconfigured.
     if (itf_class != TUSB_CLASS_HID) {
@@ -527,6 +520,13 @@ static void cmd_node_begin(const command_t* c) {
         return;
     }
 
+    // USB 2.0 9.6.6: bits 3..0 of an endpoint address are its number (not 0, the control
+    // endpoint), bits 6..4 are zero and bit 7 is the direction. Zero asks for the default.
+    if ((p[10] != 0 && ((p[10] & 0x80) == 0 || (p[10] & 0x70) != 0 || (p[10] & 0x0F) == 0)) ||
+        (p[14] != 0 && ((p[14] & 0xF0) != 0 || (p[14] & 0x0F) == 0))) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
     mimhid_node_cfg_t* n = &g_staged.node[id];
     memset(n, 0, sizeof(*n));
     n->used = true;

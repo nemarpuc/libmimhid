@@ -762,7 +762,8 @@ void test_chip_serial_and_boot() {
     broken.iface.class_code = 0;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                  bad == nullptr);
-    // USB 2.0 9.6.6: an endpoint address is a number 1 to 15 with bits 6..4 clear; IN has bit 7 set.
+    // USB 2.0 9.6.6: an endpoint address is a number 1 to 15 with bits 6..4 clear; IN has bit 7
+    // set.
     for (const std::uint8_t bad_in : {0x80, 0x90, 0xF1, 0x01, 0x41}) {
         broken = no;
         broken.ep_in.address = bad_in;
@@ -778,12 +779,10 @@ void test_chip_serial_and_boot() {
     // The board opens HID interfaces only (HID 1.11 4.1: class 0x03).
     broken = no;
     broken.iface.class_code = 0x02;
-    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
-                     MIMHID_ERR_UNSUPPORTED &&
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED &&
                  bad == nullptr);
     broken.iface.class_code = 0xFF;
-    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
-                 MIMHID_ERR_UNSUPPORTED);
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED);
     // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0, 1 or 2; the rest is reserved.
     broken = no;
     broken.iface.subclass = 2;
@@ -1270,8 +1269,7 @@ void test_control() {
     longest.timeout_ms = 5000;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &longest, 1, kControlMs) ==
                  MIMHID_OK);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &good, 1, kControlMs) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &good, 1, kControlMs) == MIMHID_OK);
     mimhid_control_rule bad = good;
     bad.timeout_ms = 0;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) ==

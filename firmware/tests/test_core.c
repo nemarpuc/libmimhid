@@ -707,7 +707,9 @@ static void test_errors(void) {
     expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0x03, 1, 3, ""), MIMHID_NAK_PARAM);
     // USB 2.0 9.6.6: endpoint number 1 to 15, bits 6..4 zero, bit 7 the direction.
     assert(device_config(0, "x") == 1);
-    for (const int bad_in : (const int[]){0x80, 0x90, 0xF1, 0x01, 0x41}) {
+    static const int bad_in_list[5] = {0x80, 0x90, 0xF1, 0x01, 0x41};
+    for (size_t bad_in_i = 0; bad_in_i < 5; ++bad_in_i) {
+        const int bad_in = bad_in_list[bad_in_i];
         g_force_in = bad_in;
         expect_nak(node_begin(0, 0, 4, 1, 0, 0, ""), MIMHID_NAK_PARAM);
     }
@@ -715,7 +717,9 @@ static void test_errors(void) {
     assert(node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, "") == 1);
     g_force_in = -1;
     assert(device_config(0, "x") == 1);
-    for (const int bad_out : (const int[]){0x80, 0x81, 0x10, 0x40}) {
+    static const int bad_out_list[4] = {0x80, 0x81, 0x10, 0x40};
+    for (size_t bad_out_i = 0; bad_out_i < 4; ++bad_out_i) {
+        const int bad_out = bad_out_list[bad_out_i];
         g_force_out = bad_out;
         expect_nak(node_begin_out(0, 0, 4, 1, 8, 8, 0, ""), MIMHID_NAK_PARAM);
     }
