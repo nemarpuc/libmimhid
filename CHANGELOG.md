@@ -3,7 +3,7 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.4] - 2026-11-03
 
 Limits brought to what the specifications and the chips allow, and values the board cannot present refused where they are given. The wire protocol stays 6; the firmware must be reflashed for the new limits (a host library newer than the firmware takes the smaller numbers the board reports).
 
