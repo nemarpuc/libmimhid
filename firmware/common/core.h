@@ -10,10 +10,22 @@
 #define FW_VERSION_MINOR 0
 #define FW_VERSION_PATCH 3
 
-// Number of USB HID interfaces (one IN endpoint each) the MCU can provide. A port with fewer
-// than seven IN endpoints sets this in its build; the host packs nodes to fit.
+// Number of USB HID interfaces (one IN endpoint each) the MCU can provide; the host packs nodes to
+// fit. The RP2040 and the RP2350 have the endpoint numbers 1 to 15 in both directions (RP2040
+// datasheet 4.1.1.1.1, RP2350 datasheet "USB", Device Mode: "Endpoints 0 -> 15 in both in and out
+// directions"), which is also the most USB allows (USB 2.0 2.1: an endpoint number is four bits)
+// and fits the 16 interfaces the stack takes (CFG_TUD_INTERFACE_MAX). Every other port sets the
+// number its chip has in its build (4 on the ESP32-S3, 3 on the STM32F4 at full speed); the
+// default of 7 is the nRF52840's. tusb_config.h and every source read this, and it must come out
+// the same in all of them whatever they include first, so it is chosen from the macros the Pico
+// SDK puts on the command line (PICO_RP2040, PICO_RP2350), not from TinyUSB's OPT_MCU_* ones,
+// which exist only once tusb_option.h has been read.
 #ifndef MIMHID_HID_ITFS
+#if defined(PICO_RP2040) || defined(PICO_RP2350)
+#define MIMHID_HID_ITFS 15
+#else
 #define MIMHID_HID_ITFS 7
+#endif
 #endif
 
 // Initializes TinyUSB and holds D+ disconnected until the host commits a configuration.

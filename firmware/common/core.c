@@ -441,6 +441,25 @@ static void cmd_device_config(const command_t* c) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
+#if TUD_OPT_HIGH_SPEED
+    // USB 2.0 9.6.1: a high-speed device has a 64-byte control endpoint, and only that.
+    if (d->ep0_max_packet_size != 64) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+#endif
+    // USB 2.0 9.6.3: bits 4..0 of bmAttributes are reserved and zero. 9.6.1: a device subclass
+    // needs a device class.
+    if ((d->bm_attributes & 0x1F) != 0 || (d->device_class == 0 && d->device_subclass != 0)) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+    // The stack maps SET_CONFIGURATION(n) to the n-th configuration descriptor, and the board
+    // has one, so only the value 1 enumerates (usb_descriptors.c, tud_descriptor_configuration_cb).
+    if (d->configuration_value != 1) {
+        cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
+        return;
+    }
     uint16_t pos = 18;
     if (!read_string(d->manufacturer, p, len, &pos) || !read_string(d->product, p, len, &pos) ||
         !read_string(d->serial, p, len, &pos) || !read_string(d->configuration, p, len, &pos)) {
@@ -461,14 +480,36 @@ static void cmd_node_begin(const command_t* c) {
 
     const uint8_t id = p[0];
     const uint16_t desc_len = (uint16_t)(p[2] | (p[3] << 8));
+    const uint8_t itf_class = p[4];
     const uint8_t itf_subcls = p[5];
     const uint8_t itf_proto = p[6];
     const uint16_t ep_size = (uint16_t)(p[11] | (p[12] << 8));
     const uint16_t ep_out_size = (uint16_t)(p[15] | (p[16] << 8));
+    // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0 (none), 1 (keyboard) or 2 (mouse); the
+    // other values are reserved.
     if (id >= MIMHID_MAX_NODES || desc_len == 0 || itf_subcls > 1 || itf_proto > 2 ||
-        (itf_subcls == 1 && itf_proto == 0) ||
         ep_size > MIMHID_MAX_ENDPOINT_BYTES || ep_out_size > MIMHID_MAX_ENDPOINT_BYTES) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+#if TUD_OPT_HIGH_SPEED
+    // USB 2.0 9.6.6: the bInterval of a high-speed interrupt endpoint is an exponent, 1 to 16.
+    if (p[13] < 1 || p[13] > 16 || p[17] > 16) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+#endif
+    // USB 2.0 9.6.6: bits 3..0 of an endpoint address are its number (not 0, the control
+    // endpoint), bits 6..4 are zero and bit 7 is the direction. Zero asks for the default.
+    if ((p[10] != 0 && ((p[10] & 0x80) == 0 || (p[10] & 0x70) != 0 || (p[10] & 0x0F) == 0)) ||
+        (p[14] != 0 && ((p[14] & 0xF0) != 0 || (p[14] & 0x0F) == 0))) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+    // The stack opens HID interfaces only (CFG_TUD_HID in tusb_config.h); any other class would
+    // make SET_CONFIGURATION fail and leave the whole device unconfigured.
+    if (itf_class != TUSB_CLASS_HID) {
+        cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
         return;
     }
 

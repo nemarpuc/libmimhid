@@ -23,7 +23,9 @@ extern "C" {
 
 // Device Mode enabled
 #define CFG_TUD_ENABLED             1
+#ifndef CFG_TUD_MAX_SPEED
 #define CFG_TUD_MAX_SPEED           OPT_MODE_FULL_SPEED
+#endif
 
 // Endpoint 0 size
 #define CFG_TUD_ENDPOINT0_SIZE      64

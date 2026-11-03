@@ -281,7 +281,7 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
                  board.version_minor == MIMHID_VERSION_MINOR &&
                  board.version_patch == MIMHID_VERSION_PATCH);
-    MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == 8);
+    MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == MIMHID_MAX_NODES);
     MIMHID_CHECK(board.max_report_bytes == 64);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
     MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
@@ -586,7 +586,7 @@ void test_limits() {
     std::vector<mimhid_node*> nodes;
     std::vector<mimhid_spec*> specs;
     mimhid_result last = MIMHID_OK;
-    const unsigned limit = E2E_HID_ITFS < 8 ? E2E_HID_ITFS : 8;
+    const unsigned limit = E2E_HID_ITFS < MIMHID_MAX_NODES ? E2E_HID_ITFS : MIMHID_MAX_NODES;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
         mimhid_node_config no{};
@@ -762,6 +762,36 @@ void test_chip_serial_and_boot() {
     broken.iface.class_code = 0;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                  bad == nullptr);
+    // USB 2.0 9.6.6: an endpoint address is a number 1 to 15 with bits 6..4 clear; IN has bit 7 set.
+    for (const std::uint8_t bad_in : {0x80, 0x90, 0xF1, 0x01, 0x41}) {
+        broken = no;
+        broken.ep_in.address = bad_in;
+        MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    }
+    for (const std::uint8_t bad_out : {0x80, 0x81, 0x10, 0x40}) {
+        broken = no;
+        broken.ep_out.address = bad_out;
+        broken.ep_out.max_packet_size = 8;
+        broken.ep_out.poll_interval_ms = 1;
+        MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    }
+    // The board opens HID interfaces only (HID 1.11 4.1: class 0x03).
+    broken = no;
+    broken.iface.class_code = 0x02;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
+                     MIMHID_ERR_UNSUPPORTED &&
+                 bad == nullptr);
+    broken.iface.class_code = 0xFF;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_UNSUPPORTED);
+    // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0, 1 or 2; the rest is reserved.
+    broken = no;
+    broken.iface.subclass = 2;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    broken = no;
+    broken.iface.subclass = 1;
+    broken.iface.protocol = 3;
+    MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
     broken = no;
     broken.reserved = 1;
     MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
@@ -997,6 +1027,20 @@ void test_bad_arguments() {
     o = base_options();
     o.usb_config.configuration_value = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
+    // USB 2.0 9.6.3: bmAttributes bits 4..0 are reserved. 9.6.1: a subclass needs a class.
+    o = base_options();
+    o.usb_config.bm_attributes = 0x81;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    o = base_options();
+    o.usb_device.device_class = 0;
+    o.usb_device.device_subclass = 1;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    // The board has one configuration, which SET_CONFIGURATION selects by the value 1.
+    o = base_options();
+    o.usb_config.configuration_value = 2;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSUPPORTED);
+    o.usb_config.configuration_value = 255;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSUPPORTED);
     o = base_options();
     o.usb_config.bm_attributes = 0x00;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
@@ -1220,6 +1264,14 @@ void test_control() {
         r = good;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, many, MIMHID_CONTROL_MAX_RULES + 1,
                                                    kControlMs) == MIMHID_ERR_PARAM);
+    // USB 2.0 9.2.6.1: 5 seconds is the most any command may take.
+    MIMHID_CHECK(MIMHID_CONTROL_MAX_TIMEOUT_MS == 5000);
+    mimhid_control_rule longest = good;
+    longest.timeout_ms = 5000;
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &longest, 1, kControlMs) ==
+                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &good, 1, kControlMs) ==
+                 MIMHID_OK);
     mimhid_control_rule bad = good;
     bad.timeout_ms = 0;
     MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, &bad, 1, kControlMs) ==
@@ -1412,6 +1464,59 @@ void test_control() {
 
 } // namespace
 
+#ifdef E2E_HIGH_SPEED
+// The rules only a high-speed board has: USB 2.0 9.6.1 (the control endpoint is 64 bytes) and
+// 9.6.6 (bInterval of an interrupt endpoint is an exponent, 1 to 16). The other tests assume
+// full-speed packet sizes, so this build runs these alone.
+void test_high_speed_rules() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    mimhid_device_info board{};
+    MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
+    mimhid_board_limits limits;
+    mimhid_board_limits_init(&limits);
+    MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_OK &&
+                 limits.max_endpoint_bytes == 1024);
+    MIMHID_CHECK(board.usb_high_speed == 1);
+
+    mimhid_device_config o = base_options();
+    o.usb_device.ep0_max_packet_size = 8;
+    MIMHID_CHECK(mimhid_device_set_usb_identity(device, &o.usb_device, &o.usb_config, &kCommit) ==
+                 MIMHID_ERR_PARAM);
+    o.usb_device.ep0_max_packet_size = 64;
+    MIMHID_CHECK(mimhid_device_set_usb_identity(device, &o.usb_device, &o.usb_config, &kCommit) ==
+                 MIMHID_OK);
+    mimhid_device_info port{};
+    std::strncpy(port.port_name, g_slave.c_str(), sizeof(port.port_name) - 1);
+
+    mimhid_spec* spec = keyboard_spec(1);
+    mimhid_node_config nc{};
+    mimhid_node* node = nullptr;
+    for (const std::uint8_t interval : {0, 17, 255}) {
+        mimhid_node_config_init(&nc, 0);
+        nc.ep_in.poll_interval_ms = interval;
+        MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) ==
+                     (interval == 0 ? MIMHID_ERR_UNSET_FIELD : MIMHID_ERR_PARAM));
+    }
+    mimhid_node_config_init(&nc, 0);
+    nc.ep_in.poll_interval_ms = 1;
+    nc.ep_out.address = 0x01;
+    nc.ep_out.max_packet_size = 8;
+    nc.ep_out.poll_interval_ms = 17;
+    MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) == MIMHID_ERR_PARAM);
+    mimhid_node_config_init(&nc, 0);
+    nc.ep_in.poll_interval_ms = 16;
+    nc.ep_in.max_packet_size = 1024; // the packet of a high-speed interrupt endpoint (5.7.3)
+    node = open_node(device, spec, &nc);
+    MIMHID_CHECK(node != nullptr);
+    if (node != nullptr)
+        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    mimhid_spec_release(spec);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+}
+#endif
+
 int main() {
     if (!open_pty()) {
         std::fprintf(stderr, "cannot create a pseudo-terminal\n");
@@ -1420,6 +1525,13 @@ int main() {
     if (fake_board_start(g_master) != 0)
         return 1;
 
+#ifdef E2E_HIGH_SPEED
+    test_high_speed_rules();
+    fake_board_stop();
+    if (g_failures == 0)
+        std::printf("end-to-end OK (high speed)\n");
+    return g_failures == 0 ? 0 : 1;
+#endif
     test_bad_arguments();
     test_line_rate();
     test_no_names();

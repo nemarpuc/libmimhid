@@ -54,11 +54,12 @@ Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT e
 
 | `MIMHID_HID_ITFS` | Used by |
 |---:|---|
-| 7 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2), nRF52840 |
+| 15 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2): the endpoint numbers 1 to 15 in both directions (datasheets: RP2040 4.1.1.1.1, RP2350 12.7.1.1.1) |
+| 7 | nRF52840 (the default of `core.h`) |
 | 4 | ESP32-S3 (four usable IN endpoints) |
 | 3 | STM32F4 full speed (three usable IN endpoints) |
 
-Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow; the firmware, host library, and wire protocol do not depend on the value. In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`.
+Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow, and no higher than 15 (USB has endpoint numbers 1 to 15, USB 2.0 glossary) and `MIMHID_MAX_NODES` (16, the nodes the wire format names); the firmware, host library, and wire protocol do not depend on the value. `core.h` picks 15 for the RP2040 and RP2350 from `PICO_RP2040` and `PICO_RP2350`, which the Pico SDK puts on the command line, and not from TinyUSB's `OPT_MCU_*` macros: those exist only once `tusb_option.h` is read, and an interface count that differs between sources overruns arrays (`firmware/tests` builds the check in both include orders). In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`.
 
 `MIMHID_MAX_DESC_BYTES` (default 2048) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
 

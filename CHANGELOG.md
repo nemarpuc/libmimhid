@@ -3,6 +3,30 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Limits brought to what the specifications and the chips allow, and values the board cannot present refused where they are given. The wire protocol stays 6; the firmware must be reflashed for the new limits (a host library newer than the firmware takes the smaller numbers the board reports).
+
+### Changed
+
+- `MIMHID_MAX_NODES` is 16, what a report frame can name (four bits of its type); it was 8.
+- The Raspberry Pi Pico and Pico 2 firmware has 15 HID interfaces (`MIMHID_HID_ITFS`), the endpoint numbers the RP2040 and RP2350 controllers have (RP2040 datasheet 4.1.1.1.1, RP2350 datasheet 12.7.1.1.1); it was 7. Built for both chips; run on no board yet.
+- `MIMHID_CONTROL_MAX_TIMEOUT_MS` and `MIMHID_CONTROL_TIMEOUT_MAX` are 5000, the 5 seconds USB 2.0 9.2.6.1 gives any command; they were 4000.
+- A node with an interface class other than HID (`0x03`) is refused with `MIMHID_ERR_UNSUPPORTED` (the board answers NAK `UNSUPPORTED`); the board's USB stack opens HID interfaces only, and such a node used to be accepted and left the device unconfigured.
+- A `configuration_value` other than 1 is refused with `MIMHID_ERR_UNSUPPORTED`; the board has one configuration, and the stack selects it with `SET_CONFIGURATION(1)` only.
+- `iface.subclass` above 1 and `iface.protocol` above 2 are refused by the host library (`MIMHID_ERR_PARAM`), as the firmware already did (HID 1.11 4.2, 4.3). The firmware no longer refuses subclass 1 with protocol 0, which HID 1.11 4.3 lists as "None".
+- Endpoint addresses are checked as USB 2.0 9.6.6 defines them (the header and docs said `0x81` to `0x8F` and `0x01` to `0x0F` but the library only looked at bit 7): the number is 1 to 15 and bits 6..4 are zero. `bm_attributes` bits 4..0 must be zero (9.6.3) and `device_subclass` must be zero under `device_class` 0 (9.6.1). A node whose interface number is beyond the board's interfaces is reported as `MIMHID_ERR_OVERFLOW` before its addresses are looked at.
+- On a high-speed board `ep0_max_packet_size` must be 64 (USB 2.0 9.6.1) and a poll interval 1 to 16 (USB 2.0 9.6.6).
+
+### Documentation
+
+- `docs/LIMITS.md` names the source of every number: a USB-IF specification section, a chip datasheet section, or a project choice. It also says what the board does not answer by itself (Input and Output `GET_REPORT`, `SET_IDLE` repeats, the boot protocol) and how a control-routing rule hands those to the program.
+
+### Tests
+
+- Firmware: 15 interfaces, a high-speed build, 16 nodes, the new refusals, and the interface count seen in both include orders for the RP2040, the RP2350 and any other chip.
+- End to end: 15 interfaces and a high-speed board.
+
 ## [2.0.3] - 2026-11-02
 
 Not hardware-verified: the host library's ABI and the wire protocol (still 6) are those

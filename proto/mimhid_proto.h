@@ -74,8 +74,9 @@
 #define MIMHID_NAK_UNSUPPORTED 5
 #define MIMHID_NAK_BUSY 6
 
-/* Limits that are part of the wire format. */
-#define MIMHID_MAX_NODES 8
+/* Limits that are part of the wire format. A report frame names its node in the low four bits of
+ * its type (MIMHID_T_REPORT_BASE | id), so 16 nodes are addressable. */
+#define MIMHID_MAX_NODES 16
 /* The largest payload a frame may carry on any board. A board's own limit is in its PONG, and
  * is never below MIMHID_MIN_FRAME_PAYLOAD, so that every configuration command fits. */
 #define MIMHID_PROTO_MAX_PAYLOAD 4096
@@ -126,7 +127,9 @@
 #define MIMHID_CONTROL_STALL 2
 #define MIMHID_CONTROL_DROP                                                                        \
     3 /* silent drop: do not stall, do not arm, keep NAKing until host aborts */
-#define MIMHID_CONTROL_TIMEOUT_MAX 4000
+/* USB 2.0 section 9.2.6.1: "USB sets an upper limit of 5 seconds as the upper limit for any
+ * command to be processed." A rule may hold a request for that long and no longer. */
+#define MIMHID_CONTROL_TIMEOUT_MAX 5000
 
 #define MIMHID_CONTROL_F_HELD 0x01
 #define MIMHID_CONTROL_F_TOO_LONG 0x02

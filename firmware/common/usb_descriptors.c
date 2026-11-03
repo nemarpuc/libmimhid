@@ -59,7 +59,9 @@ static uint8_t g_rd_pool[MIMHID_MAX_DESC_BYTES];
 static uint16_t g_rd_off[MIMHID_HID_ITFS];
 static uint16_t g_rd_len[MIMHID_HID_ITFS];
 static uint8_t g_iface_count = 0;
-static uint8_t g_node_iface[MIMHID_MAX_NODES] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+// The interface of each node, stored inverted so that the zero a static array starts with means
+// "no interface" (0xFF) whatever MIMHID_MAX_NODES is.
+static uint8_t g_node_iface_inv[MIMHID_MAX_NODES];
 static uint16_t g_language = 0x0409;
 
 static char g_str_mfg[MIMHID_STRING_MAX + 1];
@@ -75,7 +77,7 @@ _Static_assert(MIMHID_MAX_NODES <= 16, "node id is a 4-bit field in the report f
 void mimhid_clear_config(void) {
     g_iface_count = 0;
     for (uint8_t n = 0; n < MIMHID_MAX_NODES; n++)
-        g_node_iface[n] = 0xFF;
+        g_node_iface_inv[n] = 0;
     memset(g_feature, 0, sizeof(g_feature));
     g_device = k_fallback_device;
     mimhid_ep0_set_size(g_device.bMaxPacketSize0);
@@ -85,7 +87,7 @@ void mimhid_clear_config(void) {
 uint8_t mimhid_active_interfaces(void) { return g_iface_count; }
 
 uint8_t mimhid_active_node_interface(uint8_t node) {
-    return node < MIMHID_MAX_NODES ? g_node_iface[node] : 0xFF;
+    return node < MIMHID_MAX_NODES ? (uint8_t)~g_node_iface_inv[node] : 0xFF;
 }
 
 static void copy_str(char* dst, const char* src) {
@@ -151,7 +153,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     }
 
     for (uint8_t n = 0; n < MIMHID_MAX_NODES; n++) {
-        g_node_iface[n] = cfg->node[n].used ? cfg->node[n].iface : 0xFF;
+        g_node_iface_inv[n] = (uint8_t)~(cfg->node[n].used ? cfg->node[n].iface : 0xFF);
     }
 
     // Device descriptor

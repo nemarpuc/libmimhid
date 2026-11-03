@@ -79,8 +79,8 @@ spec_release
 `mimhid_node_config` sets the USB interface and endpoints that carry a Node; nothing is numbered for you.
 
 - `iface.number` labels the interface; the board numbers its interfaces 0, 1, 2, ... in the order of these labels. Nodes with the same number share the interface, and must then all have Report IDs, all different, and the same interface and endpoint settings. Nodes on different interfaces need different endpoint addresses. Anything else is `MIMHID_ERR_PARAM`.
-- `iface.class_code` (nonzero, `0x03` for HID), `iface.subclass` and `iface.protocol` (subclass 1 is a boot interface, protocol 1 keyboard, 2 mouse), `iface.bcd_hid` (nonzero), `iface.country_code` (0 when not localized, up to 35), `iface.name` (a string, or null).
-- `ep_in`: `address` (`0x81` to `0x8F`), `poll_interval_ms` (1 to 255), `max_packet_size` (1 to the board's `max_endpoint_bytes`). All required.
+- `iface.class_code` (`0x03`, HID: any other class is `MIMHID_ERR_UNSUPPORTED`, because the board opens HID interfaces only), `iface.subclass` (0, or 1 for a boot interface) and `iface.protocol` (0, 1 keyboard or 2 mouse; HID 1.11 4.2 and 4.3), `iface.bcd_hid` (nonzero), `iface.country_code` (0 when not localized, up to 35), `iface.name` (a string, or null).
+- `ep_in`: `address` (`0x81` to `0x8F`), `poll_interval_ms` (`bInterval`: 1 to 255 at full speed, 1 to 16 at high speed), `max_packet_size` (1 to the board's `max_endpoint_bytes`). All required.
 - `ep_out`: all zero for none; otherwise an address `0x01` to `0x0F`, a poll interval and a packet size, and the target's Output reports reach `event_sink`.
 
 A USB device has one VID and PID, so those belong to the Device, not to a Node.
@@ -89,8 +89,8 @@ A USB device has one VID and PID, so those belong to the Device, not to a Node.
 
 `mimhid_device_config` holds `transport`, `usb_device` and `usb_config`. The fields of `usb_device` and `usb_config` are those of the USB 2.0 standard descriptors (section 9.6); a string is printable ASCII of at most 126 characters, or null to leave it out.
 
-- `usb_device`: `vendor_id`, `bcd_usb`, `ep0_max_packet_size` (8, 16, 32 or 64) and `language_id` are required; `product_id`, `bcd_device`, `device_class`, `device_subclass`, `device_protocol`, `manufacturer`, `product`, `serial`, `serial_from_chip_id` (with a null `serial`, the chip's unique id).
-- `usb_config`: `configuration_value` (nonzero), `bm_attributes` (bit 7 set; bit 6 self-powered; bit 5 remote wakeup), `bmax_power` (0 to 250, in 2 mA units), `string`.
+- `usb_device`: `vendor_id`, `bcd_usb`, `ep0_max_packet_size` (8, 16, 32 or 64; 64 on a high-speed board) and `language_id` are required; `product_id`, `bcd_device`, `device_class`, `device_subclass`, `device_protocol`, `manufacturer`, `product`, `serial`, `serial_from_chip_id` (with a null `serial`, the chip's unique id).
+- `usb_config`: `configuration_value` (1: the board has one configuration, and any other value is `MIMHID_ERR_UNSUPPORTED`), `bm_attributes` (bit 7 set; bit 6 self-powered; bit 5 remote wakeup), `bmax_power` (0 to 250, in 2 mA units), `string`.
 - `transport`, link: `baud_rate` (one of `MIMHID_BAUD_RATES`; `mimhid_discover` reports the fastest one the link carries), `handshake_timeout_ms` (each wait for an answer while the board is looked for on the port), `maximum_report_bytes` (the largest report this Device sends, at most the board's `max_report_bytes` and `MIMHID_HOST_MAX_REPORT_BYTES`), `log_level` (any level but `MIMHID_LOG_DISABLED` needs `log_sink`). All required.
 - `transport.linux_hid`: the limits of the target's Linux HID parser ([LIMITS.md](LIMITS.md#linux-hid-parser)). All required; `mimhid_node_open` refuses a Spec that exceeds one with `MIMHID_ERR_OVERFLOW`.
 - `transport`, behavior: `validate_reports` (check every built report against its Spec before sending), `keep_attached` (leave the USB device on the target after `mimhid_device_close`).

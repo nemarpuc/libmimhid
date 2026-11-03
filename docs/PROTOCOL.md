@@ -25,8 +25,8 @@ A report payload is at most the board's `max_report_bytes`. Other payloads are a
 
 | Type | Name | Payload after the sequence number |
 |---|---|---|
-| `0x10` | `DEVICE_CONFIG` | USB identity and power; starts a new staged configuration and clears every staged node |
-| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length (two bytes), interface class, subclass and protocol, `bcdHID` (two bytes), country code, then for the IN and the OUT endpoint its address, packet size (two bytes) and poll interval, the idle rate, flags, and the interface string. A repeated begin for a node that has not changed is acknowledged again. |
+| `0x10` | `DEVICE_CONFIG` | USB identity and power; starts a new staged configuration and clears every staged node. NAK `PARAM` for a control endpoint size that is not 8, 16, 32 or 64 (64 only on a high-speed board, USB 2.0 9.6.1), for `bmAttributes` bits 4..0 set (9.6.3) and for a device subclass under device class 0 (9.6.1); NAK `UNSUPPORTED` for a configuration value other than 1 (the board has one configuration, which `SET_CONFIGURATION(1)` selects) |
+| `0x11` | `NODE_BEGIN` | one node: id, interface index, descriptor length (two bytes), interface class, subclass and protocol, `bcdHID` (two bytes), country code, then for the IN and the OUT endpoint its address, packet size (two bytes) and poll interval, the idle rate, flags, and the interface string. A repeated begin for a node that has not changed is acknowledged again. NAK `PARAM` for a subclass above 1 or a protocol above 2 (HID 1.11 4.2, 4.3), for an endpoint address that is not 1 to 15 with bits 6..4 clear and the right direction bit (USB 2.0 9.6.6; 0 means the default), and on a high-speed board for a poll interval outside 1 to 16 (USB 2.0 9.6.6); NAK `UNSUPPORTED` for an interface class other than HID (`0x03`), which the board's USB stack would not open. |
 | `0x12` | `NODE_DATA` | node id, offset, up to 240 descriptor bytes |
 | `0x13` | `COMMIT` | apply the staged configuration. Reconnect delay in payload. With payload byte `1`: detach from the bus and forget the configuration |
 | `0x14` | `FEATURE` | node id, Report ID, up to `max_feature_bytes` returned for a Feature `GET_REPORT`; takes effect at once, also on a running configuration |
@@ -122,7 +122,7 @@ n rules of 15 bytes: bmRequestType mask, value  bRequest mask, value  wValue mas
                      wIndex mask, value (2+2)  timeout in ms (2)  action after the timeout
 ```
 
-A request matches a rule when each field ANDed with the mask equals the value; the first matching rule holds the request. The set replaces the previous one, the board starts with none, a timeout of 0 or above `MIMHID_CONTROL_TIMEOUT_MAX` (4000), an unknown action, or a value with bits outside its mask is refused with `PARAM`.
+A request matches a rule when each field ANDed with the mask equals the value; the first matching rule holds the request. The set replaces the previous one, the board starts with none, a timeout of 0 or above `MIMHID_CONTROL_TIMEOUT_MAX` (5000, the 5 seconds USB 2.0 9.2.6.1 gives any command), an unknown action, or a value with bits outside its mask is refused with `PARAM`.
 
 **How it is done.** The board wraps TinyUSB's `dcd_event_handler`, which every controller driver calls with the setup packet in the USB interrupt (`-Wl,--wrap=dcd_event_handler`). A request that matches a rule is not passed on; the USB side reports it (`EVENT CONTROL_SETUP`: token, flags, the 8 bytes) and waits. When the answer comes, or the time runs out, the request is given to TinyUSB: unchanged for `LEAVE` (the board's own handling), or with the type bits of `bmRequestType` set to vendor for `ANSWER` and `STALL`, which `tud_vendor_control_xfer_cb` then serves from the host's data (or stalls). The control endpoint's data and status stages therefore run in TinyUSB as for any request, and the controller NAKs until they start.
 

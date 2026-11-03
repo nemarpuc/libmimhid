@@ -248,6 +248,13 @@ static int command(uint8_t type, const uint8_t* p, size_t n) {
 }
 
 static uint8_t g_ep0_size = 64;
+static uint8_t g_config_value = 1;
+static uint8_t g_bm_attributes = 0xA0;
+static uint8_t g_device_class = 0xEF;
+static uint8_t g_device_subclass = 0x02;
+// Endpoint addresses NODE_BEGIN carries instead of the ones it derives from the interface; -1: none.
+static int g_force_in = -1;
+static int g_force_out = -1;
 
 static int device_config(uint8_t flags, const char* serial) {
     uint8_t p[160];
@@ -255,12 +262,12 @@ static int device_config(uint8_t flags, const char* serial) {
     p[n++] = 0x34; p[n++] = 0x12;          // vid
     p[n++] = 0x78; p[n++] = 0x56;          // pid
     p[n++] = 0x00; p[n++] = 0x02;          // bcd
-    p[n++] = 0xEF; p[n++] = 0x02; p[n++] = 0x01;
+    p[n++] = g_device_class; p[n++] = g_device_subclass; p[n++] = 0x01;
     p[n++] = 0x09; p[n++] = 0x04;          // language
     p[n++] = 0x00; p[n++] = 0x02;          // bcdUSB 0x0200
     p[n++] = g_ep0_size;                   // ep0_max_packet_size
-    p[n++] = 1;                            // configuration_value
-    p[n++] = 0xA0;                         // bm_attributes (0x80 | 0x20 remote wakeup)
+    p[n++] = g_config_value;               // configuration_value
+    p[n++] = g_bm_attributes;              // bm_attributes (0x80 | 0x20 remote wakeup)
     p[n++] = 50;                           // bmax_power (100 mA)
     p[n++] = flags;                        // flags
     const char* strs[4] = {"Maker", "Product", serial, "Config"};
@@ -279,21 +286,22 @@ static const uint8_t k_desc_b[] = {  // mouse-like
     0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02, 0x09, 0x30, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08,
     0x95, 0x01, 0x81, 0x06, 0xC0};
 
-static int node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
-                          uint16_t ep_out, uint8_t boot, const char* str) {
+static int node_begin_full(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
+                           uint16_t ep_out, uint8_t cls, uint8_t subclass, uint8_t protocol,
+                           const char* str) {
     uint8_t p[64];
     size_t n = 0;
     p[n++] = id; p[n++] = iface;
     p[n++] = (uint8_t)(desc_len & 0xFF); p[n++] = (uint8_t)(desc_len >> 8);
-    p[n++] = 0x03;                         // interface_class (HID)
-    p[n++] = boot ? 1 : 0;                 // interface_subclass
-    p[n++] = boot;                         // interface_protocol
+    p[n++] = cls;                          // interface_class
+    p[n++] = subclass;                     // interface_subclass
+    p[n++] = protocol;                     // interface_protocol
     p[n++] = 0x11; p[n++] = 0x01;          // bcdHID 1.11
     p[n++] = 0;                            // country
-    p[n++] = (uint8_t)(0x81 + iface);      // ep_in_addr
+    p[n++] = g_force_in >= 0 ? (uint8_t)g_force_in : (uint8_t)(0x81 + iface); // ep_in_addr
     p[n++] = (uint8_t)(ep & 0xFF); p[n++] = (uint8_t)(ep >> 8); // ep_size
     p[n++] = poll;                         // poll_interval
-    p[n++] = ep_out ? (uint8_t)(0x01 + iface) : 0; // ep_out_addr
+    p[n++] = g_force_out >= 0 ? (uint8_t)g_force_out : ep_out ? (uint8_t)(0x01 + iface) : 0; // ep_out_addr
     p[n++] = (uint8_t)(ep_out & 0xFF); p[n++] = (uint8_t)(ep_out >> 8); // ep_out_size
     p[n++] = ep_out ? poll : 0;            // poll_interval_out
     p[n++] = 0;                            // idle_rate
@@ -302,6 +310,11 @@ static int node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t 
     memcpy(p + n, str, strlen(str));
     n += strlen(str);
     return command(MIMHID_T_NODE_BEGIN, p, n);
+}
+
+static int node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
+                          uint16_t ep_out, uint8_t boot, const char* str) {
+    return node_begin_full(id, iface, desc_len, poll, ep, ep_out, 0x03, boot ? 1 : 0, boot, str);
 }
 
 static int node_begin(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep, uint8_t boot,
@@ -685,10 +698,35 @@ static void test_errors(void) {
     uint8_t clear[1] = {0};
     (void)clear;
     assert(device_config(0, "x") == 1);
-    expect_nak(node_begin(9, 0, 4, 1, 0, 0, ""), MIMHID_NAK_PARAM);           // node id out of range
+    expect_nak(node_begin(MIMHID_MAX_NODES, 0, 4, 1, 0, 0, ""), MIMHID_NAK_PARAM); // node id out of range
     expect_nak(node_begin(0, 0, 0, 1, 0, 0, ""), MIMHID_NAK_PARAM);           // empty descriptor
     expect_nak(node_begin(0, 0, 4, 1, 65, 0, ""), MIMHID_NAK_PARAM);           // endpoint size above 64
     expect_nak(node_begin(0, 0, 4, 1, 0, 3, ""), MIMHID_NAK_PARAM);           // bad boot protocol
+    // HID 1.11 4.2, 4.3: subclass 0 or 1, protocol 0, 1 or 2.
+    expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0x03, 2, 0, ""), MIMHID_NAK_PARAM);
+    expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0x03, 1, 3, ""), MIMHID_NAK_PARAM);
+    // USB 2.0 9.6.6: endpoint number 1 to 15, bits 6..4 zero, bit 7 the direction.
+    assert(device_config(0, "x") == 1);
+    for (const int bad_in : (const int[]){0x80, 0x90, 0xF1, 0x01, 0x41}) {
+        g_force_in = bad_in;
+        expect_nak(node_begin(0, 0, 4, 1, 0, 0, ""), MIMHID_NAK_PARAM);
+    }
+    g_force_in = 0x8F;
+    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, "") == 1);
+    g_force_in = -1;
+    assert(device_config(0, "x") == 1);
+    for (const int bad_out : (const int[]){0x80, 0x81, 0x10, 0x40}) {
+        g_force_out = bad_out;
+        expect_nak(node_begin_out(0, 0, 4, 1, 8, 8, 0, ""), MIMHID_NAK_PARAM);
+    }
+    g_force_out = 0x0F;
+    assert(node_begin_out(0, 0, sizeof(k_desc_a), 1, 8, 8, 0, "") == 1);
+    g_force_out = -1;
+    assert(device_config(0, "x") == 1);
+    // The stack opens HID interfaces only; any other class would leave the device unconfigured.
+    expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0x02, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
+    expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0xFF, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
+    expect_nak(node_begin_full(0, 0, 4, 1, 0, 0, 0x00, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
     expect_nak(node_begin(0, MIMHID_HID_ITFS, 4, 1, 0, 0, ""), MIMHID_NAK_OVERFLOW);
     expect_nak(node_begin(0, 0, MIMHID_MAX_DESC_BYTES + 1, 1, 0, 0, ""), MIMHID_NAK_OVERFLOW);
     assert(node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, "") == 1);
@@ -1092,6 +1130,11 @@ static void test_control(void) {
     // Bad configurations are refused and change nothing.
     trule_t bad = rule_for(0xC0, 0x42, 0, MIMHID_CONTROL_STALL);
     expect_nak(control_config(0, &bad, 1), MIMHID_NAK_PARAM); // no time
+    // USB 2.0 9.2.6.1: 5 seconds is the most any command may take.
+    assert(MIMHID_CONTROL_TIMEOUT_MAX == 5000);
+    bad = rule_for(0xC0, 0x42, MIMHID_CONTROL_TIMEOUT_MAX, MIMHID_CONTROL_STALL);
+    assert(control_config(0, &bad, 1) == 1);
+    assert(control_config(0, NULL, 0) == 1);
     bad = rule_for(0xC0, 0x42, MIMHID_CONTROL_TIMEOUT_MAX + 1, MIMHID_CONTROL_STALL);
     expect_nak(control_config(0, &bad, 1), MIMHID_NAK_PARAM);
     bad = rule_for(0xC0, 0x42, 10, 4);
@@ -1203,6 +1246,28 @@ static void test_ep0(void) {
     uint8_t buf[64];
     for (int i = 0; i < 64; i++) buf[i] = (uint8_t)i;
     reset_io();
+
+    // USB 2.0 9.6.3: bmAttributes bits 4..0 are reserved. 9.6.1: a subclass needs a class.
+    g_bm_attributes = 0x81;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    g_bm_attributes = 0x9F;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    g_bm_attributes = 0xA0;
+    g_device_class = 0;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM); // subclass 2 under class 0
+    g_device_subclass = 0;
+    assert(device_config(0, "") == 1);
+    g_device_class = 0xEF;
+    g_device_subclass = 0x02;
+
+    // The stack maps SET_CONFIGURATION(n) to the n-th configuration; the board has one.
+    g_config_value = 2;
+    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
+    g_config_value = 255;
+    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
+    g_config_value = 0;
+    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
+    g_config_value = 1;
 
     // The board refuses a size USB does not have.
     g_ep0_size = 48;
@@ -1320,9 +1385,59 @@ static void test_ep0(void) {
     assert(ep0_whole() == 64 && g_deferred == NULL);
 }
 
+// The wire format names a node in four bits, so all 16 nodes can be used, and each keeps its own
+// interface through a commit.
+static void test_sixteen_nodes(void) {
+    assert(MIMHID_MAX_NODES == 16);
+    assert(device_config(0, "") == 1);
+    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++) {
+        const uint8_t iface = (uint8_t)(id % MIMHID_HID_ITFS);
+        assert(node_begin(id, iface, sizeof(k_desc_a), 1, 8, 0, "") == 1);
+        assert(node_data(id, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    }
+    expect_nak(node_begin(MIMHID_MAX_NODES, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_PARAM);
+    assert(commit() == 1);
+    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++)
+        assert(mimhid_active_node_interface(id) == (uint8_t)(id % MIMHID_HID_ITFS));
+    assert(mimhid_active_node_interface(MIMHID_MAX_NODES) == 0xFF);
+    // A detach forgets them all again.
+    uint8_t detach[1] = {1};
+    assert(command(MIMHID_T_COMMIT, detach, 1) == 1);
+    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++)
+        assert(mimhid_active_node_interface(id) == 0xFF);
+}
+
+#if TUD_OPT_HIGH_SPEED
+// A high-speed build: the rules of USB 2.0 that only a high-speed device has. The tests above
+// assume full-speed packet sizes, so this build runs these alone.
+static void test_high_speed(void) {
+    assert(MIMHID_MAX_ENDPOINT_BYTES == 1024);
+    // 9.6.1: the control endpoint of a high-speed device is 64 bytes, and only that.
+    assert(device_config(0, "") == 1);
+    g_ep0_size = 8;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    g_ep0_size = 32;
+    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    g_ep0_size = 64;
+    assert(device_config(0, "") == 1);
+    // 9.6.6: bInterval of an interrupt endpoint is an exponent, 1 to 16.
+    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 0, 8, 0, ""), MIMHID_NAK_PARAM);
+    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 17, 8, 0, ""), MIMHID_NAK_PARAM);
+    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 255, 8, 0, ""), MIMHID_NAK_PARAM);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
+    assert(node_begin(1, 1, sizeof(k_desc_a), 16, 1024, 0, "") == 1); // the largest endpoint packet
+    expect_nak(node_begin(2, 2, sizeof(k_desc_a), 16, 1025, 0, ""), MIMHID_NAK_PARAM);
+}
+#endif
+
 int main(void) {
     printf("firmware core, %d HID interfaces\n", MIMHID_HID_ITFS);
     mimhid_core_init();
+#if TUD_OPT_HIGH_SPEED
+    test_high_speed();
+    printf("firmware core (high speed) OK\n");
+    return 0;
+#endif
     test_ping_and_events();
     test_set_baud();
     test_descriptors_basic();
@@ -1330,6 +1445,7 @@ int main(void) {
     test_feature();
     test_detach_begin_and_live_feature();
     test_errors();
+    test_sixteen_nodes();
     test_packing();
     test_wide_values();
     test_control();

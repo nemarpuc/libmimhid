@@ -111,7 +111,7 @@ add_test(NAME mimhid.cpp-wrapper COMMAND mimhid_cpp_wrapper_test)
 # Configure with -DMIMHID_TINYUSB_PATH=<tinyusb checkout> to enable (POSIX only).
 set(MIMHID_TINYUSB_PATH "" CACHE PATH "TinyUSB checkout for the end-to-end tests")
 if(MIMHID_TINYUSB_PATH AND NOT WIN32)
-    foreach(itfs 7 3)
+    foreach(itfs 15 7 3)
         add_executable(mimhid_e2e_${itfs}
             tests/e2e/test_e2e.cpp
             tests/e2e/fake_board.c
@@ -129,4 +129,24 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         target_link_libraries(mimhid_e2e_${itfs} PRIVATE Threads::Threads)
         add_test(NAME mimhid.e2e-${itfs} COMMAND mimhid_e2e_${itfs})
     endforeach()
+
+    # The rules only a high-speed board has, against the firmware core built for high speed.
+    add_executable(mimhid_e2e_hs
+        tests/e2e/test_e2e.cpp
+        tests/e2e/fake_board.c
+        firmware/common/core.c
+        firmware/common/control.c
+        firmware/common/ep0.c
+        firmware/common/usb_descriptors.c
+        $<TARGET_OBJECTS:mimhid_test_objects>)
+    target_include_directories(mimhid_e2e_hs PRIVATE
+        include src proto tests tests/e2e
+        firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
+    target_compile_definitions(mimhid_e2e_hs PRIVATE
+        MIMHID_HID_ITFS=7 E2E_HID_ITFS=7 E2E_HIGH_SPEED
+        CFG_TUSB_CONFIG_FILE="tusb_config.h"
+        CFG_TUD_MAX_SPEED=OPT_MODE_HIGH_SPEED
+        "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_HIGH_SPEED)")
+    target_link_libraries(mimhid_e2e_hs PRIVATE Threads::Threads)
+    add_test(NAME mimhid.e2e-hs COMMAND mimhid_e2e_hs)
 endif()

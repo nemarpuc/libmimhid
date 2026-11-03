@@ -157,6 +157,13 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
                   "ep0_max_packet_size must be 8, 16, 32, or 64.");
         return MIMHID_ERR_PARAM;
     }
+    if (usb_device.device_class == 0U && usb_device.device_subclass != 0U) {
+        // USB 2.0 9.6.1: "If the bDeviceClass field is reset to zero, this field must also be
+        // reset to zero."
+        set_error(MIMHID_ERR_PARAM, "usb_device.device_subclass",
+                  "device_subclass must be zero when device_class is zero (USB 2.0 9.6.1).");
+        return MIMHID_ERR_PARAM;
+    }
     if (!mimhid::detail::valid_boolean(usb_device.serial_from_chip_id)) {
         set_error(MIMHID_ERR_PARAM, "usb_device.serial_from_chip_id",
                   "serial_from_chip_id must be zero or one.");
@@ -175,9 +182,22 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
                   "configuration_value must be non-zero (e.g. 1).");
         return MIMHID_ERR_UNSET_FIELD;
     }
+    if (usb_config.configuration_value != 1U) {
+        // USB 2.0 9.6.3 allows any value 1 to 255, but the board has one configuration and its
+        // USB stack maps SET_CONFIGURATION(n) to the n-th one.
+        set_error(MIMHID_ERR_UNSUPPORTED, "usb_config.configuration_value",
+                  "The board has one configuration, and it is selected by the value 1.");
+        return MIMHID_ERR_UNSUPPORTED;
+    }
     if ((usb_config.bm_attributes & 0x80U) == 0U) {
         set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
                   "bm_attributes bit 7 must be set (0x80).");
+        return MIMHID_ERR_PARAM;
+    }
+    if ((usb_config.bm_attributes & 0x1FU) != 0U) {
+        // USB 2.0 9.6.3: D4..0 are reserved and reset to zero.
+        set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
+                  "bm_attributes bits 4..0 are reserved and must be zero (USB 2.0 9.6.3).");
         return MIMHID_ERR_PARAM;
     }
     if (usb_config.bmax_power > 250U) {
@@ -191,6 +211,18 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
         return MIMHID_ERR_PARAM;
     }
 
+    return MIMHID_OK;
+}
+
+// The rules of the Device descriptor that depend on the speed the board runs at.
+mimhid_result validate_usb_identity_on_board(const tr::BoardInfo& board,
+                                             const mimhid_usb_device& usb_device) noexcept {
+    if (board.usb_high_speed && usb_device.ep0_max_packet_size != 64U) {
+        // USB 2.0 9.6.1: at high speed bMaxPacketSize0 is 64 and nothing else.
+        set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",
+                  "A high-speed board has a 64-byte control endpoint (USB 2.0 9.6.1).");
+        return MIMHID_ERR_PARAM;
+    }
     return MIMHID_OK;
 }
 
@@ -1225,6 +1257,10 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   "The limit exceeds what the board accepts.");
         return MIMHID_ERR_OVERFLOW;
     }
+    if (const mimhid_result r = validate_usb_identity_on_board(device->board, effective.usb_device);
+        r != MIMHID_OK) {
+        return r;
+    }
     device->maximum_report_bytes = effective.transport.maximum_report_bytes;
     device->info = describe_board(port_path, "", device->board, effective.transport.baud_rate);
 
@@ -1254,6 +1290,10 @@ mimhid_result MIMHID_CALL mimhid_device_set_usb_identity(
     }
     if (const mimhid_result r = validate_usb_identity(*usb_device, *usb_config); r != MIMHID_OK)
         return r;
+    if (const mimhid_result r = validate_usb_identity_on_board(device->board, *usb_device);
+        r != MIMHID_OK) {
+        return r;
+    }
 
     device->config.usb_device = *usb_device;
     device->config.usb_config = *usb_config;
@@ -1743,9 +1783,39 @@ mimhid_result validate_node_config(const mimhid_device* device,
                   "class_code must be explicitly specified (e.g. 0x03 for HID).");
         return MIMHID_ERR_UNSET_FIELD;
     }
-    if ((effective.ep_in.address & 0x80U) == 0U) {
+    if (effective.iface.number >= device->board.max_interfaces) {
+        set_error(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
+                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
+                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
+                  effective.iface.number);
+        return MIMHID_ERR_OVERFLOW;
+    }
+    if (effective.iface.class_code != 0x03U) {
+        // USB 2.0 9.6.5 leaves the class to the USB-IF; the board's stack opens HID interfaces
+        // only, and any other class leaves the whole device unconfigured.
+        set_error(MIMHID_ERR_UNSUPPORTED, "node_config.iface.class_code",
+                  "Only the HID class (0x03) can be presented.");
+        return MIMHID_ERR_UNSUPPORTED;
+    }
+    if (effective.iface.subclass > 1U || effective.iface.protocol > 2U) {
+        // HID 1.11 4.2 and 4.3: subclass 0 or 1; protocol 0 (none), 1 (keyboard) or 2 (mouse).
+        set_error(MIMHID_ERR_PARAM, "node_config.iface",
+                  "subclass is 0 or 1 and protocol 0, 1 or 2 (HID 1.11 4.2, 4.3).");
+        return MIMHID_ERR_PARAM;
+    }
+    if (device->board.usb_high_speed &&
+        (effective.ep_in.poll_interval_ms > 16U || effective.ep_out.poll_interval_ms > 16U)) {
+        // USB 2.0 9.6.6: at high speed bInterval of an interrupt endpoint is an exponent, 1 to 16.
+        set_error(MIMHID_ERR_PARAM, "node_config.ep_in.poll_interval_ms",
+                  "A high-speed board takes a bInterval of 1 to 16 (USB 2.0 9.6.6).");
+        return MIMHID_ERR_PARAM;
+    }
+    // USB 2.0 9.6.6: bits 3..0 are the endpoint number, bits 6..4 are reserved and zero, bit 7 is
+    // the direction. Endpoint number 0 is the control endpoint, which has no endpoint descriptor.
+    if ((effective.ep_in.address & 0x80U) == 0U || (effective.ep_in.address & 0x70U) != 0U ||
+        (effective.ep_in.address & 0x0FU) == 0U) {
         set_error(MIMHID_ERR_PARAM, "node_config.ep_in.address",
-                  "ep_in.address must have bit 7 set for IN endpoint (e.g. 0x81).");
+                  "ep_in.address is 0x81 to 0x8F: bit 7 set, endpoint number 1 to 15.");
         return MIMHID_ERR_PARAM;
     }
     if (effective.iface.country_code > 35U || !valid_usb_string(effective.iface.name)) {
@@ -1763,17 +1833,10 @@ mimhid_result validate_node_config(const mimhid_device* device,
                                           effective.ep_out.max_packet_size));
         return MIMHID_ERR_OVERFLOW;
     }
-    if (effective.iface.number >= device->board.max_interfaces) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
-                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
-                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
-                  effective.iface.number);
-        return MIMHID_ERR_OVERFLOW;
-    }
     if (effective.ep_out.max_packet_size > 0U || effective.ep_out.address != 0U) {
-        if ((effective.ep_out.address & 0x80U) != 0U || effective.ep_out.address == 0U) {
+        if ((effective.ep_out.address & 0xF0U) != 0U || (effective.ep_out.address & 0x0FU) == 0U) {
             set_error(MIMHID_ERR_PARAM, "node_config.ep_out.address",
-                      "ep_out.address must have bit 7 clear and nonzero (e.g. 0x01).");
+                      "ep_out.address is 0x01 to 0x0F: bit 7 clear, endpoint number 1 to 15.");
             return MIMHID_ERR_PARAM;
         }
         if (effective.ep_out.poll_interval_ms == 0U) {

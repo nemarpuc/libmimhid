@@ -310,9 +310,9 @@ typedef struct mimhid_board_limits {
 typedef struct mimhid_usb_device {
     uint16_t bcd_usb;     /* e.g. 0x0200 */
     uint8_t device_class; /* 0: each interface says its own class */
-    uint8_t device_subclass;
+    uint8_t device_subclass; /* 0 when device_class is 0 (USB 2.0 9.6.1) */
     uint8_t device_protocol;
-    uint8_t ep0_max_packet_size; /* 8, 16, 32 or 64 */
+    uint8_t ep0_max_packet_size; /* 8, 16, 32 or 64; 64 on a high-speed board (USB 2.0 9.6.1) */
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t bcd_device;
@@ -325,8 +325,9 @@ typedef struct mimhid_usb_device {
 
 /* The Configuration descriptor. */
 typedef struct mimhid_usb_config {
-    uint8_t configuration_value; /* nonzero, e.g. 1 */
-    uint8_t bm_attributes;       /* bit 7 set; bit 6 self-powered; bit 5 remote wakeup */
+    uint8_t configuration_value; /* 1: the board has one configuration, selected by that value */
+    uint8_t bm_attributes;       /* bit 7 set; bit 6 self-powered; bit 5 remote wakeup; bits 4..0
+                                    zero (USB 2.0 9.6.3) */
     uint8_t bmax_power;          /* 0 to 250, in 2 mA units */
     uint8_t reserved8;
     const char* string;
@@ -383,8 +384,10 @@ typedef struct mimhid_commit_timeouts {
 /* ---- Node options ----------------------------------------------------------------------- */
 
 typedef struct mimhid_usb_endpoint {
-    uint8_t address;          /* IN: 0x81 to 0x8F; OUT: 0x01 to 0x0F, or 0 for none */
-    uint8_t poll_interval_ms; /* bInterval, 1 to 255 */
+    uint8_t address;          /* IN: 0x81 to 0x8F; OUT: 0x01 to 0x0F, or 0 for none: bit 7 the
+                                 direction, bits 6..4 zero, endpoint number 1 to 15 (USB 2.0 9.6.6) */
+    uint8_t poll_interval_ms; /* bInterval: 1 to 255 (frames) at full speed, 1 to 16 (an exponent,
+                                 2^(n-1) microframes) at high speed; USB 2.0 9.6.6 */
     uint16_t max_packet_size; /* 1 to the board's max_endpoint_bytes; 0 with no OUT endpoint */
 } mimhid_usb_endpoint;
 
@@ -393,9 +396,9 @@ typedef struct mimhid_usb_endpoint {
  * The numbers are only labels: the board numbers its interfaces 0, 1, 2, ... in their order. */
 typedef struct mimhid_usb_interface {
     uint8_t number;
-    uint8_t class_code;   /* nonzero: 0x03 for HID */
+    uint8_t class_code;   /* 0x03, HID: the board opens no other class (MIMHID_ERR_UNSUPPORTED) */
     uint8_t subclass;     /* 0 none, 1 boot interface */
-    uint8_t protocol;     /* with subclass 1: 1 keyboard, 2 mouse */
+    uint8_t protocol;     /* 0 none, 1 keyboard, 2 mouse (HID 1.11 4.3) */
     uint16_t bcd_hid;     /* nonzero, e.g. 0x0111 */
     uint8_t country_code; /* 0 when the hardware is not localized, up to 35 */
     uint8_t reserved8;
@@ -1185,7 +1188,7 @@ enum {
 };
 
 #define MIMHID_CONTROL_MAX_RULES 8
-#define MIMHID_CONTROL_MAX_TIMEOUT_MS 4000
+#define MIMHID_CONTROL_MAX_TIMEOUT_MS 5000 /* USB 2.0 9.2.6.1: 5 seconds for any command */
 
 /* A request matches when (field & mask) == value for each of the four fields; a mask of 0 matches
  * anything. Rules are tried in order and the first match holds the request. */
