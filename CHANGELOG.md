@@ -3,6 +3,19 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-11-04
+
+A device can present vendor ID 0. The wire protocol stays 6 and the firmware is unchanged; the size of `mimhid_usb_device` stays 48.
+
+### Added
+
+- `mimhid_usb_device.identity_set` (offset 44, in what was padding). USB 2.0 9.6.1 reserves no `idVendor` or `idProduct` value, but a zero `vendor_id` was refused because zero is also what an unset field holds. With `identity_set` = 1, `vendor_id` 0 is presented as given. `mimhid_device_config_init` leaves it 0, so a program that never set `vendor_id` is still refused with `MIMHID_ERR_UNSET_FIELD`, and a nonzero `vendor_id` needs no flag. `product_id` 0 was always accepted. A value other than 0 or 1 is `MIMHID_ERR_PARAM`.
+- The Rust, Python and C# bindings carry the field; the layout checks and the ABI golden list it.
+
+### Tests
+
+- A device presenting vendor ID 0 and product ID 0 (the Device descriptor read back), and `identity_set` 2 refused.
+
 ## [2.0.5] - 2026-11-03
 
 What the board answers on its own, where no control-routing rule holds the request, now follows the specifications in two more places. The wire protocol stays 6 and the host library is unchanged; reflash the firmware to get the new answers.

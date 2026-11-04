@@ -140,7 +140,6 @@ bool reserved_is_zero(const std::uint32_t reserved, const char* field) noexcept 
 mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
                                     const mimhid_usb_config& usb_config) noexcept {
     const std::pair<std::uint32_t, const char*> required_usb_device[] = {
-        {usb_device.vendor_id, "usb_device.vendor_id"},
         {usb_device.language_id, "usb_device.language_id"},
         {usb_device.bcd_usb, "usb_device.bcd_usb"},
         {usb_device.ep0_max_packet_size, "usb_device.ep0_max_packet_size"},
@@ -150,6 +149,17 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
             set_error(MIMHID_ERR_UNSET_FIELD, field, "This value is required.");
             return MIMHID_ERR_UNSET_FIELD;
         }
+    }
+    if (!mimhid::detail::valid_boolean(usb_device.identity_set)) {
+        set_error(MIMHID_ERR_PARAM, "usb_device.identity_set", "identity_set must be zero or one.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (usb_device.vendor_id == 0U && usb_device.identity_set == 0U) {
+        // USB 2.0 9.6.1 reserves no idVendor value, but zero is also what an unset field holds:
+        // presenting it takes identity_set = 1.
+        set_error(MIMHID_ERR_UNSET_FIELD, "usb_device.vendor_id",
+                  "vendor_id is required: set it, or set identity_set to present vendor_id 0.");
+        return MIMHID_ERR_UNSET_FIELD;
     }
     if (usb_device.ep0_max_packet_size != 8U && usb_device.ep0_max_packet_size != 16U &&
         usb_device.ep0_max_packet_size != 32U && usb_device.ep0_max_packet_size != 64U) {

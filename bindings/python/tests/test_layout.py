@@ -29,7 +29,7 @@ LAYOUT = {
     "mimhid_event": ("Event", ["struct_size", "reserved", "kind", "node_id", "report_id", "value", "data", "length", "control_token", "control_flags"]),
     "mimhid_device_info": ("DeviceInfo", ["port_name", "description", "version_major", "version_minor", "version_patch", "is_ready", "protocol_version", "max_nodes", "max_interfaces", "max_report_bytes", "max_descriptor_bytes", "has_unique_id", "reserved8", "baud_rate", "baud_mask", "chip", "usb_high_speed", "unique_id_length", "unique_id", "reserved_end"]),
     "mimhid_board_limits": ("BoardLimits", ["struct_size", "reserved", "max_report_bytes", "max_feature_bytes", "max_endpoint_bytes", "max_frame_payload", "max_control_data_bytes", "max_control_rules"]),
-    "mimhid_usb_device": ("UsbDevice", ["bcd_usb", "device_class", "device_subclass", "device_protocol", "ep0_max_packet_size", "vendor_id", "product_id", "bcd_device", "language_id", "manufacturer", "product", "serial", "serial_from_chip_id"]),
+    "mimhid_usb_device": ("UsbDevice", ["bcd_usb", "device_class", "device_subclass", "device_protocol", "ep0_max_packet_size", "vendor_id", "product_id", "bcd_device", "language_id", "manufacturer", "product", "serial", "serial_from_chip_id", "identity_set"]),
     "mimhid_usb_config": ("UsbConfig", ["configuration_value", "bm_attributes", "bmax_power", "reserved8", "string"]),
     "mimhid_linux_hid_policy": ("LinuxHidPolicy", ["descriptor_bytes", "fields_per_report", "global_stack_depth", "report_size_bits", "usages", "report_data_bits"]),
     "mimhid_transport_options": ("TransportOptions", ["baud_rate", "handshake_timeout_ms", "maximum_report_bytes", "linux_hid", "validate_reports", "keep_attached", "event_sink", "event_user", "log_level", "log_sink", "log_user"]),

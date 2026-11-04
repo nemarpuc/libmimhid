@@ -82,7 +82,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 2
 #define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 5
+#define MIMHID_VERSION_PATCH 6
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
@@ -305,8 +305,9 @@ typedef struct mimhid_board_limits {
  * descriptor (HID 1.11 section 6.2.1). A string is printable ASCII of at most 126 characters, or
  * null to leave it out. */
 
-/* The Device descriptor and its strings. vendor_id, bcd_usb, ep0_max_packet_size and language_id
- * are required. */
+/* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
+ * required, and so is a vendor_id: a nonzero one, or identity_set = 1 to present vendor_id 0. USB
+ * 2.0 9.6.1 gives idVendor and idProduct no reserved value; product_id 0 needs no flag. */
 typedef struct mimhid_usb_device {
     uint16_t bcd_usb;        /* e.g. 0x0200; 0x0210 or more needs a BOS rule: docs/LIMITS.md */
     uint8_t device_class;    /* 0: each interface says its own class */
@@ -321,6 +322,7 @@ typedef struct mimhid_usb_device {
     const char* product;
     const char* serial;
     uint32_t serial_from_chip_id; /* 1 with a null serial: the chip's unique id */
+    uint32_t identity_set;        /* 1: vendor_id and product_id are chosen, zero included */
 } mimhid_usb_device;
 
 /* The Configuration descriptor. */
@@ -762,7 +764,7 @@ mimhid_integer_field_make(int32_t logical_minimum, // NOLINT(bugprone-easily-swa
  * 64-byte reports (one full-speed packet), no logging, and the Linux HID parser limits of the
  * kernel revision in docs/LIMITS.md. The USB identity is a bus-powered (100 mA) USB 2.0 device
  * with remote wakeup, English strings "libmimhid", and the chip's unique id as serial number.
- * usb_device.vendor_id and product_id stay zero: they are yours to set. */
+ * usb_device.vendor_id and product_id stay zero, and identity_set 0: they are yours to set. */
 static inline void mimhid_device_config_init(mimhid_device_config* config) {
     mimhid_struct_init(config, sizeof(*config));
     if (config != NULL) {

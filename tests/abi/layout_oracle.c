@@ -170,6 +170,7 @@ int main(void) {
     OFFSET(mimhid_usb_device, product);
     OFFSET(mimhid_usb_device, serial);
     OFFSET(mimhid_usb_device, serial_from_chip_id);
+    OFFSET(mimhid_usb_device, identity_set);
     SIZE(mimhid_usb_config);
     OFFSET(mimhid_usb_config, configuration_value);
     OFFSET(mimhid_usb_config, bm_attributes);
