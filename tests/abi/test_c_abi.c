@@ -123,7 +123,8 @@ static int unset_fields_refused(void) {
     mimhid_keyboard_options_init(&keyboard);
     keyboard.usage_maximum = 0;
     failed |= mimhid_spec_create_keyboard(&keyboard, &spec) == MIMHID_OK || spec != NULL;
-    mimhid_device_config_init(&config); /* vendor_id stays zero */
+    mimhid_device_config_init(&config);
+    config.usb_device.bcd_usb = 0; /* a required value left zero */
     failed |=
         mimhid_device_open("unused", &config, &device) != MIMHID_ERR_UNSET_FIELD || device != NULL;
     failed |= mimhid_discover(0, &discovery) != MIMHID_ERR_UNSET_FIELD || discovery != NULL;

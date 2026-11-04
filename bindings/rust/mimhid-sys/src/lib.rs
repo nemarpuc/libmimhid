@@ -41,8 +41,8 @@ pub const MIMHID_PROTOCOL_VERSION: i32 = 6;
 pub const MIMHID_RECONNECT_TIMEOUT_MS: u32 = 3000;
 pub const MIMHID_SEND_TIMEOUT_MS: u32 = 500;
 pub const MIMHID_VERSION_MAJOR: u32 = 2;
-pub const MIMHID_VERSION_MINOR: u32 = 0;
-pub const MIMHID_VERSION_PATCH: u32 = 7;
+pub const MIMHID_VERSION_MINOR: u32 = 1;
+pub const MIMHID_VERSION_PATCH: u32 = 0;
 pub const MIMHID_OK: i32 = 0;
 pub const MIMHID_ERR_PARAM: i32 = 1;
 pub const MIMHID_ERR_UNSET_FIELD: i32 = 2;
@@ -199,7 +199,6 @@ pub struct mimhid_usb_device {
     pub product: *const c_char,
     pub serial: *const c_char,
     pub serial_from_chip_id: u32,
-    pub identity_set: u32,
 }
 
 #[repr(C)]

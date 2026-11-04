@@ -3,6 +3,23 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-04
+
+The vendor and product ID are filled in like every other value that works, and zero is accepted for either. The wire protocol stays 6 and the firmware is unchanged; the size of `mimhid_usb_device` stays 48.
+
+### Changed
+
+- `mimhid_device_config_init` sets `usb_device.vendor_id` to 0x1209 and `product_id` to 0x0001, the pair [pid.codes](https://pid.codes/1209/0001/) sets aside for testing in-house only. A device you hand out needs IDs of its own.
+- `mimhid_device_open` no longer checks the vendor or product ID. USB 2.0 9.6.1 reserves no `idVendor` or `idProduct` value, and the initializer, not a zero, now stands for "not chosen"; a zero is presented as given.
+
+### Removed
+
+- `mimhid_usb_device.identity_set` (2.0.6 and 2.0.7): the flag existed only because zero meant "unset" for these two fields. Its slot at offset 44 is padding again, and the ABI layout is that of 2.0.5.
+
+### Tests
+
+- A device with both IDs zero (the Device descriptor read back); the initializer's IDs; a zero `bcd_usb` still refused.
+
 ## [2.0.7] - 2026-11-04
 
 The vendor ID and the product ID follow one rule. The wire protocol stays 6 and the firmware is unchanged; the size of `mimhid_usb_device` stays 48.

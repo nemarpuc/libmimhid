@@ -152,7 +152,6 @@ mimhid_usb_device.manufacturer=16
 mimhid_usb_device.product=24
 mimhid_usb_device.serial=32
 mimhid_usb_device.serial_from_chip_id=40
-mimhid_usb_device.identity_set=44
 mimhid_usb_config.size=16
 mimhid_usb_config.configuration_value=0
 mimhid_usb_config.bm_attributes=1

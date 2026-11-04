@@ -30,8 +30,8 @@ MIMHID_PROTOCOL_VERSION = 6
 MIMHID_RECONNECT_TIMEOUT_MS = 3000
 MIMHID_SEND_TIMEOUT_MS = 500
 MIMHID_VERSION_MAJOR = 2
-MIMHID_VERSION_MINOR = 0
-MIMHID_VERSION_PATCH = 7
+MIMHID_VERSION_MINOR = 1
+MIMHID_VERSION_PATCH = 0
 MIMHID_OK = 0
 MIMHID_ERR_PARAM = 1
 MIMHID_ERR_UNSET_FIELD = 2
@@ -215,7 +215,6 @@ class UsbDevice(c.Structure):
         ("product", c.c_char_p),
         ("serial", c.c_char_p),
         ("serial_from_chip_id", c.c_uint32),
-        ("identity_set", c.c_uint32),
     ]
 
 

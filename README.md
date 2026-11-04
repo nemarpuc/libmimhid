@@ -6,7 +6,7 @@ USB-to-UART bridge, and three wires ([QUICKSTART.md](docs/QUICKSTART.md)).
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
-> Version 2.0.7. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 2.1.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -22,7 +22,7 @@ Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which se
 - **Ultra-low latency.** Input calls do not allocate on the hot path; one report submission is a single contiguous serial write (`3.3 µs/byte` at 3,000,000 baud; the host and the board agree the fastest rate the serial adapter carries). On RP2040 and RP2350, UART DMA runs into a dedicated `.scratch_y` SRAM bank polled by Core 1, handing off reports via lock-free single-producer single-consumer (SPSC) queues to Core 0 (`TinyUSB`) for 1000 Hz (`bInterval = 1 ms`) USB Interrupt IN delivery ([LATENCY.md](docs/LATENCY.md)).
 - **Thin firmware.** The host PC builds every HID report descriptor and encodes every report. The microcontroller acts strictly as a stateless-per-report I/O bridge: it knows nothing about keyboards, mice, or touchscreens, holds only the descriptors uploaded by the host, and forwards raw report payloads directly to USB endpoints. Hardware-specific code is isolated behind a small HAL (`firmware/common/hal.h`).
 - **The libaoahid model.** The same objects and call shapes: a Spec (`mimhid_spec_create_*`), Nodes (`mimhid_node_open` / `mimhid_node_open_raw`, with an explicit interface number), profile calls that change state (`mimhid_keyboard_key`, `mimhid_mouse_move`, ...), and `mimhid_node_submit` that sends. `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several opens into one re-enumeration. The life cycle is in [API.md](docs/API.md#lifecycle).
-- **Nothing guessed, nothing shaped.** Every call that can wait takes its timeout as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)). Each options structure has an `_init` function that fills in values that work, and a required field left zero is refused rather than filled in by the library; only the vendor and product ID are left to you, and a zero in either needs `identity_set`. The library does not smooth, pace, or randomize input.
+- **Nothing guessed, nothing shaped.** Every call that can wait takes its timeout as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)). Each options structure has an `_init` function that fills in values that work, and a required field left zero is refused rather than filled in by the library; the vendor and product ID start as the pid.codes test pair (0x1209, 0x0001), which a device you hand out must replace with IDs of its own, and zero is a value like any other for them (USB 2.0 9.6.1). The library does not smooth, pace, or randomize input.
 
 ## Status
 
@@ -39,7 +39,8 @@ With a flashed board connected (wiring and flashing are in [QUICKSTART.md](docs/
 
 mimhid_device_config config;
 mimhid_device_config_init(&config);   /* working values; see docs/API.md */
-/* pid.codes test IDs, for testing in-house only: a device you hand out needs IDs of its own. */
+/* The init above already holds the pid.codes test IDs, for testing in-house only; a device you
+ * hand out needs IDs of its own. */
 config.usb_device.vendor_id = 0x1209;
 config.usb_device.product_id = 0x0001;
 config.transport.baud_rate = 3000000; /* the fastest rate mimhid_discover() found for the port */

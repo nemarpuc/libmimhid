@@ -150,25 +150,6 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
             return MIMHID_ERR_UNSET_FIELD;
         }
     }
-    if (!mimhid::detail::valid_boolean(usb_device.identity_set)) {
-        set_error(MIMHID_ERR_PARAM, "usb_device.identity_set", "identity_set must be zero or one.");
-        return MIMHID_ERR_PARAM;
-    }
-    // USB 2.0 9.6.1 reserves no idVendor or idProduct value, but zero is also what an unset field
-    // holds: presenting a zero takes identity_set = 1, for both fields alike.
-    if (usb_device.identity_set == 0U) {
-        const std::pair<std::uint32_t, const char*> identity[] = {
-            {usb_device.vendor_id, "usb_device.vendor_id"},
-            {usb_device.product_id, "usb_device.product_id"},
-        };
-        for (const auto& [value, field] : identity) {
-            if (value == 0U) {
-                set_error(MIMHID_ERR_UNSET_FIELD, field,
-                          "This value is required: set it, or set identity_set to present 0.");
-                return MIMHID_ERR_UNSET_FIELD;
-            }
-        }
-    }
     if (usb_device.ep0_max_packet_size != 8U && usb_device.ep0_max_packet_size != 16U &&
         usb_device.ep0_max_packet_size != 32U && usb_device.ep0_max_packet_size != 64U) {
         set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",

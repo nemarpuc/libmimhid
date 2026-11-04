@@ -167,7 +167,6 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_usb_device.product".to_owned(), offset_of!(mimhid_usb_device, product) as i64);
     map.insert("mimhid_usb_device.serial".to_owned(), offset_of!(mimhid_usb_device, serial) as i64);
     map.insert("mimhid_usb_device.serial_from_chip_id".to_owned(), offset_of!(mimhid_usb_device, serial_from_chip_id) as i64);
-    map.insert("mimhid_usb_device.identity_set".to_owned(), offset_of!(mimhid_usb_device, identity_set) as i64);
     map.insert("mimhid_usb_config.size".to_owned(), size_of::<mimhid_usb_config>() as i64);
     map.insert("mimhid_usb_config.configuration_value".to_owned(), offset_of!(mimhid_usb_config, configuration_value) as i64);
     map.insert("mimhid_usb_config.bm_attributes".to_owned(), offset_of!(mimhid_usb_config, bm_attributes) as i64);

@@ -81,8 +81,8 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 2
-#define MIMHID_VERSION_MINOR 0
-#define MIMHID_VERSION_PATCH 7
+#define MIMHID_VERSION_MINOR 1
+#define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
@@ -306,9 +306,9 @@ typedef struct mimhid_board_limits {
  * null to leave it out. */
 
 /* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
- * required, and so are vendor_id and product_id: each nonzero, or identity_set = 1 to present
- * the pair as given, zero included. USB 2.0 9.6.1 gives idVendor and idProduct no reserved value;
- * zero is only what an unset field holds. */
+ * required (zero is refused); vendor_id and product_id are not checked: USB 2.0 9.6.1 reserves no
+ * idVendor or idProduct value, so zero is presented as given. mimhid_device_config_init fills in
+ * the pid.codes test pair; a device you hand out needs IDs of its own. */
 typedef struct mimhid_usb_device {
     uint16_t bcd_usb;        /* e.g. 0x0200; 0x0210 or more needs a BOS rule: docs/LIMITS.md */
     uint8_t device_class;    /* 0: each interface says its own class */
@@ -323,7 +323,6 @@ typedef struct mimhid_usb_device {
     const char* product;
     const char* serial;
     uint32_t serial_from_chip_id; /* 1 with a null serial: the chip's unique id */
-    uint32_t identity_set;        /* 1: vendor_id and product_id are chosen, zero included */
 } mimhid_usb_device;
 
 /* The Configuration descriptor. */
@@ -765,7 +764,8 @@ mimhid_integer_field_make(int32_t logical_minimum, // NOLINT(bugprone-easily-swa
  * 64-byte reports (one full-speed packet), no logging, and the Linux HID parser limits of the
  * kernel revision in docs/LIMITS.md. The USB identity is a bus-powered (100 mA) USB 2.0 device
  * with remote wakeup, English strings "libmimhid", and the chip's unique id as serial number.
- * usb_device.vendor_id and product_id stay zero, and identity_set 0: they are yours to set. */
+ * The vendor and product ID are 0x1209 and 0x0001, the pair pid.codes sets aside for testing
+ * in-house only: set your own before you hand a device out. */
 static inline void mimhid_device_config_init(mimhid_device_config* config) {
     mimhid_struct_init(config, sizeof(*config));
     if (config != NULL) {
@@ -780,6 +780,8 @@ static inline void mimhid_device_config_init(mimhid_device_config* config) {
         config->transport.linux_hid.report_data_bits = 65528U;
         config->transport.log_level = MIMHID_LOG_DISABLED;
         config->usb_device.bcd_usb = 0x0200U;
+        config->usb_device.vendor_id = 0x1209U;
+        config->usb_device.product_id = 0x0001U;
         config->usb_device.ep0_max_packet_size = 64U;
         config->usb_device.bcd_device = 0x0100U;
         config->usb_device.language_id = 0x0409U;

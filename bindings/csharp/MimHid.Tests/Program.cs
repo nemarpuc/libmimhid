@@ -105,7 +105,6 @@ Check("mimhid_usb_device.manufacturer", (long)Marshal.OffsetOf<UsbDevice>("Manuf
 Check("mimhid_usb_device.product", (long)Marshal.OffsetOf<UsbDevice>("Product"));
 Check("mimhid_usb_device.serial", (long)Marshal.OffsetOf<UsbDevice>("Serial"));
 Check("mimhid_usb_device.serial_from_chip_id", (long)Marshal.OffsetOf<UsbDevice>("SerialFromChipId"));
-Check("mimhid_usb_device.identity_set", (long)Marshal.OffsetOf<UsbDevice>("IdentitySet"));
 Check("mimhid_usb_config.size", Marshal.SizeOf<UsbConfig>());
 Check("mimhid_usb_config.configuration_value", (long)Marshal.OffsetOf<UsbConfig>("ConfigurationValue"));
 Check("mimhid_usb_config.bm_attributes", (long)Marshal.OffsetOf<UsbConfig>("BmAttributes"));

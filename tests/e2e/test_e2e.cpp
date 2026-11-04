@@ -980,12 +980,11 @@ void test_no_names() {
     mimhid_spec_release(raw);
 }
 
-// USB 2.0 9.6.1 reserves no idVendor or idProduct: zero is presented when the program says so.
+// USB 2.0 9.6.1 reserves no idVendor or idProduct: zero is presented as given.
 void test_zero_identity() {
     mimhid_device_config o = base_options();
     o.usb_device.vendor_id = 0;
     o.usb_device.product_id = 0;
-    o.usb_device.identity_set = 1;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
@@ -1003,15 +1002,8 @@ void test_bad_arguments() {
     std::strncpy(info.port_name, g_slave.c_str(), sizeof(info.port_name) - 1);
     mimhid_device* device = nullptr;
     mimhid_device_config o = base_options();
-    o.usb_device.vendor_id = 0;
+    o.usb_device.bcd_usb = 0; // the descriptor fields that have no zero are required
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD &&
-                 device == nullptr);
-    o = base_options();
-    o.usb_device.product_id = 0; // alike for the product ID
-    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD &&
-                 device == nullptr);
-    o.usb_device.identity_set = 2; // a flag is zero or one
-    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM &&
                  device == nullptr);
     o = base_options();
     o.transport.linux_hid.usages = 0;

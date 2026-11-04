@@ -24,7 +24,8 @@ int main() {
     const mimhid_device_config config = mimhid::device_config();
     const mimhid_commit_timeouts timeouts = mimhid::commit_timeouts();
     const mimhid_node_config node = mimhid::node_config(1);
-    if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0 ||
+    if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0x1209 ||
+        config.usb_device.product_id != 0x0001 ||
         timeouts.control_timeout_ms != MIMHID_CONTROL_TIMEOUT_MS || node.ep_in.address != 0x82) {
         return 1;
     }
