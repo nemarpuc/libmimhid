@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageId>MimHid</PackageId>
-    <Version>2.0.6</Version>
+    <Version>2.0.7</Version>
     <Authors>libmimhid contributors</Authors>
     <Copyright>Copyright (c) 2026 libmimhid contributors</Copyright>
     <Description>Literal P/Invoke declarations for libmimhid; requires a separately installed, version-matched native libmimhid shared library.</Description>

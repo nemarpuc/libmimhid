@@ -1006,6 +1006,10 @@ void test_bad_arguments() {
     o.usb_device.vendor_id = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD &&
                  device == nullptr);
+    o = base_options();
+    o.usb_device.product_id = 0; // alike for the product ID
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD &&
+                 device == nullptr);
     o.usb_device.identity_set = 2; // a flag is zero or one
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM &&
                  device == nullptr);
