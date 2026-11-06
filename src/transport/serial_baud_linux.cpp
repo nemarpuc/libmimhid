@@ -11,20 +11,31 @@
 
 namespace mimhid::transport::detail {
 
+namespace {
+// glibc's ioctl takes the request as unsigned long, musl's as int; TCGETS2 has the top bit set.
+#if defined(__GLIBC__)
+using IoctlRequest = unsigned long;
+#else
+using IoctlRequest = int;
+#endif
+constexpr IoctlRequest kGet = static_cast<IoctlRequest>(TCGETS2);
+constexpr IoctlRequest kSet = static_cast<IoctlRequest>(TCSETS2);
+} // namespace
+
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool linux_set_baud(int fd, std::uint32_t baud, std::uint32_t* actual) noexcept {
     struct termios2 t;
-    if (ioctl(fd, TCGETS2, &t) != 0)
+    if (ioctl(fd, kGet, &t) != 0)
         return false;
     t.c_cflag &= ~static_cast<tcflag_t>(CBAUD | CIBAUD);
     t.c_cflag |= BOTHER;
     t.c_ispeed = baud;
     t.c_ospeed = baud;
-    if (ioctl(fd, TCSETS2, &t) != 0)
+    if (ioctl(fd, kSet, &t) != 0)
         return false;
     // What the driver kept. Some drivers (ftdi_sio) report the request, others (cp210x) the rate
     // their divider makes; the pings at that rate are the proof either way.
-    if (ioctl(fd, TCGETS2, &t) != 0)
+    if (ioctl(fd, kGet, &t) != 0)
         return false;
     *actual = static_cast<std::uint32_t>(t.c_ospeed);
     return true;
