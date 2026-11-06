@@ -3,6 +3,20 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-11-06
+
+Not hardware-verified. The library, the protocol (7) and the ABI are those of 2.2.0; this release fixes three build and test errors that 2.2.0 had on some platforms and splits the largest source file.
+
+### Fixed
+
+- The Linux build against musl: `TCGETS2` and `TCSETS2` are included from `<asm/ioctls.h>`, and the requests are cast to the type `ioctl` takes (`int` in musl, `unsigned long` in glibc).
+- The ESP32-S3 port enables the UART framing-error interrupt with its ESP-IDF 5.4 name, `UART_FRM_ERR_INT_ENA`.
+- The firmware core test read the PONG limits at the offsets of protocol 6.
+
+### Changed
+
+- `src/api/c_api.cpp` (2,648 lines) is split by what an entry point works on: `c_api_device.cpp` (discovery, Device life cycle, control transfers), `c_api_node.cpp` (opening, configuring and closing Nodes), `c_api_send.cpp` (report submission and the serial write path) and `device_ops.cpp` (the internals they share). `support.hpp` declares what crosses files. No behavior, symbol or ABI changed: the exported functions are the same 64, and `validate_node_config` is no longer a global symbol of the static library.
+
 ## [2.2.0] - 2026-11-06
 
 The line is as fast as the link carries: there is no table of rates and no rate ceiling in the software. The wire protocol is 7, and **a board needs the firmware of this release** (version 6 firmware is refused with `MIMHID_ERR_PROTOCOL`); this release changes `mimhid_device_info` and removes two macros, which breaks the ABI of 2.1.x although the soname stays 2 (no program outside this workspace was known to use the library).

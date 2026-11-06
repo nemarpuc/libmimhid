@@ -8,7 +8,7 @@
 // Firmware version reported in the Pong frame; keep in step with the library version.
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 // Number of USB HID interfaces (one IN endpoint each) the MCU can provide; the host packs nodes to
 // fit. The RP2040 and the RP2350 have the endpoint numbers 1 to 15 in both directions (RP2040

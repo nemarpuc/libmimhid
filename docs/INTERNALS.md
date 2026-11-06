@@ -6,12 +6,12 @@ How the host implementation behind `include/mimhid.h` works: which object owns w
 
 | Directory | Holds | Depends on |
 | --- | --- | --- |
-| `src/api` | `c_api.cpp`, the ABI boundary: argument checks, handles, the Device and Node life cycle, commit, event delivery. `internal.hpp` defines the handles. `error_detail.cpp` holds the per-thread error record. | everything below |
+| `src/api` | the ABI boundary, in four files by what an entry point works on: `c_api_device.cpp` (discovery, Device life cycle, control transfers), `c_api_node.cpp` (opening, configuring and closing Nodes), `c_api_send.cpp` (report submission and the serial write path), and `device_ops.cpp` (the internals the entry points share: option checks, interface assignment, commit, event delivery). `support.hpp` declares what crosses files and holds the exception-barrier macros; `internal.hpp` defines the handles; `error_detail.cpp` holds the per-thread error record. | everything below |
 | `src/profiles` | `spec.cpp` builds a Spec from the options of each profile. `state.cpp` holds the per-Node state machines and the bit-exact serializers. | `src/hid` |
 | `src/hid` | The report descriptor builder (`descriptor_builder`, `item_writer`), the layout it records (`report_layout.hpp`), and the validator that parses a descriptor back (`validator.cpp`). | nothing |
 | `src/transport` | `frame.*` (`FrameParser`, `encode_frame`, `decode_pong`), `Link` (ACK and retry, reader thread), `Handshaker` (finds a board and agrees a line rate), and `SerialPort` with one implementation per platform (`serial_posix.cpp`, `serial_win32.cpp`) and port listing (`ports_*.cpp`). | `proto/mimhid_proto.h` |
 
-`proto/mimhid_proto.h` is shared with the firmware: frame types, limits and the protocol version. `c_api.cpp` checks the copies of these constants in `mimhid.h` against it with `static_assert`. No serial-port type appears above `src/transport/serial_port.hpp`.
+`proto/mimhid_proto.h` is shared with the firmware: frame types, limits and the protocol version. `c_api_device.cpp` checks the copies of these constants in `mimhid.h` against it with `static_assert`. No serial-port type appears above `src/transport/serial_port.hpp`.
 
 ## Handles
 
@@ -43,7 +43,7 @@ The error record is `thread_local` (`error_detail.cpp`): each call clears it on 
 
 ## The report path
 
-`mimhid_node_submit` (`c_api.cpp`) builds and writes one report, synchronously:
+`mimhid_node_submit` (`c_api_send.cpp`) builds and writes one report, synchronously:
 
 1. Check the arguments and the profile (a Raw Node must use `mimhid_raw_submit`).
 2. `link_available`: refuse when the serial link is gone, a batch is open, or the board is re-enumerating.
@@ -65,7 +65,7 @@ Reports are not acknowledged by the board. A failed write rolls the scan time ba
 
 ## Events
 
-The reader thread (`Link::reader_loop`) feeds bytes to a `FrameParser`, completes the pending command on an ACK or NAK, and passes every other frame to `handle_frame`, which hands events to `deliver_event` in `c_api.cpp`. That function turns a `BoardEvent` into a `mimhid_event`, finds the Node by interface under `nodes_mutex`, and calls `transport.event_sink` on the reader thread. The data pointer is valid only during the call. The one library call the sink may make is `mimhid_device_control_reply`, which only writes a frame (`Link::send_control_reply`) and never waits for an answer.
+The reader thread (`Link::reader_loop`) feeds bytes to a `FrameParser`, completes the pending command on an ACK or NAK, and passes every other frame to `handle_frame`, which hands events to `deliver_event` in `device_ops.cpp`. That function turns a `BoardEvent` into a `mimhid_event`, finds the Node by interface under `nodes_mutex`, and calls `transport.event_sink` on the reader thread. The data pointer is valid only during the call. The one library call the sink may make is `mimhid_device_control_reply`, which only writes a frame (`Link::send_control_reply`) and never waits for an answer.
 
 `FrameParser` keeps a 16 KiB ring. It skips garbage one byte at a time, accepts only the frame types a board sends, and drops an incomplete frame byte by byte when the line has been idle.
 

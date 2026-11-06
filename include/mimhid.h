@@ -82,7 +82,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 2
 #define MIMHID_VERSION_MINOR 2
-#define MIMHID_VERSION_PATCH 0
+#define MIMHID_VERSION_PATCH 1
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */

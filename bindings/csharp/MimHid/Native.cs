@@ -622,7 +622,7 @@ public static class Native
     public const uint MIMHID_SEND_TIMEOUT_MS = 500;
     public const uint MIMHID_VERSION_MAJOR = 2;
     public const uint MIMHID_VERSION_MINOR = 2;
-    public const uint MIMHID_VERSION_PATCH = 0;
+    public const uint MIMHID_VERSION_PATCH = 1;
     public const int MIMHID_OK = 0;
     public const int MIMHID_ERR_PARAM = 1;
     public const int MIMHID_ERR_UNSET_FIELD = 2;
@@ -760,7 +760,7 @@ public static class Native
             ["MIMHID_SEND_TIMEOUT_MS"] = 500,
             ["MIMHID_VERSION_MAJOR"] = 2,
             ["MIMHID_VERSION_MINOR"] = 2,
-            ["MIMHID_VERSION_PATCH"] = 0,
+            ["MIMHID_VERSION_PATCH"] = 1,
             ["MIMHID_OK"] = 0,
             ["MIMHID_ERR_PARAM"] = 1,
             ["MIMHID_ERR_UNSET_FIELD"] = 2,

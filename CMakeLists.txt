@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 2.2.0 LANGUAGES C CXX
+project(libmimhid VERSION 2.2.1 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -94,7 +94,10 @@ if(WIN32)
 endif()
 
 set(MIMHID_SOURCES
-    src/api/c_api.cpp
+    src/api/c_api_device.cpp
+    src/api/c_api_node.cpp
+    src/api/c_api_send.cpp
+    src/api/device_ops.cpp
     src/api/error_detail.cpp
     src/hid/descriptor_builder.cpp
     src/hid/item_writer.cpp
