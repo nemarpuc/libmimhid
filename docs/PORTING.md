@@ -30,12 +30,15 @@ proto/           wire protocol constants shared with the host (mimhid_proto.h)
 
 ## HAL
 
-A port implements nine functions (see `common/hal.h`):
+A port implements twelve functions (see `common/hal.h`):
 
 | Function | Contract |
 |---|---|
 | `hal_init()` | Clocks, board, USB PHY if needed, and the UART at the boot rate (`MIMHID_BOOT_BAUD`, 115,200), 8N1. |
-| `hal_uart_baud_ok(baud)` | True when the UART can run within 2 % of `baud`. Asked for every rate of the protocol's table at start-up; the answers become the PONG's rate mask. |
+| `hal_uart_baud_actual(baud)` | The rate the UART's divider really gives for `baud`, or 0 when it cannot be made at all. The core refuses `SET_BAUD` when it differs by more than 2 % (`MIMHID_BAUD_TOLERANCE_PPM`) and reports the actual rate in the `ACK`. Compute it from the clock and the divider; do not bound-check. |
+| `hal_uart_max_baud()` | The fastest rate the UART can make (peripheral clock over the smallest divider). Read once at start-up; it becomes the PONG's `max_baud`. Choose the UART and its clock tree for it: on an STM32F4 USART1 and USART6 sit on the faster APB2 bus. |
+| `hal_uart_has_break()` | True when the port sees a UART BREAK through `hal_uart_errors`. |
+| `hal_uart_errors()` | What went wrong on the line since the last call, as `HAL_UART_ERR_*` bits (BREAK, framing, overrun, receive ring three quarters full or more), and clears it. A BREAK returns the board to the boot rate whatever rate it was on; the other bits feed the counters the host reads. A hardware flag that only latches is reported once per call. |
 | `hal_uart_set_baud(baud)` | Wait until queued output has left, then switch the UART. Called from the receive context; it must not interleave with `hal_uart_write`. |
 | `hal_chip()` | The chip, as `MIMHID_CHIP_*` names it. |
 | `hal_uart_read(dst, max)` | Copy received bytes without blocking; called from one context only. |
@@ -92,6 +95,8 @@ The serial backend lives in `src/transport/`:
 | `serial_posix.cpp` | Linux and macOS: termios, `poll()` (`select()` on macOS), non-blocking reads and writes |
 | `serial_win32.cpp` | Windows: overlapped I/O on a `\\.\COMn` handle |
 | `ports_linux.cpp`, `ports_macos.cpp`, `ports_win32.cpp` | candidate port enumeration for discovery |
-| `link.cpp` | frame encoding, ACK and retry, reader thread; shared by all platforms |
+| `frame.cpp` | frame encoding and parsing (CRC), the PONG, the link counters; no port, no threads |
+| `handshaker.cpp` | finding a board and agreeing the line rate, before the reader thread runs |
+| `link.cpp` | reader thread, ACK and retry, report frames; shared by all platforms |
 
-A new platform implements the `SerialPort` class (`serial_port.hpp`: open, close, read with timeout, write with stall timeout, drain) and the candidate port listing (`list_candidate_ports`), and adds its files to `MIMHID_SOURCES` in `CMakeLists.txt`. The framing, retries, and reader thread are in `link.cpp` and are shared.
+A new platform implements the `SerialPort` class (`serial_port.hpp`: open, close, read with timeout, write with stall timeout, drain) and the candidate port listing (`list_candidate_ports`), and adds its files to `MIMHID_SOURCES` in `CMakeLists.txt`. The framing (`frame.cpp`), the rate search (`handshaker.cpp`), the retries and the reader thread (`link.cpp`) are shared.

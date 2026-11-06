@@ -13,10 +13,25 @@
 // Brings up clocks, the board, USB PHY if needed, and the UART at MIMHID_BOOT_BAUD, 8N1.
 void hal_init(void);
 
-// True when the UART can run within 2 % of baud.
-bool hal_uart_baud_ok(uint32_t baud);
+// The rate the UART's divider really gives for a requested baud, or 0 when it cannot be made at
+// all. The core refuses a request whose error is over MIMHID_BAUD_TOLERANCE_PPM.
+uint32_t hal_uart_baud_actual(uint32_t baud);
 
-// Waits until queued output has left, then switches the UART to baud (one hal_uart_baud_ok
+// The fastest rate the UART can make, from its clock and divider limits.
+uint32_t hal_uart_max_baud(void);
+
+// True when the port sees a UART BREAK (see hal_uart_errors); false when it cannot.
+bool hal_uart_has_break(void);
+
+// What went wrong on the line since the last call, as HAL_UART_ERR_* bits, and clears it. A
+// hardware flag that only latches is reported once per call.
+#define HAL_UART_ERR_BREAK   0x01 // the line was held low for more than a character
+#define HAL_UART_ERR_FRAMING 0x02 // a framing error that is not a BREAK
+#define HAL_UART_ERR_OVERRUN 0x04 // the UART lost a byte
+#define HAL_UART_ERR_RING    0x08 // the receive ring was lapped (software or DMA)
+uint8_t hal_uart_errors(void);
+
+// Waits until queued output has left, then switches the UART to baud (one hal_uart_baud_actual
 // accepts). Called from the receive context; it must not interleave with hal_uart_write.
 void hal_uart_set_baud(uint32_t baud);
 

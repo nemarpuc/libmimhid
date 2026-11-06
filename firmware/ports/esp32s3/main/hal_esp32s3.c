@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 // ESP32-S3: UART1 through the IDF driver (interrupt-fed ring), built-in USB PHY.
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "driver/uart.h"
 #include "esp_private/usb_phy.h"
 #include "esp_mac.h"
@@ -18,6 +19,11 @@
 #define UART_PORT UART_NUM_1
 
 static usb_phy_handle_t g_phy;
+static QueueHandle_t g_uart_events;
+
+// The UART's clock (APB) and its divider: 20 integer bits and 4 fractional. The smallest divider
+// is 1, so the fastest rate is the clock divided by 16.
+#define UART_CLK_HZ 80000000u
 
 void hal_init(void) {
     // Built-in full-speed PHY on GPIO19/20.
@@ -37,13 +43,15 @@ void hal_init(void) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    uart_driver_install(UART_PORT, 2048, 0, 0, NULL, 0);
+    uart_driver_install(UART_PORT, 2048, 0, 32, &g_uart_events, 0);
     uart_param_config(UART_PORT, &cfg);
     uart_set_pin(UART_PORT, MIMHID_UART_TX_PIN, MIMHID_UART_RX_PIN,
                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     // Hand bytes to the ring after a short idle (2 symbols) instead of waiting for a full FIFO.
     uart_set_rx_full_threshold(UART_PORT, 8);
     uart_set_rx_timeout(UART_PORT, 2);
+    // The driver reports a framing error (and so a BREAK) only when its interrupt is enabled.
+    uart_enable_intr_mask(UART_PORT, UART_INTR_FRAM_ERR);
 }
 
 size_t hal_uart_read(uint8_t* dst, size_t max) {
@@ -55,9 +63,41 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     uart_write_bytes(UART_PORT, data, len);
 }
 
-// The UART runs up to 5 Mbaud from its 80 MHz clock with a fractional divider.
-bool hal_uart_baud_ok(uint32_t baud) {
-    return baud <= 5000000u;
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    if (baud == 0) return 0;
+    uint64_t div16 = ((uint64_t)UART_CLK_HZ * 16u + baud / 2u) / baud;
+    if (div16 < 16u) div16 = 16u;
+    return (uint32_t)(((uint64_t)UART_CLK_HZ * 16u) / div16);
+}
+
+uint32_t hal_uart_max_baud(void) {
+    return UART_CLK_HZ / 16u;
+}
+
+bool hal_uart_has_break(void) {
+    return true;
+}
+
+// The driver reports line errors as events on its queue, mixed with data events; both are taken
+// off here each time so the queue does not fill and drop an error.
+uint8_t hal_uart_errors(void) {
+    uint8_t out = 0;
+    uart_event_t ev;
+    // The queue is looked at once per millisecond: the call takes a lock shared with the driver.
+    static uint32_t last_ms;
+    const uint32_t now = hal_millis();
+    if (now == last_ms) return 0;
+    last_ms = now;
+    while (xQueueReceive(g_uart_events, &ev, 0) == pdTRUE) {
+        switch (ev.type) {
+        case UART_BREAK: out |= HAL_UART_ERR_BREAK; break;
+        case UART_FRAME_ERR: out |= HAL_UART_ERR_FRAMING; break;
+        case UART_FIFO_OVF: out |= HAL_UART_ERR_OVERRUN; break;
+        case UART_BUFFER_FULL: out |= HAL_UART_ERR_RING; break;
+        default: break;
+        }
+    }
+    return out;
 }
 
 void hal_uart_set_baud(uint32_t baud) {

@@ -3,10 +3,11 @@
 /* Covers the host's frame encoding and parsing without a serial port: which frame types the
  * parser takes from a board, and how it skips what is not a valid frame. */
 #include "test.hpp"
-#include "transport/link.hpp"
+#include "transport/frame.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -17,7 +18,7 @@ using mimhid::transport::FrameParser;
 
 std::vector<std::uint8_t> frame_bytes(const std::uint8_t type,
                                       const std::vector<std::uint8_t>& payload) {
-    std::vector<std::uint8_t> out(payload.size() + 5U);
+    std::vector<std::uint8_t> out(payload.size() + 6U);
     out.resize(encode_frame(type, payload.data(), payload.size(), out.data()));
     return out;
 }
@@ -80,7 +81,7 @@ void test_other_types_are_skipped() {
 
 void test_bad_checksum_is_skipped() {
     std::vector<std::uint8_t> bytes = frame_bytes(MIMHID_T_ACK, {0x05U, 0x13U});
-    bytes.back() = static_cast<std::uint8_t>(bytes.back() ^ 0xFFU);
+    bytes.back() = static_cast<std::uint8_t>(bytes.back() ^ 0xFFU); // the CRC's high byte
     const std::vector<std::uint8_t> good = frame_bytes(MIMHID_T_ACK, {0x06U, 0x13U});
     bytes.insert(bytes.end(), good.begin(), good.end());
     const std::vector<Frame> frames = parse(bytes);
@@ -89,9 +90,65 @@ void test_bad_checksum_is_skipped() {
         MIMHID_CHECK(frames[0].payload[0] == 0x06U);
 }
 
+// CRC-16/CCITT-FALSE of "123456789" is 0x29B1 (the catalogued check value).
+void test_crc_matches_the_standard() {
+    std::uint16_t crc = MIMHID_CRC16_INIT;
+    for (const char c : std::string("123456789"))
+        crc = mimhid_crc16_update(crc, static_cast<std::uint8_t>(c));
+    MIMHID_CHECK(crc == 0x29B1U);
+}
+
+// Two flipped bits in one bit position cancel in an XOR but not in a CRC.
+void test_paired_bit_flips_are_caught() {
+    std::vector<std::uint8_t> bytes = frame_bytes(MIMHID_T_ACK, {0x05U, 0x13U});
+    bytes[3] = static_cast<std::uint8_t>(bytes[3] ^ 0x10U);
+    bytes[4] = static_cast<std::uint8_t>(bytes[4] ^ 0x10U);
+    MIMHID_CHECK(parse(bytes).empty());
+}
+
+void test_ack_data_is_kept() {
+    const std::vector<Frame> frames =
+        parse(frame_bytes(MIMHID_T_ACK, {0x05U, MIMHID_T_SET_BAUD, 0xC0U, 0xC6U, 0x2DU, 0x00U}));
+    MIMHID_CHECK(frames.size() == 1U && frames[0].length == 6U);
+}
+
+// A PONG of an older protocol ends in one XOR byte; it is accepted so the user can be told to
+// flash the board, and decodes to its version and protocol only.
+void test_old_protocol_pong_is_recognised() {
+    const std::uint8_t payload[5] = {1, 4, 0, 1, 6};
+    std::vector<std::uint8_t> bytes = {MIMHID_SYNC, MIMHID_T_PONG, 5};
+    std::uint8_t x = static_cast<std::uint8_t>(MIMHID_T_PONG ^ 5U);
+    for (const std::uint8_t b : payload) {
+        bytes.push_back(b);
+        x = static_cast<std::uint8_t>(x ^ b);
+    }
+    bytes.push_back(x);
+    const std::vector<Frame> frames = parse(bytes);
+    MIMHID_CHECK(frames.size() == 1U);
+    if (frames.size() == 1U) {
+        mimhid::transport::BoardInfo info;
+        MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.protocol == 6U &&
+                     info.version[1] == 4U);
+    }
+}
+
+void test_counters_decode() {
+    const std::uint8_t data[10] = {7, 0, 1, 0, 2, 0, 3, 0, 0xFF, 0xFF};
+    mimhid::transport::LinkCounters c;
+    MIMHID_CHECK(mimhid::transport::decode_counters(data, sizeof(data), &c));
+    MIMHID_CHECK(c.probes_good == 7U && c.bad_crc == 1U && c.framing == 2U &&
+                 c.uart_overrun == 3U && c.ring_overrun == 0xFFFFU && c.errors() == 65541U);
+    MIMHID_CHECK(!mimhid::transport::decode_counters(data, 9U, &c));
+}
+
 } // namespace
 
-void test_link() {
+void test_frame() {
+    test_crc_matches_the_standard();
+    test_paired_bit_flips_are_caught();
+    test_ack_data_is_kept();
+    test_old_protocol_pong_is_recognised();
+    test_counters_decode();
     test_board_frames_parse();
     test_long_frame_parses();
     test_other_types_are_skipped();

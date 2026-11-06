@@ -37,6 +37,9 @@ static uint8_t uart_rx_buffer[DMA_BUF_SIZE] __attribute__((aligned(DMA_BUF_SIZE)
 static int dma_chan = -1;
 static int dma_reload_chan = -1;
 static uint32_t dma_read_idx = 0;
+// Set when a read finds the ring three quarters full: a lap cannot be seen once it happened, so
+// the warning is the near miss.
+static bool g_ring_high = false;
 // On the RP2350 this value selects the ENDLESS transfer mode; on the RP2040 it is a plain count.
 #ifndef DMA_RX_TRANSFER_COUNT
 #define DMA_RX_TRANSFER_COUNT 0xFFFFFFFFu
@@ -99,6 +102,7 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     uint32_t write_idx = ((uint32_t)dma_channel_hw_addr(dma_chan)->write_addr - (uint32_t)uart_rx_buffer) & DMA_BUF_MASK;
     uint32_t avail = (write_idx - dma_read_idx) & DMA_BUF_MASK;
     if (avail == 0 || max == 0) return 0;
+    if (avail >= DMA_BUF_SIZE - DMA_BUF_SIZE / 4u) g_ring_high = true;
     if (avail > max) avail = (uint32_t)max;
     uint32_t first = DMA_BUF_SIZE - dma_read_idx;
     if (first > avail) first = avail;
@@ -116,9 +120,51 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     critical_section_exit(&g_uart_tx_lock);
 }
 
-// The fractional divider keeps the error well under 2 % up to clk_peri / 16.
-bool hal_uart_baud_ok(uint32_t baud) {
-    return (uint64_t)baud * 16u <= clock_get_hz(clk_peri);
+// The PL011's divider, as the SDK's uart_set_baudrate computes it (7 fractional bits), without
+// applying it: the rate the line would run at.
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    if (baud == 0) return 0;
+    const uint32_t clk = clock_get_hz(clk_peri);
+    uint32_t div = (uint32_t)(((uint64_t)8 * clk) / baud);
+    uint32_t ibrd = div >> 7;
+    uint32_t fbrd;
+    if (ibrd == 0) {
+        ibrd = 1;
+        fbrd = 0;
+    } else if (ibrd >= 65535) {
+        ibrd = 65535;
+        fbrd = 0;
+    } else {
+        fbrd = ((div & 0x7f) + 1) / 2;
+    }
+    return (uint32_t)(((uint64_t)4 * clk) / (64u * ibrd + fbrd));
+}
+
+// The smallest divider is 1: clk_peri / 16.
+uint32_t hal_uart_max_baud(void) {
+    return clock_get_hz(clk_peri) / 16u;
+}
+
+// The PL011 latches a break error in its raw interrupt status, which stays set while the DMA
+// takes the bytes.
+bool hal_uart_has_break(void) {
+    return true;
+}
+
+uint8_t hal_uart_errors(void) {
+    uart_hw_t* hw = uart_get_hw(UART_ID);
+    const uint32_t ris = hw->ris;
+    uint8_t out = 0;
+    if (ris & UART_UARTRIS_BERIS_BITS) out |= HAL_UART_ERR_BREAK;
+    else if (ris & UART_UARTRIS_FERIS_BITS) out |= HAL_UART_ERR_FRAMING;
+    if (ris & UART_UARTRIS_OERIS_BITS) out |= HAL_UART_ERR_OVERRUN;
+    // Clear only what was read: a flag raised since belongs to the next call.
+    hw->icr = ris & (UART_UARTRIS_BERIS_BITS | UART_UARTRIS_FERIS_BITS | UART_UARTRIS_OERIS_BITS);
+    if (g_ring_high) {
+        out |= HAL_UART_ERR_RING;
+        g_ring_high = false;
+    }
+    return out;
 }
 
 void hal_uart_set_baud(uint32_t baud) {

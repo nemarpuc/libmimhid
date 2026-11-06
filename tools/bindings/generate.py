@@ -166,7 +166,6 @@ class Model:
     enums: dict[str, EnumType] = field(default_factory=dict)
     flags: list[tuple[str, int]] = field(default_factory=list)  # enumerators with no type name
     macros: list[tuple[str, int, bool]] = field(default_factory=list)  # name, value, unsigned
-    baud_rates: list[int] = field(default_factory=list)
     funcs: list[Func] = field(default_factory=list)
 
 
@@ -259,11 +258,6 @@ def load_model() -> Model:
         m = re.match(rf"^#define ({UPPER}[A-Z0-9_]+) ([0-9]+)([uU]?)$", line)
         if m:
             model.macros.append((m.group(1), int(m.group(2)), bool(m.group(3))))
-        m = re.match(rf"^#define {UPPER}BAUD_RATES \{{ (.*) \}}$", line)
-        if m:
-            model.baud_rates = [int(x.rstrip("uU")) for x in m.group(1).split(",")]
-    if NAME == "mimhid" and not model.baud_rates:
-        raise GenerateError("MIMHID_BAUD_RATES not found")  # only the serial library has a line rate
     model.macros.sort(key=lambda item: item[0])
     return model
 
@@ -388,8 +382,6 @@ def gen_python(model: Model) -> str:
     ]
     for name, value, _ in all_constants(model):
         out.append(f"{name} = {value}")
-    if model.baud_rates:
-        out.append("MIMHID_BAUD_RATES = (" + ", ".join(str(r) for r in model.baud_rates) + ")")
     out.append("")
     for kind, obj in model.order:
         if kind == "handle":
@@ -681,9 +673,6 @@ def gen_csharp(model: Model) -> str:
     for name, value, kind in all_constants(model):
         cs_kind = {"u32": "uint", "i32": "int", "enum": "int"}[kind]
         out.append(f"    public const {cs_kind} {name} = {value};")
-    if model.baud_rates:
-        out.append("    public static readonly uint[] MIMHID_BAUD_RATES = { "
-                   + ", ".join(f"{r}u" for r in model.baud_rates) + " };")
     out.append("")
     out.append("    public static readonly IReadOnlyDictionary<string, Type> AbiStructs =")
     out.append("        new Dictionary<string, Type>")
@@ -826,9 +815,6 @@ def gen_rust(model: Model) -> str:
     for name, value, kind in all_constants(model):
         rs_kind = {"u32": "u32", "i32": "i32", "enum": "i32"}[kind]
         out.append(f"pub const {name}: {rs_kind} = {value};")
-    if model.baud_rates:
-        out.append(f"pub const MIMHID_BAUD_RATES: [u32; {len(model.baud_rates)}] = ["
-                   + ", ".join(str(r) for r in model.baud_rates) + "];")
     out.append("")
     for kind, obj in model.order:
         if kind == "funcptr":

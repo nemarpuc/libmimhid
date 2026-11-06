@@ -98,31 +98,32 @@ static void queue_flush_all(void) {
 // -------------------------------------------------------------
 // A frame longer than 127 bytes is only ever sent from the USB side (events), so one buffer
 // serves them all; short frames use the stack of whichever side sends them.
-static uint8_t g_tx_long[5 + MIMHID_MAX_FRAME_PAYLOAD];
+static uint8_t g_tx_long[6 + MIMHID_MAX_FRAME_PAYLOAD];
 
 static void send_frame(uint8_t type, const uint8_t* payload, uint16_t len) {
-    uint8_t shortbuf[5 + 127];
+    uint8_t shortbuf[6 + 127];
     uint8_t* frame = len < 0x80 ? shortbuf : g_tx_long;
     size_t n = 0;
-    uint8_t x = type;
+    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
     frame[n++] = MIMHID_SYNC;
     frame[n++] = type;
     if (len < 0x80) {
         frame[n++] = (uint8_t)len;
-        x ^= (uint8_t)len;
+        crc = mimhid_crc16_update(crc, (uint8_t)len);
     } else {
         const uint8_t low = (uint8_t)(0x80 | (len & 0x7F));
         const uint8_t high = (uint8_t)(len >> 7);
         frame[n++] = low;
         frame[n++] = high;
-        x ^= low;
-        x ^= high;
+        crc = mimhid_crc16_update(crc, low);
+        crc = mimhid_crc16_update(crc, high);
     }
     for (uint16_t i = 0; i < len; i++) {
         frame[n++] = payload[i];
-        x ^= payload[i];
+        crc = mimhid_crc16_update(crc, payload[i]);
     }
-    frame[n++] = x;
+    frame[n++] = (uint8_t)(crc & 0xFF);
+    frame[n++] = (uint8_t)(crc >> 8);
     hal_uart_write(frame, n);
 }
 
@@ -139,6 +140,15 @@ void mimhid_send_event(uint8_t kind, const uint8_t* data, uint16_t len) {
 static void send_ack(uint8_t seq, uint8_t type) {
     const uint8_t p[2] = {seq, type};
     send_frame(MIMHID_T_ACK, p, 2);
+}
+
+static void send_ack_data(uint8_t seq, uint8_t type, const uint8_t* data, uint16_t len) {
+    uint8_t p[2 + 16];
+    if (len > sizeof(p) - 2) len = (uint16_t)(sizeof(p) - 2);
+    p[0] = seq;
+    p[1] = type;
+    memcpy(&p[2], data, len);
+    send_frame(MIMHID_T_ACK, p, (uint16_t)(2 + len));
 }
 
 static void send_nak(uint8_t seq, uint8_t type, uint8_t code) {
@@ -219,13 +229,20 @@ static uint8_t  g_unique_id[MIMHID_UNIQUE_ID_MAX];
 static uint8_t  g_unique_id_len = 0;
 static uint32_t g_last_rx_ms = 0;
 
-// The line rate: an index into MIMHID_BAUD_RATES. A rate other than the boot rate stays
-// unconfirmed until a valid frame arrives at it.
-static const uint32_t g_rates[MIMHID_BAUD_COUNT] = MIMHID_BAUD_RATES;
-static uint16_t g_baud_mask = 0;
-static uint8_t  g_baud_index = 0;
+// The line rate. A rate other than the boot rate stays unconfirmed until a valid frame arrives
+// at it.
+static uint32_t g_max_baud = MIMHID_BOOT_BAUD;
+static uint32_t g_baud = MIMHID_BOOT_BAUD;
 static bool     g_baud_pending = false;
 static uint32_t g_baud_since_ms = 0;
+
+// Link counters (see mimhid_proto.h): the RX side counts, nothing else touches them.
+enum { CNT_PROBES, CNT_BAD_CRC, CNT_FRAMING, CNT_UART_OVERRUN, CNT_RING_OVERRUN };
+static uint16_t g_counters[MIMHID_COUNTER_COUNT];
+
+static void count(unsigned which) {
+    if (g_counters[which] != 0xFFFFu) g_counters[which]++;
+}
 
 // A corrupt header can announce a long frame whose bytes never come. Waiting that long for
 // the payload would swallow the valid frames behind it, so a frame that stays incomplete with
@@ -246,25 +263,66 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_QUEUE_DEPTH);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DEVICE_CONFIG && type <= MIMHID_T_COUNTERS);
 }
 
-static void set_baud_index(uint8_t index) {
-    hal_uart_set_baud(g_rates[index]);
-    g_baud_index = index;
-    g_baud_pending = index != 0;
+static void set_baud(uint32_t baud) {
+    hal_uart_set_baud(baud);
+    g_baud = baud;
+    g_baud_pending = baud != MIMHID_BOOT_BAUD;
     g_baud_since_ms = hal_millis();
+}
+
+static uint32_t get_u32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void put_u32(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
+// The divider's error for a requested rate, in parts per million.
+static uint32_t baud_error_ppm(uint32_t asked, uint32_t actual) {
+    const uint64_t diff = asked > actual ? (uint64_t)(asked - actual) : (uint64_t)(actual - asked);
+    return (uint32_t)(diff * 1000000u / asked);
 }
 
 // Runs on the receive side: the ACK has to leave at the old rate before the switch.
 static void cmd_set_baud(const uint8_t* data, uint16_t len) {
     const uint8_t seq = data[0];
-    if (len != 2 || data[1] >= MIMHID_BAUD_COUNT || !(g_baud_mask & (1u << data[1]))) {
+    if (len != 5) {
         send_nak(seq, MIMHID_T_SET_BAUD, MIMHID_NAK_PARAM);
         return;
     }
-    send_ack(seq, MIMHID_T_SET_BAUD);
-    set_baud_index(data[1]);
+    const uint32_t baud = get_u32(&data[1]);
+    const uint32_t actual = (baud == 0 || baud > g_max_baud) ? 0 : hal_uart_baud_actual(baud);
+    if (actual == 0 || baud_error_ppm(baud, actual) > MIMHID_BAUD_TOLERANCE_PPM) {
+        send_nak(seq, MIMHID_T_SET_BAUD, MIMHID_NAK_PARAM);
+        return;
+    }
+    uint8_t out[4];
+    put_u32(out, actual);
+    send_ack_data(seq, MIMHID_T_SET_BAUD, out, 4);
+    set_baud(baud);
+}
+
+// Runs on the receive side, like SET_BAUD: the counters belong to it.
+static void cmd_counters(const uint8_t* data, uint16_t len) {
+    const uint8_t seq = data[0];
+    if (len != 2) {
+        send_nak(seq, MIMHID_T_COUNTERS, MIMHID_NAK_PARAM);
+        return;
+    }
+    uint8_t out[2 * MIMHID_COUNTER_COUNT];
+    for (unsigned i = 0; i < MIMHID_COUNTER_COUNT; i++) {
+        out[2 * i] = (uint8_t)(g_counters[i] & 0xFF);
+        out[2 * i + 1] = (uint8_t)(g_counters[i] >> 8);
+    }
+    send_ack_data(seq, MIMHID_T_COUNTERS, out, sizeof(out));
+    if (data[1] & MIMHID_COUNTERS_F_RESET) memset(g_counters, 0, sizeof(g_counters));
 }
 
 static void send_pong(void) {
@@ -283,29 +341,34 @@ static void send_pong(void) {
 #else
     p[9] = 0;
 #endif
-    p[10] = g_baud_index;
-    p[11] = (uint8_t)(g_baud_mask & 0xFF);
-    p[12] = (uint8_t)(g_baud_mask >> 8);
-    p[13] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
-    p[14] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
-    p[15] = (uint8_t)(MIMHID_MAX_REPORT_BYTES & 0xFF);
-    p[16] = (uint8_t)(MIMHID_MAX_REPORT_BYTES >> 8);
-    p[17] = (uint8_t)(MIMHID_FEATURE_MAX & 0xFF);
-    p[18] = (uint8_t)(MIMHID_FEATURE_MAX >> 8);
-    p[19] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES & 0xFF);
-    p[20] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES >> 8);
-    p[21] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD & 0xFF);
-    p[22] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD >> 8);
-    p[23] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
-    p[24] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
-    p[25] = MIMHID_CONTROL_RULES;
-    p[26] = g_unique_id_len;
-    memcpy(&p[27], g_unique_id, g_unique_id_len);
+    put_u32(&p[10], g_baud);
+    put_u32(&p[14], g_max_baud);
+    put_u32(&p[18], hal_uart_has_break() ? MIMHID_PONG_UART_BREAK : 0u);
+    p[22] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
+    p[23] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
+    p[24] = (uint8_t)(MIMHID_MAX_REPORT_BYTES & 0xFF);
+    p[25] = (uint8_t)(MIMHID_MAX_REPORT_BYTES >> 8);
+    p[26] = (uint8_t)(MIMHID_FEATURE_MAX & 0xFF);
+    p[27] = (uint8_t)(MIMHID_FEATURE_MAX >> 8);
+    p[28] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES & 0xFF);
+    p[29] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES >> 8);
+    p[30] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD & 0xFF);
+    p[31] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD >> 8);
+    p[32] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
+    p[33] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
+    p[34] = MIMHID_CONTROL_RULES;
+    p[35] = g_unique_id_len;
+    memcpy(&p[36], g_unique_id, g_unique_id_len);
     send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
 
 // The command frame being read; used by the receive side only.
 static uint8_t g_rx_cmd[MIMHID_MAX_FRAME_PAYLOAD];
+
+static bool crc_matches(uint16_t crc, uint32_t at) {
+    return g_rx[at & RX_MASK] == (uint8_t)(crc & 0xFF) &&
+           g_rx[(at + 1) & RX_MASK] == (uint8_t)(crc >> 8);
+}
 
 // Handles at most one frame or skips one byte. Returns false when more input is needed.
 // A frame that fails validation is skipped one byte at a time so the parser
@@ -345,10 +408,12 @@ static bool rx_step(void) {
         return true;
     }
 
-    const uint32_t total = header + len + 1u;
+    const uint32_t total = header + len + 2u;
     if (available < total) return false;
 
-    uint8_t x = (uint8_t)(type ^ len_low ^ len_high);
+    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
+    crc = mimhid_crc16_update(crc, len_low);
+    if (header == 4) crc = mimhid_crc16_update(crc, len_high);
     const uint32_t body = read_idx + header;
     if (is_report) {
         uint8_t node = (uint8_t)(type & 0x0F);
@@ -369,9 +434,10 @@ static bool rx_step(void) {
         for (uint16_t i = 0; i < len; i++) {
             uint8_t b = g_rx[(body + i) & RX_MASK];
             if (dst != NULL) dst[i] = b;
-            x ^= b;
+            crc = mimhid_crc16_update(crc, b);
         }
-        if (x != g_rx[(body + len) & RX_MASK]) {
+        if (!crc_matches(crc, body + len)) {
+            count(CNT_BAD_CRC);
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
@@ -386,9 +452,10 @@ static bool rx_step(void) {
         for (uint16_t i = 0; i < len; i++) {
             uint8_t b = g_rx[(body + i) & RX_MASK];
             g_rx_cmd[i] = b;
-            x ^= b;
+            crc = mimhid_crc16_update(crc, b);
         }
-        if (x != g_rx[(body + len) & RX_MASK]) {
+        if (!crc_matches(crc, body + len)) {
+            count(CNT_BAD_CRC);
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
@@ -399,6 +466,15 @@ static bool rx_step(void) {
             send_pong();
         } else if (type == MIMHID_T_SET_BAUD) {
             cmd_set_baud(g_rx_cmd, len);
+        } else if (type == MIMHID_T_COUNTERS) {
+            cmd_counters(g_rx_cmd, len);
+        } else if (type == MIMHID_T_PROBE) {
+            bool right = true;
+            for (uint16_t i = 0; i < len; i++) {
+                if (g_rx_cmd[i] != MIMHID_PROBE_BYTE(i)) { right = false; break; }
+            }
+            if (right) count(CNT_PROBES);
+            else count(CNT_BAD_CRC); // a pattern that does not match with a good CRC is still damage
         } else if (type == MIMHID_T_CONTROL_REPLY) {
             // The USB side may be waiting in a TinyUSB callback, so the reply is taken here.
             const uint8_t code = mimhid_control_reply(&g_rx_cmd[1], (uint16_t)(len - 1));
@@ -416,7 +492,21 @@ static bool rx_step(void) {
 void mimhid_rx_poll(void) {
     // An unconfirmed rate that heard nothing valid in time falls back to the boot rate.
     if (g_baud_pending && (int32_t)(hal_millis() - g_baud_since_ms) >= MIMHID_BAUD_CONFIRM_MS)
-        set_baud_index(0);
+        set_baud(MIMHID_BOOT_BAUD);
+    const uint8_t errors = hal_uart_errors();
+    if (errors & HAL_UART_ERR_BREAK) {
+        // Whatever rate the board was on, a BREAK brings it back to the one both ends know, and
+        // what it holds was sent at the old rate and means nothing.
+        if (g_baud != MIMHID_BOOT_BAUD) set_baud(MIMHID_BOOT_BAUD);
+        g_baud_pending = false;
+        uint8_t sink[64];
+        while (hal_uart_read(sink, sizeof(sink)) != 0) {}
+        g_rd = g_wr = 0;
+        return;
+    }
+    if (errors & HAL_UART_ERR_FRAMING) count(CNT_FRAMING);
+    if (errors & HAL_UART_ERR_OVERRUN) count(CNT_UART_OVERRUN);
+    if (errors & HAL_UART_ERR_RING) count(CNT_RING_OVERRUN);
     for (;;) {
         rx_fill();
         if (rx_step()) continue;
@@ -725,10 +815,8 @@ static void run_command(const command_t* c) {
 
 void mimhid_core_init(void) {
     g_unique_id_len = (uint8_t)hal_unique_id(g_unique_id, sizeof(g_unique_id));
-    for (uint8_t i = 0; i < MIMHID_BAUD_COUNT; i++) {
-        if (hal_uart_baud_ok(g_rates[i])) g_baud_mask = (uint16_t)(g_baud_mask | (1u << i));
-    }
-    g_baud_mask |= 1u; // the boot rate is always there
+    g_max_baud = hal_uart_max_baud();
+    if (g_max_baud < MIMHID_BOOT_BAUD) g_max_baud = MIMHID_BOOT_BAUD; // the boot rate is always there
     tusb_init();
     tud_disconnect();
 }

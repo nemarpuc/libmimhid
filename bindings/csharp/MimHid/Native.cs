@@ -139,7 +139,8 @@ public unsafe struct DeviceInfo
     public byte HasUniqueId;
     public byte Reserved8;
     public uint BaudRate;
-    public ushort BaudMask;
+    public uint MaxBaud;
+    public uint UartFlags;
     public byte Chip;
     public byte UsbHighSpeed;
     public byte UniqueIdLength;
@@ -158,6 +159,18 @@ public struct BoardLimits
     public uint MaxFramePayload;
     public uint MaxControlDataBytes;
     public uint MaxControlRules;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct LinkCounters
+{
+    public uint StructSize;
+    public uint Reserved;
+    public uint BadCrc;
+    public uint Framing;
+    public uint UartOverrun;
+    public uint RingOverrun;
+    public uint ProbesGood;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -590,7 +603,8 @@ public static class Native
     private const string Library = "mimhid";
     private const CallingConvention Call = CallingConvention.Cdecl;
 
-    public const int MIMHID_BAUD_COUNT = 9;
+    public const uint MIMHID_BAUD_FASTEST = 4294967295;
+    public const uint MIMHID_BOOT_BAUD = 115200;
     public const int MIMHID_CHIP_ESP32S3 = 3;
     public const int MIMHID_CHIP_NRF52840 = 4;
     public const int MIMHID_CHIP_RP2040 = 1;
@@ -603,11 +617,11 @@ public static class Native
     public const uint MIMHID_DRAIN_TIMEOUT_MS = 1000;
     public const int MIMHID_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMHID_LOSS_MAX_INTERVAL_MS = 60000;
-    public const int MIMHID_PROTOCOL_VERSION = 6;
+    public const int MIMHID_PROTOCOL_VERSION = 7;
     public const uint MIMHID_RECONNECT_TIMEOUT_MS = 3000;
     public const uint MIMHID_SEND_TIMEOUT_MS = 500;
     public const uint MIMHID_VERSION_MAJOR = 2;
-    public const uint MIMHID_VERSION_MINOR = 1;
+    public const uint MIMHID_VERSION_MINOR = 2;
     public const uint MIMHID_VERSION_PATCH = 0;
     public const int MIMHID_OK = 0;
     public const int MIMHID_ERR_PARAM = 1;
@@ -682,7 +696,6 @@ public static class Native
     public const int MIMHID_CONTROL_FLAG_TOO_LONG = 2;
     public const int MIMHID_CONTROL_FLAG_FIXED = 4;
     public const int MIMHID_CONTROL_FLAG_LOST = 8;
-    public static readonly uint[] MIMHID_BAUD_RATES = { 115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u };
 
     public static readonly IReadOnlyDictionary<string, Type> AbiStructs =
         new Dictionary<string, Type>
@@ -691,6 +704,7 @@ public static class Native
             ["mimhid_event"] = typeof(Event),
             ["mimhid_device_info"] = typeof(DeviceInfo),
             ["mimhid_board_limits"] = typeof(BoardLimits),
+            ["mimhid_link_counters"] = typeof(LinkCounters),
             ["mimhid_usb_device"] = typeof(UsbDevice),
             ["mimhid_usb_config"] = typeof(UsbConfig),
             ["mimhid_linux_hid_policy"] = typeof(LinuxHidPolicy),
@@ -727,7 +741,8 @@ public static class Native
     public static readonly IReadOnlyDictionary<string, long> AbiConstants =
         new Dictionary<string, long>
         {
-            ["MIMHID_BAUD_COUNT"] = 9,
+            ["MIMHID_BAUD_FASTEST"] = 4294967295,
+            ["MIMHID_BOOT_BAUD"] = 115200,
             ["MIMHID_CHIP_ESP32S3"] = 3,
             ["MIMHID_CHIP_NRF52840"] = 4,
             ["MIMHID_CHIP_RP2040"] = 1,
@@ -740,11 +755,11 @@ public static class Native
             ["MIMHID_DRAIN_TIMEOUT_MS"] = 1000,
             ["MIMHID_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMHID_LOSS_MAX_INTERVAL_MS"] = 60000,
-            ["MIMHID_PROTOCOL_VERSION"] = 6,
+            ["MIMHID_PROTOCOL_VERSION"] = 7,
             ["MIMHID_RECONNECT_TIMEOUT_MS"] = 3000,
             ["MIMHID_SEND_TIMEOUT_MS"] = 500,
             ["MIMHID_VERSION_MAJOR"] = 2,
-            ["MIMHID_VERSION_MINOR"] = 1,
+            ["MIMHID_VERSION_MINOR"] = 2,
             ["MIMHID_VERSION_PATCH"] = 0,
             ["MIMHID_OK"] = 0,
             ["MIMHID_ERR_PARAM"] = 1,
@@ -879,6 +894,10 @@ public static class Native
     public static extern Result DeviceLimits(nint device, ref BoardLimits limits);
     [DllImport(Library, EntryPoint = "mimhid_device_limits", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceLimits(nint device, nint limits);
+    [DllImport(Library, EntryPoint = "mimhid_device_link_counters", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceLinkCounters(nint device, uint reset, uint controlTimeoutMs, ref LinkCounters counters);
+    [DllImport(Library, EntryPoint = "mimhid_device_link_counters", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceLinkCounters(nint device, uint reset, uint controlTimeoutMs, nint counters);
     [DllImport(Library, EntryPoint = "mimhid_device_set_control_routing", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceSetControlRouting(nint device, uint reportAll, in ControlRule rules, nuint ruleCount, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_device_set_control_routing", ExactSpelling = true, CallingConvention = Call)]

@@ -72,9 +72,12 @@ int fake_board_wait_control(fake_control_result_t* out, uint32_t timeout_ms);
 
 // The line: bytes pass only while the host's port and the board run at the same rate. A port
 // set above the adapter's limit sends at the limit, as adapters that round silently do (0: no
-// limit). The board makes rates up to 3,000,000.
+// limit). The board makes rates up to 3,000,000 and says so in its PONG.
 uint32_t fake_board_baud(void);
 void fake_board_set_adapter_limit(uint32_t baud);
+#define FAKE_BOARD_BREAK 0x01 /* HAL_UART_ERR_BREAK */
+/* The next hal_uart_errors call returns these HAL_UART_ERR_* bits (a BREAK, say). */
+void fake_board_inject_errors(uint8_t bits);
 
 #ifdef __cplusplus
 }

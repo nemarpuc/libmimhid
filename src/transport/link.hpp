@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Client of the serial wire protocol (mimhid_proto.h, MIMHID_PROTO_VERSION): framing, the line
- * rate, acknowledged commands, and board events. It knows nothing about HID; the layers above give
- * it bytes. */
+/* The running connection to a board: a reader thread, acknowledged commands, report frames and
+ * board events (the frame format is frame.hpp; finding the board and the line rate is
+ * handshaker.hpp). It knows nothing about HID; the layers above give it bytes. */
 #pragma once
 
 #include "mimhid_proto.h"
+#include "transport/frame.hpp"
 #include "transport/serial_port.hpp"
 
 #include <array>
@@ -18,146 +19,18 @@
 
 namespace mimhid::transport {
 
-struct BoardInfo {
-    std::uint8_t version[3]{};
-    bool ready{};
-    std::uint8_t protocol{};
-    std::uint8_t max_nodes{};
-    std::uint8_t max_interfaces{};
-    std::uint16_t max_report_bytes{};
-    std::uint16_t max_descriptor_bytes{};
-    std::uint16_t max_feature_bytes{};
-    std::uint16_t max_endpoint_bytes{};
-    std::uint16_t max_frame_payload{};
-    std::uint16_t max_control_data_bytes{};
-    std::uint8_t max_control_rules{};
-    bool has_unique_id{};
-    std::uint8_t chip{};
-    bool usb_high_speed{};
-    std::uint8_t baud_index{}; // the rate the board is on, in kBaudRates
-    std::uint16_t baud_mask{}; // bit i: the board can run at kBaudRates[i]
-    std::uint8_t unique_id_length{};
-    std::array<std::uint8_t, MIMHID_UNIQUE_ID_MAX> unique_id{};
-};
-
-inline constexpr std::array<std::uint32_t, MIMHID_BAUD_COUNT> kBaudRates = MIMHID_BAUD_RATES;
-
-// The index of baud in kBaudRates, or -1.
-[[nodiscard]] int baud_index_of(std::uint32_t baud) noexcept;
-
-struct Frame {
-    std::uint8_t type{};
-    std::uint16_t length{};
-    // Not zeroed: length says what is in it.
-    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> payload;
-};
-
-// Splits a byte stream into valid frames, skipping garbage one byte at a time.
-class FrameParser final {
-  public:
-    // Room for a few frames of the longest payload the protocol allows.
-    static constexpr std::size_t kCapacity = 16384;
-    static constexpr std::size_t kMask = kCapacity - 1;
-
-    // Feeds bytes; calls on_frame for every complete valid frame.
-    template <typename F> void feed(const std::uint8_t* data, std::size_t length, F&& on_frame) {
-        std::size_t offset = 0;
-        Frame frame;
-        while (offset < length) {
-            const std::size_t free_space = (kCapacity - 1U) - size();
-            if (free_space == 0U) {
-                tail_ = (tail_ + 1U) & kMask;
-                continue;
-            }
-            const std::size_t chunk =
-                (length - offset < free_space) ? (length - offset) : free_space;
-            for (std::size_t i = 0; i < chunk; ++i)
-                ring_[(head_ + i) & kMask] = data[offset + i];
-            head_ = (head_ + chunk) & kMask;
-            offset += chunk;
-            while (next(&frame))
-                on_frame(frame);
-        }
-        if (length == 0U) {
-            while (next(&frame))
-                on_frame(frame);
-        }
-    }
-    // Called when the line has been idle: an incomplete frame is abandoned one byte at a time.
-    template <typename F> void idle(F&& on_frame) {
-        if (!pending())
-            return;
-        tail_ = (tail_ + 1U) & kMask;
-        feed(nullptr, 0, on_frame);
-    }
-    [[nodiscard]] bool pending() const noexcept { return head_ != tail_; }
-
-  private:
-    [[nodiscard]] std::size_t size() const noexcept { return (head_ - tail_) & kMask; }
-    [[nodiscard]] std::uint8_t at(std::size_t i) const noexcept {
-        return ring_[(tail_ + i) & kMask];
-    }
-    bool next(Frame* out) noexcept;
-
-    std::array<std::uint8_t, kCapacity> ring_{};
-    std::size_t head_{0};
-    std::size_t tail_{0};
-};
-
-[[nodiscard]] bool decode_pong(const Frame& frame, BoardInfo* out) noexcept;
-std::size_t encode_frame(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
-                         std::uint8_t* out) noexcept;
-
 enum class CommandStatus : std::uint8_t { ack, nak, timeout, closed, io_error, short_write };
 
 struct CommandResult {
     CommandStatus status{CommandStatus::closed};
     std::uint8_t nak_code{};
     std::int32_t os_error{};
+    // What follows seq and type in the ACK (SET_BAUD: the rate; COUNTERS: the counters).
+    std::uint8_t data_length{};
+    std::array<std::uint8_t, 16> data{};
 
     [[nodiscard]] bool ok() const noexcept { return status == CommandStatus::ack; }
     operator bool() const noexcept { return status == CommandStatus::ack; }
-};
-
-enum class Handshake : std::uint8_t {
-    ok,
-    no_board,     // nothing answered at any rate
-    rate_refused, // the board cannot make the rate, or the port refused to be set to it
-    rate_failed,  // both sides switched, but the pings did not come through
-    io_error,
-};
-
-// Talks to a board on a port that has no reader thread: finds it, and agrees a line rate with
-// it. The port starts at the boot rate, and every call leaves the port and the board on the same
-// rate. wait_ms bounds each wait for an answer.
-class Handshaker final {
-  public:
-    Handshaker(SerialPort& port, std::uint32_t wait_ms) noexcept : port_(port), wait_ms_(wait_ms) {}
-
-    // Looks for the board at the boot rate, then at every rate of the table (a board left on a
-    // fast rate by a host that went away). Leaves both on the boot rate, except for a board on
-    // another protocol version (out->protocol), which is left where it answered.
-    bool find(BoardInfo* out);
-    // From the boot rate, switches to baud and checks that three pings each way come through.
-    // On failure both are back on the boot rate.
-    Handshake switch_to(std::uint32_t baud, BoardInfo* info);
-    // From the boot rate, the fastest rate the board makes that switch_to settles; both are
-    // left on it. The boot rate when no other works, 0 when the board stopped answering.
-    std::uint32_t fastest(BoardInfo* info);
-    // Back to the boot rate.
-    bool to_boot(BoardInfo* info);
-    // The rate the port is on.
-    [[nodiscard]] std::uint32_t rate() const noexcept { return rate_; }
-
-  private:
-    bool ping(BoardInfo* out);
-    CommandStatus set_board_baud(std::uint8_t index);
-    Handshake try_rate(std::uint8_t index, BoardInfo* info);
-
-    SerialPort& port_;
-    std::uint32_t wait_ms_;
-    std::uint32_t rate_{MIMHID_BOOT_BAUD};
-    std::uint8_t seq_{0x80};
 };
 
 struct BoardEvent {
@@ -190,6 +63,9 @@ class Link final {
     // the board answers it again instead of running it twice (and a late answer still counts).
     CommandResult command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                           std::uint32_t timeout_ms, int attempts);
+
+    // Reads the board's line counters, and zeroes them when reset is true.
+    CommandResult counters(bool reset, std::uint32_t timeout_ms, LinkCounters* out);
 
     // Sends a commit command with reconnect delay and waits for ACK or NAK.
     CommandResult commit(std::uint16_t delay_ms, std::uint32_t timeout_ms);
@@ -237,6 +113,8 @@ class Link final {
     bool reply_ready_{false};
     bool reply_nak_{false};
     std::uint8_t reply_code_{0};
+    std::uint8_t reply_data_length_{0};
+    std::array<std::uint8_t, 16> reply_data_{};
     bool pong_ready_{false};
     BoardInfo pong_{};
 };

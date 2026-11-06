@@ -24,7 +24,8 @@ pub type mimhid_usage_semantic = i32;
 pub type mimhid_event_kind = i32;
 pub type mimhid_control_action = i32;
 
-pub const MIMHID_BAUD_COUNT: i32 = 9;
+pub const MIMHID_BAUD_FASTEST: u32 = 4294967295;
+pub const MIMHID_BOOT_BAUD: u32 = 115200;
 pub const MIMHID_CHIP_ESP32S3: i32 = 3;
 pub const MIMHID_CHIP_NRF52840: i32 = 4;
 pub const MIMHID_CHIP_RP2040: i32 = 1;
@@ -37,11 +38,11 @@ pub const MIMHID_CONTROL_TIMEOUT_MS: u32 = 500;
 pub const MIMHID_DRAIN_TIMEOUT_MS: u32 = 1000;
 pub const MIMHID_HOST_MAX_REPORT_BYTES: i32 = 1024;
 pub const MIMHID_LOSS_MAX_INTERVAL_MS: u32 = 60000;
-pub const MIMHID_PROTOCOL_VERSION: i32 = 6;
+pub const MIMHID_PROTOCOL_VERSION: i32 = 7;
 pub const MIMHID_RECONNECT_TIMEOUT_MS: u32 = 3000;
 pub const MIMHID_SEND_TIMEOUT_MS: u32 = 500;
 pub const MIMHID_VERSION_MAJOR: u32 = 2;
-pub const MIMHID_VERSION_MINOR: u32 = 1;
+pub const MIMHID_VERSION_MINOR: u32 = 2;
 pub const MIMHID_VERSION_PATCH: u32 = 0;
 pub const MIMHID_OK: i32 = 0;
 pub const MIMHID_ERR_PARAM: i32 = 1;
@@ -116,7 +117,6 @@ pub const MIMHID_CONTROL_FLAG_HELD: i32 = 1;
 pub const MIMHID_CONTROL_FLAG_TOO_LONG: i32 = 2;
 pub const MIMHID_CONTROL_FLAG_FIXED: i32 = 4;
 pub const MIMHID_CONTROL_FLAG_LOST: i32 = 8;
-pub const MIMHID_BAUD_RATES: [u32; 9] = [115200, 230400, 460800, 921600, 1000000, 1500000, 2000000, 3000000, 4000000];
 
 pub type mimhid_log_sink = Option<unsafe extern "C" fn(a: *mut c_void, b: mimhid_log_level, c: *const c_char)>;
 
@@ -164,7 +164,8 @@ pub struct mimhid_device_info {
     pub has_unique_id: u8,
     pub reserved8: u8,
     pub baud_rate: u32,
-    pub baud_mask: u16,
+    pub max_baud: u32,
+    pub uart_flags: u32,
     pub chip: u8,
     pub usb_high_speed: u8,
     pub unique_id_length: u8,
@@ -182,6 +183,17 @@ pub struct mimhid_board_limits {
     pub max_frame_payload: u32,
     pub max_control_data_bytes: u32,
     pub max_control_rules: u32,
+}
+
+#[repr(C)]
+pub struct mimhid_link_counters {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub bad_crc: u32,
+    pub framing: u32,
+    pub uart_overrun: u32,
+    pub ring_overrun: u32,
+    pub probes_good: u32,
 }
 
 #[repr(C)]
@@ -601,6 +613,7 @@ extern "C" {
     pub fn mimhid_device_remote_wakeup(device: *mut mimhid_device, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_board_info(device: *const mimhid_device, out_info: *mut mimhid_device_info) -> mimhid_result;
     pub fn mimhid_device_limits(device: *const mimhid_device, out_limits: *mut mimhid_board_limits) -> mimhid_result;
+    pub fn mimhid_device_link_counters(device: *mut mimhid_device, reset: u32, control_timeout_ms: u32, out_counters: *mut mimhid_link_counters) -> mimhid_result;
     pub fn mimhid_device_set_control_routing(device: *mut mimhid_device, report_all: u32, rules: *const mimhid_control_rule, rule_count: usize, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_control_reply(device: *mut mimhid_device, token: u32, action: mimhid_control_action, data: *const u8, length: usize, send_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_set_loss_reporting(device: *mut mimhid_device, enabled: u32, interval_ms: u32, control_timeout_ms: u32) -> mimhid_result;

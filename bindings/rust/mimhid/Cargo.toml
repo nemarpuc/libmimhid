@@ -1,6 +1,6 @@
 [package]
 name = "mimhid"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 description = "Typed ownership and node-reference wrappers for libmimhid"
 license = "MIT"
@@ -8,4 +8,4 @@ homepage = "https://github.com/nemarpuc/libmimhid"
 repository = "https://github.com/nemarpuc/libmimhid"
 
 [dependencies]
-mimhid-sys = { path = "../mimhid-sys", version = "2.1.0" }
+mimhid-sys = { path = "../mimhid-sys", version = "2.2.0" }

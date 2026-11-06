@@ -1,22 +1,23 @@
-# Wire protocol (version 6)
+# Wire protocol (version 7)
 
-The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which both the host library and the firmware include. This page describes how they are used. The link is UART, 8N1. A board starts at 115,200 baud; the host then agrees a faster rate with it (see [Line rate](#line-rate)).
+The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which both the host library and the firmware include. This page describes how they are used. The link is UART, 8N1. A board starts at 115,200 baud; the host then agrees the fastest rate the link carries with it (see [Line rate](#line-rate)).
 
 ## Frame
 
 ```
-A5  TYPE  LEN  payload[LEN]  XOR
+A5  TYPE  LEN  payload[LEN]  CRC_LO  CRC_HI
 ```
 
-`LEN` is one byte for a payload shorter than 128 bytes. Longer, it is two: `0x80 | (LEN & 0x7F)`, then `LEN >> 7`. `XOR` is `TYPE ^` every `LEN` byte `^` every payload byte. A frame shorter than 128 bytes is byte for byte the frame of protocol 3, so a board still on protocol 3 answers a `PING` and the host can tell which protocol it speaks. A frame with a bad checksum or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
+`LEN` is one byte for a payload shorter than 128 bytes. Longer, it is two: `0x80 | (LEN & 0x7F)`, then `LEN >> 7`. The check is CRC-16/CCITT-FALSE (polynomial 0x1021, initial value 0xFFFF, no reflection, no final xor; check value 0x29B1 for "123456789") of `TYPE`, every `LEN` byte and every payload byte, low byte first. (Version 6 and older used one XOR byte, which two flipped bits in the same position cancel; a link pushed to the edge of its rate produces exactly such errors.) A frame with a bad CRC or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
 
 | Range | Direction | Meaning |
 |---|---|---|
 | `0x01` | host to board | `PING`. Payload: the host's protocol version. No sequence number. |
-| `0x10`..`0x1B` | host to board | Commands. The payload starts with a sequence number. |
+| `0x10`..`0x1B`, `0x1D` | host to board | Commands. The payload starts with a sequence number. |
+| `0x1C` | host to board | `PROBE`: link-test frame. No sequence number, no acknowledgement. |
 | `0x40`..`0x4F` | host to board | Report for node `TYPE & 0x0F`. Payload: the report exactly as the target receives it, Report ID included. No acknowledgement. |
 | `0x81` | board to host | `PONG` |
-| `0x82` / `0x83` | board to host | `ACK` (`seq, type`) / `NAK` (`seq, type, code`) |
+| `0x82` / `0x83` | board to host | `ACK` (`seq, type`, then the data of the command if it has any) / `NAK` (`seq, type, code`) |
 | `0x84` | board to host | `EVENT` (`kind, ...`) |
 
 A report payload is at most the board's `max_report_bytes`. Other payloads are at most the board's `max_frame_payload`, never below 255 (so every configuration command fits) and never above `MIMHID_PROTO_MAX_PAYLOAD` (4096). The board says both in its PONG.
@@ -60,40 +61,35 @@ The caller explicitly assigns each node to a USB interface index (`iface.number`
 ```
 0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 protocol_version
 5 max_nodes  6 max_interfaces  7 flags (bit 0: chip unique id available)
-8 chip  9 usb speed (0 full, 1 high)  10 index of the line rate the board is on
-11..12 rates the board can make (little endian; bit i: rate i)
-13..14 max_descriptor_bytes  15..16 max_report_bytes  17..18 max_feature_bytes
-19..20 max_endpoint_bytes  21..22 max_frame_payload      (all little endian)
-23..24 max_control_data_bytes  25 max_control_rules
-26 unique id length n (0..16)  27.. the chip's unique id, n bytes
+8 chip  9 usb speed (0 full, 1 high)
+10..13 the line rate the board is on (u32)
+14..17 max_baud, the fastest rate its UART can make (u32)
+18..21 uart flags (u32): bit 0 the board returns to the boot rate on a BREAK
+22..23 max_descriptor_bytes  24..25 max_report_bytes  26..27 max_feature_bytes
+28..29 max_endpoint_bytes  30..31 max_frame_payload  32..33 max_control_data_bytes
+34 max_control_rules  35 unique id length n (0..16)  36.. the chip's unique id, n bytes
 ```
 
-The length is 27 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
+All wider values are little endian. The length is 36 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
 
-The first five bytes keep their place in every version. The host reads them from any board, lists a board on another `protocol_version` in `mimhid_discover` with only those values, and refuses to open it with `MIMHID_ERR_PROTOCOL`. Version 2 (libmimhid 0.1) answered at 3,000,000 baud (1,000,000 on nRF52840); the search finds it there.
+The first five bytes keep their place in every version, and a PONG is framed by the rules of its own version. The host reads them from any board, lists a board on another `protocol_version` in `mimhid_discover` with only those values, and refuses to open it with `MIMHID_ERR_PROTOCOL`. To find such a board the host also sends the XOR-framed ping of versions 1 to 6 when the CRC ping stays unanswered; a board of those versions answers it at the boot rate (a board left on another rate by an old program is not found).
 
 ## Line rate
 
-| Index | Rate |
-|---:|---|
-| 0 | 115,200 (boot rate) |
-| 1 | 230,400 |
-| 2 | 460,800 |
-| 3 | 921,600 |
-| 4 | 1,000,000 |
-| 5 | 1,500,000 |
-| 6 | 2,000,000 |
-| 7 | 3,000,000 |
-| 8 | 4,000,000 |
+There is no table of rates. Only the boot rate is fixed: 115,200 baud (`MIMHID_BOOT_BAUD`), because two parties that have never spoken need one rate in common. Any other rate from there up to the board's `max_baud` (from its UART clock and divider limits, in the PONG) can be agreed.
 
-A board starts at the boot rate and reports in its PONG which rates it can make within 2 % (`hal_uart_baud_ok`). On `SET_BAUD` it sends the `ACK` at the rate it is on, switches once the `ACK` has left, and keeps the new rate only when a valid frame arrives at it within 100 ms (`MIMHID_BAUD_CONFIRM_MS`). Otherwise it goes back to the boot rate. A switch to the boot rate needs no confirmation.
+`SET_BAUD` (payload after the sequence number: the rate, u32) is refused with `NAK PARAM` for 0, for a rate above `max_baud`, and for a rate whose divider is off by more than 2 % (`hal_uart_baud_actual`). Otherwise the board sends the `ACK` at the rate it is on, with the rate it will actually run at (u32), switches once the `ACK` has left, and keeps the new rate only when a valid frame arrives at it within 100 ms (`MIMHID_BAUD_CONFIRM_MS`). Otherwise it goes back to the boot rate. A switch to the boot rate needs no confirmation.
 
-The host never trusts a rate it has not seen work, because a USB serial adapter may accept a rate from the operating system and send at another one:
+**BREAK.** A UART BREAK (the line held low for longer than a character) returns the board to the boot rate whatever rate it is on and drops the bytes it holds. A program that went away and left the board on a fast rate is therefore found without searching: ping at the boot rate, and if nothing answers, send a BREAK (10 ms) and ping again.
 
-1. Find the board: ping at the boot rate, then at each rate of the table (a board left on a fast rate by a program that went away). Bring it back to the boot rate.
-2. Switch to a rate: set the port to it once to see that the driver takes it, send `SET_BAUD` at the boot rate, switch the port, and ping three times. Three PONGs that name the new rate settle it. `mimhid_device_open` does this for the caller's `baud_rate` and fails when it is not carried.
-3. When the PONGs do not come, set the port back to the boot rate, wait until the board has gone back (100 ms after the switch, plus a margin) and check with a ping. If a ping did reach the board, it kept the new rate; the search of step 1 finds it.
-4. `mimhid_discover` measures: it tries step 2 for each rate the board can make and the operating system can set, fastest first, reports the first one settled as `baud_rate`, and leaves the board on the boot rate.
+**Counters and `PROBE`.** The board counts, since the last reset and each saturating at 65535, the frames it dropped for a bad CRC, UART framing errors, bytes the UART lost, and reads that found the receive ring three quarters full or more (a lap of the ring cannot be seen afterwards, so this is the near miss that comes first), and the `PROBE` frames whose payload (byte *i* is `i*7+3` mod 256) was right. A counter the hardware only latches counts once per look: a count is a lower bound, zero is exact. `COUNTERS` (payload: flags, bit 0 = reset after reading) returns the five values as u16 in the `ACK`: `probes_good, bad_crc, framing, uart_overrun, ring_overrun`.
+
+**The host never trusts a rate it has not seen work**, because a USB serial adapter may accept a rate from the operating system and send at another one, and a marginal rate loses bytes rarely:
+
+1. Find the board (above). It is on the boot rate.
+2. Try a rate: set the port to it once to see that the driver takes it (and reports within 3 % of it), send `SET_BAUD` at the boot rate, switch the port, ping three times (the PONG names the new rate), then run the link test: `COUNTERS` with reset, a burst of `PROBE` frames back to back, `COUNTERS`. The rate passes when every probe arrived and the loss counters are zero. `mimhid_device_open` does this with a short burst (32 frames of 96 bytes) for the caller's `baud_rate` and fails when it is not carried.
+3. When a trial fails, set the port back to the boot rate, send a BREAK, and ping: the board is back at once instead of after the 100 ms of step 2's window.
+4. `MIMHID_BAUD_FASTEST` and `mimhid_discover` search: from `max_baud` downward in steps of 20 % to the first rate that passes; then between the last failure and that pass by halving to 2 %; then the rate must carry a longer burst (250 ms of line time, up to 60000 frames), else 5 % lower until one does. At most about 30 trials; the boot rate when none passes. `mimhid_discover` reports the result as `baud_rate` and leaves the board on the boot rate.
 
 `mimhid_device_close` sends `SET_BAUD` to the boot rate, so the next program finds the board at once. The host opens a port for its process alone (`TIOCEXCL` on Linux and macOS; Windows ports are exclusive), so a search does not ping a board another program is using.
 
@@ -134,4 +130,4 @@ Limits of what this reaches: the board sees only the setup packet of a transfer 
 
 ## Wire time
 
-A report of `n` bytes occupies `n + 4` bytes on the wire, 10 bits each: 3.3 µs per byte at 3,000,000 baud and 10.9 µs at 921,600. A 9-byte touch report takes 43 µs at 3,000,000 baud and 141 µs at 921,600.
+A report of `n` bytes occupies `n + 5` bytes on the wire, 10 bits each: 3.3 µs per byte at 3,000,000 baud and 0.83 µs at 12,000,000. A 9-byte touch report takes 47 µs at 3,000,000 baud and 12 µs at 12,000,000. The target-facing USB endpoint dominates (see [LATENCY.md](LATENCY.md)).

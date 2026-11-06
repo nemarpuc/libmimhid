@@ -87,6 +87,11 @@ device_batch_end(mimhid_device* device, const mimhid_commit_timeouts* timeouts) 
     return mimhid_device_limits(device, out_limits);
 }
 [[nodiscard]] inline mimhid_result
+device_link_counters(mimhid_device* device, bool reset, uint32_t control_timeout_ms,
+                     mimhid_link_counters* out_counters) noexcept {
+    return mimhid_device_link_counters(device, reset ? 1U : 0U, control_timeout_ms, out_counters);
+}
+[[nodiscard]] inline mimhid_result
 device_set_control_routing(mimhid_device* device, uint32_t report_all,
                            const mimhid_control_rule* rules, size_t rule_count,
                            uint32_t control_timeout_ms) noexcept {
@@ -287,6 +292,11 @@ digitizer_update(mimhid_node* node, const mimhid_digitizer_sample* sample) noexc
 [[nodiscard]] inline mimhid_board_limits board_limits() noexcept {
     mimhid_board_limits value;
     mimhid_board_limits_init(&value);
+    return value;
+}
+[[nodiscard]] inline mimhid_link_counters link_counters() noexcept {
+    mimhid_link_counters value;
+    mimhid_link_counters_init(&value);
     return value;
 }
 [[nodiscard]] inline mimhid_keyboard_options keyboard_options() noexcept {

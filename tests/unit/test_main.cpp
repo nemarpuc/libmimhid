@@ -15,7 +15,7 @@ struct Suite {
 };
 
 constexpr Suite kSuites[] = {
-    {"item_writer", test_item_writer}, {"link", test_link}, {"profiles", test_profiles}};
+    {"item_writer", test_item_writer}, {"frame", test_frame}, {"profiles", test_profiles}};
 } // namespace
 
 // With no arguments every suite runs; otherwise only the named ones.

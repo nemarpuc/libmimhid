@@ -22,7 +22,7 @@ endfunction()
 add_executable(mimhid_tests
     tests/unit/test_main.cpp
     tests/unit/test_item_writer.cpp
-    tests/unit/test_link.cpp
+    tests/unit/test_frame.cpp
     tests/unit/test_profiles.cpp
     $<TARGET_OBJECTS:mimhid_test_objects>)
 target_include_directories(mimhid_tests PRIVATE include src proto tests)
@@ -115,6 +115,8 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         add_executable(mimhid_e2e_${itfs}
             tests/e2e/test_e2e.cpp
             tests/e2e/fake_board.c
+        tests/e2e/pty_baud.c
+            tests/e2e/pty_baud.c
             firmware/common/core.c
             firmware/common/control.c
             firmware/common/ep0.c
@@ -134,6 +136,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
     add_executable(mimhid_e2e_hs
         tests/e2e/test_e2e.cpp
         tests/e2e/fake_board.c
+        tests/e2e/pty_baud.c
         firmware/common/core.c
         firmware/common/control.c
         firmware/common/ep0.c

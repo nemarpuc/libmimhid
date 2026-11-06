@@ -75,7 +75,8 @@ Check("mimhid_device_info.max_descriptor_bytes", (long)Marshal.OffsetOf<DeviceIn
 Check("mimhid_device_info.has_unique_id", (long)Marshal.OffsetOf<DeviceInfo>("HasUniqueId"));
 Check("mimhid_device_info.reserved8", (long)Marshal.OffsetOf<DeviceInfo>("Reserved8"));
 Check("mimhid_device_info.baud_rate", (long)Marshal.OffsetOf<DeviceInfo>("BaudRate"));
-Check("mimhid_device_info.baud_mask", (long)Marshal.OffsetOf<DeviceInfo>("BaudMask"));
+Check("mimhid_device_info.max_baud", (long)Marshal.OffsetOf<DeviceInfo>("MaxBaud"));
+Check("mimhid_device_info.uart_flags", (long)Marshal.OffsetOf<DeviceInfo>("UartFlags"));
 Check("mimhid_device_info.chip", (long)Marshal.OffsetOf<DeviceInfo>("Chip"));
 Check("mimhid_device_info.usb_high_speed", (long)Marshal.OffsetOf<DeviceInfo>("UsbHighSpeed"));
 Check("mimhid_device_info.unique_id_length", (long)Marshal.OffsetOf<DeviceInfo>("UniqueIdLength"));
@@ -91,6 +92,15 @@ Check("mimhid_board_limits.max_endpoint_bytes", (long)Marshal.OffsetOf<BoardLimi
 Check("mimhid_board_limits.max_frame_payload", (long)Marshal.OffsetOf<BoardLimits>("MaxFramePayload"));
 Check("mimhid_board_limits.max_control_data_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxControlDataBytes"));
 Check("mimhid_board_limits.max_control_rules", (long)Marshal.OffsetOf<BoardLimits>("MaxControlRules"));
+if (new LinkCounters().StructSize != 0) failures.Add("mimhid_link_counters: the binding fills struct_size");
+Check("mimhid_link_counters.size", Marshal.SizeOf<LinkCounters>());
+Check("mimhid_link_counters.struct_size", (long)Marshal.OffsetOf<LinkCounters>("StructSize"));
+Check("mimhid_link_counters.reserved", (long)Marshal.OffsetOf<LinkCounters>("Reserved"));
+Check("mimhid_link_counters.bad_crc", (long)Marshal.OffsetOf<LinkCounters>("BadCrc"));
+Check("mimhid_link_counters.framing", (long)Marshal.OffsetOf<LinkCounters>("Framing"));
+Check("mimhid_link_counters.uart_overrun", (long)Marshal.OffsetOf<LinkCounters>("UartOverrun"));
+Check("mimhid_link_counters.ring_overrun", (long)Marshal.OffsetOf<LinkCounters>("RingOverrun"));
+Check("mimhid_link_counters.probes_good", (long)Marshal.OffsetOf<LinkCounters>("ProbesGood"));
 Check("mimhid_usb_device.size", Marshal.SizeOf<UsbDevice>());
 Check("mimhid_usb_device.bcd_usb", (long)Marshal.OffsetOf<UsbDevice>("BcdUsb"));
 Check("mimhid_usb_device.device_class", (long)Marshal.OffsetOf<UsbDevice>("DeviceClass"));

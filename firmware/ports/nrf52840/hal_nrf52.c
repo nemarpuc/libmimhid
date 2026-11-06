@@ -28,18 +28,14 @@ static volatile uint16_t g_head = 0;
 static volatile uint16_t g_tail = 0;
 static volatile uint8_t  g_landing;     // EasyDMA target for the byte being received
 static uint8_t           g_tx_buf[TX_CHUNK]; // EasyDMA cannot read from flash
+static volatile uint8_t  g_errors;           // HAL_UART_ERR_* bits, set by the interrupt
 
-// The BAUDRATE register takes fixed settings; the ones in the protocol's table. 921,600 runs at
-// 941,176 (+2.1 %), within what UART receivers accept.
+// The BAUDRATE register holds baud * 2^32 / 16 MHz with the low 12 bits unused (Nordic's table of
+// settings is this formula: 1 Mbaud is 0x10000000). The UARTE runs up to 1 Mbaud.
+#define UARTE_MAX_BAUD 1000000u
 static uint32_t baud_setting(uint32_t baud) {
-    switch (baud) {
-    case 115200: return UARTE_BAUDRATE_BAUDRATE_Baud115200;
-    case 230400: return UARTE_BAUDRATE_BAUDRATE_Baud230400;
-    case 460800: return UARTE_BAUDRATE_BAUDRATE_Baud460800;
-    case 921600: return UARTE_BAUDRATE_BAUDRATE_Baud921600;
-    case 1000000: return UARTE_BAUDRATE_BAUDRATE_Baud1M;
-    default: return 0;
-    }
+    if (baud == 0 || baud > UARTE_MAX_BAUD) return 0;
+    return (uint32_t)(((uint64_t)baud << 32) / 16000000u) & 0xFFFFF000u;
 }
 
 static NRF_GPIO_Type* gpio_port(uint32_t pin) {
@@ -55,11 +51,19 @@ void UARTE1_IRQHandler(void) {
         if (next != g_tail) {
             g_ring[g_head] = g_landing;
             g_head = next;
+        } else {
+            __atomic_fetch_or(&g_errors, HAL_UART_ERR_RING, __ATOMIC_RELAXED); // ring full: byte lost
         }
     }
     if (UARTE_REG->EVENTS_ERROR) {
         UARTE_REG->EVENTS_ERROR = 0;
+        const uint32_t src = UARTE_REG->ERRORSRC;
         UARTE_REG->ERRORSRC = 0xFUL; // overrun, parity, framing, break
+        uint8_t bits = 0;
+        if (src & UARTE_ERRORSRC_BREAK_Msk) bits |= HAL_UART_ERR_BREAK;
+        else if (src & UARTE_ERRORSRC_FRAMING_Msk) bits |= HAL_UART_ERR_FRAMING;
+        if (src & UARTE_ERRORSRC_OVERRUN_Msk) bits |= HAL_UART_ERR_OVERRUN;
+        __atomic_fetch_or(&g_errors, bits, __ATOMIC_RELAXED);
     }
 }
 
@@ -126,8 +130,22 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     }
 }
 
-bool hal_uart_baud_ok(uint32_t baud) {
-    return baud_setting(baud) != 0;
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    const uint32_t setting = baud_setting(baud);
+    return setting == 0 ? 0u : (uint32_t)(((uint64_t)setting * 16000000u) >> 32);
+}
+
+uint32_t hal_uart_max_baud(void) {
+    return UARTE_MAX_BAUD;
+}
+
+bool hal_uart_has_break(void) {
+    return true;
+}
+
+uint8_t hal_uart_errors(void) {
+    // The interrupt sets bits; take and clear them without losing one that arrives meanwhile.
+    return __atomic_exchange_n(&g_errors, 0, __ATOMIC_RELAXED);
 }
 
 // hal_uart_write returns only once its bytes have left, so nothing is queued here. The

@@ -47,7 +47,16 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
 void hal_uart_write(const uint8_t* d, size_t n) { memcpy(g_out + g_out_len, d, n); g_out_len += n; }
 static uint32_t g_now_step;
 uint32_t hal_millis(void) { g_now += g_now_step; return g_now; }
-bool hal_uart_baud_ok(uint32_t baud) { return baud <= 3000000u; }
+static uint32_t g_max_rate = 12000000u;
+static uint32_t g_rate_error_ppm; // the fake divider's error, applied to every rate
+static uint8_t  g_errors;         // HAL_UART_ERR_* bits the next hal_uart_errors returns
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    if (baud == 0 || baud > g_max_rate) return 0;
+    return (uint32_t)((uint64_t)baud * (1000000u + g_rate_error_ppm) / 1000000u);
+}
+uint32_t hal_uart_max_baud(void) { return g_max_rate; }
+bool hal_uart_has_break(void) { return true; }
+uint8_t hal_uart_errors(void) { uint8_t e = g_errors; g_errors = 0; return e; }
 void hal_uart_set_baud(uint32_t baud) { g_baud = baud; g_baud_changes++; }
 uint8_t hal_chip(void) { return MIMHID_CHIP_RP2040; }
 size_t hal_unique_id(uint8_t* out, size_t max) {
@@ -144,23 +153,32 @@ bool tud_control_status(uint8_t rhport, tusb_control_request_t const* request) {
 }
 
 // ---- frame helpers ----
+static uint32_t u32at(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static void put32(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+
 static uint8_t g_seq;
 
 static void put_frame(uint8_t type, const uint8_t* p, size_t n) {
-    uint8_t x = type;
+    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
     g_in[g_in_len++] = MIMHID_SYNC;
     g_in[g_in_len++] = type;
     if (n < 0x80) {
         g_in[g_in_len++] = (uint8_t)n;
-        x ^= (uint8_t)n;
+        crc = mimhid_crc16_update(crc, (uint8_t)n);
     } else {
         const uint8_t low = (uint8_t)(0x80 | (n & 0x7F)), high = (uint8_t)(n >> 7);
         g_in[g_in_len++] = low;
         g_in[g_in_len++] = high;
-        x ^= low ^ high;
+        crc = mimhid_crc16_update(crc, low);
+        crc = mimhid_crc16_update(crc, high);
     }
-    for (size_t i = 0; i < n; i++) { g_in[g_in_len++] = p[i]; x ^= p[i]; }
-    g_in[g_in_len++] = x;
+    for (size_t i = 0; i < n; i++) { g_in[g_in_len++] = p[i]; crc = mimhid_crc16_update(crc, p[i]); }
+    g_in[g_in_len++] = (uint8_t)(crc & 0xFF);
+    g_in[g_in_len++] = (uint8_t)(crc >> 8);
 }
 
 static void put_cmd(uint8_t type, const uint8_t* p, size_t n) {
@@ -186,7 +204,7 @@ static void pump(void) {
 
 // Reads the next board frame at *pos; returns its type, or 0 when none is left.
 static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
-    if (*pos + 4 > g_out_len) return 0;
+    if (*pos + 5 > g_out_len) return 0;
     assert(g_out[*pos] == MIMHID_SYNC);
     uint8_t t = g_out[*pos + 1];
     uint8_t low = g_out[*pos + 2], high = 0;
@@ -197,11 +215,14 @@ static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
         n = (uint16_t)((low & 0x7F) | (high << 7));
         header = 4;
     }
-    assert(*pos + header + n + 1 <= g_out_len);
-    uint8_t x = (uint8_t)(t ^ low ^ high);
-    for (uint16_t i = 0; i < n; i++) { payload[i] = g_out[*pos + header + i]; x ^= payload[i]; }
-    assert(x == g_out[*pos + header + n]);
-    *pos += header + n + 1u;
+    assert(*pos + header + n + 2 <= g_out_len);
+    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, t);
+    crc = mimhid_crc16_update(crc, low);
+    if (header == 4) crc = mimhid_crc16_update(crc, high);
+    for (uint16_t i = 0; i < n; i++) { payload[i] = g_out[*pos + header + i]; crc = mimhid_crc16_update(crc, payload[i]); }
+    assert(g_out[*pos + header + n] == (uint8_t)(crc & 0xFF));
+    assert(g_out[*pos + header + n + 1] == (uint8_t)(crc >> 8));
+    *pos += header + n + 2u;
     *len = n;
     return t;
 }
@@ -224,6 +245,8 @@ static int lost_reported(void) {
 
 // Result of the last command: 1 = ACK, 0 = NAK (code in g_nak_code), -1 = no reply.
 static int g_nak_code;
+static uint8_t g_ack_data[32];
+static uint16_t g_ack_data_len;
 
 static int result_of(uint8_t type) {
     size_t pos = 0;
@@ -235,6 +258,10 @@ static int result_of(uint8_t type) {
             assert(p[0] == g_seq);
             result = t == MIMHID_T_ACK;
             if (t == MIMHID_T_NAK) g_nak_code = p[2];
+            if (t == MIMHID_T_ACK) {
+                g_ack_data_len = (uint16_t)(n - 2);
+                memcpy(g_ack_data, &p[2], g_ack_data_len);
+            }
         }
     }
     return result;
@@ -401,7 +428,7 @@ static void test_reports(void) {
     assert(g_sent[0].iface == 0 && g_sent[0].len == 2 && g_sent[0].data[1] == 0x02);
     assert(g_sent[1].iface == 1 && g_sent[1].data[0] == 2);
 
-    // bad XOR is skipped and the next frame is still seen
+    // a bad CRC is skipped and the next frame is still seen
     reset_io();
     put_frame(MIMHID_T_REPORT_BASE, a, sizeof(a));
     g_in[g_in_len - 1] ^= 0xFF;
@@ -552,13 +579,13 @@ static void test_ping_and_events(void) {
     assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_MIN_LEN + 8);
     assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH && p[3] == 1);
     assert(p[4] == MIMHID_PROTO_VERSION && p[5] == MIMHID_MAX_NODES && p[6] == MIMHID_HID_ITFS);
-    assert(p[7] == MIMHID_PONG_FLAG_UNIQUE_ID && p[8] == MIMHID_CHIP_RP2040 && p[9] == 0 && p[10] == 0);
-    // 4,000,000 (index 8) is past what this HAL makes.
-    assert((p[11] | (p[12] << 8)) == 0x00FF);
-    assert((p[13] | (p[14] << 8)) == MIMHID_MAX_DESC_BYTES);
-    assert((p[15] | (p[16] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
-    assert((p[17] | (p[18] << 8)) == MIMHID_FEATURE_MAX && (p[19] | (p[20] << 8)) == 64);
-    assert((p[21] | (p[22] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
+    assert(p[7] == MIMHID_PONG_FLAG_UNIQUE_ID && p[8] == MIMHID_CHIP_RP2040 && p[9] == 0);
+    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD && u32at(&p[14]) == g_max_rate);
+    assert(u32at(&p[18]) == MIMHID_PONG_UART_BREAK);
+    assert((p[22] | (p[23] << 8)) == MIMHID_MAX_DESC_BYTES);
+    assert((p[24] | (p[25] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
+    assert((p[26] | (p[27] << 8)) == MIMHID_FEATURE_MAX && (p[28] | (p[29] << 8)) == 64);
+    assert((p[30] | (p[31] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
     assert((p[23] | (p[24] << 8)) == MIMHID_CONTROL_DATA_MAX && p[25] == MIMHID_CONTROL_RULES);
     assert(p[26] == 8 && p[27] == 0x01 && p[34] == 0xEF);
 
@@ -589,41 +616,59 @@ static void test_ping_and_events(void) {
     g_suspended = false;
 }
 
-static void test_set_baud(void) {
-    reset_io();
-    const uint8_t v = MIMHID_PROTO_VERSION;
-    // A rate the board cannot make, and one past the table, are refused.
-    uint8_t index = 8;
-    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
-    index = MIMHID_BAUD_COUNT;
-    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
-    assert(g_baud == MIMHID_BOOT_BAUD && g_baud_changes == 0);
+static int set_baud_cmd(uint32_t baud) {
+    uint8_t b[4];
+    put32(b, baud);
+    return command(MIMHID_T_SET_BAUD, b, 4);
+}
 
-    // The ACK goes out before the switch; a valid frame at the new rate keeps it.
-    index = 7;
-    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == 3000000u);
-    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+static void ping_pong(uint8_t* p) {
+    const uint8_t v = MIMHID_PROTO_VERSION;
     reset_io();
     put_frame(MIMHID_T_PING, &v, 1);
     pump();
     size_t pos = 0;
-    uint8_t p[2048];
     uint16_t n;
-    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && p[10] == 7);
+    assert(next_out(&pos, p, &n) == MIMHID_T_PONG);
+}
+
+static void test_set_baud(void) {
+    reset_io();
+    uint8_t p[2048];
+    // Zero, a rate above the board's maximum, and a rate the divider misses by over 2 % are refused.
+    assert(set_baud_cmd(0) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(set_baud_cmd(g_max_rate + 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    g_rate_error_ppm = 30000;
+    assert(set_baud_cmd(1000000u) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    // A wrong payload length is refused too.
+    assert(command(MIMHID_T_SET_BAUD, (const uint8_t*)"\1", 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(g_baud == MIMHID_BOOT_BAUD && g_baud_changes == 0);
+
+    // The ACK carries the rate the divider makes (1.5 % off here) and goes out before the switch.
+    g_rate_error_ppm = 15000;
+    assert(set_baud_cmd(1000000u) == 1 && g_baud == 1000000u);
+    assert(g_ack_data_len == 4 && u32at(g_ack_data) == 1015000u);
+    g_rate_error_ppm = 0;
+    // An odd rate is as good as a round one.
+    assert(set_baud_cmd(1234567u) == 1 && g_baud == 1234567u);
+    assert(set_baud_cmd(g_max_rate) == 1 && g_baud == g_max_rate);
+
+    // A valid frame at the new rate keeps it.
+    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+    ping_pong(p);
+    assert(u32at(&p[10]) == g_max_rate);
     g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
     pump();
-    assert(g_baud == 3000000u);
+    assert(g_baud == g_max_rate);
 
     // Back to the boot rate needs no confirmation.
-    index = 0;
-    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == MIMHID_BOOT_BAUD);
+    assert(set_baud_cmd(MIMHID_BOOT_BAUD) == 1 && g_baud == MIMHID_BOOT_BAUD);
     g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
     pump();
     assert(g_baud == MIMHID_BOOT_BAUD);
 
     // Nothing valid at the new rate in time: back to the boot rate.
-    index = 3;
-    assert(command(MIMHID_T_SET_BAUD, &index, 1) == 1 && g_baud == 921600u);
+    assert(set_baud_cmd(921600u) == 1 && g_baud == 921600u);
     reset_io();
     const uint8_t junk[] = {0x00, 0xFF, 0x13, 0x37};
     memcpy(g_in, junk, sizeof(junk));
@@ -634,11 +679,81 @@ static void test_set_baud(void) {
     g_now += 1;
     pump();
     assert(g_baud == MIMHID_BOOT_BAUD);
-    reset_io();
-    put_frame(MIMHID_T_PING, &v, 1);
+    ping_pong(p);
+    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD);
+}
+
+// A BREAK returns the board to the boot rate, confirmed or not, and drops what it holds.
+static void test_break(void) {
+    uint8_t p[2048];
+    assert(set_baud_cmd(3000000u) == 1);
+    g_now += 1;
+    ping_pong(p); // confirmed by a valid frame
+    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
     pump();
-    pos = 0;
-    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && p[10] == 0);
+    assert(g_baud == 3000000u);
+    reset_io();
+    const uint8_t v = MIMHID_PROTO_VERSION;
+    put_frame(MIMHID_T_PING, &v, 1); // sent at the old rate, still unread when the BREAK is seen
+    g_errors = HAL_UART_ERR_BREAK;
+    pump();
+    assert(g_baud == MIMHID_BOOT_BAUD);
+    assert(g_out_len == 0); // the ping was discarded
+    ping_pong(p);
+    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD);
+    // A BREAK at the boot rate changes nothing but the discard.
+    int changes = g_baud_changes;
+    g_errors = HAL_UART_ERR_BREAK;
+    pump();
+    assert(g_baud_changes == changes);
+}
+
+// The counters, PROBE and the CRC.
+static void test_counters_and_probe(void) {
+    uint8_t reset = MIMHID_COUNTERS_F_RESET, keep = 0;
+    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1); // start from zero
+    uint8_t pat[100];
+    for (unsigned i = 0; i < sizeof(pat); i++) pat[i] = MIMHID_PROBE_BYTE(i);
+    reset_io();
+    for (int i = 0; i < 3; i++) put_frame(MIMHID_T_PROBE, pat, 100);
+    pump();
+    assert(g_out_len == 0); // a probe is not answered
+    // a probe with a wrong pattern, a frame with a wrong CRC, a framing error and an overrun
+    pat[5] ^= 1;
+    put_frame(MIMHID_T_PROBE, pat, 100);
+    put_frame(MIMHID_T_PROBE, pat, 100);
+    g_in[g_in_len - 1] ^= 0x40;
+    g_errors = HAL_UART_ERR_FRAMING | HAL_UART_ERR_OVERRUN;
+    pump();
+    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1 && g_ack_data_len == 10);
+    assert((g_ack_data[0] | (g_ack_data[1] << 8)) == 3);        // probes_good
+    assert((g_ack_data[2] | (g_ack_data[3] << 8)) == 2);        // bad_crc: wrong pattern + wrong CRC
+    assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 1);        // framing
+    assert((g_ack_data[6] | (g_ack_data[7] << 8)) == 1);        // uart_overrun
+    assert((g_ack_data[8] | (g_ack_data[9] << 8)) == 0);        // ring_overrun
+    // Read without reset keeps them; read with reset returns them once more and then zeroes.
+    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1 && (g_ack_data[0] | (g_ack_data[1] << 8)) == 3);
+    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1);
+    for (int i = 0; i < 10; i++) assert(g_ack_data[i] == 0);
+    // The counters stop at 65535.
+    for (int i = 0; i < 70000 / 1000; i++) {
+        reset_io();
+        for (int k = 0; k < 1000; k++) g_errors |= 0;
+        g_errors = HAL_UART_ERR_FRAMING;
+        pump();
+    }
+    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1);
+    assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 70);
+
+    // Two flips in the same bit position cancel in an XOR but not in a CRC.
+    reset_io();
+    uint8_t d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    put_cmd(MIMHID_T_QUEUE_DEPTH, d, 2);
+    g_in[g_in_len - 5] ^= 0x10; // flips one byte of the payload...
+    g_in[g_in_len - 4] ^= 0x10; // ...and the same bit of the next
+    g_out_len = 0;
+    pump();
+    assert(result_of(MIMHID_T_QUEUE_DEPTH) == -1);
 }
 
 static void test_feature(void) {
@@ -1520,6 +1635,8 @@ int main(void) {
 #endif
     test_ping_and_events();
     test_set_baud();
+    test_break();
+    test_counters_and_probe();
     test_descriptors_basic();
     test_reports();
     test_feature();

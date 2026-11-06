@@ -3,25 +3,41 @@
 #ifndef MIMHID_PROTO_H
 #define MIMHID_PROTO_H
 
+#include <stdint.h>
+
 /*
  * Serial wire protocol, version MIMHID_PROTO_VERSION, shared by the host library and the firmware.
  *
- *   frame  = SYNC TYPE LEN payload[LEN] XOR
+ *   frame  = SYNC TYPE LEN payload[LEN] CRC_LO CRC_HI
  *   LEN    = one byte when the payload is shorter than 128 bytes, else two: (0x80 | LEN & 0x7F)
  *            then LEN >> 7. A payload of up to 16383 bytes can be announced; the protocol
  *            allows MIMHID_PROTO_MAX_PAYLOAD, and a board says how much it takes in its PONG.
- *   XOR    = TYPE ^ every LEN byte ^ every payload byte
+ *   CRC    = CRC-16/CCITT-FALSE (polynomial 0x1021, initial value 0xFFFF, no reflection, no final
+ *            xor) of TYPE, every LEN byte and every payload byte; low byte first.
  *
- * A short frame is the same bytes as in protocol 3, so a board on protocol 3 still answers a
- * PING, and the host can say which protocol it speaks.
+ * The first five bytes of a PONG keep their place in every protocol version, and a PONG is framed
+ * by the rules of its own version, so a host that reads a board on another protocol can say which
+ * one it speaks; it does not talk to it.
  *
  * Command frames (0x01..0x3F) start their payload with a one-byte sequence number that the
  * board echoes in its ACK or NAK. Report frames (0x40..0x4F) carry the report exactly as the
  * target receives it, Report ID included, and are not acknowledged.
  */
 
-#define MIMHID_PROTO_VERSION 6
+#define MIMHID_PROTO_VERSION 7
 #define MIMHID_SYNC 0xA5
+
+/* The frame check, shared by the host and the firmware. A 16-entry table over nibbles keeps it
+ * small (32 bytes) and costs two lookups per byte. */
+#define MIMHID_CRC16_INIT 0xFFFFu
+static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
+    static const uint16_t table[16] = {0x0000u, 0x1021u, 0x2042u, 0x3063u, 0x4084u, 0x50A5u,
+                                       0x60C6u, 0x70E7u, 0x8108u, 0x9129u, 0xA14Au, 0xB16Bu,
+                                       0xC18Cu, 0xD1ADu, 0xE1CEu, 0xF1EFu};
+    crc = (uint16_t)((uint16_t)(crc << 4) ^ table[(crc >> 12) ^ (byte >> 4)]);
+    crc = (uint16_t)((uint16_t)(crc << 4) ^ table[(crc >> 12) ^ (byte & 0x0Fu)]);
+    return crc;
+}
 
 /* Host to board. */
 #define MIMHID_T_PING 0x01          /* payload: host protocol version (no sequence number) */
@@ -34,7 +50,7 @@
 #define MIMHID_T_FEATURE 0x14 /* data returned for GET_REPORT of a feature report */
 #define MIMHID_T_RESET 0x15   /* drop every queued report */
 #define MIMHID_T_REMOTE_WAKEUP 0x16
-#define MIMHID_T_SET_BAUD 0x17 /* payload after sequence number: baud index (see below) */
+#define MIMHID_T_SET_BAUD 0x17 /* payload after sequence number: the rate, u32 little endian */
 #define MIMHID_T_CONTROL_CONFIG                                                                    \
     0x18                            /* which control transfers of the target are reported or held */
 #define MIMHID_T_CONTROL_REPLY 0x19 /* the answer to a held control transfer */
@@ -42,12 +58,18 @@
     0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
 #define MIMHID_T_QUEUE_DEPTH                                                                       \
     0x1B /* payload after sequence number: node, reports that may wait (1..) */
+#define MIMHID_T_PROBE                                                                             \
+    0x1C /* link test: a frame of a pattern both ends know (see below); no sequence number,        \
+            not acknowledged */
+#define MIMHID_T_COUNTERS                                                                          \
+    0x1D /* payload after sequence number: flags (bit 0: reset the counters after reading);        \
+            the ACK carries the counters (see below) */
 #define MIMHID_T_REPORT_BASE 0x40 /* 0x40 | node id, node id 0..15 */
 #define MIMHID_T_REPORT_LAST 0x4F
 
 /* Board to host. */
 #define MIMHID_T_PONG 0x81
-#define MIMHID_T_ACK 0x82   /* payload: seq, type */
+#define MIMHID_T_ACK 0x82   /* payload: seq, type, then the data of the command, if it has any */
 #define MIMHID_T_NAK 0x83   /* payload: seq, type, code */
 #define MIMHID_T_EVENT 0x84 /* payload: kind, ... */
 
@@ -137,16 +159,46 @@
 #define MIMHID_CONTROL_F_LOST 0x08
 
 /*
- * Line rates. A board starts at the boot rate, index 0, and the host asks for another with
- * SET_BAUD. The board ACKs at the rate it is on, switches once the ACK has left, and keeps the
- * new rate only when a valid frame arrives at it within MIMHID_BAUD_CONFIRM_MS; otherwise it
- * goes back to the boot rate. A switch to the boot rate needs no confirmation.
+ * Line rate. A board starts at the boot rate, the one rate both ends know, and the host asks for
+ * another with SET_BAUD (any rate up to the board's max_baud; there is no table). The board ACKs
+ * at the rate it is on, with the rate it will actually run at (the divider rarely gives the exact
+ * one), switches once the ACK has left, and keeps the new rate only when a valid frame arrives at
+ * it within MIMHID_BAUD_CONFIRM_MS; otherwise it goes back to the boot rate. A switch to the
+ * boot rate needs no confirmation.
+ *
+ * A UART BREAK (the line held low for longer than one character at the rate the board is on)
+ * returns the board to the boot rate whatever rate it was on, and drops the bytes it holds. That
+ * is how a host finds a board that a program left on a fast rate: no rate is searched.
+ *
+ * SET_BAUD payload after the sequence number: the rate (u32 little endian). NAK PARAM for 0, for
+ * a rate above max_baud and for a rate whose divider is off by more than MIMHID_BAUD_TOLERANCE_PPM.
+ * ACK data: the rate the board will run at (u32 little endian).
  */
-#define MIMHID_BAUD_RATES                                                                          \
-    { 115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u }
-#define MIMHID_BAUD_COUNT 9
 #define MIMHID_BOOT_BAUD 115200u
 #define MIMHID_BAUD_CONFIRM_MS 100
+#define MIMHID_BAUD_TOLERANCE_PPM 20000u /* 2 % */
+
+/*
+ * Link counters. The board counts what went wrong on the line since the last reset, each in an
+ * unsigned 16-bit value that stops at 65535:
+ *   probes_good   PROBE frames whose pattern was right
+ *   bad_crc       frames that had a sync byte, a known type and a possible length, but a wrong CRC
+ *   framing       UART framing errors (not BREAKs)
+ *   uart_overrun  bytes the UART lost because nobody read it in time
+ *   ring_overrun  reads that found the receive ring three quarters full or more: a ring that
+ *                 was lapped cannot be told from a quiet line afterwards, so this is the near
+ *                 miss that comes first
+ * A hardware counter that only latches ("an error happened since I last looked") is counted once
+ * per look, so a count is a lower bound on the errors; zero is exact.
+ * COUNTERS ACK data: the five values in this order, u16 little endian each.
+ *
+ * PROBE payload: n bytes (any length the board takes) where byte i is
+ * (uint8_t)(i * 7 + 3). The host sends COUNTERS with the reset flag, then PROBE frames back to
+ * back, then COUNTERS again: the link is as good as the counters say.
+ */
+#define MIMHID_COUNTER_COUNT 5
+#define MIMHID_COUNTERS_F_RESET 0x01
+#define MIMHID_PROBE_BYTE(i) ((uint8_t)((i)*7u + 3u))
 
 /* Chips, as the PONG names them. */
 #define MIMHID_CHIP_UNKNOWN 0
@@ -157,21 +209,22 @@
 #define MIMHID_CHIP_STM32F4 5
 
 /*
- * PONG payload (all single bytes unless noted; every two-byte value is little endian):
+ * PONG payload (all single bytes unless noted; every wider value is little endian):
  *   0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 proto_version
  *   5 max_nodes  6 max_interfaces  7 flags (bit 0: has chip unique id)
- *   8 chip  9 usb speed (0 full, 1 high)  10 baud index the board is on
- *   11..12 baud mask (bit i: the board can run at rate i)
- *   13..14 max_descriptor_bytes  15..16 max_report_bytes  17..18 max_feature_bytes
- *   19..20 max_endpoint_bytes (the largest endpoint packet)  21..22 max_frame_payload
- *   23..24 max_control_data_bytes (the data stage of a control transfer the host may read or
- *   answer)  25 max_control_rules
- *   26 unique id length n (0..16)  27.. the chip's unique id, n bytes
- * Bytes 0..4 are the same in every protocol version, and a PONG shorter than 128 bytes is framed
- * the same, so a host reads the version of a board on another protocol. A reader ignores bytes
- * past the ones it knows.
+ *   8 chip  9 usb speed (0 full, 1 high)
+ *   10..13 baud the board is on (u32)  14..17 max_baud, the fastest rate its UART can make (u32)
+ *   18..21 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
+ *   22..23 max_descriptor_bytes  24..25 max_report_bytes  26..27 max_feature_bytes
+ *   28..29 max_endpoint_bytes (the largest endpoint packet)  30..31 max_frame_payload
+ *   32..33 max_control_data_bytes (the data stage of a control transfer the host may read or
+ *   answer)  34 max_control_rules
+ *   35 unique id length n (0..16)  36.. the chip's unique id, n bytes
+ * Bytes 0..4 are the same in every protocol version. A reader ignores bytes past the ones it
+ * knows.
  */
-#define MIMHID_PONG_MIN_LEN 27
+#define MIMHID_PONG_MIN_LEN 36
+#define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
 

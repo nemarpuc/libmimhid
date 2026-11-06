@@ -3,10 +3,18 @@
 // Linux and macOS serial port: termios with non-blocking descriptors.
 #include "transport/serial_port.hpp"
 
+#include "transport/serial_baud.hpp"
+
+#include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <cstdlib>
 #include <fcntl.h>
+#include <fstream>
+#include <string>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <thread>
 #include <unistd.h>
 #ifdef __APPLE__
 #include <sys/select.h>
@@ -20,6 +28,8 @@
 namespace mimhid::transport {
 
 namespace {
+
+std::atomic<BreakObserver> g_break_observer{nullptr};
 
 enum { WAIT_IN = 1, WAIT_OUT = 2, WAIT_ERR = 4 };
 
@@ -77,83 +87,47 @@ int wait_fd(int fd, int events, std::uint32_t timeout_ms) noexcept {
 #ifndef IOSSIOSPEED
 #define IOSSIOSPEED _IOW('T', 2, speed_t)
 #endif
-#else
-speed_t termios_speed(std::uint32_t baud) noexcept {
-    switch (baud) {
-    case 115200:
-        return B115200;
-    case 230400:
-        return B230400;
-#ifdef B460800
-    case 460800:
-        return B460800;
-#endif
-#ifdef B576000
-    case 576000:
-        return B576000;
-#endif
-    case 921600:
-        return B921600;
-#ifdef B1000000
-    case 1000000:
-        return B1000000;
-#endif
-#ifdef B1500000
-    case 1500000:
-        return B1500000;
-#endif
-#ifdef B2000000
-    case 2000000:
-        return B2000000;
-#endif
-#ifdef B3000000
-    case 3000000:
-        return B3000000;
-#endif
-#ifdef B4000000
-    case 4000000:
-        return B4000000;
-#endif
-    default:
-        return B0;
-    }
-}
 #endif
 
+// Sets the rate of an open tty to any value the driver takes. A rate the driver rounds by more
+// than 3 % is refused: the board would be talking to a port on another rate. False when refused.
+bool apply_baud(int fd, std::uint32_t baud) noexcept {
+#ifdef __APPLE__
+    speed_t rate = baud;
+    if (ioctl(fd, IOSSIOSPEED, &rate) == 0)
+        return true;
+    if (errno != ENOTTY)
+        return false;
+    // A pseudo-terminal keeps the rate in its termios, where any value is taken.
+    struct termios tio;
+    if (tcgetattr(fd, &tio) != 0)
+        return false;
+    cfsetispeed(&tio, rate);
+    cfsetospeed(&tio, rate);
+    return tcsetattr(fd, TCSANOW, &tio) == 0;
+#else
+    std::uint32_t actual = 0;
+    if (!detail::linux_set_baud(fd, baud, &actual))
+        return false;
+    const std::uint64_t diff = actual > baud ? actual - baud : baud - actual;
+    return diff * 100U <= static_cast<std::uint64_t>(baud) * 3U;
+#endif
+}
+
 } // namespace
+
+void set_break_observer(BreakObserver observer) noexcept { g_break_observer.store(observer); }
 
 SerialPort::SerialPort() noexcept : handle_(-1) {}
 
 SerialPort::~SerialPort() { close(); }
 
-bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
-#ifdef __APPLE__
-    switch (baud) {
-    case 115200:
-    case 230400:
-    case 460800:
-    case 576000:
-    case 921600:
-    case 1000000:
-    case 1500000:
-    case 2000000:
-    case 3000000:
-    case 4000000:
-        return true;
-    default:
-        return false;
-    }
-#else
-    return termios_speed(baud) != B0;
-#endif
-}
-
 bool SerialPort::is_open() const noexcept { return handle_ >= 0; }
 
 OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
     OpenResult result;
-    if (!baud_supported(baud)) {
-        result.step = OpenStep::unsupported_baud;
+    if (baud == 0U) {
+        result.step = OpenStep::speed;
         return result;
     }
     int fd = ::open(path, O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -172,15 +146,9 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
     }
 
     cfmakeraw(&tio);
-#ifdef __APPLE__
-    // Arbitrary rates are set with IOSSIOSPEED after the base termios settings.
+    // Any other rate is set after the base settings (IOSSIOSPEED, termios2).
     cfsetispeed(&tio, B115200);
     cfsetospeed(&tio, B115200);
-#else
-    const speed_t speed = termios_speed(baud);
-    cfsetispeed(&tio, speed);
-    cfsetospeed(&tio, speed);
-#endif
     tio.c_cflag |= (CS8 | CLOCAL | CREAD);
     tio.c_cflag &= ~static_cast<tcflag_t>(PARENB | CSTOPB | CRTSCTS);
     tio.c_cc[VMIN] = 0;
@@ -192,16 +160,12 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
         ::close(fd);
         return result;
     }
-#ifdef __APPLE__
-    speed_t rate = baud;
-    // ENOTTY means a pseudo-terminal, which has no hardware rate to set.
-    if (ioctl(fd, IOSSIOSPEED, &rate) != 0 && errno != ENOTTY) {
+    if (baud != 115200U && !apply_baud(fd, baud)) {
         result.step = OpenStep::speed;
         result.os_error = errno;
         ::close(fd);
         return result;
     }
-#endif
     // Another process holding the port (a running program, or a search) keeps it to itself.
     if (ioctl(fd, TIOCEXCL) != 0) {
         result.step = OpenStep::open;
@@ -224,33 +188,27 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
 
 bool SerialPort::set_baud(std::uint32_t baud) noexcept {
     const int fd = static_cast<int>(handle_);
-    if (fd < 0 || !baud_supported(baud))
+    if (fd < 0 || baud == 0U)
         return false;
     tcdrain(fd);
-#ifdef __APPLE__
-    speed_t rate = baud;
-    if (ioctl(fd, IOSSIOSPEED, &rate) != 0) {
-        if (errno != ENOTTY)
-            return false;
-        // A pseudo-terminal keeps the rate in its termios, where any value is taken.
-        struct termios tio;
-        if (tcgetattr(fd, &tio) != 0)
-            return false;
-        cfsetispeed(&tio, rate);
-        cfsetospeed(&tio, rate);
-        if (tcsetattr(fd, TCSANOW, &tio) != 0)
-            return false;
-    }
-#else
-    struct termios tio;
-    if (tcgetattr(fd, &tio) != 0)
+    if (!apply_baud(fd, baud))
         return false;
-    const speed_t speed = termios_speed(baud);
-    cfsetispeed(&tio, speed);
-    cfsetospeed(&tio, speed);
-    if (tcsetattr(fd, TCSANOW, &tio) != 0)
+    tcflush(fd, TCIFLUSH);
+    return true;
+}
+
+bool SerialPort::send_break(std::uint32_t ms) noexcept {
+    const int fd = static_cast<int>(handle_);
+    if (fd < 0)
         return false;
-#endif
+    tcdrain(fd);
+    // TIOCSBRK holds the line low until TIOCCBRK; tcsendbreak would hold it for 250 to 500 ms.
+    if (ioctl(fd, TIOCSBRK) != 0)
+        return false;
+    if (BreakObserver observer = g_break_observer.load())
+        observer();
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    (void)ioctl(fd, TIOCCBRK);
     tcflush(fd, TCIFLUSH);
     return true;
 }

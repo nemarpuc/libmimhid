@@ -25,9 +25,9 @@ _Static_assert(sizeof(mimhid_physical_properties) == 20, "physical_properties la
 _Static_assert(sizeof(mimhid_integer_field) == 32, "integer_field layout");
 _Static_assert(sizeof(mimhid_report_id_option) == 8, "report_id_option layout");
 _Static_assert(sizeof(mimhid_battery_report) == 40, "battery_report layout");
-_Static_assert(sizeof(mimhid_device_info) == 168, "device_info layout");
+_Static_assert(sizeof(mimhid_device_info) == 176, "device_info layout");
 _Static_assert(offsetof(mimhid_device_info, baud_rate) == 140, "device_info.baud_rate");
-_Static_assert(offsetof(mimhid_device_info, unique_id) == 149, "device_info.unique_id");
+_Static_assert(offsetof(mimhid_device_info, unique_id) == 155, "device_info.unique_id");
 _Static_assert(offsetof(mimhid_device_info, version_major) == 128, "device_info.version_major");
 
 _Static_assert(sizeof(mimhid_usb_endpoint) == 4, "usb_endpoint layout");

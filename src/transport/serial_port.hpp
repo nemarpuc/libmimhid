@@ -12,7 +12,7 @@
 namespace mimhid::transport {
 
 // Where a failed open stopped, for diagnostics.
-enum class OpenStep : std::uint8_t { none, open, configure, speed, unsupported_baud };
+enum class OpenStep : std::uint8_t { none, open, configure, speed };
 
 struct OpenResult {
     bool ok{};
@@ -29,13 +29,16 @@ class SerialPort final {
     SerialPort(const SerialPort&) = delete;
     SerialPort& operator=(const SerialPort&) = delete;
 
-    static bool baud_supported(std::uint32_t baud) noexcept;
-
     // Opens a raw 8N1 port without flow control, for this process alone.
     OpenResult open(const char* path, std::uint32_t baud) noexcept;
-    // Waits until queued output has left, switches the rate, and discards unread input. False
-    // when the operating system or the adapter's driver refuses the rate.
+    // Waits until queued output has left, switches the rate (any nonzero value), and discards
+    // unread input. False when the operating system or the adapter's driver refuses the rate, or
+    // reports one over 3 % away from it.
     bool set_baud(std::uint32_t baud) noexcept;
+    // Holds the line low for ms milliseconds (a UART BREAK) and discards unread input. A board
+    // takes it as "back to the boot rate", whatever rate it is on.
+    // False when the driver cannot send one.
+    bool send_break(std::uint32_t ms) noexcept;
     void close() noexcept;
     [[nodiscard]] bool is_open() const noexcept;
 
@@ -62,6 +65,11 @@ class SerialPort final {
     std::uint32_t current_write_stall_ = 500;
 #endif
 };
+
+// For tests: called whenever a BREAK is sent, so that a test line (a pseudo-terminal carries no
+// BREAK) can show it to the board on its far end. Unset in a program.
+using BreakObserver = void (*)();
+void set_break_observer(BreakObserver observer) noexcept;
 
 struct PortCandidate {
     std::string path;

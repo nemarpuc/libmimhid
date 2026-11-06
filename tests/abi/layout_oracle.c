@@ -13,7 +13,8 @@
 #define OFFSET(type, field) printf(#type "." #field "=%zu\n", offsetof(type, field))
 
 int main(void) {
-    CONSTANT(MIMHID_BAUD_COUNT);
+    CONSTANT(MIMHID_BAUD_FASTEST);
+    CONSTANT(MIMHID_BOOT_BAUD);
     CONSTANT(MIMHID_CHIP_ESP32S3);
     CONSTANT(MIMHID_CHIP_NRF52840);
     CONSTANT(MIMHID_CHIP_RP2040);
@@ -141,7 +142,8 @@ int main(void) {
     OFFSET(mimhid_device_info, has_unique_id);
     OFFSET(mimhid_device_info, reserved8);
     OFFSET(mimhid_device_info, baud_rate);
-    OFFSET(mimhid_device_info, baud_mask);
+    OFFSET(mimhid_device_info, max_baud);
+    OFFSET(mimhid_device_info, uart_flags);
     OFFSET(mimhid_device_info, chip);
     OFFSET(mimhid_device_info, usb_high_speed);
     OFFSET(mimhid_device_info, unique_id_length);
@@ -156,6 +158,14 @@ int main(void) {
     OFFSET(mimhid_board_limits, max_frame_payload);
     OFFSET(mimhid_board_limits, max_control_data_bytes);
     OFFSET(mimhid_board_limits, max_control_rules);
+    SIZE(mimhid_link_counters);
+    OFFSET(mimhid_link_counters, struct_size);
+    OFFSET(mimhid_link_counters, reserved);
+    OFFSET(mimhid_link_counters, bad_crc);
+    OFFSET(mimhid_link_counters, framing);
+    OFFSET(mimhid_link_counters, uart_overrun);
+    OFFSET(mimhid_link_counters, ring_overrun);
+    OFFSET(mimhid_link_counters, probes_good);
     SIZE(mimhid_usb_device);
     OFFSET(mimhid_usb_device, bcd_usb);
     OFFSET(mimhid_usb_device, device_class);

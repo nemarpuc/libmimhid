@@ -81,12 +81,12 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 2
-#define MIMHID_VERSION_MINOR 1
+#define MIMHID_VERSION_MINOR 2
 #define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 /* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
-#define MIMHID_PROTOCOL_VERSION 6
+#define MIMHID_PROTOCOL_VERSION 7
 
 typedef struct mimhid_discovery mimhid_discovery;
 typedef struct mimhid_device mimhid_device;
@@ -247,11 +247,16 @@ typedef void(MIMHID_CALL* mimhid_event_sink)(void* user, const mimhid_event* eve
 
 /* ---- Boards -----------------------------------------------------------------------------*/
 
-/* The serial line rates a board and the host can agree on, slowest first. A board starts at the
- * first, 115200. */
-#define MIMHID_BAUD_RATES                                                                          \
-    { 115200u, 230400u, 460800u, 921600u, 1000000u, 1500000u, 2000000u, 3000000u, 4000000u }
-#define MIMHID_BAUD_COUNT 9
+/* The rate a board starts at, and returns to on a UART BREAK: the one rate two parties that have
+ * never spoken share. Any other rate from here to the board's max_baud can be agreed; there is
+ * no table of them. */
+#define MIMHID_BOOT_BAUD 115200u
+/* transport.baud_rate: measure the fastest rate this port, adapter and board carry now (what
+ * mimhid_discover does), and use it. The rate is in mimhid_device_info.baud_rate afterwards. */
+#define MIMHID_BAUD_FASTEST 4294967295u
+
+/* mimhid_device_info.uart_flags */
+#define MIMHID_UART_FLAG_BREAK 0x01u /* the board returns to the boot rate on a BREAK */
 
 /* mimhid_device_info.chip */
 #define MIMHID_CHIP_UNKNOWN 0
@@ -276,10 +281,11 @@ typedef struct mimhid_device_info {
     uint16_t max_descriptor_bytes; /* room for all report descriptors together */
     uint8_t has_unique_id;         /* 1 when the chip has a serial number of its own */
     uint8_t reserved8;
-    /* discover: the fastest rate that carried pings both ways on this port (the board is left on
-     * the first rate); a Device: the rate the link runs at */
+    /* discover: the fastest rate that carried a burst of test frames without loss on this port
+     * (the board is left on MIMHID_BOOT_BAUD); a Device: the rate the link runs at */
     uint32_t baud_rate;
-    uint16_t baud_mask;       /* bit i: the board can run at MIMHID_BAUD_RATES[i] */
+    uint32_t max_baud;        /* the fastest rate the board's UART can make */
+    uint32_t uart_flags;      /* MIMHID_UART_FLAG_* */
     uint8_t chip;             /* MIMHID_CHIP_* */
     uint8_t usb_high_speed;   /* 1 when the board's USB device runs at high speed */
     uint8_t unique_id_length; /* bytes of unique_id in use */
@@ -299,6 +305,19 @@ typedef struct mimhid_board_limits {
     uint32_t max_control_data_bytes; /* largest data stage the host may read or answer */
     uint32_t max_control_rules;      /* rules mimhid_device_set_control_routing takes */
 } mimhid_board_limits;
+
+/* What the board counted on its serial line since the last reset, each saturating at 65535. A
+ * counter that only latches in the hardware counts once per look, so a count is a lower bound and
+ * zero is exact. */
+typedef struct mimhid_link_counters {
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint32_t bad_crc;      /* frames with a wrong CRC */
+    uint32_t framing;      /* UART framing errors (not BREAKs) */
+    uint32_t uart_overrun; /* bytes the UART lost because nobody read it in time */
+    uint32_t ring_overrun; /* reads that found the receive ring three quarters full or more */
+    uint32_t probes_good;  /* link-test frames received intact (only the search sends them) */
+} mimhid_link_counters;
 
 /* ---- USB identity and Device options ----------------------------------------------------
  * The fields are those of the USB 2.0 standard descriptors (section 9.6) and the HID class
@@ -348,7 +367,9 @@ typedef struct mimhid_linux_hid_policy {
 
 /* The serial link and what the library does on it. */
 typedef struct mimhid_transport_options {
-    uint32_t baud_rate; /* one of MIMHID_BAUD_RATES */
+    /* The line rate: MIMHID_BOOT_BAUD, any rate up to the board's max_baud (a rate
+     * mimhid_discover reported is known to work), or MIMHID_BAUD_FASTEST. */
+    uint32_t baud_rate;
     /* Each wait for an answer while mimhid_device_open looks for the board: a few frames at the
      * boot rate plus the latency timer of a USB serial adapter (16 ms on FTDI chips). */
     uint32_t handshake_timeout_ms;
@@ -823,6 +844,10 @@ static inline void mimhid_board_limits_init(mimhid_board_limits* limits) {
     mimhid_struct_init(limits, sizeof(*limits));
 }
 
+static inline void mimhid_link_counters_init(mimhid_link_counters* counters) {
+    mimhid_struct_init(counters, sizeof(*counters));
+}
+
 /* Every key from Keyboard a (0x04) to Keypad Hexadecimal (0xDD). The eight modifiers (0xE0 to
  * 0xE7) are always part of the report. */
 static inline void mimhid_keyboard_options_init(mimhid_keyboard_options* options) {
@@ -984,11 +1009,13 @@ MIMHID_API uint32_t MIMHID_CALL mimhid_version(void);
  * Ownership: The caller destroys the snapshot with mimhid_discovery_destroy.
  * Blocking: Searches every USB serial port at once, one thread each, waiting up to timeout_ms for
  * each answer; a port another program has open is skipped. On each port it pings at the boot
- * rate, then at every rate of MIMHID_BAUD_RATES (a board a program left on a fast rate), so a
- * serial device that is not a board receives those pings too. On a board it measures the fastest
- * rate that carries pings both ways (baud_rate) and leaves the board on the boot rate. A board
- * whose firmware speaks another protocol is listed with only its version, protocol_version and
- * the rate it answered at, so that it can be flashed again.
+ * rate and, when nothing answers, sends a BREAK (which returns a board a program left on a fast
+ * rate to the boot rate) and pings again, so a serial device that is not a board receives a few
+ * pings and a BREAK. On a board it measures the fastest rate the link carries: from the board's
+ * max_baud downward, it sends bursts of test frames and trusts a rate only when the board's own
+ * error counters stay at zero (baud_rate), and it leaves the board on the boot rate. The search
+ * takes a few seconds at most. A board whose firmware speaks another protocol is listed with
+ * only its version and protocol_version, so that it can be flashed again.
  * Synchronization: Any thread.
  * Returns: MIMHID_OK, also when no board was found; MIMHID_ERR_PARAM for a null out_discovery;
  * MIMHID_ERR_UNSET_FIELD for a zero timeout. */
@@ -1024,14 +1051,15 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
 /* mimhid_device_open
  * Ownership: Copies config; the caller closes the Device with mimhid_device_close.
  * Blocking: Opens port_path (such as "/dev/ttyACM0" or "COM3") for this process alone, looks for
- * the board at the boot rate and then at each rate of MIMHID_BAUD_RATES (waiting
+ * the board at the boot rate (and after a BREAK, for one left on a fast rate; waiting
  * transport.handshake_timeout_ms for each answer), reads its limits, moves the link to
- * transport.baud_rate, and starts the reader thread. It sends no configuration: the board's USB
- * device stays off the target until a Node is opened.
+ * transport.baud_rate and checks it with a short burst of test frames (MIMHID_BAUD_FASTEST
+ * measures instead, which takes up to a few seconds), and starts the reader thread. It sends no
+ * configuration: the board's USB device stays off the target until a Node is opened.
  * Synchronization: Any thread, one call per port.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null pointer, a wrong struct_size or a bad value;
- * MIMHID_ERR_UNSET_FIELD for a required field left zero; MIMHID_ERR_UNSUPPORTED for a rate not in
- * MIMHID_BAUD_RATES, one the board cannot make, or one the adapter or wiring did not carry;
+ * MIMHID_ERR_UNSET_FIELD for a required field left zero; MIMHID_ERR_UNSUPPORTED for a rate the
+ * board cannot make, or one the adapter or wiring did not carry;
  * MIMHID_ERR_OVERFLOW for a maximum_report_bytes the board does not take; MIMHID_ERR_TIMEOUT when
  * no board answered; MIMHID_ERR_PROTOCOL for firmware of another protocol version;
  * MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY or MIMHID_ERR_IO for a port that cannot be opened (another
@@ -1176,6 +1204,20 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_devic
  * struct_size. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
                                                           mimhid_board_limits* out_limits);
+
+/* mimhid_device_link_counters
+ * Ownership: Fills the caller's out_counters (set its struct_size; mimhid_link_counters_init
+ * does).
+ * Blocking: One command to the board, waiting up to control_timeout_ms for its answer.
+ * Synchronization: Device domain.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null out_counters or a wrong
+ * struct_size; MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_TIMEOUT or MIMHID_ERR_IO
+ * when the board did not answer. With reset
+ * nonzero the board's counters are zeroed after being read: a program that wants to see a link
+ * degrade reads them now and then. Any lost byte shows there, not in the report stream. */
+MIMHID_API mimhid_result MIMHID_CALL
+mimhid_device_link_counters(mimhid_device* device, uint32_t reset, uint32_t control_timeout_ms,
+                            mimhid_link_counters* out_counters);
 
 /* ---- Control transfers of the target ----------------------------------------------------
  * Besides the reports, the target talks to the board on endpoint 0: descriptors, class and vendor

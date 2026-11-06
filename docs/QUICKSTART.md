@@ -84,7 +84,7 @@ build/examples/basic_keyboard_mouse          # Linux, macOS
 build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 ```
 
-`mimhid_discover` reports the port, the bridge description, the firmware version and limits (`max_interfaces`, `max_nodes`) the board sent in its answer, its chip and unique id, and the fastest rate the bridge carried (`baud_rate`).
+`mimhid_discover` reports the port, the bridge description, the firmware version and limits (`max_interfaces`, `max_nodes`) the board sent in its answer, its chip and unique id, and the fastest rate the link carried without loss (`baud_rate`). Opening with `MIMHID_BAUD_FASTEST` instead measures it then (a second or two); passing the reported `baud_rate` is quicker.
 
 ---
 
@@ -124,4 +124,4 @@ Each uses the first board `mimhid_discover` finds, with the pid.codes test USB i
 | `MIMHID_ERR_OVERFLOW` on `mimhid_node_open` | The board has no interface, node, or descriptor space left for this node (see [LIMITS.md](LIMITS.md)). |
 | A held control transfer never completes (the target retries or gives up) | The rule's `timeout_ms` is longer than the target waits, or nothing calls `mimhid_device_control_reply`. Keep the time short and answer from the event sink. |
 | `MIMHID_ERR_UNSET_FIELD` from `mimhid_device_set_control_routing` | A rule has `timeout_ms` or `when_late` at zero. Both are required. |
-| Discovery works with other devices attached | Discovery sends a 5-byte ping to every USB serial port (`/dev/ttyUSB*` and `/dev/ttyACM*` on Linux, `/dev/cu.usb*` on macOS, USB COM ports on Windows) at each rate of `MIMHID_BAUD_RATES` until one answers; a device that does not answer is skipped, and a port another program has open is not touched. |
+| Discovery works with other devices attached | Discovery sends a 5-byte ping to every USB serial port (`/dev/ttyUSB*` and `/dev/ttyACM*` on Linux, `/dev/cu.usb*` on macOS, USB COM ports on Windows) at the boot rate and, when nothing answers, a 10 ms BREAK and another ping; a device that does not answer is skipped, and a port another program has open is not touched. |

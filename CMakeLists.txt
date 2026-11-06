@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 2.1.0 LANGUAGES C CXX
+project(libmimhid VERSION 2.2.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -101,14 +101,17 @@ set(MIMHID_SOURCES
     src/hid/validator.cpp
     src/profiles/spec.cpp
     src/profiles/state.cpp
+    src/transport/frame.cpp
     src/transport/link.cpp
+    src/transport/handshaker.cpp
 )
 if(WIN32)
     list(APPEND MIMHID_SOURCES src/transport/serial_win32.cpp src/transport/ports_win32.cpp)
 elseif(APPLE)
     list(APPEND MIMHID_SOURCES src/transport/serial_posix.cpp src/transport/ports_macos.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    list(APPEND MIMHID_SOURCES src/transport/serial_posix.cpp src/transport/ports_linux.cpp)
+    list(APPEND MIMHID_SOURCES src/transport/serial_posix.cpp src/transport/serial_baud_linux.cpp
+         src/transport/ports_linux.cpp)
 else()
     message(FATAL_ERROR "libmimhid has no serial backend for ${CMAKE_SYSTEM_NAME}")
 endif()

@@ -35,29 +35,13 @@ bool set_read_timeout(HANDLE h, DWORD timeout_ms, DWORD write_stall_ms) noexcept
 
 } // namespace
 
+void set_break_observer(BreakObserver) noexcept {}
+
 SerialPort::SerialPort() noexcept
     : handle_(reinterpret_cast<std::intptr_t>(INVALID_HANDLE_VALUE)), read_event_(nullptr),
       write_event_(nullptr) {}
 
 SerialPort::~SerialPort() { close(); }
-
-bool SerialPort::baud_supported(std::uint32_t baud) noexcept {
-    switch (baud) {
-    case 115200:
-    case 230400:
-    case 460800:
-    case 576000:
-    case 921600:
-    case 1000000:
-    case 1500000:
-    case 2000000:
-    case 3000000:
-    case 4000000:
-        return true;
-    default:
-        return false;
-    }
-}
 
 bool SerialPort::is_open() const noexcept {
     return handle_ != reinterpret_cast<std::intptr_t>(INVALID_HANDLE_VALUE);
@@ -65,8 +49,8 @@ bool SerialPort::is_open() const noexcept {
 
 OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
     OpenResult result;
-    if (!baud_supported(baud)) {
-        result.step = OpenStep::unsupported_baud;
+    if (baud == 0U) {
+        result.step = OpenStep::speed;
         return result;
     }
     HANDLE h = CreateFileA(device_path(path).c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
@@ -128,7 +112,7 @@ OpenResult SerialPort::open(const char* path, std::uint32_t baud) noexcept {
 }
 
 bool SerialPort::set_baud(std::uint32_t baud) noexcept {
-    if (!is_open() || !baud_supported(baud))
+    if (!is_open() || baud == 0U)
         return false;
     HANDLE h = reinterpret_cast<HANDLE>(handle_);
     FlushFileBuffers(h);
@@ -140,6 +124,19 @@ bool SerialPort::set_baud(std::uint32_t baud) noexcept {
     dcb.BaudRate = baud;
     if (!SetCommState(h, &dcb))
         return false;
+    PurgeComm(h, PURGE_RXCLEAR);
+    return true;
+}
+
+bool SerialPort::send_break(std::uint32_t ms) noexcept {
+    if (!is_open())
+        return false;
+    HANDLE h = reinterpret_cast<HANDLE>(handle_);
+    FlushFileBuffers(h);
+    if (!SetCommBreak(h))
+        return false;
+    Sleep(ms);
+    ClearCommBreak(h);
     PurgeComm(h, PURGE_RXCLEAR);
     return true;
 }

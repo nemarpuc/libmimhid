@@ -14,18 +14,21 @@
 
 static uint8_t  g_dma_buf[DMA_BUF_SIZE];
 static uint32_t g_read_idx = 0;
+// Set when a read finds the ring three quarters full: a lap cannot be seen once it happened.
+static bool g_ring_high = false;
 
 // The divider for baud: PCLK1 / baud in 1/16 steps (oversampling by 16), or in 1/8 steps
 // (by 8) when the first would be below 1. Zero when neither comes within 2 %.
 typedef struct {
     uint32_t brr;
     bool over8;
+    uint32_t actual; // the rate this divider gives, whether or not it is within 2 %
 } divider_t;
 
 static divider_t divider(uint32_t baud) {
     const uint32_t clock = HAL_RCC_GetPCLK1Freq();
     const uint32_t v = (clock + baud / 2u) / baud; // clock / baud, rounded
-    divider_t d = {0, false};
+    divider_t d = {0, false, 0};
     if (v >= 16u) {
         d.brr = v;
     } else if (v >= 8u) {
@@ -35,6 +38,7 @@ static divider_t divider(uint32_t baud) {
         return d;
     }
     const uint32_t actual = clock / v;
+    d.actual = actual;
     const uint32_t error = actual > baud ? actual - baud : baud - actual;
     if (error * 50u > baud) d.brr = 0;
     return d;
@@ -53,7 +57,9 @@ void hal_init(void) {
 
     // Reprogram USART2 for the boot rate, 8N1.
     USART2->CR1 &= ~USART_CR1_UE;
-    USART2->CR2 = 0;
+    // LIN mode with the 10-bit break length: the only way this USART flags a BREAK (LBD) without
+    // a read of DR, which the DMA owns. Data is received as usual.
+    USART2->CR2 = USART_CR2_LINEN;
     USART2->CR3 = USART_CR3_DMAR;
     set_rate(divider(MIMHID_BOOT_BAUD));
 
@@ -76,6 +82,7 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     uint32_t write_idx = (DMA_BUF_SIZE - DMA1_Stream5->NDTR) & DMA_BUF_MASK;
     uint32_t avail = (write_idx - g_read_idx) & DMA_BUF_MASK;
     if (avail == 0 || max == 0) return 0;
+    if (avail >= DMA_BUF_SIZE - DMA_BUF_SIZE / 4u) g_ring_high = true;
     if (avail > max) avail = (uint32_t)max;
     uint32_t first = DMA_BUF_SIZE - g_read_idx;
     if (first > avail) first = avail;
@@ -97,8 +104,37 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     }
 }
 
-bool hal_uart_baud_ok(uint32_t baud) {
-    return divider(baud).brr != 0;
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    return baud == 0 ? 0u : divider(baud).actual;
+}
+
+// The smallest divider is 8 (oversampling by 8).
+uint32_t hal_uart_max_baud(void) {
+    return HAL_RCC_GetPCLK1Freq() / 8u;
+}
+
+bool hal_uart_has_break(void) {
+    return true;
+}
+
+uint8_t hal_uart_errors(void) {
+    const uint32_t sr = USART2->SR;
+    uint8_t out = 0;
+    if (sr & USART_SR_LBD) {
+        out |= HAL_UART_ERR_BREAK;
+        USART2->SR = ~USART_SR_LBD; // writing 0 clears LBD; the other flags are read-only
+    } else if (sr & USART_SR_FE) {
+        out |= HAL_UART_ERR_FRAMING;
+    }
+    if (sr & USART_SR_ORE) out |= HAL_UART_ERR_OVERRUN;
+    // FE, NE and ORE clear on a read of SR followed by a read of DR. A byte that arrives between
+    // the two reads is lost, but the line has just shown an error.
+    if (sr & (USART_SR_FE | USART_SR_NE | USART_SR_ORE)) (void)USART2->DR;
+    if (g_ring_high) {
+        out |= HAL_UART_ERR_RING;
+        g_ring_high = false;
+    }
+    return out;
 }
 
 // hal_uart_write returns only once its last byte has left. The DMA receiver keeps running.

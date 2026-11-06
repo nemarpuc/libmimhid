@@ -10,7 +10,8 @@ use std::process::Command;
 
 fn rust_layout() -> BTreeMap<String, i64> {
     let mut map = BTreeMap::new();
-    map.insert("MIMHID_BAUD_COUNT".to_owned(), MIMHID_BAUD_COUNT as i64);
+    map.insert("MIMHID_BAUD_FASTEST".to_owned(), MIMHID_BAUD_FASTEST as i64);
+    map.insert("MIMHID_BOOT_BAUD".to_owned(), MIMHID_BOOT_BAUD as i64);
     map.insert("MIMHID_CHIP_ESP32S3".to_owned(), MIMHID_CHIP_ESP32S3 as i64);
     map.insert("MIMHID_CHIP_NRF52840".to_owned(), MIMHID_CHIP_NRF52840 as i64);
     map.insert("MIMHID_CHIP_RP2040".to_owned(), MIMHID_CHIP_RP2040 as i64);
@@ -138,7 +139,8 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_device_info.has_unique_id".to_owned(), offset_of!(mimhid_device_info, has_unique_id) as i64);
     map.insert("mimhid_device_info.reserved8".to_owned(), offset_of!(mimhid_device_info, reserved8) as i64);
     map.insert("mimhid_device_info.baud_rate".to_owned(), offset_of!(mimhid_device_info, baud_rate) as i64);
-    map.insert("mimhid_device_info.baud_mask".to_owned(), offset_of!(mimhid_device_info, baud_mask) as i64);
+    map.insert("mimhid_device_info.max_baud".to_owned(), offset_of!(mimhid_device_info, max_baud) as i64);
+    map.insert("mimhid_device_info.uart_flags".to_owned(), offset_of!(mimhid_device_info, uart_flags) as i64);
     map.insert("mimhid_device_info.chip".to_owned(), offset_of!(mimhid_device_info, chip) as i64);
     map.insert("mimhid_device_info.usb_high_speed".to_owned(), offset_of!(mimhid_device_info, usb_high_speed) as i64);
     map.insert("mimhid_device_info.unique_id_length".to_owned(), offset_of!(mimhid_device_info, unique_id_length) as i64);
@@ -153,6 +155,14 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_board_limits.max_frame_payload".to_owned(), offset_of!(mimhid_board_limits, max_frame_payload) as i64);
     map.insert("mimhid_board_limits.max_control_data_bytes".to_owned(), offset_of!(mimhid_board_limits, max_control_data_bytes) as i64);
     map.insert("mimhid_board_limits.max_control_rules".to_owned(), offset_of!(mimhid_board_limits, max_control_rules) as i64);
+    map.insert("mimhid_link_counters.size".to_owned(), size_of::<mimhid_link_counters>() as i64);
+    map.insert("mimhid_link_counters.struct_size".to_owned(), offset_of!(mimhid_link_counters, struct_size) as i64);
+    map.insert("mimhid_link_counters.reserved".to_owned(), offset_of!(mimhid_link_counters, reserved) as i64);
+    map.insert("mimhid_link_counters.bad_crc".to_owned(), offset_of!(mimhid_link_counters, bad_crc) as i64);
+    map.insert("mimhid_link_counters.framing".to_owned(), offset_of!(mimhid_link_counters, framing) as i64);
+    map.insert("mimhid_link_counters.uart_overrun".to_owned(), offset_of!(mimhid_link_counters, uart_overrun) as i64);
+    map.insert("mimhid_link_counters.ring_overrun".to_owned(), offset_of!(mimhid_link_counters, ring_overrun) as i64);
+    map.insert("mimhid_link_counters.probes_good".to_owned(), offset_of!(mimhid_link_counters, probes_good) as i64);
     map.insert("mimhid_usb_device.size".to_owned(), size_of::<mimhid_usb_device>() as i64);
     map.insert("mimhid_usb_device.bcd_usb".to_owned(), offset_of!(mimhid_usb_device, bcd_usb) as i64);
     map.insert("mimhid_usb_device.device_class".to_owned(), offset_of!(mimhid_usb_device, device_class) as i64);

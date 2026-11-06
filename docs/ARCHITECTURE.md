@@ -21,7 +21,7 @@ flowchart TD
     API["src/api: C ABI boundary (validation, handles, errors, node_open/raw, commit, bus control)"]
     Prof["src/profiles: Specs (descriptor + layout) & node state machines"]
     HID["src/hid: Report descriptor builder, validator, item writer"]
-    Trans["src/transport: Link (framing, ACK/retry, reader thread) over SerialPort"]
+    Trans["src/transport: Link (ACK/retry, reader thread), Handshaker (finds the board and the line rate) and the frame codec, over SerialPort"]
     FWCore["firmware/common: Portable core (frame parser, staged config, descriptor builder, lock-free queues)"]
     HAL["firmware/<port>: HAL (UART DMA/IRQ, clock, unique ID) + TinyUSB"]
     Target["Target Device (USB Host)"]

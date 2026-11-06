@@ -6,6 +6,7 @@
 #include "mimhid.h"
 #include "mimhid_proto.h"
 #include "test.hpp"
+#include "transport/handshaker.hpp"
 #include "transport/link.hpp"
 
 #include <array>
@@ -286,7 +287,8 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
     MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
                  board.unique_id[0] == 0xDE && board.unique_id[7] == 0x04);
-    MIMHID_CHECK(board.baud_mask == 0x00FF && board.baud_rate == 3000000U);
+    MIMHID_CHECK(board.max_baud == 3000000U && board.uart_flags == MIMHID_UART_FLAG_BREAK &&
+                 board.baud_rate == 3000000U);
 
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_spec* mouse = mouse_spec(2);
@@ -831,17 +833,9 @@ void test_keep_attached_and_discovery() {
 
 // Frames written by hand on the slave end, as another program would.
 void raw_frame(int fd, std::uint8_t type, const std::uint8_t* payload, std::uint8_t length) {
-    std::uint8_t frame[8];
-    std::uint8_t x = static_cast<std::uint8_t>(type ^ length);
-    frame[0] = MIMHID_SYNC;
-    frame[1] = type;
-    frame[2] = length;
-    for (std::uint8_t i = 0; i < length; ++i) {
-        frame[3 + i] = payload[i];
-        x = static_cast<std::uint8_t>(x ^ payload[i]);
-    }
-    frame[3 + length] = x;
-    MIMHID_CHECK(write(fd, frame, 4U + length) == 4 + length);
+    std::uint8_t frame[16];
+    const std::size_t n = mimhid::transport::encode_frame(type, payload, length, frame);
+    MIMHID_CHECK(write(fd, frame, n) == static_cast<ssize_t>(n));
 }
 
 bool raw_answer(int fd, std::uint8_t type) {
@@ -903,6 +897,9 @@ std::uint32_t measure() {
 
 void test_line_rate() {
     mimhid_result r = MIMHID_OK;
+    // A pseudo-terminal carries no BREAK; the board is told of it directly.
+    mimhid::transport::set_break_observer([] { fake_board_inject_errors(FAKE_BOARD_BREAK); });
+
     // The rate is the caller's: none is chosen for it.
     mimhid_device* device = open_at(0, &r);
     MIMHID_CHECK(r == MIMHID_ERR_UNSET_FIELD && device == nullptr);
@@ -912,32 +909,50 @@ void test_line_rate() {
     device = open_at(3000000U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
     MIMHID_CHECK(fake_board_baud() == 3000000U);
+    // The line lost nothing; the counters say so, and a reset zeroes them.
+    mimhid_link_counters counters{};
+    mimhid_link_counters_init(&counters);
+    MIMHID_CHECK(mimhid_device_link_counters(device, 1, kControlMs, &counters) == MIMHID_OK);
+    MIMHID_CHECK(counters.bad_crc == 0 && counters.framing == 0 && counters.uart_overrun == 0 &&
+                 counters.ring_overrun == 0);
     mimhid_device_close(device, kControlMs, kDrainMs);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
+    // The caller may ask for the measurement itself; the board is never left on a slower rate
+    // than the one reported.
+    device = open_at(MIMHID_BAUD_FASTEST, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 3000000U);
+    mimhid_device_close(device, kControlMs, kDrainMs);
+
     // An adapter that cannot go past 1,000,000 sends at that rate whatever it is set to: the
-    // faster rates are tried and given up, and 1,000,000 is measured.
+    // faster rates are tried and given up, and a rate within 2 % of 1,000,000 is measured.
     fake_board_set_adapter_limit(1000000U);
-    MIMHID_CHECK(measure() == 1000000U && fake_board_baud() == MIMHID_BOOT_BAUD);
+    const std::uint32_t limited = measure();
+    MIMHID_CHECK(limited >= 960000U && limited <= 1000000U &&
+                 fake_board_baud() == MIMHID_BOOT_BAUD);
     // A rate the adapter does not carry fails, and leaves the board on the boot rate.
     device = open_at(2000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
     MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
     fake_board_set_adapter_limit(0);
 
-    // A rate the board cannot make, and a slower one.
+    // A rate past what the board makes, and rates that are in no table.
     device = open_at(4000000U, &r);
     MIMHID_CHECK(r == MIMHID_ERR_UNSUPPORTED && device == nullptr);
     device = open_at(921600U, &r);
     MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 921600U && fake_board_baud() == 921600U);
     mimhid_device_close(device, kControlMs, kDrainMs);
+    device = open_at(1234567U, &r);
+    MIMHID_CHECK(r == MIMHID_OK && link_baud(device) == 1234567U && fake_board_baud() == 1234567U);
+    mimhid_device_close(device, kControlMs, kDrainMs);
+    MIMHID_CHECK(fake_board_baud() == MIMHID_BOOT_BAUD);
 
-    // A program that went away left the board on 3,000,000: it is found there.
+    // A program that went away left the board on 3,000,000: a BREAK brings it back.
     const int fd = open(g_slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     MIMHID_CHECK(fd >= 0);
     set_speed(fd, 115200U);
-    const std::uint8_t to_fast[2] = {0x55, 7};
-    raw_frame(fd, MIMHID_T_SET_BAUD, to_fast, 2);
+    const std::uint8_t to_fast[5] = {0x55, 0xC0, 0xC6, 0x2D, 0x00}; // 3,000,000 = 0x002DC6C0
+    raw_frame(fd, MIMHID_T_SET_BAUD, to_fast, 5);
     MIMHID_CHECK(raw_answer(fd, MIMHID_T_ACK));
     set_speed(fd, 3000000U);
     const std::uint8_t version[1] = {MIMHID_PROTO_VERSION};
@@ -1064,8 +1079,8 @@ void test_bad_arguments() {
     o.usb_config.bmax_power = 251;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
     o = base_options();
-    o.transport.baud_rate = 12345;
-    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSUPPORTED);
+    o.transport.baud_rate = 0;
+    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
     o.usb_device.manufacturer = "caf\xC3\xA9";
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);

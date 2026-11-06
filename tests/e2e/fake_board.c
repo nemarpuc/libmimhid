@@ -39,48 +39,13 @@ static pthread_mutex_t g_tx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static volatile uint32_t g_board_baud = MIMHID_BOOT_BAUD;
 static volatile uint32_t g_adapter_limit = 0;
+static volatile uint32_t g_board_max = 3000000u; // what the fake UART makes
+static uint8_t g_errors;
 
 // What the host's side sends at: the pty shares one termios between its ends.
+extern uint32_t fake_board_pty_baud(int fd); // pty_baud.c (Linux: TCGETS2) or tcgetattr
 static uint32_t host_baud(void) {
-    struct termios tio;
-    if (tcgetattr(g_fd, &tio) != 0)
-        return 0;
-    uint32_t baud = 0;
-#ifdef __APPLE__
-    baud = (uint32_t)cfgetospeed(&tio); // speeds are plain numbers there
-#else
-    switch (cfgetospeed(&tio)) {
-    case B115200:
-        baud = 115200;
-        break;
-    case B230400:
-        baud = 230400;
-        break;
-    case B460800:
-        baud = 460800;
-        break;
-    case B921600:
-        baud = 921600;
-        break;
-    case B1000000:
-        baud = 1000000;
-        break;
-    case B1500000:
-        baud = 1500000;
-        break;
-    case B2000000:
-        baud = 2000000;
-        break;
-    case B3000000:
-        baud = 3000000;
-        break;
-    case B4000000:
-        baud = 4000000;
-        break;
-    default:
-        break;
-    }
-#endif
+    uint32_t baud = fake_board_pty_baud(g_fd);
     if (g_adapter_limit != 0 && baud > g_adapter_limit)
         baud = g_adapter_limit;
     return baud;
@@ -97,7 +62,12 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     return n > 0 && line_matches() ? (size_t)n : 0;
 }
 
-bool hal_uart_baud_ok(uint32_t baud) { return baud <= 3000000u; }
+uint32_t hal_uart_baud_actual(uint32_t baud) {
+    return (baud == 0 || baud > g_board_max) ? 0u : baud;
+}
+uint32_t hal_uart_max_baud(void) { return g_board_max; }
+bool hal_uart_has_break(void) { return true; }
+uint8_t hal_uart_errors(void) { return __atomic_exchange_n(&g_errors, 0, __ATOMIC_ACQ_REL); }
 void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
 uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
 void hal_control_silent_drop(void) {}
@@ -351,7 +321,7 @@ static void* board_main(void* arg) {
     (void)arg;
     mimhid_core_init();
     mimhid_control_set_single_context(true);
-    while (g_run) {
+    while (__atomic_load_n(&g_run, __ATOMIC_ACQUIRE)) {
         mimhid_rx_poll();
         mimhid_usb_poll();
         run_actions();
@@ -372,12 +342,12 @@ static void* board_main(void* arg) {
 
 int fake_board_start(int fd) {
     g_fd = fd;
-    g_run = true;
+    __atomic_store_n(&g_run, true, __ATOMIC_RELEASE);
     return pthread_create(&g_thread, NULL, board_main, NULL);
 }
 
 void fake_board_stop(void) {
-    g_run = false;
+    __atomic_store_n(&g_run, false, __ATOMIC_RELEASE);
     pthread_join(g_thread, NULL);
 }
 
@@ -508,3 +478,6 @@ void fake_board_target_set_idle(uint8_t iface, uint8_t rate) {
 void fake_board_set_mount_delay_ms(unsigned ms) { g_mount_delay_ms = ms; }
 uint32_t fake_board_baud(void) { return g_board_baud; }
 void fake_board_set_adapter_limit(uint32_t baud) { g_adapter_limit = baud; }
+void fake_board_inject_errors(uint8_t bits) {
+    __atomic_fetch_or(&g_errors, bits, __ATOMIC_ACQ_REL);
+}

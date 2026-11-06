@@ -7,6 +7,7 @@
  */
 
 #include "api/internal.hpp"
+#include "transport/handshaker.hpp"
 #include "transport/link.hpp"
 #include "transport/serial_port.hpp"
 
@@ -37,7 +38,9 @@ constexpr int kCommandAttempts = 3;
 
 // The public header repeats the wire protocol's tables.
 static_assert(MIMHID_PROTOCOL_VERSION == MIMHID_PROTO_VERSION);
-static_assert(tr::kBaudRates == std::array<std::uint32_t, MIMHID_BAUD_COUNT>(MIMHID_BAUD_RATES));
+static_assert(MIMHID_BOOT_BAUD == 115200U);
+// The wire flag and the public one are the same bit.
+static_assert(MIMHID_UART_FLAG_BREAK == MIMHID_PONG_UART_BREAK);
 static_assert(MIMHID_CHIP_RP2040 == 1 && MIMHID_CHIP_RP2350 == 2 && MIMHID_CHIP_ESP32S3 == 3 &&
               MIMHID_CHIP_NRF52840 == 4 && MIMHID_CHIP_STM32F4 == 5);
 static_assert(sizeof(mimhid_device_info::unique_id) == MIMHID_UNIQUE_ID_MAX);
@@ -248,12 +251,6 @@ mimhid_result prepare_device_config(const mimhid_device_config* config,
             set_error(MIMHID_ERR_UNSET_FIELD, field, "This value is required.");
             return MIMHID_ERR_UNSET_FIELD;
         }
-    }
-    if (tr::baud_index_of(effective->transport.baud_rate) < 0 ||
-        !tr::SerialPort::baud_supported(effective->transport.baud_rate)) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "transport.baud_rate",
-                  "The rate is not one of MIMHID_BAUD_RATES that this system can set.");
-        return MIMHID_ERR_UNSUPPORTED;
     }
     if (!required_product_policies_nonzero(effective->transport)) {
         set_error(MIMHID_ERR_UNSET_FIELD, "transport.linux_hid",
@@ -1041,7 +1038,8 @@ mimhid_device_info describe_board(const std::string& port, const std::string& de
     info.max_descriptor_bytes = board.max_descriptor_bytes;
     info.has_unique_id = board.has_unique_id ? 1U : 0U;
     info.baud_rate = baud;
-    info.baud_mask = board.baud_mask;
+    info.max_baud = board.max_baud;
+    info.uart_flags = board.uart_flags;
     info.chip = board.chip;
     info.usb_high_speed = board.usb_high_speed ? 1U : 0U;
     info.unique_id_length = board.unique_id_length;
@@ -1123,8 +1121,14 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
             std::uint32_t fastest = handshake.rate();
             if (board.protocol == MIMHID_PROTO_VERSION) {
                 fastest = handshake.fastest(&board);
-                if (fastest == 0U || !handshake.to_boot(&board))
+                // A link that could not be measured is listed on the boot rate, not dropped.
+                if (fastest == 0U) {
+                    fastest = MIMHID_BOOT_BAUD;
+                    if (!handshake.to_boot(&board) && !handshake.find(&board))
+                        return;
+                } else if (!handshake.to_boot(&board)) {
                     return;
+                }
             }
             found[i] = describe_board(ports[i].path, ports[i].description, board, fastest);
         });
@@ -1219,10 +1223,14 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     }
     // The board's own limits and the line rate come from talking to it.
     tr::Handshaker handshake(device->link.port(), device->config.transport.handshake_timeout_ms);
-    if (!handshake.find(&device->board)) {
+    if (!handshake.find(&device->board, effective.transport.baud_rate == MIMHID_BAUD_FASTEST
+                                            ? 0U
+                                            : effective.transport.baud_rate)) {
         set_error(MIMHID_ERR_TIMEOUT, "port",
-                  "No board answered on this port at any rate (check the firmware is libmimhid "
-                  "1.0.1 or newer, the wiring, and the port).");
+                  "No board answered on this port, not even after a BREAK (check that the firmware "
+                  "is from this libmimhid release, the wiring, and the port; a board a crashed "
+                  "program left on a fast rate behind an adapter that cannot send a BREAK needs "
+                  "its power cycled, or baud_rate set to the rate it was on).");
         return MIMHID_ERR_TIMEOUT;
     }
     if (device->board.protocol != MIMHID_PROTO_VERSION) {
@@ -1232,7 +1240,17 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   0, 0, 0, 0, MIMHID_PROTO_VERSION, device->board.protocol);
         return MIMHID_ERR_PROTOCOL;
     }
-    switch (handshake.switch_to(effective.transport.baud_rate, &device->board)) {
+    std::uint32_t baud = effective.transport.baud_rate;
+    tr::Handshake agreed = tr::Handshake::ok;
+    if (baud == MIMHID_BAUD_FASTEST) {
+        baud = handshake.fastest(&device->board);
+        if (baud == 0U)
+            agreed = tr::Handshake::io_error;
+    } else {
+        agreed = handshake.switch_to(baud, &device->board);
+    }
+    effective.transport.baud_rate = baud;
+    switch (agreed) {
     case tr::Handshake::ok:
         break;
     case tr::Handshake::rate_refused:
@@ -1241,8 +1259,8 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
         return MIMHID_ERR_UNSUPPORTED;
     case tr::Handshake::rate_failed:
         set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
-                  "The link did not carry this rate: the serial adapter or the wiring does not "
-                  "support it. mimhid_discover measures the fastest rate that works.");
+                  "The link did not carry this rate without loss: the serial adapter or the wiring "
+                  "does not support it. MIMHID_BAUD_FASTEST measures the fastest rate that works.");
         return MIMHID_ERR_UNSUPPORTED;
     case tr::Handshake::no_board:
     case tr::Handshake::io_error:
@@ -1423,8 +1441,11 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
     }
     // The next program to open the board, or a search, finds it at once on the boot rate.
     if (!device->link.failed() && device->info.baud_rate != MIMHID_BOOT_BAUD) {
-        const std::uint8_t boot[1] = {0U};
-        (void)device->link.command(MIMHID_T_SET_BAUD, boot, 1, control_timeout_ms, 1);
+        const std::uint8_t boot[4] = {static_cast<std::uint8_t>(MIMHID_BOOT_BAUD & 0xFFU),
+                                      static_cast<std::uint8_t>((MIMHID_BOOT_BAUD >> 8) & 0xFFU),
+                                      static_cast<std::uint8_t>((MIMHID_BOOT_BAUD >> 16) & 0xFFU),
+                                      static_cast<std::uint8_t>(MIMHID_BOOT_BAUD >> 24)};
+        (void)device->link.command(MIMHID_T_SET_BAUD, boot, sizeof(boot), control_timeout_ms, 1);
     }
     if (device->link.failed() && retained == MIMHID_OK) {
         set_error(MIMHID_ERR_NO_DEVICE, "device.close",
@@ -1566,6 +1587,38 @@ mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_device* device,
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.board_info")
+
+mimhid_result MIMHID_CALL mimhid_device_link_counters(mimhid_device* device, const uint32_t reset,
+                                                      const uint32_t control_timeout_ms,
+                                                      mimhid_link_counters* out_counters) try {
+    mimhid::detail::clear_error();
+    if (device == nullptr || out_counters == nullptr ||
+        !mimhid::detail::valid_struct(out_counters, out_counters->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*out_counters)),
+                                      "link_counters")) {
+        set_error(MIMHID_ERR_PARAM, "device",
+                  "A Device and an output with its struct_size set are required.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (!reserved_is_zero(out_counters->reserved, "link_counters.reserved"))
+        return MIMHID_ERR_PARAM;
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
+    tr::LinkCounters counters;
+    const tr::CommandResult sent =
+        device->link.counters(reset != 0U, control_timeout_ms, &counters);
+    if (!sent.ok())
+        return command_error(sent, "device.link_counters", "The board did not report its counters.",
+                             MIMHID_T_COUNTERS);
+    out_counters->bad_crc = counters.bad_crc;
+    out_counters->framing = counters.framing;
+    out_counters->uart_overrun = counters.uart_overrun;
+    out_counters->ring_overrun = counters.ring_overrun;
+    out_counters->probes_good = counters.probes_good;
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("device.link_counters")
 
 mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
                                                mimhid_board_limits* out_limits) try {

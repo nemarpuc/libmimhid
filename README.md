@@ -6,7 +6,7 @@ USB-to-UART bridge, and three wires ([QUICKSTART.md](docs/QUICKSTART.md)).
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
-> Version 2.1.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 2.2.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -43,7 +43,7 @@ mimhid_device_config_init(&config);   /* working values; see docs/API.md */
  * hand out needs IDs of its own. */
 config.usb_device.vendor_id = 0x1209;
 config.usb_device.product_id = 0x0001;
-config.transport.baud_rate = 3000000; /* the fastest rate mimhid_discover() found for the port */
+config.transport.baud_rate = MIMHID_BAUD_FASTEST; /* measure the fastest rate this link carries */
 
 mimhid_device* device = NULL;
 mimhid_device_open("/dev/ttyACM0", &config, &device);

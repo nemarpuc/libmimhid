@@ -19,18 +19,18 @@ application call
 
 | Stage | Bound | Basis |
 |---|---|---|
-| UART wire time, 9-byte report at 921,600 baud | 141.0 µs | (9 + 4) bytes x 10 bits / 921,600 |
-| UART wire time, 9-byte report at 2,000,000 baud | 65.0 µs | 13 bytes x 10 bits / 2,000,000 |
-| UART wire time, 9-byte report at 3,000,000 baud | 43.3 µs | 13 bytes x 10 bits / 3,000,000 |
+| UART wire time, 9-byte report at 921,600 baud | 152.0 µs | (9 + 5) bytes x 10 bits / 921,600 |
+| UART wire time, 9-byte report at 3,000,000 baud | 46.7 µs | 14 bytes x 10 bits / 3,000,000 |
+| UART wire time, 9-byte report at 12,000,000 baud | 11.7 µs | 14 bytes x 10 bits / 12,000,000 |
 | USB poll wait | 0 to 1000 µs, 500 µs on average | Full-Speed interrupt endpoint with `bInterval = 1` |
 | USB-UART bridge buffering | not characterized | Depends on the adapter and driver |
 | Core 1 to core 0 hand-off, TinyUSB, target OS | not measured | |
 
-The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term. The rate is the fastest one the board and the serial adapter carry (see [PROTOCOL.md](PROTOCOL.md#line-rate)).
+The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term. The rate is the fastest one the board, the operating system and the serial adapter carry without loss: no table caps it, the search starts at the board's `max_baud` (see [PROTOCOL.md](PROTOCOL.md#line-rate)), and `mimhid_device_link_counters` shows whether the line keeps losing nothing while the program runs. A High-Speed target-facing port would shorten the larger term (125 µs microframes instead of 1 ms frames); the firmware has no High-Speed port yet.
 
 ## Host serial latency
 
-Many USB-UART bridges hold received bytes until a latency timer expires. FTDI drivers default to 16 ms on Windows and macOS and to a similar value on Linux; CP210x bridges can add milliseconds as well.
+Many USB-UART bridges hold received bytes until a latency timer expires. FTDI drivers default to 16 ms on Windows and macOS and to a similar value on Linux; CP210x bridges can add milliseconds as well. The timer delays only the direction from the adapter to the PC: the board's answers (`ACK`, `PONG`) and events, which the host waits for while it configures the board, and the link test. Reports go the other way (PC to adapter to board) and are not held by it.
 
 Linux: `libmimhid` automatically sets `ASYNC_LOW_LATENCY` via `TIOCGSERIAL` / `TIOCSSERIAL` when opening the serial port. It can also be set manually:
 
@@ -38,7 +38,7 @@ Linux: `libmimhid` automatically sets `ASYNC_LOW_LATENCY` via `TIOCGSERIAL` / `T
 setserial /dev/ttyUSB0 low_latency
 ```
 
-For FTDI devices the timer is also exposed as `/sys/bus/usb-serial/devices/ttyUSB0/latency_timer`.
+For FTDI devices the timer is also exposed as `/sys/bus/usb-serial/devices/ttyUSB0/latency_timer`; `udev/51-mimhid.rules` sets it to 1 ms for the FT232R/H bridges when they are plugged in.
 
 Windows: Device Manager > the COM port > Port Settings > Advanced > Latency Timer, set to 1 ms.
 

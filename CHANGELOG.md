@@ -3,6 +3,34 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-06
+
+The line is as fast as the link carries: there is no table of rates and no rate ceiling in the software. The wire protocol is 7, and **a board needs the firmware of this release** (version 6 firmware is refused with `MIMHID_ERR_PROTOCOL`); this release changes `mimhid_device_info` and removes two macros, which breaks the ABI of 2.1.x although the soname stays 2 (no program outside this workspace was known to use the library).
+
+### Added
+
+- **Any line rate.** `transport.baud_rate` is `MIMHID_BOOT_BAUD`, any rate up to the board's `max_baud`, or the new `MIMHID_BAUD_FASTEST`, which measures the fastest rate the link carries without loss when the Device opens. Only the boot rate (115,200) is fixed.
+- **A link test judged by the board.** The host sends bursts of `PROBE` frames and reads the board's own counters (`COUNTERS`): a rate counts only when every probe arrived and no frame, byte or ring slot was lost. The search goes down from `max_baud` in 20 % steps, halves to 2 % between the last failure and the first pass, and confirms the result with a 250 ms burst.
+- **BREAK.** A UART BREAK returns the board to the boot rate whatever rate it is on. A board a program left on a fast rate is found by a ping, a BREAK and a ping; no rate is searched. A failed trial also uses it, so it costs milliseconds instead of the 100 ms confirm window.
+- `mimhid_device_link_counters(device, reset, control_timeout_ms, out)` and `mimhid_link_counters`: the board's counters at run time, so an application can see a link degrade.
+- `mimhid_device_info.max_baud` and `.uart_flags` (`MIMHID_UART_FLAG_BREAK`).
+- HAL functions `hal_uart_baud_actual`, `hal_uart_max_baud`, `hal_uart_has_break`, `hal_uart_errors` (see PORTING.md). The RP2040/RP2350, STM32F4, nRF52840 and ESP32-S3 ports implement them; **only the RP2040/RP2350 port has been built for a board before (the others are build-only upstream), and none of the new code has run on hardware**.
+- `udev/51-mimhid.rules` sets the FTDI latency timer to 1 ms.
+
+### Changed
+
+- **Protocol 7.** CRC-16/CCITT-FALSE replaces the one-byte XOR; `SET_BAUD` carries the rate (u32) and its `ACK` returns the rate the board will run at; the `ACK` may carry data after `seq, type`; the PONG grew (`max_baud`, `current baud`, `uart_flags`; length 36 + n). The first five PONG bytes keep their place. The host also sends the version 1 to 6 ping so that such a board is listed with its version.
+- The host sets any rate (Linux `TCSETS2` with `BOTHER`, macOS `IOSSIOSPEED`, Windows `DCB.BaudRate`) and refuses a driver that reports a rate more than 3 % off.
+- `mimhid_discover` and `mimhid_device_open` no longer ping at every rate of a table.
+
+### Removed
+
+- `MIMHID_BAUD_RATES`, `MIMHID_BAUD_COUNT`, `mimhid_device_info.baud_mask`, the baud index of `SET_BAUD`.
+
+### Not verified
+
+No end-to-end latency has been measured. Windows and macOS are built and tested only through CI; the Windows port's per-write completion wait is unmeasured. The 20 % / 2 % steps, the burst sizes and the 3 % tolerance are starting values to settle on a bench with a Pico and a CP2102, an FT232H and a CH340.
+
 ## [2.1.0] - 2026-11-04
 
 The vendor and product ID are filled in like every other value that works, and zero is accepted for either. The wire protocol stays 6 and the firmware is unchanged; the size of `mimhid_usb_device` stays 48.

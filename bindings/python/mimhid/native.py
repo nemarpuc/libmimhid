@@ -13,7 +13,8 @@ import ctypes as c
 import os
 from typing import Union
 
-MIMHID_BAUD_COUNT = 9
+MIMHID_BAUD_FASTEST = 4294967295
+MIMHID_BOOT_BAUD = 115200
 MIMHID_CHIP_ESP32S3 = 3
 MIMHID_CHIP_NRF52840 = 4
 MIMHID_CHIP_RP2040 = 1
@@ -26,11 +27,11 @@ MIMHID_CONTROL_TIMEOUT_MS = 500
 MIMHID_DRAIN_TIMEOUT_MS = 1000
 MIMHID_HOST_MAX_REPORT_BYTES = 1024
 MIMHID_LOSS_MAX_INTERVAL_MS = 60000
-MIMHID_PROTOCOL_VERSION = 6
+MIMHID_PROTOCOL_VERSION = 7
 MIMHID_RECONNECT_TIMEOUT_MS = 3000
 MIMHID_SEND_TIMEOUT_MS = 500
 MIMHID_VERSION_MAJOR = 2
-MIMHID_VERSION_MINOR = 1
+MIMHID_VERSION_MINOR = 2
 MIMHID_VERSION_PATCH = 0
 MIMHID_OK = 0
 MIMHID_ERR_PARAM = 1
@@ -105,7 +106,6 @@ MIMHID_CONTROL_FLAG_HELD = 1
 MIMHID_CONTROL_FLAG_TOO_LONG = 2
 MIMHID_CONTROL_FLAG_FIXED = 4
 MIMHID_CONTROL_FLAG_LOST = 8
-MIMHID_BAUD_RATES = (115200, 230400, 460800, 921600, 1000000, 1500000, 2000000, 3000000, 4000000)
 
 
 class Node(c.Structure):
@@ -178,7 +178,8 @@ class DeviceInfo(c.Structure):
         ("has_unique_id", c.c_uint8),
         ("reserved8", c.c_uint8),
         ("baud_rate", c.c_uint32),
-        ("baud_mask", c.c_uint16),
+        ("max_baud", c.c_uint32),
+        ("uart_flags", c.c_uint32),
         ("chip", c.c_uint8),
         ("usb_high_speed", c.c_uint8),
         ("unique_id_length", c.c_uint8),
@@ -197,6 +198,18 @@ class BoardLimits(c.Structure):
         ("max_frame_payload", c.c_uint32),
         ("max_control_data_bytes", c.c_uint32),
         ("max_control_rules", c.c_uint32),
+    ]
+
+
+class LinkCounters(c.Structure):
+    _fields_ = [
+        ("struct_size", c.c_uint32),
+        ("reserved", c.c_uint32),
+        ("bad_crc", c.c_uint32),
+        ("framing", c.c_uint32),
+        ("uart_overrun", c.c_uint32),
+        ("ring_overrun", c.c_uint32),
+        ("probes_good", c.c_uint32),
     ]
 
 
@@ -630,6 +643,7 @@ ABI_STRUCTS = {
     "mimhid_event": Event,
     "mimhid_device_info": DeviceInfo,
     "mimhid_board_limits": BoardLimits,
+    "mimhid_link_counters": LinkCounters,
     "mimhid_usb_device": UsbDevice,
     "mimhid_usb_config": UsbConfig,
     "mimhid_linux_hid_policy": LinuxHidPolicy,
@@ -695,6 +709,7 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_device_remote_wakeup", [DeviceP, c.c_uint32], c.c_int32)
     declare("mimhid_device_board_info", [DeviceP, c.POINTER(DeviceInfo)], c.c_int32)
     declare("mimhid_device_limits", [DeviceP, c.POINTER(BoardLimits)], c.c_int32)
+    declare("mimhid_device_link_counters", [DeviceP, c.c_uint32, c.c_uint32, c.POINTER(LinkCounters)], c.c_int32)
     declare("mimhid_device_set_control_routing", [DeviceP, c.c_uint32, c.POINTER(ControlRule), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimhid_device_control_reply", [DeviceP, c.c_uint32, c.c_int32, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimhid_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
@@ -756,6 +771,7 @@ __all__ += [
     "EventSink",
     "DeviceInfo",
     "BoardLimits",
+    "LinkCounters",
     "UsbDevice",
     "UsbConfig",
     "LinuxHidPolicy",
