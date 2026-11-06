@@ -6,7 +6,9 @@
 #include <stdint.h>
 
 /*
- * Serial wire protocol, version MIMHID_PROTO_VERSION, shared by the host library and the firmware.
+ * Serial wire protocol, shared by the host library and the firmware. The firmware and the library
+ * of one release agree on it: a host talks to a board whose version has the same major and minor
+ * number as its own (the patch number never changes the wire).
  *
  *   frame  = SYNC TYPE LEN payload[LEN] CRC_LO CRC_HI
  *   LEN    = one byte when the payload is shorter than 128 bytes, else two: (0x80 | LEN & 0x7F)
@@ -15,16 +17,15 @@
  *   CRC    = CRC-16/CCITT-FALSE (polynomial 0x1021, initial value 0xFFFF, no reflection, no final
  *            xor) of TYPE, every LEN byte and every payload byte; low byte first.
  *
- * The first five bytes of a PONG keep their place in every protocol version, and a PONG is framed
- * by the rules of its own version, so a host that reads a board on another protocol can say which
- * one it speaks; it does not talk to it.
+ * The first four bytes of a PONG (the firmware version and ready) keep their place in every
+ * release, so a host that reads a board of another major or minor version can say which one it
+ * is; it does not talk to it. Change the frame format or a layout, and the minor number goes up.
  *
  * Command frames (0x01..0x3F) start their payload with a one-byte sequence number that the
  * board echoes in its ACK or NAK. Report frames (0x40..0x4F) carry the report exactly as the
  * target receives it, Report ID included, and are not acknowledged.
  */
 
-#define MIMHID_PROTO_VERSION 7
 #define MIMHID_SYNC 0xA5
 
 /* The frame check, shared by the host and the firmware. A 16-entry table over nibbles keeps it
@@ -40,7 +41,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 }
 
 /* Host to board. */
-#define MIMHID_T_PING 0x01          /* payload: host protocol version (no sequence number) */
+#define MIMHID_T_PING 0x01          /* no payload, no sequence number */
 #define MIMHID_T_DEVICE_CONFIG 0x10 /* starts a new staged configuration, clearing all nodes */
 #define MIMHID_T_NODE_BEGIN 0x11
 #define MIMHID_T_NODE_DATA 0x12
@@ -210,20 +211,19 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 
 /*
  * PONG payload (all single bytes unless noted; every wider value is little endian):
- *   0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 proto_version
- *   5 max_nodes  6 max_interfaces  7 flags (bit 0: has chip unique id)
- *   8 chip  9 usb speed (0 full, 1 high)
- *   10..13 baud the board is on (u32)  14..17 max_baud, the fastest rate its UART can make (u32)
- *   18..21 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
- *   22..23 max_descriptor_bytes  24..25 max_report_bytes  26..27 max_feature_bytes
- *   28..29 max_endpoint_bytes (the largest endpoint packet)  30..31 max_frame_payload
- *   32..33 max_control_data_bytes (the data stage of a control transfer the host may read or
- *   answer)  34 max_control_rules
- *   35 unique id length n (0..16)  36.. the chip's unique id, n bytes
- * Bytes 0..4 are the same in every protocol version. A reader ignores bytes past the ones it
- * knows.
+ *   0 fw_major  1 fw_minor  2 fw_patch  3 ready
+ *   4 max_nodes  5 max_interfaces  6 flags (bit 0: has chip unique id)
+ *   7 chip  8 usb speed (0 full, 1 high)
+ *   9..12 baud the board is on (u32)  13..16 max_baud, the fastest rate its UART can make (u32)
+ *   17..20 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
+ *   21..22 max_descriptor_bytes  23..24 max_report_bytes  25..26 max_feature_bytes
+ *   27..28 max_endpoint_bytes (the largest endpoint packet)  29..30 max_frame_payload
+ *   31..32 max_control_data_bytes (the data stage of a control transfer the host may read or
+ *   answer)  33 max_control_rules
+ *   34 unique id length n (0..16)  35.. the chip's unique id, n bytes
+ * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN 36
+#define MIMHID_PONG_MIN_LEN 35
 #define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01

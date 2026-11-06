@@ -24,7 +24,6 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_DRAIN_TIMEOUT_MS".to_owned(), MIMHID_DRAIN_TIMEOUT_MS as i64);
     map.insert("MIMHID_HOST_MAX_REPORT_BYTES".to_owned(), MIMHID_HOST_MAX_REPORT_BYTES as i64);
     map.insert("MIMHID_LOSS_MAX_INTERVAL_MS".to_owned(), MIMHID_LOSS_MAX_INTERVAL_MS as i64);
-    map.insert("MIMHID_PROTOCOL_VERSION".to_owned(), MIMHID_PROTOCOL_VERSION as i64);
     map.insert("MIMHID_RECONNECT_TIMEOUT_MS".to_owned(), MIMHID_RECONNECT_TIMEOUT_MS as i64);
     map.insert("MIMHID_SEND_TIMEOUT_MS".to_owned(), MIMHID_SEND_TIMEOUT_MS as i64);
     map.insert("MIMHID_VERSION_MAJOR".to_owned(), MIMHID_VERSION_MAJOR as i64);
@@ -131,7 +130,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_device_info.version_minor".to_owned(), offset_of!(mimhid_device_info, version_minor) as i64);
     map.insert("mimhid_device_info.version_patch".to_owned(), offset_of!(mimhid_device_info, version_patch) as i64);
     map.insert("mimhid_device_info.is_ready".to_owned(), offset_of!(mimhid_device_info, is_ready) as i64);
-    map.insert("mimhid_device_info.protocol_version".to_owned(), offset_of!(mimhid_device_info, protocol_version) as i64);
+    map.insert("mimhid_device_info.firmware_compatible".to_owned(), offset_of!(mimhid_device_info, firmware_compatible) as i64);
     map.insert("mimhid_device_info.max_nodes".to_owned(), offset_of!(mimhid_device_info, max_nodes) as i64);
     map.insert("mimhid_device_info.max_interfaces".to_owned(), offset_of!(mimhid_device_info, max_interfaces) as i64);
     map.insert("mimhid_device_info.max_report_bytes".to_owned(), offset_of!(mimhid_device_info, max_report_bytes) as i64);

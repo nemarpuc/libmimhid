@@ -35,7 +35,6 @@ using mimhid::detail::validate_usb_identity;
 using mimhid::detail::validate_usb_identity_on_board;
 
 // The public header repeats the wire protocol's tables.
-static_assert(MIMHID_PROTOCOL_VERSION == MIMHID_PROTO_VERSION);
 static_assert(MIMHID_BOOT_BAUD == 115200U);
 // The wire flag and the public one are the same bit.
 static_assert(MIMHID_UART_FLAG_BREAK == MIMHID_PONG_UART_BREAK);
@@ -90,9 +89,9 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
             tr::BoardInfo board;
             if (!handshake.find(&board))
                 return;
-            // A board on another protocol is listed with its version, to be flashed again.
+            // A board of another version is listed with that version, to be flashed again.
             std::uint32_t fastest = handshake.rate();
-            if (board.protocol == MIMHID_PROTO_VERSION) {
+            if (board.compatible) {
                 fastest = handshake.fastest(&board);
                 // A link that could not be measured is listed on the boot rate, not dropped.
                 if (fastest == 0U) {
@@ -206,11 +205,14 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
                   "its power cycled, or baud_rate set to the rate it was on).");
         return MIMHID_ERR_TIMEOUT;
     }
-    if (device->board.protocol != MIMHID_PROTO_VERSION) {
-        set_error(MIMHID_ERR_PROTOCOL, "port",
-                  "The board's firmware speaks another protocol version: flash the firmware of "
-                  "this libmimhid release.",
-                  0, 0, 0, 0, MIMHID_PROTO_VERSION, device->board.protocol);
+    if (!device->board.compatible) {
+        set_error(
+            MIMHID_ERR_PROTOCOL, "port",
+            "The board's firmware has another major or minor version than this library: "
+            "flash the firmware of this libmimhid release.",
+            0, 0, 0, 0,
+            static_cast<std::uint32_t>(MIMHID_VERSION_MAJOR << 8 | MIMHID_VERSION_MINOR),
+            static_cast<std::uint32_t>(device->board.version[0] << 8 | device->board.version[1]));
         return MIMHID_ERR_PROTOCOL;
     }
     std::uint32_t baud = effective.transport.baud_rate;

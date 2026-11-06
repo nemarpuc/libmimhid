@@ -41,27 +41,12 @@ template <typename F> bool read_until(SerialPort& port, std::uint32_t wait_ms, F
 } // namespace
 
 bool Handshaker::ping(BoardInfo* out) {
-    const std::uint8_t payload[1] = {MIMHID_PROTO_VERSION};
     std::uint8_t frame[8];
-    const std::size_t n = encode_frame(MIMHID_T_PING, payload, 1, frame);
+    const std::size_t n = encode_frame(MIMHID_T_PING, nullptr, 0, frame);
     port_.discard_input();
     if (port_.write_all(frame, n, wait_ms_, nullptr) != IoStatus::ok)
         return false;
     return read_until(port_, wait_ms_, [&](const Frame& f) { return decode_pong(f, out); });
-}
-
-// The ping of protocols 1 to 6 (one XOR byte instead of the CRC): a board of one of them answers
-// it, and only the answer's version is read.
-bool Handshaker::ping_legacy(BoardInfo* out) {
-    const std::uint8_t frame[5] = {
-        MIMHID_SYNC, MIMHID_T_PING, 1, MIMHID_PROTO_VERSION,
-        static_cast<std::uint8_t>(MIMHID_T_PING ^ 1U ^ MIMHID_PROTO_VERSION)};
-    port_.discard_input();
-    if (port_.write_all(frame, sizeof(frame), wait_ms_, nullptr) != IoStatus::ok)
-        return false;
-    return read_until(port_, wait_ms_, [&](const Frame& f) {
-        return decode_pong(f, out) && out->protocol != MIMHID_PROTO_VERSION;
-    });
 }
 
 CommandStatus Handshaker::command(std::uint8_t type, const std::uint8_t* payload,
@@ -131,15 +116,12 @@ bool Handshaker::find(BoardInfo* out, std::uint32_t hint_baud) {
     // Silent at the boot rate: a program may have left the board on a fast one.
     if (port_.send_break(kBreakMs) && ping(out))
         return true;
-    // An older protocol answers the XOR-framed ping, at the boot rate.
-    if (ping_legacy(out))
-        return true;
     // The port cannot send a BREAK (or the board did not take it): the caller may know the rate
     // the board was last on. Ask it back to the boot rate there.
     if (hint_baud > MIMHID_BOOT_BAUD && port_.set_baud(hint_baud)) {
         rate_ = hint_baud;
         if (ping(out)) {
-            if (out->protocol != MIMHID_PROTO_VERSION)
+            if (!out->compatible)
                 return true;
             return to_boot(out);
         }

@@ -67,7 +67,7 @@ Check("mimhid_device_info.version_major", (long)Marshal.OffsetOf<DeviceInfo>("Ve
 Check("mimhid_device_info.version_minor", (long)Marshal.OffsetOf<DeviceInfo>("VersionMinor"));
 Check("mimhid_device_info.version_patch", (long)Marshal.OffsetOf<DeviceInfo>("VersionPatch"));
 Check("mimhid_device_info.is_ready", (long)Marshal.OffsetOf<DeviceInfo>("IsReady"));
-Check("mimhid_device_info.protocol_version", (long)Marshal.OffsetOf<DeviceInfo>("ProtocolVersion"));
+Check("mimhid_device_info.firmware_compatible", (long)Marshal.OffsetOf<DeviceInfo>("FirmwareCompatible"));
 Check("mimhid_device_info.max_nodes", (long)Marshal.OffsetOf<DeviceInfo>("MaxNodes"));
 Check("mimhid_device_info.max_interfaces", (long)Marshal.OffsetOf<DeviceInfo>("MaxInterfaces"));
 Check("mimhid_device_info.max_report_bytes", (long)Marshal.OffsetOf<DeviceInfo>("MaxReportBytes"));

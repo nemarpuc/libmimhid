@@ -32,8 +32,8 @@ class Handshaker final {
     Handshaker(SerialPort& port, std::uint32_t wait_ms) noexcept : port_(port), wait_ms_(wait_ms) {}
 
     // Looks for the board at the boot rate; a board a program left on a fast rate is brought back
-    // with a BREAK. Leaves both on the boot rate, except for a board on another protocol version
-    // (out->protocol), which is left where it answered.
+    // with a BREAK. Leaves both on the boot rate, except for a board of another version
+    // (!out->compatible), which is left where it answered.
     // hint_baud (0: none) is the rate the board may have been left on, for a port that cannot
     // send a BREAK.
     bool find(BoardInfo* out, std::uint32_t hint_baud = 0);
@@ -52,7 +52,6 @@ class Handshaker final {
 
   private:
     bool ping(BoardInfo* out);
-    bool ping_legacy(BoardInfo* out);
     CommandStatus command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                           std::uint8_t* data, std::uint8_t* data_length);
     bool recover(BoardInfo* info);

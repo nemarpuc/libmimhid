@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 2.2.1 LANGUAGES C CXX
+project(libmimhid VERSION 0.1.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -183,7 +183,7 @@ if(MIMHID_BUILD_SHARED)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_link_libraries(mimhid PRIVATE Threads::Threads)
-    set_target_properties(mimhid PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 2)
+    set_target_properties(mimhid PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 0)
     if(WIN32)
         target_link_libraries(mimhid PRIVATE setupapi advapi32)
         target_compile_definitions(mimhid INTERFACE MIMHID_SHARED=1)

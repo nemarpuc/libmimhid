@@ -116,9 +116,8 @@ void Link::handle_frame(const Frame& frame) {
 
 bool Link::ping(std::uint32_t timeout_ms, BoardInfo* out) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    std::uint8_t payload[1] = {MIMHID_PROTO_VERSION};
     std::uint8_t frame[8];
-    const std::size_t n = encode_frame(MIMHID_T_PING, payload, 1, frame);
+    const std::size_t n = encode_frame(MIMHID_T_PING, nullptr, 0, frame);
     while (std::chrono::steady_clock::now() < deadline) {
         {
             std::lock_guard<std::mutex> lock(state_mutex_);

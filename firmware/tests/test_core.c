@@ -580,8 +580,7 @@ static void test_reports(void) {
         pump();
         assert(lost_reported() == 1);
         // a PING is a new host, whose numbers start anew: the same number runs the command
-        const uint8_t v = MIMHID_PROTO_VERSION;
-        put_frame(MIMHID_T_PING, &v, 1);
+        put_frame(MIMHID_T_PING, NULL, 0);
         pump();
         g_seq--;
         assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
@@ -609,24 +608,23 @@ static void test_reports(void) {
 
 static void test_ping_and_events(void) {
     reset_io();
-    const uint8_t v = MIMHID_PROTO_VERSION;
-    put_frame(MIMHID_T_PING, &v, 1);
+    put_frame(MIMHID_T_PING, NULL, 0);
     pump();
     size_t pos = 0;
     uint8_t p[2048];
     uint16_t n;
     assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_MIN_LEN + 8);
     assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH && p[3] == 1);
-    assert(p[4] == MIMHID_PROTO_VERSION && p[5] == MIMHID_MAX_NODES && p[6] == MIMHID_HID_ITFS);
-    assert(p[7] == MIMHID_PONG_FLAG_UNIQUE_ID && p[8] == MIMHID_CHIP_RP2040 && p[9] == 0);
-    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD && u32at(&p[14]) == g_max_rate);
-    assert(u32at(&p[18]) == MIMHID_PONG_UART_BREAK);
-    assert((p[22] | (p[23] << 8)) == MIMHID_MAX_DESC_BYTES);
-    assert((p[24] | (p[25] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
-    assert((p[26] | (p[27] << 8)) == MIMHID_FEATURE_MAX && (p[28] | (p[29] << 8)) == 64);
-    assert((p[30] | (p[31] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
-    assert((p[32] | (p[33] << 8)) == MIMHID_CONTROL_DATA_MAX && p[34] == MIMHID_CONTROL_RULES);
-    assert(p[35] == 8 && p[36] == 0x01 && p[43] == 0xEF);
+    assert(p[4] == MIMHID_MAX_NODES && p[5] == MIMHID_HID_ITFS);
+    assert(p[6] == MIMHID_PONG_FLAG_UNIQUE_ID && p[7] == MIMHID_CHIP_RP2040 && p[8] == 0);
+    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD && u32at(&p[13]) == g_max_rate);
+    assert(u32at(&p[17]) == MIMHID_PONG_UART_BREAK);
+    assert((p[21] | (p[22] << 8)) == MIMHID_MAX_DESC_BYTES);
+    assert((p[23] | (p[24] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
+    assert((p[25] | (p[26] << 8)) == MIMHID_FEATURE_MAX && (p[27] | (p[28] << 8)) == 64);
+    assert((p[29] | (p[30] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
+    assert((p[31] | (p[32] << 8)) == MIMHID_CONTROL_DATA_MAX && p[33] == MIMHID_CONTROL_RULES);
+    assert(p[34] == 8 && p[35] == 0x01 && p[42] == 0xEF);
 
     reset_io();
     tud_mount_cb();
@@ -662,9 +660,8 @@ static int set_baud_cmd(uint32_t baud) {
 }
 
 static void ping_pong(uint8_t* p) {
-    const uint8_t v = MIMHID_PROTO_VERSION;
     reset_io();
-    put_frame(MIMHID_T_PING, &v, 1);
+    put_frame(MIMHID_T_PING, NULL, 0);
     pump();
     size_t pos = 0;
     uint16_t n;
@@ -695,7 +692,7 @@ static void test_set_baud(void) {
     // A valid frame at the new rate keeps it.
     g_now += MIMHID_BAUD_CONFIRM_MS - 1;
     ping_pong(p);
-    assert(u32at(&p[10]) == g_max_rate);
+    assert(u32at(&p[9]) == g_max_rate);
     g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
     pump();
     assert(g_baud == g_max_rate);
@@ -719,7 +716,7 @@ static void test_set_baud(void) {
     pump();
     assert(g_baud == MIMHID_BOOT_BAUD);
     ping_pong(p);
-    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD);
+    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD);
 }
 
 // A BREAK returns the board to the boot rate, confirmed or not, and drops what it holds.
@@ -732,14 +729,13 @@ static void test_break(void) {
     pump();
     assert(g_baud == 3000000u);
     reset_io();
-    const uint8_t v = MIMHID_PROTO_VERSION;
-    put_frame(MIMHID_T_PING, &v, 1); // sent at the old rate, still unread when the BREAK is seen
+    put_frame(MIMHID_T_PING, NULL, 0); // sent at the old rate, still unread when the BREAK is seen
     g_errors = HAL_UART_ERR_BREAK;
     pump();
     assert(g_baud == MIMHID_BOOT_BAUD);
     assert(g_out_len == 0); // the ping was discarded
     ping_pong(p);
-    assert(u32at(&p[10]) == MIMHID_BOOT_BAUD);
+    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD);
     // A BREAK at the boot rate changes nothing but the discard.
     int changes = g_baud_changes;
     g_errors = HAL_UART_ERR_BREAK;

@@ -278,7 +278,7 @@ void test_open_identity_and_descriptors() {
     mimhid_device_info board{};
     MIMHID_CHECK(mimhid_device_board_info(device, &board) == MIMHID_OK);
     // What the board said about itself when the Device was opened.
-    MIMHID_CHECK(board.protocol_version == MIMHID_PROTO_VERSION);
+    MIMHID_CHECK(board.firmware_compatible == 1);
     MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
                  board.version_minor == MIMHID_VERSION_MINOR &&
                  board.version_patch == MIMHID_VERSION_PATCH);
@@ -957,8 +957,7 @@ void test_line_rate() {
     raw_frame(fd, MIMHID_T_SET_BAUD, to_fast, 5);
     MIMHID_CHECK(raw_answer(fd, MIMHID_T_ACK));
     set_speed(fd, 3000000U);
-    const std::uint8_t version[1] = {MIMHID_PROTO_VERSION};
-    raw_frame(fd, MIMHID_T_PING, version, 1);
+    raw_frame(fd, MIMHID_T_PING, nullptr, 0);
     MIMHID_CHECK(raw_answer(fd, MIMHID_T_PONG));
     close(fd);
     std::this_thread::sleep_for(std::chrono::milliseconds(2 * MIMHID_BAUD_CONFIRM_MS));

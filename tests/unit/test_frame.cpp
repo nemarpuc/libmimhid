@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 /* Covers the host's frame encoding and parsing without a serial port: which frame types the
  * parser takes from a board, and how it skips what is not a valid frame. */
+#include "mimhid.h"
 #include "test.hpp"
 #include "transport/frame.hpp"
 
@@ -112,23 +113,54 @@ void test_ack_data_is_kept() {
     MIMHID_CHECK(frames.size() == 1U && frames[0].length == 6U);
 }
 
-// A PONG of an older protocol ends in one XOR byte; it is accepted so the user can be told to
-// flash the board, and decodes to its version and protocol only.
-void test_old_protocol_pong_is_recognised() {
-    const std::uint8_t payload[5] = {1, 4, 0, 1, 6};
-    std::vector<std::uint8_t> bytes = {MIMHID_SYNC, MIMHID_T_PONG, 5};
-    std::uint8_t x = static_cast<std::uint8_t>(MIMHID_T_PONG ^ 5U);
-    for (const std::uint8_t b : payload) {
-        bytes.push_back(b);
-        x = static_cast<std::uint8_t>(x ^ b);
+// A PONG of another major or minor version decodes to its version and ready only: the host can
+// tell the user to flash the board, nothing more.
+void test_pong_of_another_version_is_recognised() {
+    for (const std::uint8_t other :
+         {std::uint8_t{MIMHID_VERSION_MINOR + 1U}, std::uint8_t{0xFFU}}) {
+        const std::vector<Frame> frames =
+            parse(frame_bytes(MIMHID_T_PONG, {MIMHID_VERSION_MAJOR, other, 3, 1}));
+        MIMHID_CHECK(frames.size() == 1U);
+        if (frames.size() == 1U) {
+            mimhid::transport::BoardInfo info;
+            MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && !info.compatible &&
+                         info.version[1] == other && info.version[2] == 3U && info.ready);
+        }
     }
-    bytes.push_back(x);
-    const std::vector<Frame> frames = parse(bytes);
+}
+
+// The patch number does not change the wire: a board with another patch is compatible.
+void test_pong_of_this_version_decodes_every_field() {
+    std::vector<std::uint8_t> payload(MIMHID_PONG_MIN_LEN + 2U, 0U);
+    payload[0] = MIMHID_VERSION_MAJOR;
+    payload[1] = MIMHID_VERSION_MINOR;
+    payload[2] = static_cast<std::uint8_t>(MIMHID_VERSION_PATCH + 5U);
+    payload[3] = 1;
+    payload[4] = 16;   // max_nodes
+    payload[5] = 15;   // max_interfaces
+    payload[6] = 1;    // has a unique id
+    payload[7] = 2;    // chip
+    payload[9] = 0xC0; // baud 3,000,000
+    payload[10] = 0xC6;
+    payload[11] = 0x2D;
+    payload[33] = 8; // max_control_rules
+    payload[34] = 2; // unique id length
+    payload[35] = 0xAB;
+    payload[36] = 0xCD;
+    const std::vector<Frame> frames = parse(frame_bytes(MIMHID_T_PONG, payload));
     MIMHID_CHECK(frames.size() == 1U);
     if (frames.size() == 1U) {
         mimhid::transport::BoardInfo info;
-        MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.protocol == 6U &&
-                     info.version[1] == 4U);
+        MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
+                     info.max_nodes == 16U && info.max_interfaces == 15U && info.has_unique_id &&
+                     info.chip == 2U && info.baud == 3000000U && info.max_control_rules == 8U &&
+                     info.unique_id_length == 2U && info.unique_id[0] == 0xABU &&
+                     info.unique_id[1] == 0xCDU);
+        // One byte short of the fixed part is refused.
+        const std::vector<Frame> shorter = parse(frame_bytes(
+            MIMHID_T_PONG,
+            std::vector<std::uint8_t>(payload.begin(), payload.begin() + MIMHID_PONG_MIN_LEN - 1)));
+        MIMHID_CHECK(shorter.size() == 1U && !mimhid::transport::decode_pong(shorter[0], &info));
     }
 }
 
@@ -147,7 +179,8 @@ void test_frame() {
     test_crc_matches_the_standard();
     test_paired_bit_flips_are_caught();
     test_ack_data_is_kept();
-    test_old_protocol_pong_is_recognised();
+    test_pong_of_another_version_is_recognised();
+    test_pong_of_this_version_decodes_every_field();
     test_counters_decode();
     test_board_frames_parse();
     test_long_frame_parses();

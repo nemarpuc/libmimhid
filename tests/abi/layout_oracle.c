@@ -27,7 +27,6 @@ int main(void) {
     CONSTANT(MIMHID_DRAIN_TIMEOUT_MS);
     CONSTANT(MIMHID_HOST_MAX_REPORT_BYTES);
     CONSTANT(MIMHID_LOSS_MAX_INTERVAL_MS);
-    CONSTANT(MIMHID_PROTOCOL_VERSION);
     CONSTANT(MIMHID_RECONNECT_TIMEOUT_MS);
     CONSTANT(MIMHID_SEND_TIMEOUT_MS);
     CONSTANT(MIMHID_VERSION_MAJOR);
@@ -134,7 +133,7 @@ int main(void) {
     OFFSET(mimhid_device_info, version_minor);
     OFFSET(mimhid_device_info, version_patch);
     OFFSET(mimhid_device_info, is_ready);
-    OFFSET(mimhid_device_info, protocol_version);
+    OFFSET(mimhid_device_info, firmware_compatible);
     OFFSET(mimhid_device_info, max_nodes);
     OFFSET(mimhid_device_info, max_interfaces);
     OFFSET(mimhid_device_info, max_report_bytes);

@@ -773,7 +773,7 @@ mimhid_device_info describe_board(const std::string& port, const std::string& de
     info.version_minor = board.version[1];
     info.version_patch = board.version[2];
     info.is_ready = board.ready ? 1U : 0U;
-    info.protocol_version = board.protocol;
+    info.firmware_compatible = board.compatible ? 1U : 0U;
     info.max_nodes = board.max_nodes;
     info.max_interfaces = board.max_interfaces;
     info.max_report_bytes =

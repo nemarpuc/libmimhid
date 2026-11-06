@@ -331,34 +331,33 @@ static void send_pong(void) {
     p[1] = FW_VERSION_MINOR;
     p[2] = FW_VERSION_PATCH;
     p[3] = tud_ready() ? 1 : 0;
-    p[4] = MIMHID_PROTO_VERSION;
-    p[5] = MIMHID_MAX_NODES;
-    p[6] = MIMHID_HID_ITFS;
-    p[7] = g_unique_id_len ? MIMHID_PONG_FLAG_UNIQUE_ID : 0;
-    p[8] = hal_chip();
+    p[4] = MIMHID_MAX_NODES;
+    p[5] = MIMHID_HID_ITFS;
+    p[6] = g_unique_id_len ? MIMHID_PONG_FLAG_UNIQUE_ID : 0;
+    p[7] = hal_chip();
 #if TUD_OPT_HIGH_SPEED
-    p[9] = 1;
+    p[8] = 1;
 #else
-    p[9] = 0;
+    p[8] = 0;
 #endif
-    put_u32(&p[10], g_baud);
-    put_u32(&p[14], g_max_baud);
-    put_u32(&p[18], hal_uart_has_break() ? MIMHID_PONG_UART_BREAK : 0u);
-    p[22] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
-    p[23] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
-    p[24] = (uint8_t)(MIMHID_MAX_REPORT_BYTES & 0xFF);
-    p[25] = (uint8_t)(MIMHID_MAX_REPORT_BYTES >> 8);
-    p[26] = (uint8_t)(MIMHID_FEATURE_MAX & 0xFF);
-    p[27] = (uint8_t)(MIMHID_FEATURE_MAX >> 8);
-    p[28] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES & 0xFF);
-    p[29] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES >> 8);
-    p[30] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD & 0xFF);
-    p[31] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD >> 8);
-    p[32] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
-    p[33] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
-    p[34] = MIMHID_CONTROL_RULES;
-    p[35] = g_unique_id_len;
-    memcpy(&p[36], g_unique_id, g_unique_id_len);
+    put_u32(&p[9], g_baud);
+    put_u32(&p[13], g_max_baud);
+    put_u32(&p[17], hal_uart_has_break() ? MIMHID_PONG_UART_BREAK : 0u);
+    p[21] = (uint8_t)(MIMHID_MAX_DESC_BYTES & 0xFF);
+    p[22] = (uint8_t)(MIMHID_MAX_DESC_BYTES >> 8);
+    p[23] = (uint8_t)(MIMHID_MAX_REPORT_BYTES & 0xFF);
+    p[24] = (uint8_t)(MIMHID_MAX_REPORT_BYTES >> 8);
+    p[25] = (uint8_t)(MIMHID_FEATURE_MAX & 0xFF);
+    p[26] = (uint8_t)(MIMHID_FEATURE_MAX >> 8);
+    p[27] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES & 0xFF);
+    p[28] = (uint8_t)(MIMHID_MAX_ENDPOINT_BYTES >> 8);
+    p[29] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD & 0xFF);
+    p[30] = (uint8_t)(MIMHID_MAX_FRAME_PAYLOAD >> 8);
+    p[31] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
+    p[32] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
+    p[33] = MIMHID_CONTROL_RULES;
+    p[34] = g_unique_id_len;
+    memcpy(&p[35], g_unique_id, g_unique_id_len);
     send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
 
@@ -403,7 +402,7 @@ static bool rx_step(void) {
         return true;
     }
     if (is_report ? (len == 0 || len > MIMHID_MAX_REPORT_BYTES)
-                  : (type == MIMHID_T_PING ? len != 1 : (len < 1 || len > MIMHID_MAX_FRAME_PAYLOAD))) {
+                  : (type == MIMHID_T_PING ? len != 0 : (len < 1 || len > MIMHID_MAX_FRAME_PAYLOAD))) {
         g_rd = (read_idx + 1) & RX_MASK;
         return true;
     }

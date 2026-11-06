@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* The serial wire protocol's frame format (mimhid_proto.h, MIMHID_PROTO_VERSION): encoding,
+/* The serial wire protocol's frame format (mimhid_proto.h): encoding,
  * parsing, the PONG and the link counters. No port, no threads: pure functions and a parser. */
 #pragma once
 
@@ -15,7 +15,8 @@ namespace mimhid::transport {
 struct BoardInfo {
     std::uint8_t version[3]{};
     bool ready{};
-    std::uint8_t protocol{};
+    bool compatible{}; // firmware major.minor equal to the library's; false: only version and ready
+                       // are set
     std::uint8_t max_nodes{};
     std::uint8_t max_interfaces{};
     std::uint16_t max_report_bytes{};

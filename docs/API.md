@@ -160,7 +160,7 @@ Reports wait on the board, in one queue per USB interface, until the target poll
 | `mimhid_node_set_queue_depth(node, depth, control_timeout_ms)` | How many reports may wait (1 up to what the board's queue holds, `MIMHID_ERR_OVERFLOW` beyond). A short queue bounds how late a report can be: with depth 1 a report waits at most one poll interval behind the one being sent. The depth stays with the Node across commits; Nodes sharing an interface take the least depth any of them set. |
 | `mimhid_device_set_loss_reporting(device, enabled, interval_ms, control_timeout_ms)` | With `enabled` 1 the board counts the reports it drops and sends `MIMHID_EVENT_REPORT_LOST` (`value`: the count, `node_id`: a Node of the interface) at most once per `interval_ms` (0 to `MIMHID_LOSS_MAX_INTERVAL_MS`; 0 reports as soon as it can). With `enabled` 0 (and `interval_ms` 0) it counts nothing and sends nothing. `mimhid_device_close` turns it off. |
 
-A dropped report may be a key-up or a button release; a program that enabled the event sends its current state again when it comes. Both calls need firmware 1.5.0 or later; an older board does not answer (`MIMHID_ERR_TIMEOUT`).
+A dropped report may be a key-up or a button release; a program that enabled the event sends its current state again when it comes.
 
 ## Control transfers of the target
 

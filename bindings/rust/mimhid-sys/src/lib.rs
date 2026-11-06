@@ -38,12 +38,11 @@ pub const MIMHID_CONTROL_TIMEOUT_MS: u32 = 500;
 pub const MIMHID_DRAIN_TIMEOUT_MS: u32 = 1000;
 pub const MIMHID_HOST_MAX_REPORT_BYTES: i32 = 1024;
 pub const MIMHID_LOSS_MAX_INTERVAL_MS: u32 = 60000;
-pub const MIMHID_PROTOCOL_VERSION: i32 = 7;
 pub const MIMHID_RECONNECT_TIMEOUT_MS: u32 = 3000;
 pub const MIMHID_SEND_TIMEOUT_MS: u32 = 500;
-pub const MIMHID_VERSION_MAJOR: u32 = 2;
-pub const MIMHID_VERSION_MINOR: u32 = 2;
-pub const MIMHID_VERSION_PATCH: u32 = 1;
+pub const MIMHID_VERSION_MAJOR: u32 = 0;
+pub const MIMHID_VERSION_MINOR: u32 = 1;
+pub const MIMHID_VERSION_PATCH: u32 = 0;
 pub const MIMHID_OK: i32 = 0;
 pub const MIMHID_ERR_PARAM: i32 = 1;
 pub const MIMHID_ERR_UNSET_FIELD: i32 = 2;
@@ -156,7 +155,7 @@ pub struct mimhid_device_info {
     pub version_minor: u8,
     pub version_patch: u8,
     pub is_ready: u8,
-    pub protocol_version: u8,
+    pub firmware_compatible: u8,
     pub max_nodes: u8,
     pub max_interfaces: u8,
     pub max_report_bytes: u8,

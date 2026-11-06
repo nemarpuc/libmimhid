@@ -1,4 +1,4 @@
-# Wire protocol (version 7)
+# Wire protocol
 
 The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which both the host library and the firmware include. This page describes how they are used. The link is UART, 8N1. A board starts at 115,200 baud; the host then agrees the fastest rate the link carries with it (see [Line rate](#line-rate)).
 
@@ -8,11 +8,11 @@ The constants live in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h), which b
 A5  TYPE  LEN  payload[LEN]  CRC_LO  CRC_HI
 ```
 
-`LEN` is one byte for a payload shorter than 128 bytes. Longer, it is two: `0x80 | (LEN & 0x7F)`, then `LEN >> 7`. The check is CRC-16/CCITT-FALSE (polynomial 0x1021, initial value 0xFFFF, no reflection, no final xor; check value 0x29B1 for "123456789") of `TYPE`, every `LEN` byte and every payload byte, low byte first. (Version 6 and older used one XOR byte, which two flipped bits in the same position cancel; a link pushed to the edge of its rate produces exactly such errors.) A frame with a bad CRC or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
+`LEN` is one byte for a payload shorter than 128 bytes. Longer, it is two: `0x80 | (LEN & 0x7F)`, then `LEN >> 7`. The check is CRC-16/CCITT-FALSE (polynomial 0x1021, initial value 0xFFFF, no reflection, no final xor; check value 0x29B1 for "123456789") of `TYPE`, every `LEN` byte and every payload byte, low byte first. (An XOR byte would let two flipped bits in the same position cancel; a link pushed to the edge of its rate produces exactly such errors.) A frame with a bad CRC or an unknown length is dropped and the parser looks for the next `A5`. A parser that stops mid-frame for 10 ms starts over, so a damaged length byte cannot stall the link.
 
 | Range | Direction | Meaning |
 |---|---|---|
-| `0x01` | host to board | `PING`. Payload: the host's protocol version. No sequence number. |
+| `0x01` | host to board | `PING`. No payload, no sequence number. |
 | `0x10`..`0x1B`, `0x1D` | host to board | Commands. The payload starts with a sequence number. |
 | `0x1C` | host to board | `PROBE`: link-test frame. No sequence number, no acknowledgement. |
 | `0x40`..`0x4F` | host to board | Report for node `TYPE & 0x0F`. Payload: the report exactly as the target receives it, Report ID included. No acknowledgement. |
@@ -59,20 +59,20 @@ The caller explicitly assigns each node to a USB interface index (`iface.number`
 ## PONG
 
 ```
-0 fw_major  1 fw_minor  2 fw_patch  3 ready  4 protocol_version
-5 max_nodes  6 max_interfaces  7 flags (bit 0: chip unique id available)
-8 chip  9 usb speed (0 full, 1 high)
-10..13 the line rate the board is on (u32)
-14..17 max_baud, the fastest rate its UART can make (u32)
-18..21 uart flags (u32): bit 0 the board returns to the boot rate on a BREAK
-22..23 max_descriptor_bytes  24..25 max_report_bytes  26..27 max_feature_bytes
-28..29 max_endpoint_bytes  30..31 max_frame_payload  32..33 max_control_data_bytes
-34 max_control_rules  35 unique id length n (0..16)  36.. the chip's unique id, n bytes
+0 fw_major  1 fw_minor  2 fw_patch  3 ready
+4 max_nodes  5 max_interfaces  6 flags (bit 0: chip unique id available)
+7 chip  8 usb speed (0 full, 1 high)
+9..12 the line rate the board is on (u32)
+13..16 max_baud, the fastest rate its UART can make (u32)
+17..20 uart flags (u32): bit 0 the board returns to the boot rate on a BREAK
+21..22 max_descriptor_bytes  23..24 max_report_bytes  25..26 max_feature_bytes
+27..28 max_endpoint_bytes  29..30 max_frame_payload  31..32 max_control_data_bytes
+33 max_control_rules  34 unique id length n (0..16)  35.. the chip's unique id, n bytes
 ```
 
-All wider values are little endian. The length is 36 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
+All wider values are little endian. The length is 35 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
 
-The first five bytes keep their place in every version, and a PONG is framed by the rules of its own version. The host reads them from any board, lists a board on another `protocol_version` in `mimhid_discover` with only those values, and refuses to open it with `MIMHID_ERR_PROTOCOL`. To find such a board the host also sends the XOR-framed ping of versions 1 to 6 when the CRC ping stays unanswered; a board of those versions answers it at the boot rate (a board left on another rate by an old program is not found).
+**Versions.** The firmware and the library of one release speak the same protocol. A host talks to a board whose `fw_major` and `fw_minor` equal its own; `fw_patch` never changes the wire. The first four bytes keep their place in every release, so the host can read them from any board: it lists a board of another major or minor version in `mimhid_discover` with only those values (`firmware_compatible` 0), and refuses to open it with `MIMHID_ERR_PROTOCOL`. A change of the frame format or of any layout in this document raises the minor number.
 
 ## Line rate
 

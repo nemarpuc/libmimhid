@@ -8,7 +8,7 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 
 | Board | Interfaces | Status |
 |---|---|---|
-| Raspberry Pi Pico / Pico H (RP2040) | 15 interfaces (max) | Official support. Verified on hardware with GP0/GP1 UART at 7 interfaces, the maximum of firmware 2.0.3 and earlier: all seven enumerate and every profile's input arrives. The firmware with 15 builds (CI and the development environment); it has not been run on a board. |
+| Raspberry Pi Pico / Pico H (RP2040) | 15 interfaces (max) | Official support. Verified on hardware with GP0/GP1 UART at 7 interfaces, the maximum of an earlier firmware: all seven enumerate and every profile's input arrives. The current firmware with 15 builds (CI and the development environment); it has not been run on a board. |
 | Raspberry Pi Pico 2 (RP2350) | 15 interfaces (max) | Official support. Dual-core RP architecture with `.scratch_y` DMA ring; builds and verified in CI / e2e tests. |
 | RP2040 `pico_w` | 15 interfaces (max) | Builds; not run. |
 | nRF52840 (`pca10056` DK by default) | 7 interfaces (max) | Builds; not run. |

@@ -27,12 +27,11 @@ MIMHID_CONTROL_TIMEOUT_MS = 500
 MIMHID_DRAIN_TIMEOUT_MS = 1000
 MIMHID_HOST_MAX_REPORT_BYTES = 1024
 MIMHID_LOSS_MAX_INTERVAL_MS = 60000
-MIMHID_PROTOCOL_VERSION = 7
 MIMHID_RECONNECT_TIMEOUT_MS = 3000
 MIMHID_SEND_TIMEOUT_MS = 500
-MIMHID_VERSION_MAJOR = 2
-MIMHID_VERSION_MINOR = 2
-MIMHID_VERSION_PATCH = 1
+MIMHID_VERSION_MAJOR = 0
+MIMHID_VERSION_MINOR = 1
+MIMHID_VERSION_PATCH = 0
 MIMHID_OK = 0
 MIMHID_ERR_PARAM = 1
 MIMHID_ERR_UNSET_FIELD = 2
@@ -170,7 +169,7 @@ class DeviceInfo(c.Structure):
         ("version_minor", c.c_uint8),
         ("version_patch", c.c_uint8),
         ("is_ready", c.c_uint8),
-        ("protocol_version", c.c_uint8),
+        ("firmware_compatible", c.c_uint8),
         ("max_nodes", c.c_uint8),
         ("max_interfaces", c.c_uint8),
         ("max_report_bytes", c.c_uint8),

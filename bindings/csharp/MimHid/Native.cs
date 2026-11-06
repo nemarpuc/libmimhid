@@ -131,7 +131,7 @@ public unsafe struct DeviceInfo
     public byte VersionMinor;
     public byte VersionPatch;
     public byte IsReady;
-    public byte ProtocolVersion;
+    public byte FirmwareCompatible;
     public byte MaxNodes;
     public byte MaxInterfaces;
     public byte MaxReportBytes;
@@ -617,12 +617,11 @@ public static class Native
     public const uint MIMHID_DRAIN_TIMEOUT_MS = 1000;
     public const int MIMHID_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMHID_LOSS_MAX_INTERVAL_MS = 60000;
-    public const int MIMHID_PROTOCOL_VERSION = 7;
     public const uint MIMHID_RECONNECT_TIMEOUT_MS = 3000;
     public const uint MIMHID_SEND_TIMEOUT_MS = 500;
-    public const uint MIMHID_VERSION_MAJOR = 2;
-    public const uint MIMHID_VERSION_MINOR = 2;
-    public const uint MIMHID_VERSION_PATCH = 1;
+    public const uint MIMHID_VERSION_MAJOR = 0;
+    public const uint MIMHID_VERSION_MINOR = 1;
+    public const uint MIMHID_VERSION_PATCH = 0;
     public const int MIMHID_OK = 0;
     public const int MIMHID_ERR_PARAM = 1;
     public const int MIMHID_ERR_UNSET_FIELD = 2;
@@ -755,12 +754,11 @@ public static class Native
             ["MIMHID_DRAIN_TIMEOUT_MS"] = 1000,
             ["MIMHID_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMHID_LOSS_MAX_INTERVAL_MS"] = 60000,
-            ["MIMHID_PROTOCOL_VERSION"] = 7,
             ["MIMHID_RECONNECT_TIMEOUT_MS"] = 3000,
             ["MIMHID_SEND_TIMEOUT_MS"] = 500,
-            ["MIMHID_VERSION_MAJOR"] = 2,
-            ["MIMHID_VERSION_MINOR"] = 2,
-            ["MIMHID_VERSION_PATCH"] = 1,
+            ["MIMHID_VERSION_MAJOR"] = 0,
+            ["MIMHID_VERSION_MINOR"] = 1,
+            ["MIMHID_VERSION_PATCH"] = 0,
             ["MIMHID_OK"] = 0,
             ["MIMHID_ERR_PARAM"] = 1,
             ["MIMHID_ERR_UNSET_FIELD"] = 2,

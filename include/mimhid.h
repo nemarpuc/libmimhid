@@ -80,13 +80,11 @@
 extern "C" {
 #endif
 
-#define MIMHID_VERSION_MAJOR 2
-#define MIMHID_VERSION_MINOR 2
-#define MIMHID_VERSION_PATCH 1
+#define MIMHID_VERSION_MAJOR 0
+#define MIMHID_VERSION_MINOR 1
+#define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
-/* The serial protocol this library and its firmware speak (mimhid_device_info.protocol_version). */
-#define MIMHID_PROTOCOL_VERSION 7
 
 typedef struct mimhid_discovery mimhid_discovery;
 typedef struct mimhid_device mimhid_device;
@@ -104,7 +102,7 @@ enum {
     MIMHID_ERR_PARAM = 1,       /* a null pointer, a bad value or a handle in the wrong state */
     MIMHID_ERR_UNSET_FIELD = 2, /* a required field or timeout is zero */
     MIMHID_ERR_UNSUPPORTED = 3, /* not possible with these arguments or this board */
-    MIMHID_ERR_PROTOCOL = 4,    /* the board's firmware speaks another protocol version */
+    MIMHID_ERR_PROTOCOL = 4,    /* the board's firmware has another major or minor version */
     MIMHID_ERR_ACCESS = 6,      /* no permission to open the serial port */
     MIMHID_ERR_BUSY = 7,        /* in use: the port, a batch, an unsent edge, ... */
     MIMHID_ERR_NO_DEVICE = 8,   /* the port failed or was unplugged; this stays until close */
@@ -273,8 +271,9 @@ typedef struct mimhid_device_info {
     uint8_t version_major; /* firmware version */
     uint8_t version_minor;
     uint8_t version_patch;
-    uint8_t is_ready;         /* 1 when the target has mounted the board's USB device */
-    uint8_t protocol_version; /* the serial protocol the firmware speaks */
+    uint8_t is_ready; /* 1 when the target has mounted the board's USB device */
+    uint8_t
+        firmware_compatible; /* 1 when the firmware's major and minor version are this library's */
     uint8_t max_nodes;
     uint8_t max_interfaces;        /* USB HID interfaces the board provides */
     uint8_t max_report_bytes;      /* at most 255 here; mimhid_device_limits has the exact figure */
@@ -1016,8 +1015,8 @@ MIMHID_API uint32_t MIMHID_CALL mimhid_version(void);
  * pings and a BREAK. On a board it measures the fastest rate the link carries: from the board's
  * max_baud downward, it sends bursts of test frames and trusts a rate only when the board's own
  * error counters stay at zero (baud_rate), and it leaves the board on the boot rate. The search
- * takes a few seconds at most. A board whose firmware speaks another protocol is listed with
- * only its version and protocol_version, so that it can be flashed again.
+ * takes a few seconds at most. A board whose firmware has another major or minor version is
+ * listed with only its version and firmware_compatible 0, so that it can be flashed again.
  * Synchronization: Any thread.
  * Returns: MIMHID_OK, also when no board was found; MIMHID_ERR_PARAM for a null out_discovery;
  * MIMHID_ERR_UNSET_FIELD for a zero timeout. */
@@ -1063,7 +1062,7 @@ MIMHID_API void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery
  * MIMHID_ERR_UNSET_FIELD for a required field left zero; MIMHID_ERR_UNSUPPORTED for a rate the
  * board cannot make, or one the adapter or wiring did not carry;
  * MIMHID_ERR_OVERFLOW for a maximum_report_bytes the board does not take; MIMHID_ERR_TIMEOUT when
- * no board answered; MIMHID_ERR_PROTOCOL for firmware of another protocol version;
+ * no board answered; MIMHID_ERR_PROTOCOL for firmware of another major or minor version;
  * MIMHID_ERR_ACCESS, MIMHID_ERR_BUSY or MIMHID_ERR_IO for a port that cannot be opened (another
  * program may have it) or set up. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
@@ -1315,7 +1314,6 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* 
  * (MIMHID_EVENT_REPORT_LOST), at most one event per interval_ms (0 to MIMHID_LOSS_MAX_INTERVAL_MS;
  * 0 reports each time at once). enabled 0, which is how the board starts, needs interval_ms 0 and
  * puts nothing extra on the link. The setting stays until replaced or mimhid_device_close.
- * Needs firmware 1.5.0 or later.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, enabled or interval_ms;
  * MIMHID_ERR_UNSET_FIELD for a zero timeout; a link error (MIMHID_ERR_TIMEOUT from older
  * firmware, which does not answer). */
@@ -1526,7 +1524,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_nod
  * most one poll interval late. The board keeps one queue per interface, and Nodes that share an
  * interface share the least depth any of them set. At first the queue holds all it can: 15
  * reports when the board's max_report_bytes is at most 64, else 7. The depth stays with the Node
- * across commits. Needs firmware 1.5.0 or later.
+ * across commits.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or a depth of 0 or above 255;
  * MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_OVERFLOW for a depth beyond the board's
  * queue; a link error (MIMHID_ERR_TIMEOUT from older firmware, which does not answer). */

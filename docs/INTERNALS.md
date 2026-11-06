@@ -11,7 +11,7 @@ How the host implementation behind `include/mimhid.h` works: which object owns w
 | `src/hid` | The report descriptor builder (`descriptor_builder`, `item_writer`), the layout it records (`report_layout.hpp`), and the validator that parses a descriptor back (`validator.cpp`). | nothing |
 | `src/transport` | `frame.*` (`FrameParser`, `encode_frame`, `decode_pong`), `Link` (ACK and retry, reader thread), `Handshaker` (finds a board and agrees a line rate), and `SerialPort` with one implementation per platform (`serial_posix.cpp`, `serial_win32.cpp`) and port listing (`ports_*.cpp`). | `proto/mimhid_proto.h` |
 
-`proto/mimhid_proto.h` is shared with the firmware: frame types, limits and the protocol version. `c_api_device.cpp` checks the copies of these constants in `mimhid.h` against it with `static_assert`. No serial-port type appears above `src/transport/serial_port.hpp`.
+`proto/mimhid_proto.h` is shared with the firmware: frame types, limits and the PONG layout. `c_api_device.cpp` checks the copies of these constants in `mimhid.h` against it with `static_assert`. No serial-port type appears above `src/transport/serial_port.hpp`.
 
 ## Handles
 
