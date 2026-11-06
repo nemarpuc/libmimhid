@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "driver/uart.h"
+#include "soc/uart_reg.h"
 #include "esp_private/usb_phy.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
@@ -51,7 +52,7 @@ void hal_init(void) {
     uart_set_rx_full_threshold(UART_PORT, 8);
     uart_set_rx_timeout(UART_PORT, 2);
     // The driver reports a framing error (and so a BREAK) only when its interrupt is enabled.
-    uart_enable_intr_mask(UART_PORT, UART_INTR_FRAM_ERR);
+    uart_enable_intr_mask(UART_PORT, UART_FRM_ERR_INT_ENA);
 }
 
 size_t hal_uart_read(uint8_t* dst, size_t max) {

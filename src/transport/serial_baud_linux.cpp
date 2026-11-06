@@ -5,6 +5,7 @@
 #include "transport/serial_baud.hpp"
 
 #ifdef __linux__
+#include <asm/ioctls.h> // TCGETS2 and TCSETS2; musl's <sys/ioctl.h> does not pull them in
 #include <asm/termbits.h>
 #include <sys/ioctl.h>
 

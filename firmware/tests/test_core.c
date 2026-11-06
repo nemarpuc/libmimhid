@@ -586,8 +586,8 @@ static void test_ping_and_events(void) {
     assert((p[24] | (p[25] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
     assert((p[26] | (p[27] << 8)) == MIMHID_FEATURE_MAX && (p[28] | (p[29] << 8)) == 64);
     assert((p[30] | (p[31] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
-    assert((p[23] | (p[24] << 8)) == MIMHID_CONTROL_DATA_MAX && p[25] == MIMHID_CONTROL_RULES);
-    assert(p[26] == 8 && p[27] == 0x01 && p[34] == 0xEF);
+    assert((p[32] | (p[33] << 8)) == MIMHID_CONTROL_DATA_MAX && p[34] == MIMHID_CONTROL_RULES);
+    assert(p[35] == 8 && p[36] == 0x01 && p[43] == 0xEF);
 
     reset_io();
     tud_mount_cb();
