@@ -406,11 +406,40 @@ size_t fake_board_string(uint8_t index, char* out, size_t capacity) {
     const uint16_t* s = tud_descriptor_string_cb(index, 0x0409);
     if (s == NULL)
         return 0;
-    size_t n = ((s[0] & 0xFF) - 2) / 2;
-    if (n + 1 > capacity)
-        n = capacity - 1;
-    for (size_t i = 0; i < n; i++)
-        out[i] = (char)s[1 + i];
+    const size_t units = ((s[0] & 0xFF) - 2) / 2;
+    size_t n = 0;
+    for (size_t i = 0; i < units; i++) {
+        uint32_t code = s[1 + i];
+        if (code >= 0xD800 && code < 0xDC00 && i + 1 < units) {
+            code = 0x10000 + ((code - 0xD800) << 10) + (s[2 + i] - 0xDC00);
+            i++;
+        }
+        char bytes[4];
+        size_t count;
+        if (code < 0x80) {
+            bytes[0] = (char)code;
+            count = 1;
+        } else if (code < 0x800) {
+            bytes[0] = (char)(0xC0 | (code >> 6));
+            bytes[1] = (char)(0x80 | (code & 0x3F));
+            count = 2;
+        } else if (code < 0x10000) {
+            bytes[0] = (char)(0xE0 | (code >> 12));
+            bytes[1] = (char)(0x80 | ((code >> 6) & 0x3F));
+            bytes[2] = (char)(0x80 | (code & 0x3F));
+            count = 3;
+        } else {
+            bytes[0] = (char)(0xF0 | (code >> 18));
+            bytes[1] = (char)(0x80 | ((code >> 12) & 0x3F));
+            bytes[2] = (char)(0x80 | ((code >> 6) & 0x3F));
+            bytes[3] = (char)(0x80 | (code & 0x3F));
+            count = 4;
+        }
+        if (n + count + 1 > capacity)
+            break;
+        for (size_t k = 0; k < count; k++)
+            out[n++] = bytes[k];
+    }
     out[n] = '\0';
     return n;
 }

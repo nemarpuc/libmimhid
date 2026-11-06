@@ -143,9 +143,14 @@ void put_u16(std::vector<std::uint8_t>* out, std::uint32_t value) {
     out->push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
 }
 
+// A string on the wire: the number of UTF-16 code units, then the units, little endian. The text
+// was checked by valid_usb_string, so the conversion cannot fail.
 void put_string(std::vector<std::uint8_t>* out, const std::string& text) {
-    out->push_back(static_cast<std::uint8_t>(text.size()));
-    out->insert(out->end(), text.begin(), text.end());
+    std::u16string units;
+    mimhid::detail::utf16_from_utf8(text.c_str(), &units);
+    out->push_back(static_cast<std::uint8_t>(units.size()));
+    for (const char16_t unit : units)
+        put_u16(out, unit);
 }
 
 struct ReconfigGuard {
@@ -165,16 +170,62 @@ template <std::size_t N> void copy_text(char (&destination)[N], const std::strin
 
 namespace mimhid::detail {
 
-bool valid_usb_string(const char* text) noexcept {
+bool utf16_from_utf8(const char* text, std::u16string* units) {
+    units->clear();
     if (text == nullptr)
         return true;
-    std::size_t length = 0U;
-    for (; text[length] != '\0'; ++length) {
-        const auto c = static_cast<unsigned char>(text[length]);
-        if (c < 0x20U || c > 0x7EU)
+    const auto* p = reinterpret_cast<const unsigned char*>(text);
+    while (*p != 0U) {
+        std::uint32_t code = 0U;
+        unsigned extra = 0U;
+        std::uint32_t least = 0U;
+        if (*p < 0x80U) {
+            code = *p;
+        } else if (*p >= 0xC2U && *p <= 0xDFU) {
+            code = *p & 0x1FU;
+            extra = 1U;
+            least = 0x80U;
+        } else if (*p >= 0xE0U && *p <= 0xEFU) {
+            code = *p & 0x0FU;
+            extra = 2U;
+            least = 0x800U;
+        } else if (*p >= 0xF0U && *p <= 0xF4U) {
+            code = *p & 0x07U;
+            extra = 3U;
+            least = 0x10000U;
+        } else {
+            return false;
+        }
+        ++p;
+        for (unsigned i = 0U; i < extra; ++i, ++p) {
+            if ((*p & 0xC0U) != 0x80U)
+                return false;
+            code = (code << 6U) | (*p & 0x3FU);
+        }
+        // No overlong forms, no surrogates, nothing above U+10FFFF, no control characters.
+        if (code < least || code > 0x10FFFFU || (code >= 0xD800U && code <= 0xDFFFU) ||
+            code < 0x20U || code == 0x7FU)
+            return false;
+        if (code >= 0x10000U) {
+            code -= 0x10000U;
+            units->push_back(static_cast<char16_t>(0xD800U + (code >> 10U)));
+            units->push_back(static_cast<char16_t>(0xDC00U + (code & 0x3FFU)));
+        } else {
+            units->push_back(static_cast<char16_t>(code));
+        }
+        if (units->size() > MIMHID_STRING_MAX)
             return false;
     }
-    return length <= MIMHID_STRING_MAX;
+    return true;
+}
+
+bool valid_usb_string(const char* text) noexcept {
+    try {
+        std::u16string units;
+        return utf16_from_utf8(text, &units);
+    } catch (...) {
+        return false;
+    }
 }
 
 std::uint32_t saturate_u32(const std::uint64_t value) noexcept {
@@ -226,7 +277,8 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
     for (const char* text : {usb_device.manufacturer, usb_device.product, usb_device.serial}) {
         if (!valid_usb_string(text)) {
             set_error(MIMHID_ERR_PARAM, "usb_device.strings",
-                      "A string must be printable ASCII, at most 126 characters.");
+                      "A string must be UTF-8 without control characters, at most 126 UTF-16 code "
+                      "units.");
             return MIMHID_ERR_PARAM;
         }
     }
@@ -260,8 +312,9 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
         return MIMHID_ERR_PARAM;
     }
     if (!valid_usb_string(usb_config.string)) {
-        set_error(MIMHID_ERR_PARAM, "usb_config.string",
-                  "A string must be printable ASCII, at most 126 characters.");
+        set_error(
+            MIMHID_ERR_PARAM, "usb_config.string",
+            "A string must be UTF-8 without control characters, at most 126 UTF-16 code units.");
         return MIMHID_ERR_PARAM;
     }
 

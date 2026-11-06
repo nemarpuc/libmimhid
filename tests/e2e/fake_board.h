@@ -37,7 +37,8 @@ unsigned fake_board_interface_count(void);
 const uint8_t* fake_board_config_descriptor(uint16_t* length);
 const uint8_t* fake_board_report_descriptor(uint8_t iface, uint16_t* length);
 const uint8_t* fake_board_device_descriptor(void);
-size_t fake_board_string(uint8_t index, char* out, size_t capacity); // ASCII; 0 when absent
+size_t fake_board_string(uint8_t index, char* out,
+                         size_t capacity); // the string as UTF-8; 0 when absent
 size_t fake_board_feature(uint8_t iface, uint8_t report_id, uint8_t* out, size_t capacity);
 
 // Things the target does, run on the board thread.

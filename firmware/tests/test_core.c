@@ -283,8 +283,27 @@ static uint8_t g_device_subclass = 0x02;
 static int g_force_in = -1;
 static int g_force_out = -1;
 
-static int device_config(uint8_t flags, const char* serial) {
-    uint8_t p[160];
+// A string on the wire: a count of UTF-16 code units, then the units, little endian.
+static size_t put_units(uint8_t* p, size_t n, const uint16_t* units, size_t count) {
+    p[n++] = (uint8_t)count;
+    for (size_t i = 0; i < count; i++) {
+        p[n++] = (uint8_t)(units[i] & 0xFF);
+        p[n++] = (uint8_t)(units[i] >> 8);
+    }
+    return n;
+}
+
+static size_t put_ascii(uint8_t* p, size_t n, const char* text) {
+    uint16_t units[MIMHID_STRING_MAX];
+    size_t count = strlen(text);
+    if (count > MIMHID_STRING_MAX) count = MIMHID_STRING_MAX;
+    for (size_t i = 0; i < count; i++) units[i] = (uint8_t)text[i];
+    return put_units(p, n, units, count);
+}
+
+static int device_config_units(uint8_t flags, const char* serial, const uint16_t* maker,
+                               size_t maker_count) {
+    uint8_t p[512];
     size_t n = 0;
     p[n++] = 0x34; p[n++] = 0x12;          // vid
     p[n++] = 0x78; p[n++] = 0x56;          // pid
@@ -299,11 +318,13 @@ static int device_config(uint8_t flags, const char* serial) {
     p[n++] = flags;                        // flags
     const char* strs[4] = {"Maker", "Product", serial, "Config"};
     for (int i = 0; i < 4; i++) {
-        p[n++] = (uint8_t)strlen(strs[i]);
-        memcpy(p + n, strs[i], strlen(strs[i]));
-        n += strlen(strs[i]);
+        n = (i == 0 && maker != NULL) ? put_units(p, n, maker, maker_count) : put_ascii(p, n, strs[i]);
     }
     return command(MIMHID_T_DEVICE_CONFIG, p, n);
+}
+
+static int device_config(uint8_t flags, const char* serial) {
+    return device_config_units(flags, serial, NULL, 0);
 }
 
 static const uint8_t k_desc_a[] = {  // a small valid keyboard-like descriptor
@@ -316,7 +337,7 @@ static const uint8_t k_desc_b[] = {  // mouse-like
 static int node_begin_full(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
                            uint16_t ep_out, uint8_t cls, uint8_t subclass, uint8_t protocol,
                            const char* str) {
-    uint8_t p[64];
+    uint8_t p[24 + 1 + 2 * MIMHID_STRING_MAX];
     size_t n = 0;
     p[n++] = id; p[n++] = iface;
     p[n++] = (uint8_t)(desc_len & 0xFF); p[n++] = (uint8_t)(desc_len >> 8);
@@ -333,9 +354,7 @@ static int node_begin_full(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t
     p[n++] = ep_out ? poll : 0;            // poll_interval_out
     p[n++] = 0;                            // idle_rate
     p[n++] = 0;                            // flags
-    p[n++] = (uint8_t)strlen(str);
-    memcpy(p + n, str, strlen(str));
-    n += strlen(str);
+    n = put_ascii(p, n, str);
     return command(MIMHID_T_NODE_BEGIN, p, n);
 }
 
@@ -413,6 +432,26 @@ static void test_descriptors_basic(void) {
     assert(s[1] == 'K');
     assert(tud_descriptor_string_cb(7, 0x0409) == NULL);
     assert(tud_descriptor_string_cb(0, 0)[1] == 0x0409);
+}
+
+// Strings are UTF-16: a Japanese name and a surrogate pair reach the string descriptor unchanged;
+// a zero unit and a count above the limit are refused.
+static void test_strings_utf16(void) {
+    static const uint16_t maker[] = {0x65E5, 0x672C, 0xD83D, 0xDE00, 'A'}; // two kanji, U+1F600, A
+    assert(device_config_units(0, "", maker, 5) == 1);
+    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, "") == 1);
+    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    assert(commit() == 1);
+    const uint16_t* s = tud_descriptor_string_cb(1, 0x0409);
+    assert((s[0] & 0xFF) == 2 + 2 * 5);
+    for (int i = 0; i < 5; i++) assert(s[1 + i] == maker[i]);
+
+    static const uint16_t with_zero[] = {'a', 0, 'b'};
+    assert(device_config_units(0, "", with_zero, 3) == 0);
+    uint16_t longest[MIMHID_STRING_MAX + 1];
+    for (size_t i = 0; i < MIMHID_STRING_MAX + 1; i++) longest[i] = 0x3042;
+    assert(device_config_units(0, "", longest, MIMHID_STRING_MAX) == 1);
+    assert(device_config_units(0, "", longest, MIMHID_STRING_MAX + 1) == 0);
 }
 
 static void test_reports(void) {
@@ -1637,6 +1676,7 @@ int main(void) {
     test_set_baud();
     test_break();
     test_counters_and_probe();
+    test_strings_utf16();
     test_descriptors_basic();
     test_reports();
     test_feature();

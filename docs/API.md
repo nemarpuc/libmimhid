@@ -87,7 +87,7 @@ A USB device has one VID and PID, so those belong to the Device, not to a Node.
 
 ## Settings of the USB device
 
-`mimhid_device_config` holds `transport`, `usb_device` and `usb_config`. The fields of `usb_device` and `usb_config` are those of the USB 2.0 standard descriptors (section 9.6); a string is printable ASCII of at most 126 characters, or null to leave it out.
+`mimhid_device_config` holds `transport`, `usb_device` and `usb_config`. The fields of `usb_device` and `usb_config` are those of the USB 2.0 standard descriptors (section 9.6); a string is UTF-8 text without control characters, at most 126 UTF-16 code units, or null to leave it out.
 
 - `usb_device`: `bcd_usb`, `ep0_max_packet_size` (8, 16, 32 or 64; 64 on a high-speed board) and `language_id` are required (zero is refused) (`bcd_usb` of 0x0210 or more makes the target ask for a BOS descriptor, which the board does not have: answer it with a control-routing rule, see [LIMITS.md](LIMITS.md#who-answers-a-control-request)); `vendor_id` and `product_id` (any value, zero included: USB 2.0 9.6.1 reserves none), `bcd_device`, `device_class`, `device_subclass`, `device_protocol`, `manufacturer`, `product`, `serial`, `serial_from_chip_id` (with a null `serial`, the chip's unique id).
 - `usb_config`: `configuration_value` (1: the board has one configuration, and any other value is `MIMHID_ERR_UNSUPPORTED`), `bm_attributes` (bit 7 set; bit 6 self-powered; bit 5 remote wakeup), `bmax_power` (0 to 250, in 2 mA units), `string`.

@@ -3,6 +3,12 @@
 All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Strings are Unicode.** A device, configuration or interface string is UTF-8 on the API and UTF-16 on the wire and in the string descriptor (USB 2.0 9.6.7), up to 126 UTF-16 code units; a code point from U+10000 up takes two. Malformed UTF-8, a surrogate, a value above U+10FFFF and control characters (U+0000 to U+001F, U+007F) are refused with `MIMHID_ERR_PARAM`. The wire format of `DEVICE_CONFIG` and `NODE_BEGIN` strings changed (a unit count and 16-bit units instead of a byte count and ASCII bytes), so a board needs the firmware of the same build. Descriptors, rates and latency are unchanged.
+
 ## [2.2.1] - 2026-11-06
 
 Not hardware-verified. The library, the protocol (7) and the ABI are those of 2.2.0; this release fixes three build and test errors that 2.2.0 had on some platforms and splits the largest source file.

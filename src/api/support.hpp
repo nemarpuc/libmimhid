@@ -73,6 +73,9 @@ inline std::uint16_t public_node_id(const mimhid_node* node) noexcept {
 
 // ---- device_ops.cpp: configuration checks, interface assignment, commit and board events ----
 
+// UTF-8 to the UTF-16 a USB string descriptor carries (USB 2.0 9.6.7). False for malformed UTF-8,
+// a control character or more than MIMHID_STRING_MAX code units; null is the empty string.
+bool utf16_from_utf8(const char* text, std::u16string* units);
 bool valid_usb_string(const char* text) noexcept;
 
 std::uint32_t saturate_u32(std::uint64_t value) noexcept;

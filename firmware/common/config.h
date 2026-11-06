@@ -41,6 +41,9 @@
     (MIMHID_MAX_FRAME_PAYLOAD_RAW > MIMHID_MIN_FRAME_PAYLOAD ? MIMHID_MAX_FRAME_PAYLOAD_RAW \
                                                              : MIMHID_MIN_FRAME_PAYLOAD)
 _Static_assert(MIMHID_MAX_FRAME_PAYLOAD <= MIMHID_PROTO_MAX_PAYLOAD, "frame limit of the protocol");
+// DEVICE_CONFIG: its sequence number, 18 bytes of identity and four strings of the longest length.
+_Static_assert(1 + 18 + 4 * (1 + 2 * MIMHID_STRING_MAX) <= MIMHID_MAX_FRAME_PAYLOAD,
+               "a DEVICE_CONFIG with the longest strings fits a frame");
 _Static_assert(MIMHID_MAX_ENDPOINT_BYTES <= 1024, "an endpoint packet is at most 1024 bytes");
 
 // The data stage of a control transfer the host may answer or read: a Feature report fits, and a
@@ -64,10 +67,10 @@ typedef struct {
     uint8_t  bm_attributes;
     uint8_t  bmax_power; // 2 mA units
     uint8_t  flags;      // bit 0: serial from chip id
-    char     manufacturer[MIMHID_STRING_MAX + 1];
-    char     product[MIMHID_STRING_MAX + 1];
-    char     serial[MIMHID_STRING_MAX + 1];
-    char     configuration[MIMHID_STRING_MAX + 1];
+    uint16_t manufacturer[MIMHID_STRING_MAX + 1];
+    uint16_t product[MIMHID_STRING_MAX + 1];
+    uint16_t serial[MIMHID_STRING_MAX + 1];
+    uint16_t configuration[MIMHID_STRING_MAX + 1];
 } mimhid_dev_cfg_t;
 
 typedef struct {
@@ -88,7 +91,7 @@ typedef struct {
     uint16_t desc_recv;
     uint16_t desc_off; // into the pool
     uint8_t  queue_depth; // reports that may wait on the interface (QUEUE_DEPTH), 0: all it holds
-    char     interface_string[MIMHID_STRING_MAX + 1];
+    uint16_t interface_string[MIMHID_STRING_MAX + 1];
 } mimhid_node_cfg_t;
 
 typedef struct {

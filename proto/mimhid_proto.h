@@ -234,7 +234,8 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   8 device_protocol  9..10 language_id  11..12 bcd_usb  13 ep0_max_packet_size
  *   14 configuration_value  15 bm_attributes  16 bmax_power (2 mA units)
  *   17 flags (bit 0: serial from chip id)
- *   18.. four strings, each: length byte, then that many ASCII bytes
+ *   18.. four strings, each: a count of UTF-16 code units (at most MIMHID_STRING_MAX), then that
+ *        many units, little endian (USB 2.0 9.6.7); a zero unit is refused
  *        (manufacturer, product, serial, configuration)
  */
 #define MIMHID_DEVFLAG_SERIAL_FROM_ID 0x01
@@ -245,7 +246,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   5 interface_subclass  6 interface_protocol  7..8 bcd_hid  9 country code
  *   10 ep_in_addr  11..12 ep_in_size  13 poll_interval_ms  14 ep_out_addr
  *   15..16 ep_out_size  17 poll_interval_out_ms  18 idle rate  19 flags (reserved, zero)
- *   20 interface string length, then its bytes
+ *   20 interface string: a count of UTF-16 code units, then the units (little endian)
  * NODE_DATA payload after the sequence number:
  *   0 node id  1..2 offset  3.. descriptor bytes
  * FEATURE payload after the sequence number:

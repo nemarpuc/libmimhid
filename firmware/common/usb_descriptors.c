@@ -64,11 +64,11 @@ static uint8_t g_iface_count = 0;
 static uint8_t g_node_iface_inv[MIMHID_MAX_NODES];
 static uint16_t g_language = 0x0409;
 
-static char g_str_mfg[MIMHID_STRING_MAX + 1];
-static char g_str_product[MIMHID_STRING_MAX + 1];
-static char g_str_serial[MIMHID_STRING_MAX + 1];
-static char g_str_config[MIMHID_STRING_MAX + 1];
-static char g_str_iface[MIMHID_HID_ITFS][MIMHID_STRING_MAX + 1];
+static uint16_t g_str_mfg[MIMHID_STRING_MAX + 1];
+static uint16_t g_str_product[MIMHID_STRING_MAX + 1];
+static uint16_t g_str_serial[MIMHID_STRING_MAX + 1];
+static uint16_t g_str_config[MIMHID_STRING_MAX + 1];
+static uint16_t g_str_iface[MIMHID_HID_ITFS][MIMHID_STRING_MAX + 1];
 
 static mimhid_feature_t g_feature[MIMHID_MAX_FEATURES];
 
@@ -90,26 +90,26 @@ uint8_t mimhid_active_node_interface(uint8_t node) {
     return node < MIMHID_MAX_NODES ? (uint8_t)~g_node_iface_inv[node] : 0xFF;
 }
 
-static void copy_str(char* dst, const char* src) {
+static void copy_str(uint16_t* dst, const uint16_t* src) {
     size_t i = 0;
-    while (i < MIMHID_STRING_MAX && src[i] != '\0') {
+    while (i < MIMHID_STRING_MAX && src[i] != 0) {
         dst[i] = src[i];
         i++;
     }
-    dst[i] = '\0';
+    dst[i] = 0;
 }
 
-static void hex_serial(char* dst) {
+static void hex_serial(uint16_t* dst) {
     uint8_t id[16];
     size_t n = hal_unique_id(id, sizeof(id));
     if (n > 15)
         n = 15; // 30 hex characters fit the string limit
     static const char hex[] = "0123456789ABCDEF";
     for (size_t i = 0; i < n; i++) {
-        dst[2 * i] = hex[id[i] >> 4];
-        dst[2 * i + 1] = hex[id[i] & 15];
+        dst[2 * i] = (uint16_t)(uint8_t)hex[id[i] >> 4];
+        dst[2 * i + 1] = (uint16_t)(uint8_t)hex[id[i] & 15];
     }
-    dst[2 * n] = '\0';
+    dst[2 * n] = 0;
 }
 
 bool mimhid_apply_config(const mimhid_config_t* cfg) {
@@ -180,7 +180,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     copy_str(g_str_product, dev->product);
     copy_str(g_str_config, dev->configuration);
     copy_str(g_str_serial, dev->serial);
-    if (g_str_serial[0] == '\0' && (dev->flags & MIMHID_DEVFLAG_SERIAL_FROM_ID)) {
+    if (g_str_serial[0] == 0 && (dev->flags & MIMHID_DEVFLAG_SERIAL_FROM_ID)) {
         hex_serial(g_str_serial);
     }
     g_device.iSerialNumber = g_str_serial[0] ? 3 : 0;
@@ -335,7 +335,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         g_desc_string[1] = g_language;
         chr_count = 1;
     } else {
-        const char* str = NULL;
+        const uint16_t* str = NULL;
         if (index == 1)
             str = g_str_mfg;
         else if (index == 2)
@@ -349,9 +349,9 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         else
             return NULL;
 
-        chr_count = (uint8_t)strlen(str);
-        for (uint8_t i = 0; i < chr_count; i++) {
-            g_desc_string[1 + i] = (uint16_t)(uint8_t)str[i];
+        while (chr_count < MIMHID_STRING_MAX && str[chr_count] != 0) {
+            g_desc_string[1 + chr_count] = str[chr_count];
+            chr_count++;
         }
     }
 

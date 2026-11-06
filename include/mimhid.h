@@ -321,8 +321,10 @@ typedef struct mimhid_link_counters {
 
 /* ---- USB identity and Device options ----------------------------------------------------
  * The fields are those of the USB 2.0 standard descriptors (section 9.6) and the HID class
- * descriptor (HID 1.11 section 6.2.1). A string is printable ASCII of at most 126 characters, or
- * null to leave it out. */
+ * descriptor (HID 1.11 section 6.2.1). A string is UTF-8 text without control characters that
+ * makes at most 126 UTF-16 code units (USB 2.0 9.6.7: a string descriptor is UTF-16LE and 254 bytes
+ * long at most; U+10000 and above take two), or null to leave it out. language_id says which
+ * language the strings are in; nothing is inferred from the text. */
 
 /* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
  * required (zero is refused); vendor_id and product_id are not checked: USB 2.0 9.6.1 reserves no

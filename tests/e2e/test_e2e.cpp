@@ -259,8 +259,8 @@ bool all_zero_after_id(const fake_report_t& r, bool has_id) {
 
 void test_open_identity_and_descriptors() {
     mimhid_device_config o = base_options();
-    o.usb_device.manufacturer = "Maker";
-    o.usb_device.product = "Gadget";
+    o.usb_device.manufacturer = "\xE6\x97\xA5\xE6\x9C\xAC Maker"; // 日本 Maker
+    o.usb_device.product = "Gadget \xF0\x9F\x98\x80";             // U+1F600, a surrogate pair
     o.usb_device.serial = "SN-42";
     o.usb_config.string = "Cfg";
     o.usb_device.bcd_device = 0x0234;
@@ -311,8 +311,10 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(dd[12] == 0x34 && dd[13] == 0x02);
     MIMHID_CHECK(dd[4] == 0xEF && dd[5] == 2 && dd[6] == 1);
     char text[64];
-    MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) && std::strcmp(text, "Maker") == 0);
-    MIMHID_CHECK(fake_board_string(2, text, sizeof(text)) && std::strcmp(text, "Gadget") == 0);
+    MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) &&
+                 std::strcmp(text, "\xE6\x97\xA5\xE6\x9C\xAC Maker") == 0);
+    MIMHID_CHECK(fake_board_string(2, text, sizeof(text)) &&
+                 std::strcmp(text, "Gadget \xF0\x9F\x98\x80") == 0);
     MIMHID_CHECK(fake_board_string(3, text, sizeof(text)) && std::strcmp(text, "SN-42") == 0);
     MIMHID_CHECK(fake_board_string(4, text, sizeof(text)) && std::strcmp(text, "Cfg") == 0);
     MIMHID_CHECK(fake_board_string(5, text, sizeof(text)) && std::strcmp(text, "Keys") == 0);
@@ -1082,8 +1084,30 @@ void test_bad_arguments() {
     o.transport.baud_rate = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
-    o.usb_device.manufacturer = "caf\xC3\xA9";
-    MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    for (const char* bad : {"caf\xE9",              // Latin-1, not UTF-8
+                            "\xC0\x80",             // overlong NUL
+                            "\xED\xA0\x80",         // a surrogate
+                            "\xF4\x90\x80\x80",     // above U+10FFFF
+                            "tab\there", "del\x7F", // control characters
+                            "\xE3\x81"}) {          // cut short
+        o = base_options();
+        o.usb_device.manufacturer = bad;
+        MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    }
+    {
+        // 127 code units: one more than a string descriptor holds.
+        const std::string too_long(127, 'a');
+        o = base_options();
+        o.usb_device.product = too_long.c_str();
+        MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+        // 64 four-byte characters are 128 code units.
+        std::string pairs;
+        for (int i = 0; i < 64; ++i)
+            pairs += "\xF0\x9F\x98\x80";
+        o = base_options();
+        o.usb_device.product = pairs.c_str();
+        MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);
+    }
     o = base_options();
     o.struct_size = 8;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);

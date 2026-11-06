@@ -523,13 +523,19 @@ void mimhid_rx_poll(void) {
 // -------------------------------------------------------------
 static mimhid_config_t g_staged;
 
-static bool read_string(char* dst, const uint8_t* p, uint16_t len, uint16_t* pos) {
+// A string on the wire: a count of UTF-16 code units (at most MIMHID_STRING_MAX), then that many
+// little-endian units. The board stores them zero-terminated, so a zero unit inside is refused.
+static bool read_string(uint16_t* dst, const uint8_t* p, uint16_t len, uint16_t* pos) {
     if (*pos >= len) return false;
-    uint8_t n = p[*pos];
-    if (n > MIMHID_STRING_MAX || (uint32_t)*pos + 1u + n > len) return false;
-    memcpy(dst, &p[*pos + 1], n);
-    dst[n] = '\0';
-    *pos = (uint16_t)(*pos + 1 + n);
+    const uint8_t n = p[*pos];
+    if (n > MIMHID_STRING_MAX || (uint32_t)*pos + 1u + 2u * n > len) return false;
+    for (uint8_t i = 0; i < n; i++) {
+        const uint16_t unit = (uint16_t)(p[*pos + 1 + 2 * i] | (p[*pos + 2 + 2 * i] << 8));
+        if (unit == 0) return false;
+        dst[i] = unit;
+    }
+    dst[n] = 0;
+    *pos = (uint16_t)(*pos + 1 + 2 * n);
     return true;
 }
 

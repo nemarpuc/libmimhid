@@ -244,9 +244,9 @@ mimhid_result validate_node_config(const mimhid_device* device,
         return MIMHID_ERR_PARAM;
     }
     if (effective.iface.country_code > 35U || !valid_usb_string(effective.iface.name)) {
-        set_error(
-            MIMHID_ERR_PARAM, "node_config.iface",
-            "A string is not printable ASCII of at most 126 characters, or country_code > 35.");
+        set_error(MIMHID_ERR_PARAM, "node_config.iface",
+                  "A string is not UTF-8 text of at most 126 UTF-16 code units without control "
+                  "characters, or country_code > 35.");
         return MIMHID_ERR_PARAM;
     }
     if (effective.ep_in.max_packet_size > device->board.max_endpoint_bytes ||
