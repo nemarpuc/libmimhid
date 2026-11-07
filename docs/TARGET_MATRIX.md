@@ -8,7 +8,7 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 
 | Board | Interfaces | Status |
 |---|---|---|
-| Raspberry Pi Pico / Pico H (RP2040) | 15 interfaces (max) | Official support. Verified on hardware with GP0/GP1 UART at 7 interfaces, the maximum of an earlier firmware: all seven enumerate and every profile's input arrives. The current firmware with 15 builds (CI and the development environment); it has not been run on a board. |
+| Raspberry Pi Pico / Pico H (RP2040) | 15 interfaces (max) | Official support. Verified on hardware with GP0/GP1 UART at 7 interfaces, the maximum of an earlier firmware: all seven enumerate and every profile's input arrives. Also verified (2026-11-07) with firmware 0.1.0 at 15 interfaces: 15 mouse nodes in one commit enumerated on the host as 15 interfaces, and the board's link counters (CRC, framing, UART overrun, ring) all read 0 after the link had run at 7,812,500 baud for 14 s. Only that enumeration was checked at 15 interfaces, not every profile's input. |
 | Raspberry Pi Pico 2 (RP2350) | 15 interfaces (max) | Official support. Dual-core RP architecture with `.scratch_y` DMA ring; builds and verified in CI / e2e tests. |
 | RP2040 `pico_w` | 15 interfaces (max) | Builds; not run. |
 | nRF52840 (`pca10056` DK by default) | 7 interfaces (max) | Builds; not run. |
@@ -16,7 +16,7 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 | ESP32-S3 | 4 interfaces (max) | Builds with ESP-IDF 5.4; not run. |
 | Other boards | | Not tested. See [PORTING.md](PORTING.md). |
 
-The portable firmware core is tested on the build host against a fake HAL for 15, 7, 4, and 3 interfaces and once built for high speed (`firmware/tests`), and together with the real host library through a pseudo-terminal for 15, 7, and 3 interfaces and once for high speed (`tests/e2e`). No board here runs at high speed, so the high-speed rules are checked on the build host only.
+The portable firmware core is tested on the build host against a fake HAL for 15, 7, 4, and 3 interfaces and once built for high speed (`firmware/tests`), and together with the real host library through a pseudo-terminal for 15, 7, and 3 interfaces and once for high speed (`tests/e2e`). The one hardware run at 15 interfaces (RP2040, 7,812,500 baud) is the only run at high speed; the other high-speed rules are checked on the build host only.
 
 ## Control transfers
 
