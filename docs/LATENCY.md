@@ -1,6 +1,6 @@
 # Latency
 
-This page separates numbers that follow from the design (arithmetic) from numbers that have been measured. Nothing in the pipeline has been measured end to end yet.
+This page separates numbers that follow from the design (arithmetic) from numbers that have been measured. One end-to-end measurement exists (below); everything else is arithmetic or not measured.
 
 ## Where the time goes
 
@@ -24,9 +24,22 @@ application call
 | UART wire time, 9-byte report at 12,000,000 baud | 11.7 µs | 14 bytes x 10 bits / 12,000,000 |
 | USB poll wait | 0 to 1000 µs, 500 µs on average | Full-Speed interrupt endpoint with `bInterval = 1` |
 | USB-UART bridge buffering | not characterized | Depends on the adapter and driver |
-| Core 1 to core 0 hand-off, TinyUSB, target OS | not measured | |
+| Core 1 to core 0 hand-off, TinyUSB, target OS | not measured separately | Inside the end-to-end figure below |
 
 The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term. The rate is the fastest one the board, the operating system and the serial adapter carry without loss: no table caps it, the search starts at the board's `max_baud` (see [PROTOCOL.md](PROTOCOL.md#line-rate)), and `mimhid_device_link_counters` shows whether the line keeps losing nothing while the program runs. A High-Speed target-facing port would shorten the larger term (125 µs microframes instead of 1 ms frames); the firmware has no High-Speed port yet.
+
+## Measured, once
+
+2026-11-07, libmimhid 0.1.0 on a Raspberry Pi Pico (RP2040), a Prolific PL2303 USB-UART adapter (USB Full-Speed), the program and the target on the same Linux machine, which is a VMware guest with both USB devices passed through. The program times a key press from just before `mimhid_node_submit` returns to the moment the target's evdev device reports it (monotonic clock, 8 to 9 ms between presses, the input device grabbed so nothing is typed). The link ran at 7,812,500 baud, the rate the search chose. 500 presses and 500 releases: none lost, and the board's link counters stayed zero.
+
+| | min | median | p90 | p99 | max |
+|---|---|---|---|---|---|
+| submit to key-down event | 367 µs | 952 µs | 1331 µs | 1471 µs | 1800 µs |
+| submit to key-up event | 377 µs | 830 µs | 1297 µs | 1491 µs | 3085 µs |
+
+A command round trip (host to board and back) measured 995 to 1003 µs at the median at 0.92, 3 and 7.8 Mbaud alike; only its minimum fell (599, 357 and 387 µs). The adapter's 1 ms USB frame sets the median, not the baud rate. Calling `mimhid_node_submit` took 7 µs at the median when called in a tight loop, 110 µs with 2 ms between calls, with rare outliers of tens of milliseconds in the tight loop (not traced; a VM may cause them).
+
+What this does not show: a real second machine as the target (the target's USB stack here is virtual), the time until an application receives the event, adapters other than this one (an FT232H, with 125 µs microframes, is expected to be faster; not measured), or how the numbers move with load. Treat them as one data point, not a specification.
 
 ## Host serial latency
 
