@@ -333,7 +333,7 @@ configure_package_config_file(cmake/mimhid-config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/mimhid-config.cmake
     INSTALL_DESTINATION ${MIMHID_CMAKE_INSTALL_DIR})
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/mimhid-config-version.cmake
-    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMinorVersion)
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/mimhid-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/mimhid-config-version.cmake

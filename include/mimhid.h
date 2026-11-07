@@ -320,10 +320,10 @@ typedef struct mimhid_link_counters {
 
 /* ---- USB identity and Device options ----------------------------------------------------
  * The fields are those of the USB 2.0 standard descriptors (section 9.6) and the HID class
- * descriptor (HID 1.11 section 6.2.1). A string is UTF-8 text without control characters that
- * makes at most 126 UTF-16 code units (USB 2.0 9.6.7: a string descriptor is UTF-16LE and 254 bytes
- * long at most; U+10000 and above take two), or null to leave it out. language_id says which
- * language the strings are in; nothing is inferred from the text. */
+ * descriptor (HID 1.11 section 6.2.1). A string is UTF-8 text without control characters (C0, DEL,
+ * C1) that makes at most 126 UTF-16 code units (USB 2.0 9.6.7: a string descriptor is UTF-16LE and
+ * 254 bytes long at most; U+10000 and above take two), or null to leave it out. language_id says
+ * which language the strings are in; nothing is inferred from the text. */
 
 /* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
  * required (zero is refused); vendor_id and product_id are not checked: USB 2.0 9.6.1 reserves no
@@ -1315,8 +1315,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* 
  * 0 reports each time at once). enabled 0, which is how the board starts, needs interval_ms 0 and
  * puts nothing extra on the link. The setting stays until replaced or mimhid_device_close.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, enabled or interval_ms;
- * MIMHID_ERR_UNSET_FIELD for a zero timeout; a link error (MIMHID_ERR_TIMEOUT from older
- * firmware, which does not answer). */
+ * MIMHID_ERR_UNSET_FIELD for a zero timeout; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(mimhid_device* device,
                                                                       uint32_t enabled,
                                                                       uint32_t interval_ms,
@@ -1527,7 +1526,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_nod
  * across commits.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or a depth of 0 or above 255;
  * MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_OVERFLOW for a depth beyond the board's
- * queue; a link error (MIMHID_ERR_TIMEOUT from older firmware, which does not answer). */
+ * queue; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_queue_depth(mimhid_node* node, uint32_t depth,
                                                                  uint32_t control_timeout_ms);
 

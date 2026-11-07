@@ -1083,12 +1083,12 @@ void test_bad_arguments() {
     o.transport.baud_rate = 0;
     MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_UNSET_FIELD);
     o = base_options();
-    for (const char* bad : {"caf\xE9",              // Latin-1, not UTF-8
-                            "\xC0\x80",             // overlong NUL
-                            "\xED\xA0\x80",         // a surrogate
-                            "\xF4\x90\x80\x80",     // above U+10FFFF
-                            "tab\there", "del\x7F", // control characters
-                            "\xE3\x81"}) {          // cut short
+    for (const char* bad : {"caf\xE9",                          // Latin-1, not UTF-8
+                            "\xC0\x80",                         // overlong NUL
+                            "\xED\xA0\x80",                     // a surrogate
+                            "\xF4\x90\x80\x80",                 // above U+10FFFF
+                            "tab\there", "del\x7F", "\xC2\x85", // control characters
+                            "\xE3\x81"}) {                      // cut short
         o = base_options();
         o.usb_device.manufacturer = bad;
         MIMHID_CHECK(mimhid_device_open(info.port_name, &o, &device) == MIMHID_ERR_PARAM);

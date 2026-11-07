@@ -20,7 +20,7 @@ A5  TYPE  LEN  payload[LEN]  CRC_LO  CRC_HI
 | `0x82` / `0x83` | board to host | `ACK` (`seq, type`, then the data of the command if it has any) / `NAK` (`seq, type, code`) |
 | `0x84` | board to host | `EVENT` (`kind, ...`) |
 
-A report payload is at most the board's `max_report_bytes`. Other payloads are at most the board's `max_frame_payload`, never below 255 (so every configuration command fits) and never above `MIMHID_PROTO_MAX_PAYLOAD` (4096). The board says both in its PONG.
+A report payload is at most the board's `max_report_bytes`. Other payloads are at most the board's `max_frame_payload`, never below 255 (a `NODE_DATA` chunk fits; the firmware refuses to build with a limit below its longest configuration command) and never above `MIMHID_PROTO_MAX_PAYLOAD` (4096). The board says both in its PONG.
 
 ## Commands
 

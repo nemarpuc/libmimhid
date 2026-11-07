@@ -204,7 +204,7 @@ bool utf16_from_utf8(const char* text, std::u16string* units) {
         }
         // No overlong forms, no surrogates, nothing above U+10FFFF, no control characters.
         if (code < least || code > 0x10FFFFU || (code >= 0xD800U && code <= 0xDFFFU) ||
-            code < 0x20U || code == 0x7FU)
+            code < 0x20U || (code >= 0x7FU && code <= 0x9FU))
             return false;
         if (code >= 0x10000U) {
             code -= 0x10000U;

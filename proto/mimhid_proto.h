@@ -101,7 +101,8 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  * its type (MIMHID_T_REPORT_BASE | id), so 16 nodes are addressable. */
 #define MIMHID_MAX_NODES 16
 /* The largest payload a frame may carry on any board. A board's own limit is in its PONG, and
- * is never below MIMHID_MIN_FRAME_PAYLOAD, so that every configuration command fits. */
+ * is never below MIMHID_MIN_FRAME_PAYLOAD (a NODE_DATA chunk fits); the firmware also refuses to
+ * build with a limit below its longest configuration command (config.h). */
 #define MIMHID_PROTO_MAX_PAYLOAD 4096
 #define MIMHID_MIN_FRAME_PAYLOAD 255
 #define MIMHID_NODE_DATA_CHUNK 240
