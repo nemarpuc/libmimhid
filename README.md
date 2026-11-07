@@ -1,5 +1,7 @@
 # libmimhid
 
+[Canonical repository](https://github.com/nemarpuc/libmimhid)
+
 Physical USB HID emulation for a target device, driven from a Linux, macOS, or Windows PC. The PC sends reports over a high-speed serial link to a microcontroller board (Raspberry Pi Pico or Pico 2, with ports for other chips), which presents them to the target as a composite USB HID device. The target needs no driver, software, or special mode. You need a board, a 3.3 V
 USB-to-UART bridge, and three wires ([QUICKSTART.md](docs/QUICKSTART.md)).
 
