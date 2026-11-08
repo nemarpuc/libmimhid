@@ -67,10 +67,11 @@ The caller explicitly assigns each node to a USB interface index (`iface.number`
 17..20 uart flags (u32): bit 0 the board returns to the boot rate on a BREAK
 21..22 max_descriptor_bytes  23..24 max_report_bytes  25..26 max_feature_bytes
 27..28 max_endpoint_bytes  29..30 max_frame_payload  31..32 max_control_data_bytes
-33 max_control_rules  34 unique id length n (0..16)  35.. the chip's unique id, n bytes
+33 max_control_rules  34 max_endpoint_number (the highest endpoint number the controller has)
+35 unique id length n (0..16)  36.. the chip's unique id, n bytes
 ```
 
-All wider values are little endian. The length is 35 + n. A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
+All wider values are little endian. The length is 36 + n. (Version 0.2.0 added byte 34 and moved the unique id.) A reader ignores bytes past the ones it knows. `chip` is 0 (unknown), 1 RP2040, 2 RP2350, 3 ESP32-S3, 4 nRF52840, 5 STM32F4.
 
 **Versions.** The firmware and the library of one release speak the same protocol. A host talks to a board whose `fw_major` and `fw_minor` equal its own; `fw_patch` never changes the wire. The first four bytes keep their place in every release, so the host can read them from any board: it lists a board of another major or minor version in `mimhid_discover` with only those values (`firmware_compatible` 0), and refuses to open it with `MIMHID_ERR_PROTOCOL`. A change of the frame format or of any layout in this document raises the minor number.
 

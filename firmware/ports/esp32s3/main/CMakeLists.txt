@@ -16,12 +16,16 @@ idf_component_register(
         tinyusb_core driver esp_timer usb
 )
 
-if(DEFINED MIMHID_UART_TX_PIN)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MIMHID_UART_TX_PIN=${MIMHID_UART_TX_PIN})
+# The wiring is the board's: no pin is assumed.
+if(NOT DEFINED MIMHID_UART_TX_PIN)
+    message(FATAL_ERROR "Set -DMIMHID_UART_TX_PIN=<gpio>: the build assumes no pin")
 endif()
-if(DEFINED MIMHID_UART_RX_PIN)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MIMHID_UART_RX_PIN=${MIMHID_UART_RX_PIN})
+if(NOT DEFINED MIMHID_UART_RX_PIN)
+    message(FATAL_ERROR "Set -DMIMHID_UART_RX_PIN=<gpio>: the build assumes no pin")
 endif()
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    MIMHID_UART_TX_PIN=${MIMHID_UART_TX_PIN}
+    MIMHID_UART_RX_PIN=${MIMHID_UART_RX_PIN})
 
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dcd_event_handler" "-Wl,--wrap=dcd_edpt_stall" "-Wl,--wrap=dcd_edpt_xfer")

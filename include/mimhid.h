@@ -48,11 +48,11 @@
  *   Timeouts   The library keeps no timeout: every call that can wait takes its timeouts in
  *              milliseconds as arguments (mimhid_commit_timeouts for a commit). A timeout of zero
  *              is refused with MIMHID_ERR_UNSET_FIELD before anything is sent.
- *              MIMHID_CONTROL_TIMEOUT_MS and the constants next to it are values that work.
  *   Structures Each options structure starts with struct_size (its sizeof) and reserved (zero).
- *              Its *_init function sets both and fills in working values. A required field that
- *              is zero is refused, and every enumeration starts at 1, so a field left zero never
- *              selects something by accident. A flag (enable_*, down, ...) is exactly 0 or 1.
+ *              Its *_init function sets struct_size and zeroes the rest; it fills in no value.
+ *              A required field that is zero is refused, and every enumeration starts at 1, so a
+ * field left zero never selects something by accident. A flag (enable_*, down, ...) is exactly 0
+ * or 1.
  *
  * Specifications cited: USB 2.0, HID 1.11 and HID Usage Tables 1.7 (HUT), all from usb.org.
  * docs/API.md is the guide to this header; docs/PROTOCOL.md describes the serial link.
@@ -81,7 +81,7 @@ extern "C" {
 #endif
 
 #define MIMHID_VERSION_MAJOR 0
-#define MIMHID_VERSION_MINOR 1
+#define MIMHID_VERSION_MINOR 2
 #define MIMHID_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
@@ -279,7 +279,7 @@ typedef struct mimhid_device_info {
     uint8_t max_report_bytes;      /* at most 255 here; mimhid_device_limits has the exact figure */
     uint16_t max_descriptor_bytes; /* room for all report descriptors together */
     uint8_t has_unique_id;         /* 1 when the chip has a serial number of its own */
-    uint8_t reserved8;
+    uint8_t max_endpoint_number;   /* the highest endpoint number the board's USB controller has */
     /* discover: the fastest rate that carried a burst of test frames without loss on this port
      * (the board is left on MIMHID_BOOT_BAUD); a Device: the rate the link runs at */
     uint32_t baud_rate;
@@ -303,6 +303,7 @@ typedef struct mimhid_board_limits {
     uint32_t max_frame_payload;      /* largest serial frame payload the board takes */
     uint32_t max_control_data_bytes; /* largest data stage the host may read or answer */
     uint32_t max_control_rules;      /* rules mimhid_device_set_control_routing takes */
+    uint32_t max_endpoint_number; /* highest endpoint number of ep_in.address and ep_out.address */
 } mimhid_board_limits;
 
 /* What the board counted on its serial line since the last reset, each saturating at 65535. A
@@ -326,9 +327,9 @@ typedef struct mimhid_link_counters {
  * which language the strings are in; nothing is inferred from the text. */
 
 /* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
- * required (zero is refused); vendor_id and product_id are not checked: USB 2.0 9.6.1 reserves no
- * idVendor or idProduct value, so zero is presented as given. mimhid_device_config_init fills in
- * the pid.codes test pair; a device you hand out needs IDs of its own. */
+ * required (zero is refused), and so is vendor_id: zero is taken for a field that was never set (an
+ * identity is the caller's, and mimhid_device_config_init fills nothing in). product_id may be
+ * any value, zero included. */
 typedef struct mimhid_usb_device {
     uint16_t bcd_usb;        /* e.g. 0x0200; 0x0210 or more needs a BOS rule: docs/LIMITS.md */
     uint8_t device_class;    /* 0: each interface says its own class */
@@ -750,19 +751,11 @@ typedef struct mimhid_digitizer_sample {
 } mimhid_digitizer_sample;
 
 /* ---- Initializers -----------------------------------------------------------------------
- * Each *_init function zeroes a structure, sets struct_size, and fills in values that work with a
- * Linux target (Windows and macOS targets have not been tried; docs/TARGET_MATRIX.md), so a caller
- * changes only what it needs. Fields that only the caller can know (the USB vendor and product ID,
- * a Raw descriptor, the keys a Toggle Node may press) stay zero and are still required. A value
- * the caller sets afterwards is used as given, zero included where zero is valid.
- *
- * The timeouts are values that work for a board on a USB serial adapter; the library never uses
- * them itself. */
-#define MIMHID_CONTROL_TIMEOUT_MS 500U    /* each configuration frame */
-#define MIMHID_SEND_TIMEOUT_MS 500U       /* a serial write that makes no progress */
-#define MIMHID_DRAIN_TIMEOUT_MS 1000U     /* a close: the neutral reports */
-#define MIMHID_RECONNECT_TIMEOUT_MS 3000U /* the board's USB device enumerated again */
-
+ * Each *_init function zeroes a structure and sets struct_size, and nothing else: no value is
+ * filled in for the caller. The USB identity, the strings, the timeouts, the baud rate, the
+ * endpoints, the Linux HID limits and every profile's fields are the caller's to set; one left at
+ * zero where zero is not valid is refused with MIMHID_ERR_UNSET_FIELD (or MIMHID_ERR_PARAM). A
+ * value the caller sets is used as given, zero included where zero is valid. */
 static inline void mimhid_struct_init(void* value, size_t size) {
     if (value != NULL) {
         const uint32_t struct_size = (uint32_t)size;
@@ -782,63 +775,16 @@ mimhid_integer_field_make(int32_t logical_minimum, // NOLINT(bugprone-easily-swa
     return field;
 }
 
-/* The boot rate (mimhid_discover reports the fastest a port carries), 50 ms handshake waits,
- * 64-byte reports (one full-speed packet), no logging, and the Linux HID parser limits of the
- * kernel revision in docs/LIMITS.md. The USB identity is a bus-powered (100 mA) USB 2.0 device
- * with remote wakeup, English strings "libmimhid", and the chip's unique id as serial number.
- * The vendor and product ID are 0x1209 and 0x0001, the pair pid.codes sets aside for testing
- * in-house only: set your own before you hand a device out. */
 static inline void mimhid_device_config_init(mimhid_device_config* config) {
     mimhid_struct_init(config, sizeof(*config));
-    if (config != NULL) {
-        config->transport.baud_rate = 115200U;
-        config->transport.handshake_timeout_ms = 50U;
-        config->transport.maximum_report_bytes = 64U;
-        config->transport.linux_hid.descriptor_bytes = 4096U;
-        config->transport.linux_hid.fields_per_report = 256U;
-        config->transport.linux_hid.global_stack_depth = 4U;
-        config->transport.linux_hid.report_size_bits = 256U;
-        config->transport.linux_hid.usages = 12288U;
-        config->transport.linux_hid.report_data_bits = 65528U;
-        config->transport.log_level = MIMHID_LOG_DISABLED;
-        config->usb_device.bcd_usb = 0x0200U;
-        config->usb_device.vendor_id = 0x1209U;
-        config->usb_device.product_id = 0x0001U;
-        config->usb_device.ep0_max_packet_size = 64U;
-        config->usb_device.bcd_device = 0x0100U;
-        config->usb_device.language_id = 0x0409U;
-        config->usb_device.manufacturer = "libmimhid";
-        config->usb_device.product = "libmimhid";
-        config->usb_device.serial_from_chip_id = 1U;
-        config->usb_config.configuration_value = 1U;
-        config->usb_config.bm_attributes = 0xA0U;
-        config->usb_config.bmax_power = 50U;
-    }
 }
 
-/* MIMHID_CONTROL_TIMEOUT_MS and MIMHID_RECONNECT_TIMEOUT_MS. */
 static inline void mimhid_commit_timeouts_init(mimhid_commit_timeouts* timeouts) {
     mimhid_struct_init(timeouts, sizeof(*timeouts));
-    if (timeouts != NULL) {
-        timeouts->control_timeout_ms = MIMHID_CONTROL_TIMEOUT_MS;
-        timeouts->reconnect_timeout_ms = MIMHID_RECONNECT_TIMEOUT_MS;
-    }
 }
 
-/* A HID interface (HID 1.11, no boot protocol) labelled interface_number, polled every 1 ms through
- * IN endpoint 0x81 + interface_number with 64-byte packets, and no OUT endpoint. The number is an
- * argument because two Nodes with the same one share an interface: give each Node its own unless
- * you mean that. interface_number must be below 15. */
-static inline void mimhid_node_config_init(mimhid_node_config* config, uint8_t interface_number) {
+static inline void mimhid_node_config_init(mimhid_node_config* config) {
     mimhid_struct_init(config, sizeof(*config));
-    if (config != NULL) {
-        config->iface.number = interface_number;
-        config->iface.class_code = 0x03U;
-        config->iface.bcd_hid = 0x0111U;
-        config->ep_in.address = (uint8_t)(0x81U + interface_number);
-        config->ep_in.poll_interval_ms = 1U;
-        config->ep_in.max_packet_size = 64U;
-    }
 }
 
 static inline void mimhid_board_limits_init(mimhid_board_limits* limits) {
@@ -849,120 +795,38 @@ static inline void mimhid_link_counters_init(mimhid_link_counters* counters) {
     mimhid_struct_init(counters, sizeof(*counters));
 }
 
-/* Every key from Keyboard a (0x04) to Keypad Hexadecimal (0xDD). The eight modifiers (0xE0 to
- * 0xE7) are always part of the report. */
 static inline void mimhid_keyboard_options_init(mimhid_keyboard_options* options) {
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->usage_minimum = 0x04U;
-        options->usage_maximum = 0xDDU;
-    }
 }
 
-/* Five buttons, 16-bit X and Y, and an 8-bit wheel and pan. */
 static inline void mimhid_mouse_options_init(mimhid_mouse_options* options) {
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->button_count = 5U;
-        options->x = mimhid_integer_field_make(-32767, 32767, 16U);
-        options->y = options->x;
-        options->enable_wheel = 1U;
-        options->wheel = mimhid_integer_field_make(-127, 127, 8U);
-        options->enable_pan = 1U;
-        options->pan = options->wheel;
-    }
 }
 
-/* A Consumer Control (0x0C/0x01) collection of Consumer page keys. The keys themselves
- * (allowed_usages and the three arrays next to it) are the caller's to list. */
 static inline void mimhid_toggle_options_init(mimhid_toggle_options* options) {
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->application_page = 0x0CU;
-        options->application_usage = 0x01U;
-        options->field_page = 0x0CU;
-    }
 }
 
-/* Two sticks (X/Y and Z/Rz, 8 bits, at rest at 0), twelve buttons from Button 1, and an eight-way
- * Hat. */
 static inline void mimhid_gamepad_options_init(mimhid_gamepad_options* options) {
-    static const mimhid_gamepad_axis_option axes[4] = {
-        {MIMHID_AXIS_X, 0x01U, 0x30U, {-127, 127, 8U, {0U, 0, 0, 0, 0U}}, 0, "ABS_X"},
-        {MIMHID_AXIS_Y, 0x01U, 0x31U, {-127, 127, 8U, {0U, 0, 0, 0, 0U}}, 0, "ABS_Y"},
-        {MIMHID_AXIS_Z, 0x01U, 0x32U, {-127, 127, 8U, {0U, 0, 0, 0, 0U}}, 0, "ABS_Z"},
-        {MIMHID_AXIS_RZ, 0x01U, 0x35U, {-127, 127, 8U, {0U, 0, 0, 0, 0U}}, 0, "ABS_RZ"}};
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->axes = axes;
-        options->axis_count = 4U;
-        options->button_count = 12U;
-        options->button_usage_minimum = 1U;
-        options->dpad_representation = MIMHID_DPAD_HAT;
-        options->hat_logical_minimum = 0;
-        options->hat_logical_maximum = 7;
-        options->hat_bit_width = 4U;
-    }
 }
 
-/* Ten contacts in one report, X and Y from 0 to 32767, and no optional field. */
 static inline void mimhid_touchscreen_options_init(mimhid_touchscreen_options* options) {
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->maximum_contacts = 10U;
-        options->contacts_per_report = 10U;
-        options->contact_id = mimhid_integer_field_make(0, 15, 4U);
-        options->x = mimhid_integer_field_make(0, 32767, 16U);
-        options->y = options->x;
-        options->contact_count = mimhid_integer_field_make(0, 10, 4U);
-    }
 }
 
-/* Five contacts in one report, X and Y from 0 to 32767, no optional field, and one click button. */
 static inline void mimhid_touchpad_options_init(mimhid_touchpad_options* options) {
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->maximum_contacts = 5U;
-        options->contacts_per_report = 5U;
-        options->contact_id = mimhid_integer_field_make(0, 15, 4U);
-        options->x = mimhid_integer_field_make(0, 32767, 16U);
-        options->y = options->x;
-        options->contact_count = mimhid_integer_field_make(0, 5, 4U);
-        options->button_count = 1U;
-    }
 }
 
-/* X and Y from 0 to 32767, 12-bit pressure, one Barrel Switch, and hover. */
 static inline void mimhid_pen_options_init(mimhid_pen_options* options) {
-    static const uint16_t barrel_usages[1] = {0x44U};
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->x = mimhid_integer_field_make(0, 32767, 16U);
-        options->y = options->x;
-        options->enable_pressure = 1U;
-        options->pressure = mimhid_integer_field_make(0, 4095, 12U);
-        options->barrel_usages = barrel_usages;
-        options->barrel_usage_count = 1U;
-        options->enable_hover = 1U;
-    }
 }
 
-/* The same values as mimhid_pen_options_init. */
 static inline void mimhid_digitizer_options_init(mimhid_digitizer_options* options) {
-    static const uint16_t barrel_usages[1] = {0x44U};
     mimhid_struct_init(options, sizeof(*options));
-    if (options != NULL) {
-        options->x = mimhid_integer_field_make(0, 32767, 16U);
-        options->y = options->x;
-        options->enable_pressure = 1U;
-        options->pressure = mimhid_integer_field_make(0, 4095, 12U);
-        options->barrel_usages = barrel_usages;
-        options->barrel_usage_count = 1U;
-        options->enable_hover = 1U;
-    }
 }
 
-/* Only struct_size: the descriptor and its report table are the caller's. */
 static inline void mimhid_raw_options_init(mimhid_raw_options* options) {
     mimhid_struct_init(options, sizeof(*options));
 }

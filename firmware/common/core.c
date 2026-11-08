@@ -7,6 +7,13 @@
 #include "core.h"
 #include "hal.h"
 
+// The port's stated endpoint packet size and the speed the stack runs at must agree, and the
+// highest endpoint number must be one the stack can open.
+_Static_assert((MIMHID_MAX_ENDPOINT_BYTES == 1024) == (TUD_OPT_HIGH_SPEED != 0),
+               "MIMHID_MAX_ENDPOINT_BYTES is 1024 at high speed and 64 at full speed");
+_Static_assert(MIMHID_MAX_ENDPOINT_NUMBER < CFG_TUD_ENDPPOINT_MAX,
+               "MIMHID_MAX_ENDPOINT_NUMBER is an endpoint number the stack opens");
+
 // -------------------------------------------------------------
 // Report queues: one per USB interface (RX context produces, USB context consumes)
 // -------------------------------------------------------------
@@ -356,8 +363,9 @@ static void send_pong(void) {
     p[31] = (uint8_t)(MIMHID_CONTROL_DATA_MAX & 0xFF);
     p[32] = (uint8_t)(MIMHID_CONTROL_DATA_MAX >> 8);
     p[33] = MIMHID_CONTROL_RULES;
-    p[34] = g_unique_id_len;
-    memcpy(&p[35], g_unique_id, g_unique_id_len);
+    p[34] = MIMHID_MAX_ENDPOINT_NUMBER;
+    p[35] = g_unique_id_len;
+    memcpy(&p[36], g_unique_id, g_unique_id_len);
     send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
 
@@ -571,9 +579,11 @@ static void cmd_device_config(const command_t* c) {
         return;
     }
 #endif
-    // USB 2.0 9.6.3: bits 4..0 of bmAttributes are reserved and zero. 9.6.1: a device subclass
-    // needs a device class.
-    if ((d->bm_attributes & 0x1F) != 0 || (d->device_class == 0 && d->device_subclass != 0)) {
+    // Nothing is filled in for the host: the LANGID (9.6.7), bcdUSB and the attributes are given.
+    // USB 2.0 9.6.3: bit 7 of bmAttributes is reserved and set, bits 4..0 are reserved and zero.
+    // 9.6.1: a device subclass needs a device class.
+    if (d->language_id == 0 || d->bcd_usb == 0 || (d->bm_attributes & 0x80) == 0 ||
+        (d->bm_attributes & 0x1F) != 0 || (d->device_class == 0 && d->device_subclass != 0)) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
@@ -610,7 +620,14 @@ static void cmd_node_begin(const command_t* c) {
     const uint16_t ep_out_size = (uint16_t)(p[15] | (p[16] << 8));
     // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0 (none), 1 (keyboard) or 2 (mouse); the
     // other values are reserved.
+    // Every value is given, none is filled in: the IN endpoint has an address, a size and an
+    // interval; the OUT endpoint is either wholly absent (address, size and interval zero) or has
+    // all three; bcdHID is nonzero.
+    const uint16_t bcd_hid = (uint16_t)(p[7] | (p[8] << 8));
+    const bool out_absent = p[14] == 0 && ep_out_size == 0 && p[17] == 0;
+    const bool out_given = p[14] != 0 && ep_out_size != 0 && p[17] != 0;
     if (id >= MIMHID_MAX_NODES || desc_len == 0 || itf_subcls > 1 || itf_proto > 2 ||
+        bcd_hid == 0 || p[10] == 0 || ep_size == 0 || p[13] == 0 || !(out_absent || out_given) ||
         ep_size > MIMHID_MAX_ENDPOINT_BYTES || ep_out_size > MIMHID_MAX_ENDPOINT_BYTES) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
@@ -644,10 +661,17 @@ static void cmd_node_begin(const command_t* c) {
     }
 
     // USB 2.0 9.6.6: bits 3..0 of an endpoint address are its number (not 0, the control
-    // endpoint), bits 6..4 are zero and bit 7 is the direction. Zero asks for the default.
-    if ((p[10] != 0 && ((p[10] & 0x80) == 0 || (p[10] & 0x70) != 0 || (p[10] & 0x0F) == 0)) ||
+    // endpoint), bits 6..4 are zero and bit 7 is the direction.
+    if ((p[10] & 0x80) == 0 || (p[10] & 0x70) != 0 || (p[10] & 0x0F) == 0 ||
         (p[14] != 0 && ((p[14] & 0xF0) != 0 || (p[14] & 0x0F) == 0))) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+    // A number the controller does not have cannot be opened: the stack would fail the
+    // SET_CONFIGURATION of the target, and nothing would say why.
+    if ((p[10] & 0x0F) > MIMHID_MAX_ENDPOINT_NUMBER ||
+        (p[14] != 0 && (p[14] & 0x0F) > MIMHID_MAX_ENDPOINT_NUMBER)) {
+        cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
         return;
     }
     mimhid_node_cfg_t* n = &g_staged.node[id];
@@ -742,10 +766,17 @@ static void cmd_queue_depth(const command_t* c) {
     cmd_answer(seq, c->type, 0);
 }
 
+// True while the board's D+ pull-up is meant to be on: from a COMMIT that applied a configuration
+// until a detach. A port whose power events can raise the pull-up by themselves (nRF52840) reads
+// this to take it down again.
+static volatile bool g_attached = false;
+bool mimhid_core_attached(void) { return g_attached; }
+
 static void cmd_commit(const command_t* c) {
     const uint8_t seq = c->data[0];
     if (c->len >= 2 && c->data[1] == 1) {
         // Detach: leave the target's bus and forget the active configuration.
+        g_attached = false;
         tud_disconnect();
         queue_flush_all();
         mimhid_control_clear();
@@ -761,6 +792,7 @@ static void cmd_commit(const command_t* c) {
     queue_flush_all();
     apply_depths();
     mimhid_control_clear();
+    g_attached = true;
     tud_connect();
     cmd_answer(seq, c->type, 0);
 }
@@ -823,6 +855,7 @@ void mimhid_core_init(void) {
     g_max_baud = hal_uart_max_baud();
     if (g_max_baud < MIMHID_BOOT_BAUD) g_max_baud = MIMHID_BOOT_BAUD; // the boot rate is always there
     tusb_init();
+    g_attached = false;
     tud_disconnect();
 }
 

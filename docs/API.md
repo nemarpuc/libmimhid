@@ -34,26 +34,29 @@ Every enumeration is an `int32_t` typedef with integral constants, so structure 
 - A required field left zero is refused with `MIMHID_ERR_UNSET_FIELD`; the library never puts a value of its own in its place. Every enumeration starts at 1, so a zeroed enumeration field is refused rather than read as a choice. Where zero is a real value (a logical minimum, interface number 0, country code 0) the field has no "unset" meaning, and what is optional has its own `enable_*` flag or count.
 - `enable_*` and the other flags are exactly 0 or 1.
 
-Each structure has an initializer, `mimhid_<structure>_init`, that zeroes it, sets `struct_size`, and fills in values that work with a Linux target; Windows and macOS targets have not been tried ([TARGET_MATRIX.md](TARGET_MATRIX.md)). Start from it and change only what you need; a value set afterwards is used as given. The initializers are `static inline` functions in the header, so they are not part of the binary ABI. `mimhid.hpp` has the same as functions that return the structure (`mimhid::device_config()`, `mimhid::node_config(n)`, `mimhid::keyboard_options()`, ...).
+Each structure has an initializer, `mimhid_<structure>_init`, that zeroes it and sets `struct_size`, and **nothing else**: it fills in no value. Every field the library requires is yours to set, and one left at zero where zero is not valid is refused with `MIMHID_ERR_UNSET_FIELD` (or `MIMHID_ERR_PARAM` where the profile's validation names it); a value you set is used as given. The initializers are `static inline` functions in the header, so they are not part of the binary ABI. `mimhid.hpp` has the same as functions that return the structure (`mimhid::device_config()`, `mimhid::node_config()`, `mimhid::keyboard_options()`, ...).
 
-| Initializer | What it fills in |
-|---|---|
-| `mimhid_device_config_init` | The boot rate 115,200 (`mimhid_discover` reports the fastest one a port carries); 50 ms handshake waits; reports up to 64 bytes (one full-speed packet); `MIMHID_LOG_DISABLED`; the Linux HID limits of [LIMITS.md](LIMITS.md#linux-hid-parser) (4096, 256, 4, 256, 12288, 65528). A USB 2.0 device with 64-byte EP0, release 1.00, LANGID 0x0409 (English, United States), manufacturer and product `"libmimhid"`, the chip's unique id as serial number, configuration 1, bus powered with remote wakeup (`0xA0`), 100 mA. **`usb_device.vendor_id` 0x1209 and `product_id` 0x0001**, the pair [pid.codes](https://pid.codes/1209/0001/) sets aside for testing in-house only: a device you hand out needs IDs of its own. |
-| `mimhid_commit_timeouts_init` | `MIMHID_CONTROL_TIMEOUT_MS` and `MIMHID_RECONNECT_TIMEOUT_MS`. |
-| `mimhid_node_config_init(config, n)` | Interface `n`, HID class (`0x03`), HID 1.11, no boot protocol; IN endpoint `0x81 + n` polled every 1 ms with 64-byte packets; no OUT endpoint. The number is an argument because Nodes with the same one share an interface: give each Node its own unless you mean that. `n` must be below 15. |
-| `mimhid_keyboard_options_init` | Usages `0x04` (Keyboard a) to `0xDD` (Keypad Hexadecimal), plus the modifiers. |
-| `mimhid_mouse_options_init` | 5 buttons; X and Y -32767..32767 in 16 bits; wheel and pan -127..127 in 8 bits. |
-| `mimhid_toggle_options_init` | Consumer Control (`0x0C/0x01`, field page `0x0C`). The Usages and their three parallel arrays are yours to set. |
-| `mimhid_gamepad_options_init` | Axes X, Y, Z, Rz (-127..127 in 8 bits, at rest at 0), 12 buttons from Button 1, an eight-way Hat. |
-| `mimhid_touchscreen_options_init` | 10 contacts in one report; Contact ID 0..15 in 4 bits; X and Y 0..32767 in 16 bits; Contact Count 0..10 in 4 bits. |
-| `mimhid_touchpad_options_init` | As the touchscreen with 5 contacts, plus one click button. |
-| `mimhid_pen_options_init`, `mimhid_digitizer_options_init` | X and Y 0..32767 in 16 bits; pressure 0..4095 in 12 bits; one Barrel Switch; hover. |
-| `mimhid_raw_options_init`, `mimhid_board_limits_init`, `mimhid_capability_manifest_init` | `struct_size` only. |
+What a program must set, by structure:
+
+| Structure | Required (zero is refused) | Optional |
+|---|---|---|
+| `mimhid_device_config` | `transport.baud_rate` (`MIMHID_BOOT_BAUD` is 115,200, `MIMHID_BAUD_FASTEST` asks for the fastest rate the link carries; `mimhid_discover` reports the fastest one a port carries), `transport.handshake_timeout_ms`, `transport.maximum_report_bytes`, `transport.log_level` (an enumeration: `MIMHID_LOG_DISABLED` is 1), the six `transport.linux_hid` limits ([LIMITS.md](LIMITS.md#linux-hid-parser)), `usb_device.vendor_id`, `usb_device.bcd_usb`, `usb_device.ep0_max_packet_size`, `usb_device.language_id`, `usb_config.configuration_value`, `usb_config.bm_attributes` (bit 7 set) | `usb_device.product_id` (zero is a valid ID), `bcd_device`, the device class triple, the strings (null leaves one out), `serial_from_chip_id`, `usb_config.bmax_power` |
+| `mimhid_commit_timeouts` | `control_timeout_ms`, `reconnect_timeout_ms` | |
+| `mimhid_node_config` | `iface.class_code` (`0x03`), `iface.bcd_hid`, `ep_in.address`, `ep_in.poll_interval_ms`, `ep_in.max_packet_size`; with an OUT endpoint also its address, interval and size | `iface.number` (a label; Nodes with the same one share an interface: give each Node its own unless you mean that), `subclass`, `protocol`, `country_code`, `name` |
+| `mimhid_keyboard_options` | `usage_minimum`, `usage_maximum` | |
+| `mimhid_mouse_options` | `button_count`, `x`, `y` | wheel and pan (`enable_*` with their fields) |
+| `mimhid_toggle_options` | `application_page`, `application_usage`, `field_page`, the Usages and their three parallel arrays | |
+| `mimhid_gamepad_options` | the axes (`axes`, `axis_count`), `button_count` and `button_usage_minimum`, the D-pad (`dpad_representation` and, for a Hat, its range and width) | |
+| `mimhid_touchscreen_options`, `mimhid_touchpad_options` | `maximum_contacts`, `contacts_per_report`, `contact_id`, `x`, `y`, `contact_count` | optional fields (`enable_*`), `button_count` on a touchpad |
+| `mimhid_pen_options`, `mimhid_digitizer_options` | `x`, `y` | pressure, tilt, twist, hover, barrel Usages (`enable_*` with their fields) |
+| `mimhid_raw_options`, `mimhid_board_limits`, `mimhid_link_counters`, `mimhid_capability_manifest` | the descriptor and its report table (raw); nothing for the others | |
+
+`docs/EXAMPLES.md` and `examples/` show a full set of values for each; they are examples, not defaults.
 
 `mimhid_integer_field_make(minimum, maximum, bits)` builds one field without physical units.
 
 > [!IMPORTANT]
-> The examples and tests use `0x1209`/`0x0001`, an ID [pid.codes](https://pid.codes/1209/0001/) sets aside for testing in-house only. A device you hand out needs a vendor and product ID of its own.
+> The examples and tests set `0x1209`/`0x0001`, an ID [pid.codes](https://pid.codes/1209/0001/) sets aside for testing in-house only. The library fills in no identity: `usb_device.vendor_id` zero is refused, so a device you hand out has the vendor and product ID of its own that you set.
 
 ## Lifecycle
 
@@ -80,7 +83,7 @@ spec_release
 
 - `iface.number` labels the interface; the board numbers its interfaces 0, 1, 2, ... in the order of these labels. Nodes with the same number share the interface, and must then all have Report IDs, all different, and the same interface and endpoint settings. Nodes on different interfaces need different endpoint addresses. Anything else is `MIMHID_ERR_PARAM`.
 - `iface.class_code` (`0x03`, HID: any other class is `MIMHID_ERR_UNSUPPORTED`, because the board opens HID interfaces only), `iface.subclass` (0, or 1 for a boot interface) and `iface.protocol` (0, 1 keyboard or 2 mouse; HID 1.11 4.2 and 4.3), `iface.bcd_hid` (nonzero), `iface.country_code` (0 when not localized, up to 35), `iface.name` (a string, or null).
-- `ep_in`: `address` (`0x81` to `0x8F`), `poll_interval_ms` (`bInterval`: 1 to 255 at full speed, 1 to 16 at high speed), `max_packet_size` (1 to the board's `max_endpoint_bytes`). All required.
+- `ep_in`: `address` (`0x81` to `0x80 | max_endpoint_number`, the board's highest endpoint number in `mimhid_board_limits`), `poll_interval_ms` (`bInterval`: 1 to 255 at full speed, 1 to 16 at high speed), `max_packet_size` (1 to the board's `max_endpoint_bytes`). All required.
 - `ep_out`: all zero for none; otherwise an address `0x01` to `0x0F`, a poll interval and a packet size, and the target's Output reports reach `event_sink`.
 
 A USB device has one VID and PID, so those belong to the Device, not to a Node.
@@ -98,7 +101,7 @@ A USB device has one VID and PID, so those belong to the Device, not to a Node.
 
 ## Timeouts
 
-The library keeps no timeout: every call that can wait takes its time in milliseconds as an argument, and zero fails with `MIMHID_ERR_UNSET_FIELD` before anything is sent. `MIMHID_CONTROL_TIMEOUT_MS` (500), `MIMHID_SEND_TIMEOUT_MS` (500), `MIMHID_DRAIN_TIMEOUT_MS` (1000) and `MIMHID_RECONNECT_TIMEOUT_MS` (3000) are values that work for a board on a USB serial adapter; the library never uses them by itself.
+The library keeps no timeout: every call that can wait takes its time in milliseconds as an argument, and zero fails with `MIMHID_ERR_UNSET_FIELD` before anything is sent. There are no constants for the waits: the examples use 500 ms for a configuration frame and a serial write, 1000 ms for a close, and 3000 ms for the board's new enumeration, which work for a board on a USB serial adapter, and the library never uses them by itself.
 
 | Wait | Meaning | Taken by |
 |---|---|---|

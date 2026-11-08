@@ -7,9 +7,11 @@
 #include "nrf.h"
 #include "bsp/board_api.h"
 #include "board.h"
+#include "core.h"
 #include "hal.h"
 
-// Defaults follow the board's UART pins from the TinyUSB BSP (board.h).
+// The wiring is the selected board's (BOARD is required by the build): its UART pins from the
+// TinyUSB BSP (board.h). A build may override them with MIMHID_UART_RX_PIN and MIMHID_UART_TX_PIN.
 #ifndef MIMHID_UART_RX_PIN
 #define MIMHID_UART_RX_PIN UART_RX_PIN
 #endif
@@ -183,3 +185,15 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
 }
 
 void hal_control_silent_drop(void) {}
+
+// TinyUSB raises USBPULLUP on every USB_EVT_READY (a cable plugged in, or the target powering up),
+// whatever tud_disconnect() did before. Until the host has committed a configuration (and after a
+// detach) the board must stay off the target's bus, so the pull-up is taken down again here
+// (linked with --wrap=tusb_hal_nrf_power_event).
+extern void __real_tusb_hal_nrf_power_event(uint32_t event);
+void __wrap_tusb_hal_nrf_power_event(uint32_t event) {
+    __real_tusb_hal_nrf_power_event(event);
+    if (!mimhid_core_attached()) {
+        NRF_USBD->USBPULLUP = 0;
+    }
+}

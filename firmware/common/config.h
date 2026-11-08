@@ -14,18 +14,10 @@
 #define MIMHID_MAX_FEATURES 8
 #endif
 
-// What the board takes, set here to the largest the chip can hold and announced in the PONG.
-// A port may set any of them before this header. A full-speed endpoint holds 64 bytes and a
-// high-speed one 1024; a Feature report travels on the control pipe, so it may be longer than
-// an endpoint packet.
-#ifndef MIMHID_MAX_ENDPOINT_BYTES
-#if defined(CFG_TUSB_RHPORT0_MODE) && defined(OPT_MODE_HIGH_SPEED) && \
-    (CFG_TUSB_RHPORT0_MODE & OPT_MODE_HIGH_SPEED)
-#define MIMHID_MAX_ENDPOINT_BYTES 1024
-#else
-#define MIMHID_MAX_ENDPOINT_BYTES 64
-#endif
-#endif
+// What the board takes, announced in the PONG. MIMHID_MAX_ENDPOINT_BYTES is the port's own (core.h);
+// the others may be set by a port before this header. A Feature report travels on the control
+// pipe, so it may be longer than an endpoint packet.
+#include "core.h"
 #ifndef MIMHID_MAX_REPORT_BYTES
 #define MIMHID_MAX_REPORT_BYTES MIMHID_MAX_ENDPOINT_BYTES // largest report accepted from the host
 #endif

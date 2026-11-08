@@ -7,10 +7,10 @@
 
 static const char* const k_send_sequence[] = {
     "mimhid_touchscreen_contact(node, 0, 1, 500, 500, NULL)   contact id 0, tip down",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)          Contact Count and Scan Time are "
+    "mimhid_node_submit(node, send_timeout_ms)          Contact Count and Scan Time are "
     "derived",
     "mimhid_touchscreen_contact(node, 0, 0, 500, 500, NULL)   tip up keeps the same stable id",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)          closes the frame", NULL};
+    "mimhid_node_submit(node, send_timeout_ms)          closes the frame", NULL};
 
 int main(void) {
     mimhid_touchscreen_options options;
@@ -19,6 +19,9 @@ int main(void) {
     mimhid_result result;
 
     mimhid_touchscreen_options_init(&options);
+    options.contact_id = mimhid_integer_field_make(0, 15, 4U);
+    options.x = mimhid_integer_field_make(0, 32767, 16U);
+    options.y = options.x;
     options.maximum_contacts = 3U;
     options.contacts_per_report = 3U;
     options.contact_count = (mimhid_integer_field){0, 3, 2U, {0, 0, 0, 0, 0}};

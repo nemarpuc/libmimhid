@@ -112,6 +112,24 @@ static void hex_serial(uint16_t* dst) {
     dst[2 * n] = 0;
 }
 
+// The nodes of one interface share its descriptors, so they must say the same about them.
+static bool same_interface_settings(const mimhid_node_cfg_t* a, const mimhid_node_cfg_t* b) {
+    if (a->interface_class != b->interface_class || a->interface_subclass != b->interface_subclass ||
+        a->interface_protocol != b->interface_protocol || a->bcd_hid != b->bcd_hid ||
+        a->country != b->country || a->ep_in_addr != b->ep_in_addr || a->ep_size != b->ep_size ||
+        a->poll_interval != b->poll_interval || a->ep_out_addr != b->ep_out_addr ||
+        a->ep_out_size != b->ep_out_size || a->poll_interval_out != b->poll_interval_out) {
+        return false;
+    }
+    for (size_t k = 0; k <= MIMHID_STRING_MAX; k++) {
+        if (a->interface_string[k] != b->interface_string[k])
+            return false;
+        if (a->interface_string[k] == 0)
+            break;
+    }
+    return true;
+}
+
 bool mimhid_apply_config(const mimhid_config_t* cfg) {
     if (!cfg->valid)
         return false;
@@ -161,11 +179,11 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     g_device = (tusb_desc_device_t){
         .bLength = sizeof(tusb_desc_device_t),
         .bDescriptorType = TUSB_DESC_DEVICE,
-        .bcdUSB = dev->bcd_usb ? dev->bcd_usb : 0x0200,
+        .bcdUSB = dev->bcd_usb,
         .bDeviceClass = dev->device_class,
         .bDeviceSubClass = dev->device_subclass,
         .bDeviceProtocol = dev->device_protocol,
-        .bMaxPacketSize0 = dev->ep0_max_packet_size ? dev->ep0_max_packet_size : CFG_TUD_ENDPOINT0_SIZE,
+        .bMaxPacketSize0 = dev->ep0_max_packet_size,
         .idVendor = dev->vendor_id,
         .idProduct = dev->product_id,
         .bcdDevice = dev->bcd_device,
@@ -175,7 +193,7 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         .bNumConfigurations = 1,
     };
 
-    g_language = dev->language_id ? dev->language_id : 0x0409;
+    g_language = dev->language_id;
     copy_str(g_str_mfg, dev->manufacturer);
     copy_str(g_str_product, dev->product);
     copy_str(g_str_config, dev->configuration);
@@ -189,40 +207,45 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     // Configuration descriptor built in a single pass
     uint16_t total = TUD_CONFIG_DESC_LEN;
     uint8_t* p = g_cfg_desc + TUD_CONFIG_DESC_LEN;
+    uint16_t in_numbers = 0;
+    uint16_t out_numbers = 0;
     for (uint8_t i = 0; i < count; i++) {
         const mimhid_node_cfg_t* first = NULL;
-        uint16_t ep_out = 0;
-        uint16_t ep_in = 0;
-        uint8_t min_interval = 255;
         for (uint8_t n = 0; n < MIMHID_MAX_NODES; n++) {
-            if (cfg->node[n].used && cfg->node[n].iface == i) {
-                if (first == NULL)
-                    first = &cfg->node[n];
-                if (cfg->node[n].ep_size > ep_in) {
-                    ep_in = cfg->node[n].ep_size;
-                }
-                if (cfg->node[n].poll_interval > 0 && cfg->node[n].poll_interval < min_interval) {
-                    min_interval = cfg->node[n].poll_interval;
-                }
-                if (cfg->node[n].ep_out_size > ep_out) {
-                    ep_out = cfg->node[n].ep_out_size;
-                }
-            }
+            const mimhid_node_cfg_t* node = &cfg->node[n];
+            if (!node->used || node->iface != i)
+                continue;
+            if (first == NULL)
+                first = node;
+            else if (!same_interface_settings(first, node))
+                return false;
         }
         if (first == NULL)
             return false;
+        // An endpoint number is used once in each direction.
+        const uint16_t in_bit = (uint16_t)(1u << (first->ep_in_addr & 0x0F));
+        if (in_numbers & in_bit)
+            return false;
+        in_numbers = (uint16_t)(in_numbers | in_bit);
+        const uint16_t ep_out = first->ep_out_size;
+        if (ep_out > 0) {
+            const uint16_t out_bit = (uint16_t)(1u << (first->ep_out_addr & 0x0F));
+            if (out_numbers & out_bit)
+                return false;
+            out_numbers = (uint16_t)(out_numbers | out_bit);
+        }
         const uint16_t itf_len = (uint16_t)(IFACE_DESC_LEN + HID_DESC_LEN + EP_DESC_LEN +
                                             (ep_out > 0 ? EP_DESC_LEN : 0));
         if (total + itf_len > sizeof(g_cfg_desc))
             return false;
         total = (uint16_t)(total + itf_len);
         copy_str(g_str_iface[i], first->interface_string);
-        const uint16_t ep_size = ep_in > 0 ? ep_in : first->ep_size;
-        const uint8_t interval = min_interval != 255 ? min_interval : first->poll_interval;
-        const uint8_t itf_cls = first->interface_class ? first->interface_class : TUSB_CLASS_HID;
+        const uint16_t ep_size = first->ep_size;
+        const uint8_t interval = first->poll_interval;
+        const uint8_t itf_cls = first->interface_class;
         const uint8_t itf_subcls = first->interface_subclass;
         const uint8_t itf_proto = first->interface_protocol;
-        const uint8_t ep_in_addr = first->ep_in_addr ? first->ep_in_addr : (uint8_t)(0x81 + i);
+        const uint8_t ep_in_addr = first->ep_in_addr;
         const uint8_t itf_head[] = {
             IFACE_DESC_LEN,
             TUSB_DESC_INTERFACE,
@@ -254,8 +277,8 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         p += sizeof(itf_head);
 
         if (ep_out > 0) {
-            const uint8_t ep_out_addr = first->ep_out_addr ? first->ep_out_addr : (uint8_t)(0x01 + i);
-            const uint8_t interval_out = first->poll_interval_out ? first->poll_interval_out : interval;
+            const uint8_t ep_out_addr = first->ep_out_addr;
+            const uint8_t interval_out = first->poll_interval_out;
             const uint8_t ep_out_desc[] = {
                 EP_DESC_LEN, TUSB_DESC_ENDPOINT, ep_out_addr, TUSB_XFER_INTERRUPT,
                 (uint8_t)(ep_out & 0xFF), (uint8_t)(ep_out >> 8), interval_out,
@@ -265,8 +288,8 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
         }
     }
 
-    const uint8_t cfg_val = dev->configuration_value ? dev->configuration_value : 1;
-    const uint8_t cfg_attr = dev->bm_attributes ? dev->bm_attributes : 0x80;
+    const uint8_t cfg_val = dev->configuration_value;
+    const uint8_t cfg_attr = dev->bm_attributes;
     const uint8_t cfg_pwr = dev->bmax_power;
     const uint8_t head[] = {
         TUD_CONFIG_DESCRIPTOR(cfg_val, count, g_str_config[0] ? 4 : 0, total, cfg_attr, 0)};

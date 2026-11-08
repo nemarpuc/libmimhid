@@ -12,7 +12,7 @@ static const uint8_t k_descriptor[] = {0x05U, 0x01U, 0x09U, 0x06U, 0xA1U, 0x01U,
 static const mimhid_raw_report k_reports[] = {{{1U, 1U, {}}, 2U}};
 
 static const char* const k_send_sequence[] = {
-    "mimhid_raw_submit(node, report, sizeof report, MIMHID_SEND_TIMEOUT_MS)   caller-supplied "
+    "mimhid_raw_submit(node, report, sizeof report, send_timeout_ms)   caller-supplied "
     "report bytes",
     " no state is generated: the report id, length, and padding are only checked",
     " against the immutable parsed layout of the caller descriptor", NULL};

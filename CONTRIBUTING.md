@@ -44,7 +44,7 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
    ```
 4. Verify firmware compilation. The Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350) images have official support and need the ARM GCC toolchain and the Pico SDK; the other ports are listed in [README.md](README.md#firmware). The pinned SDK and TinyUSB versions are in `.github/scripts/`.
    ```bash
-   cmake -B build_firmware -S firmware
+   cmake -B build_firmware -S firmware -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1
    cmake --build build_firmware --parallel
    ```
 5. Run the firmware core tests (they need only a TinyUSB checkout):

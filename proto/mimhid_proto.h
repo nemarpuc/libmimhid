@@ -221,10 +221,12 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   27..28 max_endpoint_bytes (the largest endpoint packet)  29..30 max_frame_payload
  *   31..32 max_control_data_bytes (the data stage of a control transfer the host may read or
  *   answer)  33 max_control_rules
- *   34 unique id length n (0..16)  35.. the chip's unique id, n bytes
+ *   34 max_endpoint_number (the highest endpoint number the controller has; an endpoint address
+ *   above it is refused)
+ *   35 unique id length n (0..16)  36.. the chip's unique id, n bytes
  * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN 35
+#define MIMHID_PONG_MIN_LEN 36
 #define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01

@@ -13,14 +13,15 @@
 #include "hardware/structs/usb_dpram.h"
 #include "hal.h"
 
+// The wiring is the board's: the build states the UART and its two pins (no pin is assumed).
 #ifndef MIMHID_UART_ID
-#define MIMHID_UART_ID   uart0
+#error MIMHID_UART_ID (uart0 or uart1) must be defined by the build
 #endif
 #ifndef MIMHID_UART_TX_PIN
-#define MIMHID_UART_TX_PIN 0
+#error MIMHID_UART_TX_PIN must be defined by the build
 #endif
 #ifndef MIMHID_UART_RX_PIN
-#define MIMHID_UART_RX_PIN 1
+#error MIMHID_UART_RX_PIN must be defined by the build
 #endif
 
 #define UART_ID          MIMHID_UART_ID

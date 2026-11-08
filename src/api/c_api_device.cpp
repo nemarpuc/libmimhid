@@ -611,6 +611,7 @@ mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
     out_limits->max_report_bytes = device->board.max_report_bytes;
     out_limits->max_feature_bytes = device->board.max_feature_bytes;
     out_limits->max_endpoint_bytes = device->board.max_endpoint_bytes;
+    out_limits->max_endpoint_number = device->board.max_endpoint_number;
     out_limits->max_frame_payload = device->board.max_frame_payload;
     out_limits->max_control_data_bytes = device->board.max_control_data_bytes;
     out_limits->max_control_rules = device->board.max_control_rules;

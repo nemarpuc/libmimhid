@@ -210,8 +210,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: rp2040, args: "" }
-          - { name: rp2350, args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2" }
+          - { name: rp2040, args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1" }
+          - { name: rp2350, args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1" }
 
     steps:
       - name: Check out source
@@ -252,8 +252,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: nrf52840, family: nrf }
-          - { name: stm32f4,  family: stm32f4 }
+          - { name: nrf52840, family: nrf,    board: pca10056 }
+          - { name: stm32f4,  family: stm32f4, board: stm32f411blackpill }
 
     steps:
       - name: Check out source
@@ -271,7 +271,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.verify.outputs.version }}"
-          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DTINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DTINYUSB_PATH="$HOME/tinyusb" -DBOARD=${{ matrix.board }}
           cmake --build build_fw
           mkdir -p dist
           cp build_fw/mimhid_firmware_${{ matrix.name }}.hex "dist/mimhid_firmware-${{ matrix.name }}-${version}.hex"
@@ -308,11 +308,11 @@ jobs:
           . "$IDF_PATH/export.sh"
           export TINYUSB_PATH="$HOME/tinyusb"
           version="${{ needs.verify.outputs.version }}"
-          idf.py -C firmware/ports/esp32s3 -B build_fw set-target esp32s3
-          idf.py -C firmware/ports/esp32s3 -B build_fw build
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 build
           mkdir -p dist
           # Bootloader, partition table and application merged for a single flash at 0x0.
-          idf.py -C firmware/ports/esp32s3 -B build_fw merge-bin -o "$PWD/dist/mimhid_firmware-esp32s3-${version}.bin"
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 merge-bin -o "$PWD/dist/mimhid_firmware-esp32s3-${version}.bin"
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

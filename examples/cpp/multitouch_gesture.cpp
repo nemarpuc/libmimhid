@@ -3,6 +3,8 @@
 // The first board found presents a two-finger touchscreen and spreads two fingers apart.
 #include <mimhid.hpp>
 
+#include "../c/example_values.h"
+
 #include <chrono>
 #include <cstdio>
 #include <thread>
@@ -20,12 +22,10 @@ int main() {
     }
     const mimhid_device_info* board = mimhid::discovery_get(found.get(), 0);
 
-    auto config = mimhid::device_config();
-    // pid.codes test IDs, for testing in-house only: a device you hand out needs IDs of its own.
-    config.usb_device.vendor_id = 0x1209;
-    config.usb_device.product_id = 0x0001;
-    config.usb_device.product = "Touchscreen";
-    config.transport.baud_rate = board->baud_rate;
+    // example_values.h: every value of the Device written out, with the pid.codes test IDs
+    // (for testing in-house only: a device you hand out needs IDs of its own).
+    mimhid_device_config config;
+    example_fill_device_config(&config, board->baud_rate, "Touchscreen");
     mimhid_device* device = nullptr;
     if (const mimhid_result opened = mimhid::device_open(board->port_name, &config, &device);
         opened != MIMHID_OK) {
@@ -34,7 +34,8 @@ int main() {
     }
 
     // The coordinates of a 1080 x 2400 screen, two contacts.
-    auto touch = mimhid::touchscreen_options();
+    mimhid_touchscreen_options touch;
+    example_fill_touchscreen_options(&touch);
     touch.maximum_contacts = 2;
     touch.contacts_per_report = 2;
     touch.x = mimhid_integer_field_make(0, 1080, 16);
@@ -45,14 +46,16 @@ int main() {
     const mimhid_result created = mimhid::spec_create_touchscreen(&touch, &spec_raw);
     const mimhid::SpecPtr spec{spec_raw};
 
-    const auto timeouts = mimhid::commit_timeouts();
-    const auto node_config = mimhid::node_config(0);
+    mimhid_commit_timeouts timeouts;
+    example_fill_commit_timeouts(&timeouts);
+    mimhid_node_config node_config;
+    example_fill_node_config(&node_config, 0);
     mimhid_node* node = nullptr;
     if (created != MIMHID_OK ||
         mimhid::node_open(device, spec.get(), &node_config, &timeouts, &node) != MIMHID_OK ||
         mimhid::device_wait_ready(device, 5000) != MIMHID_OK) {
         std::fprintf(stderr, "setup failed: %s\n", mimhid::last_error()->reason);
-        (void)mimhid::device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        (void)mimhid::device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return 1;
     }
 
@@ -68,7 +71,7 @@ int main() {
     (void)mimhid::node_submit_blocking(node, 100);
 
     // Closing the Device closes the Node too.
-    return mimhid::device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS) ==
+    return mimhid::device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS) ==
                    MIMHID_OK
                ? 0
                : 1;

@@ -73,7 +73,7 @@ Check("mimhid_device_info.max_interfaces", (long)Marshal.OffsetOf<DeviceInfo>("M
 Check("mimhid_device_info.max_report_bytes", (long)Marshal.OffsetOf<DeviceInfo>("MaxReportBytes"));
 Check("mimhid_device_info.max_descriptor_bytes", (long)Marshal.OffsetOf<DeviceInfo>("MaxDescriptorBytes"));
 Check("mimhid_device_info.has_unique_id", (long)Marshal.OffsetOf<DeviceInfo>("HasUniqueId"));
-Check("mimhid_device_info.reserved8", (long)Marshal.OffsetOf<DeviceInfo>("Reserved8"));
+Check("mimhid_device_info.max_endpoint_number", (long)Marshal.OffsetOf<DeviceInfo>("MaxEndpointNumber"));
 Check("mimhid_device_info.baud_rate", (long)Marshal.OffsetOf<DeviceInfo>("BaudRate"));
 Check("mimhid_device_info.max_baud", (long)Marshal.OffsetOf<DeviceInfo>("MaxBaud"));
 Check("mimhid_device_info.uart_flags", (long)Marshal.OffsetOf<DeviceInfo>("UartFlags"));
@@ -92,6 +92,7 @@ Check("mimhid_board_limits.max_endpoint_bytes", (long)Marshal.OffsetOf<BoardLimi
 Check("mimhid_board_limits.max_frame_payload", (long)Marshal.OffsetOf<BoardLimits>("MaxFramePayload"));
 Check("mimhid_board_limits.max_control_data_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxControlDataBytes"));
 Check("mimhid_board_limits.max_control_rules", (long)Marshal.OffsetOf<BoardLimits>("MaxControlRules"));
+Check("mimhid_board_limits.max_endpoint_number", (long)Marshal.OffsetOf<BoardLimits>("MaxEndpointNumber"));
 if (new LinkCounters().StructSize != 0) failures.Add("mimhid_link_counters: the binding fills struct_size");
 Check("mimhid_link_counters.size", Marshal.SizeOf<LinkCounters>());
 Check("mimhid_link_counters.struct_size", (long)Marshal.OffsetOf<LinkCounters>("StructSize"));

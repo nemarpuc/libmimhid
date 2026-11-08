@@ -7,13 +7,13 @@
 
 static const char* const k_send_sequence[] = {
     "mimhid_touchpad_contact(node, 0, 1, 500, 500, NULL)   contact id 0, tip down",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)                     Contact Count and Scan "
+    "mimhid_node_submit(node, send_timeout_ms)                     Contact Count and Scan "
     "Time are derived",
     "mimhid_touchpad_button(node, 1, 1)                    physical click button pressed",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)                     button report",
+    "mimhid_node_submit(node, send_timeout_ms)                     button report",
     "mimhid_touchpad_button(node, 1, 0)                    button released",
     "mimhid_touchpad_contact(node, 0, 0, 500, 500, NULL)   tip up keeps the same stable id",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)                     closes the frame",
+    "mimhid_node_submit(node, send_timeout_ms)                     closes the frame",
     NULL};
 
 int main(void) {
@@ -23,6 +23,9 @@ int main(void) {
     mimhid_result result;
 
     mimhid_touchpad_options_init(&options);
+    options.contact_id = mimhid_integer_field_make(0, 15, 4U);
+    options.x = mimhid_integer_field_make(0, 32767, 16U);
+    options.y = options.x;
     options.maximum_contacts = 3U;
     options.contacts_per_report = 3U;
     options.contact_count = (mimhid_integer_field){0, 3, 2U, {0, 0, 0, 0, 0}};
@@ -37,6 +40,7 @@ int main(void) {
     options.enable_scan_time = 1U;
     options.scan_time = (mimhid_integer_field){0, 65535, 16U, {0, 0, 0, 0, 0}};
     options.scan_time_unit_100us = 1U;
+    options.button_count = 1U;
 
     result = mimhid_spec_create_touchpad(&options, &spec);
     return mimhid_example_run("touchpad", MIMHID_PROFILE_TOUCHPAD, result, spec, k_send_sequence);

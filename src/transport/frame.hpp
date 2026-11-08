@@ -23,6 +23,7 @@ struct BoardInfo {
     std::uint16_t max_descriptor_bytes{};
     std::uint16_t max_feature_bytes{};
     std::uint16_t max_endpoint_bytes{};
+    std::uint8_t max_endpoint_number{}; // the highest endpoint number, in both directions
     std::uint16_t max_frame_payload{};
     std::uint16_t max_control_data_bytes{};
     std::uint8_t max_control_rules{};

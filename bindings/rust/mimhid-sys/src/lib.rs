@@ -34,14 +34,10 @@ pub const MIMHID_CHIP_STM32F4: i32 = 5;
 pub const MIMHID_CHIP_UNKNOWN: i32 = 0;
 pub const MIMHID_CONTROL_MAX_RULES: i32 = 8;
 pub const MIMHID_CONTROL_MAX_TIMEOUT_MS: i32 = 5000;
-pub const MIMHID_CONTROL_TIMEOUT_MS: u32 = 500;
-pub const MIMHID_DRAIN_TIMEOUT_MS: u32 = 1000;
 pub const MIMHID_HOST_MAX_REPORT_BYTES: i32 = 1024;
 pub const MIMHID_LOSS_MAX_INTERVAL_MS: u32 = 60000;
-pub const MIMHID_RECONNECT_TIMEOUT_MS: u32 = 3000;
-pub const MIMHID_SEND_TIMEOUT_MS: u32 = 500;
 pub const MIMHID_VERSION_MAJOR: u32 = 0;
-pub const MIMHID_VERSION_MINOR: u32 = 1;
+pub const MIMHID_VERSION_MINOR: u32 = 2;
 pub const MIMHID_VERSION_PATCH: u32 = 0;
 pub const MIMHID_OK: i32 = 0;
 pub const MIMHID_ERR_PARAM: i32 = 1;
@@ -161,7 +157,7 @@ pub struct mimhid_device_info {
     pub max_report_bytes: u8,
     pub max_descriptor_bytes: u16,
     pub has_unique_id: u8,
-    pub reserved8: u8,
+    pub max_endpoint_number: u8,
     pub baud_rate: u32,
     pub max_baud: u32,
     pub uart_flags: u32,
@@ -182,6 +178,7 @@ pub struct mimhid_board_limits {
     pub max_frame_payload: u32,
     pub max_control_data_bytes: u32,
     pub max_control_rules: u32,
+    pub max_endpoint_number: u32,
 }
 
 #[repr(C)]

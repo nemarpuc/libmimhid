@@ -8,11 +8,11 @@
 
 static const char* const k_send_sequence[] = {
     "mimhid_battery_update(node, 80)   set the level; nothing is sent yet",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)  no key is pending, so this sends the "
+    "mimhid_node_submit(node, send_timeout_ms)  no key is pending, so this sends the "
     "battery report",
     "mimhid_keyboard_key(node, 0x04, 1) + mimhid_battery_update(node, 79)",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)  the key report goes first",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)  then the battery report; the same level "
+    "mimhid_node_submit(node, send_timeout_ms)  the key report goes first",
+    "mimhid_node_submit(node, send_timeout_ms)  then the battery report; the same level "
     "again sends "
     "nothing",
     NULL};
@@ -23,6 +23,8 @@ int main(void) {
     mimhid_result result;
 
     mimhid_keyboard_options_init(&options);
+    options.usage_minimum = 0x04U;
+    options.usage_maximum = 0xDDU;
     /* Both reports need a Report ID, and the two must differ. */
     options.report_id.enabled = 1U;
     options.report_id.value = 1U;

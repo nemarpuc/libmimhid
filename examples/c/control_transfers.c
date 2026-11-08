@@ -4,6 +4,8 @@
 // vendor request 0x42 itself.
 #include <mimhid.h>
 
+#include "example_values.h"
+
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -32,7 +34,7 @@ static void on_event(void* user, const mimhid_event* event) {
            (event->control_flags & MIMHID_CONTROL_FLAG_FIXED) ? " fixed" : "");
     if (event->control_flags & MIMHID_CONTROL_FLAG_HELD)
         mimhid_device_control_reply(device, event->control_token, MIMHID_CONTROL_ACTION_ANSWER,
-                                    vendor_answer, sizeof(vendor_answer), MIMHID_SEND_TIMEOUT_MS);
+                                    vendor_answer, sizeof(vendor_answer), EXAMPLE_SEND_TIMEOUT_MS);
 }
 
 int main(void) {
@@ -45,13 +47,11 @@ int main(void) {
     }
 
     mimhid_device* device = NULL;
+    // example_values.h: every value of the Device written out, with the pid.codes test IDs
+    // (for testing in-house only: a device you hand out needs IDs of its own).
     mimhid_device_config config;
-    mimhid_device_config_init(&config);
-    // pid.codes test IDs, for testing in-house only: a device you hand out needs IDs of its own.
-    config.usb_device.vendor_id = 0x1209;
-    config.usb_device.product_id = 0x0001;
-    config.usb_device.product = "Control transfers";
-    config.transport.baud_rate = mimhid_discovery_get(found, 0)->baud_rate;
+    example_fill_device_config(&config, mimhid_discovery_get(found, 0)->baud_rate,
+                               "Control transfers");
     config.transport.event_sink = on_event;
     config.transport.event_user = &device;
 
@@ -61,15 +61,15 @@ int main(void) {
         return fail("device_open", r);
 
     mimhid_keyboard_options keyboard_options;
-    mimhid_keyboard_options_init(&keyboard_options);
+    example_fill_keyboard_options(&keyboard_options);
     mimhid_spec* keyboard_spec = NULL;
     if ((r = mimhid_spec_create_keyboard(&keyboard_options, &keyboard_spec)) != MIMHID_OK)
         return fail("spec_create", r);
 
     mimhid_commit_timeouts timeouts;
-    mimhid_commit_timeouts_init(&timeouts);
+    example_fill_commit_timeouts(&timeouts);
     mimhid_node_config node_config;
-    mimhid_node_config_init(&node_config, 0);
+    example_fill_node_config(&node_config, 0);
     mimhid_node* keyboard = NULL;
     r = mimhid_node_open(device, keyboard_spec, &node_config, &timeouts, &keyboard);
     mimhid_spec_release(keyboard_spec);
@@ -85,7 +85,7 @@ int main(void) {
     rule.request_value = 0x42;
     rule.timeout_ms = 100;
     rule.when_late = MIMHID_CONTROL_ACTION_STALL;
-    if ((r = mimhid_device_set_control_routing(device, 1, &rule, 1, MIMHID_CONTROL_TIMEOUT_MS)) !=
+    if ((r = mimhid_device_set_control_routing(device, 1, &rule, 1, EXAMPLE_CONTROL_TIMEOUT_MS)) !=
         MIMHID_OK)
         return fail("set_control_routing", r);
 
@@ -94,6 +94,6 @@ int main(void) {
     sleep_ms(10000);
 
     // Closing the Device closes the Node and takes the rules off the board.
-    r = mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+    r = mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return r == MIMHID_OK ? 0 : fail("device_close", r);
 }

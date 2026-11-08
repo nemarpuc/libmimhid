@@ -12,20 +12,24 @@ extern "C" {
 #error CFG_TUSB_MCU must be defined by the build system
 #endif
 
+// The build of the port states the OS, the root hub port mode and the device speed; none has a
+// default here (a missing one would be a full-speed, bare-metal guess).
 #ifndef CFG_TUSB_OS
-#define CFG_TUSB_OS                 OPT_OS_NONE
+#error CFG_TUSB_OS must be defined by the build system
 #endif
-
-// Root Hub Port 0 configuration: Device Mode + Full Speed
 #ifndef CFG_TUSB_RHPORT0_MODE
-#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
+#error CFG_TUSB_RHPORT0_MODE must be defined by the build system
+#endif
+#ifndef CFG_TUD_MAX_SPEED
+#error CFG_TUD_MAX_SPEED must be defined by the build system
+#endif
+// tusb_init() with no argument runs the stack on root hub port 0, and so does this firmware.
+#if defined(BOARD_TUD_RHPORT) && (BOARD_TUD_RHPORT != 0)
+#error the firmware runs the stack on root hub port 0 only
 #endif
 
 // Device Mode enabled
 #define CFG_TUD_ENABLED             1
-#ifndef CFG_TUD_MAX_SPEED
-#define CFG_TUD_MAX_SPEED           OPT_MODE_FULL_SPEED
-#endif
 
 // Endpoint 0 size
 #define CFG_TUD_ENDPOINT0_SIZE      64

@@ -23,12 +23,8 @@ int main(void) {
     CONSTANT(MIMHID_CHIP_UNKNOWN);
     CONSTANT(MIMHID_CONTROL_MAX_RULES);
     CONSTANT(MIMHID_CONTROL_MAX_TIMEOUT_MS);
-    CONSTANT(MIMHID_CONTROL_TIMEOUT_MS);
-    CONSTANT(MIMHID_DRAIN_TIMEOUT_MS);
     CONSTANT(MIMHID_HOST_MAX_REPORT_BYTES);
     CONSTANT(MIMHID_LOSS_MAX_INTERVAL_MS);
-    CONSTANT(MIMHID_RECONNECT_TIMEOUT_MS);
-    CONSTANT(MIMHID_SEND_TIMEOUT_MS);
     CONSTANT(MIMHID_VERSION_MAJOR);
     CONSTANT(MIMHID_VERSION_MINOR);
     CONSTANT(MIMHID_VERSION_PATCH);
@@ -139,7 +135,7 @@ int main(void) {
     OFFSET(mimhid_device_info, max_report_bytes);
     OFFSET(mimhid_device_info, max_descriptor_bytes);
     OFFSET(mimhid_device_info, has_unique_id);
-    OFFSET(mimhid_device_info, reserved8);
+    OFFSET(mimhid_device_info, max_endpoint_number);
     OFFSET(mimhid_device_info, baud_rate);
     OFFSET(mimhid_device_info, max_baud);
     OFFSET(mimhid_device_info, uart_flags);
@@ -157,6 +153,7 @@ int main(void) {
     OFFSET(mimhid_board_limits, max_frame_payload);
     OFFSET(mimhid_board_limits, max_control_data_bytes);
     OFFSET(mimhid_board_limits, max_control_rules);
+    OFFSET(mimhid_board_limits, max_endpoint_number);
     SIZE(mimhid_link_counters);
     OFFSET(mimhid_link_counters, struct_size);
     OFFSET(mimhid_link_counters, reserved);

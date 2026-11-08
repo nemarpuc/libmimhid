@@ -8,7 +8,7 @@ USB-to-UART bridge, and three wires ([QUICKSTART.md](docs/QUICKSTART.md)).
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
 
 > [!NOTE]
-> Version 0.1.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 0.2.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -24,7 +24,7 @@ Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which se
 - **Ultra-low latency.** Input calls do not allocate on the hot path; one report submission is a single contiguous serial write (`3.3 µs/byte` at 3,000,000 baud; the host and the board agree the fastest rate the serial adapter carries). On RP2040 and RP2350, UART DMA runs into a dedicated `.scratch_y` SRAM bank polled by Core 1, handing off reports via lock-free single-producer single-consumer (SPSC) queues to Core 0 (`TinyUSB`) for 1000 Hz (`bInterval = 1 ms`) USB Interrupt IN delivery ([LATENCY.md](docs/LATENCY.md)).
 - **Thin firmware.** The host PC builds every HID report descriptor and encodes every report. The microcontroller acts strictly as a stateless-per-report I/O bridge: it knows nothing about keyboards, mice, or touchscreens, holds only the descriptors uploaded by the host, and forwards raw report payloads directly to USB endpoints. Hardware-specific code is isolated behind a small HAL (`firmware/common/hal.h`).
 - **The libaoahid model.** The same objects and call shapes: a Spec (`mimhid_spec_create_*`), Nodes (`mimhid_node_open` / `mimhid_node_open_raw`, with an explicit interface number), profile calls that change state (`mimhid_keyboard_key`, `mimhid_mouse_move`, ...), and `mimhid_node_submit` that sends. `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several opens into one re-enumeration. The life cycle is in [API.md](docs/API.md#lifecycle).
-- **Nothing guessed, nothing shaped.** Every call that can wait takes its timeout as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)). Each options structure has an `_init` function that fills in values that work, and a required field left zero is refused rather than filled in by the library; the vendor and product ID start as the pid.codes test pair (0x1209, 0x0001), which a device you hand out must replace with IDs of its own, and zero is a value like any other for them (USB 2.0 9.6.1). The library does not smooth, pace, or randomize input.
+- **Nothing guessed, nothing shaped.** Every call that can wait takes its timeout as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)). Each options structure has an `_init` function that zeroes it and sets `struct_size` and nothing else: the library fills in no value, and a required field left zero is refused with `MIMHID_ERR_UNSET_FIELD` (the vendor ID included: the example below uses the pid.codes test pair 0x1209/0x0001, which a device you hand out must replace with IDs of its own; a product ID of zero is a valid one). What a program must set is listed in [API.md](docs/API.md#structures-and-initial-values). The library does not smooth, pace, or randomize input.
 
 ## Status
 
@@ -39,37 +39,65 @@ With a flashed board connected (wiring and flashing are in [QUICKSTART.md](docs/
 ```c
 #include <mimhid.h>
 
+enum { CONTROL_MS = 500, SEND_MS = 500, DRAIN_MS = 1000, RECONNECT_MS = 3000 }; /* yours to choose */
+
+/* mimhid_device_config_init zeroes the structure; every value below is set by the program. */
 mimhid_device_config config;
-mimhid_device_config_init(&config);   /* working values; see docs/API.md */
-/* The init above already holds the pid.codes test IDs, for testing in-house only; a device you
- * hand out needs IDs of its own. */
-config.usb_device.vendor_id = 0x1209;
-config.usb_device.product_id = 0x0001;
-config.transport.baud_rate = MIMHID_BAUD_FASTEST; /* measure the fastest rate this link carries */
+mimhid_device_config_init(&config);
+config.transport.baud_rate = MIMHID_BAUD_FASTEST;  /* measure the fastest rate this link carries */
+config.transport.handshake_timeout_ms = 50;
+config.transport.maximum_report_bytes = 64;
+config.transport.log_level = MIMHID_LOG_DISABLED;
+config.transport.linux_hid.descriptor_bytes = 4096;    /* the Linux HID parser limits of */
+config.transport.linux_hid.fields_per_report = 256;    /* docs/LIMITS.md#linux-hid-parser */
+config.transport.linux_hid.global_stack_depth = 4;
+config.transport.linux_hid.report_size_bits = 256;
+config.transport.linux_hid.usages = 12288;
+config.transport.linux_hid.report_data_bits = 65528;
+config.usb_device.bcd_usb = 0x0200;
+config.usb_device.ep0_max_packet_size = 64;
+config.usb_device.language_id = 0x0409;
+config.usb_device.vendor_id = 0x1209;   /* the pid.codes test IDs, for testing in-house only: */
+config.usb_device.product_id = 0x0001;  /* a device you hand out needs IDs of its own */
+config.usb_device.manufacturer = "libmimhid";
+config.usb_device.product = "libmimhid";
+config.usb_config.configuration_value = 1;
+config.usb_config.bm_attributes = 0xA0;  /* bus powered, remote wakeup */
+config.usb_config.bmax_power = 50;       /* 100 mA */
 
 mimhid_device* device = NULL;
 mimhid_device_open("/dev/ttyACM0", &config, &device);
 
 mimhid_keyboard_options keyboard;
 mimhid_keyboard_options_init(&keyboard);
+keyboard.usage_minimum = 0x04;           /* Keyboard a */
+keyboard.usage_maximum = 0xDD;           /* Keypad Hexadecimal */
 mimhid_spec* spec = NULL;
 mimhid_spec_create_keyboard(&keyboard, &spec);
 
 mimhid_node_config node;
-mimhid_node_config_init(&node, 0);    /* interface 0, IN endpoint 0x81 */
+mimhid_node_config_init(&node);
+node.iface.number = 0;
+node.iface.class_code = 0x03;            /* HID */
+node.iface.bcd_hid = 0x0111;
+node.ep_in.address = 0x81;               /* interface 0, IN endpoint 1 */
+node.ep_in.poll_interval_ms = 1;
+node.ep_in.max_packet_size = 64;
 mimhid_commit_timeouts timeouts;
 mimhid_commit_timeouts_init(&timeouts);
+timeouts.control_timeout_ms = CONTROL_MS;
+timeouts.reconnect_timeout_ms = RECONNECT_MS;
 mimhid_node* keys = NULL;
 mimhid_node_open(device, spec, &node, &timeouts, &keys); /* the board attaches to the target */
 mimhid_spec_release(spec);                               /* the Node keeps its own reference */
 mimhid_device_wait_ready(device, 5000);
 
 mimhid_keyboard_key(keys, 0x04, 1);   /* Keyboard a */
-mimhid_node_submit(keys, MIMHID_SEND_TIMEOUT_MS);
+mimhid_node_submit(keys, SEND_MS);
 mimhid_keyboard_key(keys, 0x04, 0);
-mimhid_node_submit(keys, MIMHID_SEND_TIMEOUT_MS);
+mimhid_node_submit(keys, SEND_MS);
 
-mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS); /* closes keys too */
+mimhid_device_close(device, CONTROL_MS, DRAIN_MS); /* closes keys too */
 ```
 
 Every call returns a `mimhid_result`; check it, and read `mimhid_last_error()` for the details. Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md). For a single profile in isolation, [`examples/c/profiles/`](examples/c/profiles) has one self-contained program per HID profile kind and one for the battery report, all ten of which run without a board. [`examples/c/verify/`](examples/c/verify) holds programs built to be watched on a real target (typing, dragging, moving the mouse); [QUICKSTART.md](docs/QUICKSTART.md) walks through them.
@@ -92,17 +120,19 @@ This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.li
 
 | Target | Prerequisites | Command |
 |---|---|---|
-| RP2040 (Raspberry Pi Pico) | [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.2.0 | `export PICO_SDK_PATH=<pico-sdk>`<br>`cmake -B build_fw -S firmware && cmake --build build_fw` |
-| RP2350 (Raspberry Pi Pico 2) | Pico SDK 2.2.0 | `cmake -B build_fw -S firmware -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 && cmake --build build_fw` |
-| nRF52840 | [TinyUSB](https://github.com/hathach/tinyusb) 0.18.0 and `python3 <tinyusb>/tools/get_deps.py nrf` | `cmake -B build_fw -S firmware/ports/nrf52840 -G Ninja -DTINYUSB_PATH=<tinyusb> && cmake --build build_fw` |
-| STM32F4 | TinyUSB 0.18.0 and `get_deps.py stm32f4` | `cmake -B build_fw -S firmware/ports/stm32f4 -G Ninja -DTINYUSB_PATH=<tinyusb> && cmake --build build_fw` |
-| ESP32-S3 | ESP-IDF 5.4 and TinyUSB 0.18.0 | `export TINYUSB_PATH=<tinyusb>`<br>`idf.py -C firmware/ports/esp32s3 set-target esp32s3 build` |
+| RP2040 (Raspberry Pi Pico) | [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.2.0 | `export PICO_SDK_PATH=<pico-sdk>`<br>`cmake -B build_fw -S firmware -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1 && cmake --build build_fw` |
+| RP2350 (Raspberry Pi Pico 2) | Pico SDK 2.2.0 | `cmake -B build_fw -S firmware -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1 && cmake --build build_fw` |
+| nRF52840 | [TinyUSB](https://github.com/hathach/tinyusb) 0.18.0 and `python3 <tinyusb>/tools/get_deps.py nrf` | `cmake -B build_fw -S firmware/ports/nrf52840 -G Ninja -DTINYUSB_PATH=<tinyusb> -DBOARD=pca10056 && cmake --build build_fw` |
+| STM32F4 | TinyUSB 0.18.0 and `get_deps.py stm32f4` | `cmake -B build_fw -S firmware/ports/stm32f4 -G Ninja -DTINYUSB_PATH=<tinyusb> -DBOARD=stm32f411blackpill && cmake --build build_fw` |
+| ESP32-S3 | ESP-IDF 5.4 and TinyUSB 0.18.0 | `export TINYUSB_PATH=<tinyusb>`<br>`idf.py -C firmware/ports/esp32s3 -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3 build` |
+
+Nothing about the chip or the wiring is assumed: a firmware build states its chip (`PICO_PLATFORM`, `PICO_BOARD`, or the TinyUSB `BOARD`), the UART pins (`MIMHID_UART_*`; the nRF52840 and STM32F4 take them from the board's BSP) and, in each port's CMake file, the interfaces, the highest endpoint number, the endpoint packet size and the speed of its USB controller. A build that leaves one out stops with an error naming it. The values above are the reference wiring (GP0/GP1 on the Pico boards, GPIO17/18 on the ESP32-S3).
 
 Host test of the firmware core: `cmake -B build_fwtest -S firmware/tests -DTINYUSB_PATH=<tinyusb> && cmake --build build_fwtest && ctest --test-dir build_fwtest`. Flashing is in the [Quickstart](docs/QUICKSTART.md#2-build-and-flash-the-firmware).
 
 ## Profiles
 
-Each profile derives the report mechanics from its immutable Spec; the product and target values are what its options say (the `*_init` functions fill in one working set). The descriptors and state machines are those of `libaoahid`, byte for byte for equal options ([PROFILES.md](docs/PROFILES.md)).
+Each profile derives the report mechanics from its immutable Spec; the product and target values are what its options say (the `*_init` functions fill in none: the caller sets every field). The descriptors and state machines are those of `libaoahid`, byte for byte for equal options ([PROFILES.md](docs/PROFILES.md)).
 
 | Profile | Derived by the library | You specify |
 |---|---|---|
@@ -142,7 +172,7 @@ The declarations and the C layout oracle are generated from `include/mimhid.h` b
 | Waits | every call that can wait takes its timeout as an argument (`control_timeout_ms`, `send_timeout_ms`, `drain_timeout_ms`; libaoahid 2.0 and later) | the same rule and names; `mimhid_commit_timeouts` adds the wait for the board's re-enumeration |
 | Node id, error detail | `aoahid_node_id`; `aoahid_error_detail.node_id`, `.transport_status` | `mimhid_node_id`; `mimhid_error_detail.node_id`, `.transport_status` |
 | Opening a node | registers an accessory HID device | `mimhid_node_open` / `mimhid_node_open_raw` (one re-enumeration each, or one per `mimhid_device_batch_begin` / `mimhid_device_batch_end`) |
-| Interface setup | implicit / accessory defined | `mimhid_node_config`: the interface number and endpoints are explicit (`mimhid_node_config_init(&config, n)`) |
+| Interface setup | implicit / accessory defined | `mimhid_node_config`: the interface number and endpoints are explicit (`config.iface.number` and `config.ep_in.address` are set by the caller) |
 | USB identity | fixed Google accessory ID | set in `mimhid_device_config` |
 | Physical bus control | handled by Android OS | `mimhid_device_connect()`, `mimhid_device_disconnect()`, `mimhid_device_commit()` |
 | Output of the target | AOA has none | `event_sink` |

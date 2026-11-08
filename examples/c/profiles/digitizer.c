@@ -11,9 +11,9 @@ static const uint16_t k_barrel_usages[] = {0x44U, 0x5AU};
 
 static const char* const k_send_sequence[] = {
     "mimhid_digitizer_update(node, &sample)   tip, pressure, and in-range stay consistent",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)        Away state is normalized on the wire",
+    "mimhid_node_submit(node, send_timeout_ms)        Away state is normalized on the wire",
     "mimhid_digitizer_update(node, &sample)   in_range 0 takes the tool away; repeat the last X/Y",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)        an in-range pen/eraser switch departs "
+    "mimhid_node_submit(node, send_timeout_ms)        an in-range pen/eraser switch departs "
     "first",
     NULL};
 
@@ -24,6 +24,11 @@ int main(void) {
     mimhid_result result;
 
     mimhid_digitizer_options_init(&options);
+    options.x = mimhid_integer_field_make(0, 32767, 16U);
+    options.y = options.x;
+    options.enable_pressure = 1U;
+    options.pressure = mimhid_integer_field_make(0, 4095, 12U);
+    options.enable_hover = 1U;
     options.enable_tilt = 1U;
     options.tilt_x = tilt;
     options.tilt_y = tilt;

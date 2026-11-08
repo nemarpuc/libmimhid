@@ -10,11 +10,12 @@
 #include "esp_timer.h"
 #include "hal.h"
 
+// The wiring is the board's: the build states the two pins (no pin is assumed).
 #ifndef MIMHID_UART_TX_PIN
-#define MIMHID_UART_TX_PIN 17
+#error MIMHID_UART_TX_PIN must be defined by the build
 #endif
 #ifndef MIMHID_UART_RX_PIN
-#define MIMHID_UART_RX_PIN 18
+#error MIMHID_UART_RX_PIN must be defined by the build
 #endif
 
 #define UART_PORT UART_NUM_1

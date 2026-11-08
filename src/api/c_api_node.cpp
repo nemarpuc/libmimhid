@@ -243,6 +243,14 @@ mimhid_result validate_node_config(const mimhid_device* device,
                   "ep_in.address is 0x81 to 0x8F: bit 7 set, endpoint number 1 to 15.");
         return MIMHID_ERR_PARAM;
     }
+    if ((effective.ep_in.address & 0x0FU) > device->board.max_endpoint_number) {
+        // The board's controller has no such endpoint; the target's SET_CONFIGURATION would fail.
+        set_error(MIMHID_ERR_OVERFLOW, "node_config.ep_in.address",
+                  "The endpoint number is above the highest the board's USB controller has "
+                  "(mimhid_board_limits.max_endpoint_number).",
+                  0, 0, 0, 0, device->board.max_endpoint_number, effective.ep_in.address & 0x0FU);
+        return MIMHID_ERR_OVERFLOW;
+    }
     if (effective.iface.country_code > 35U || !valid_usb_string(effective.iface.name)) {
         set_error(MIMHID_ERR_PARAM, "node_config.iface",
                   "A string is not UTF-8 text of at most 126 UTF-16 code units without control "
@@ -273,6 +281,14 @@ mimhid_result validate_node_config(const mimhid_device* device,
             set_error(MIMHID_ERR_UNSET_FIELD, "node_config.ep_out.max_packet_size",
                       "max_packet_size must be non-zero when ep_out is enabled.");
             return MIMHID_ERR_UNSET_FIELD;
+        }
+        if ((effective.ep_out.address & 0x0FU) > device->board.max_endpoint_number) {
+            set_error(MIMHID_ERR_OVERFLOW, "node_config.ep_out.address",
+                      "The endpoint number is above the highest the board's USB controller has "
+                      "(mimhid_board_limits.max_endpoint_number).",
+                      0, 0, 0, 0, device->board.max_endpoint_number,
+                      effective.ep_out.address & 0x0FU);
+            return MIMHID_ERR_OVERFLOW;
         }
     }
     return MIMHID_OK;

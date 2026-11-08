@@ -117,7 +117,7 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
         return true;
     if (frame.length < MIMHID_PONG_MIN_LEN)
         return false;
-    const std::uint8_t id_length = p[34];
+    const std::uint8_t id_length = p[35];
     if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length)
         return false;
     out->compatible = true;
@@ -136,8 +136,9 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->max_frame_payload = static_cast<std::uint16_t>(p[29] | (p[30] << 8));
     out->max_control_data_bytes = static_cast<std::uint16_t>(p[31] | (p[32] << 8));
     out->max_control_rules = p[33];
+    out->max_endpoint_number = p[34];
     out->unique_id_length = id_length;
-    std::memcpy(out->unique_id.data(), &p[35], id_length);
+    std::memcpy(out->unique_id.data(), &p[36], id_length);
     return true;
 }
 

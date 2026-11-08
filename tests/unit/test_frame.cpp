@@ -144,9 +144,10 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[10] = 0xC6;
     payload[11] = 0x2D;
     payload[33] = 8; // max_control_rules
-    payload[34] = 2; // unique id length
-    payload[35] = 0xAB;
-    payload[36] = 0xCD;
+    payload[34] = 6; // max_endpoint_number
+    payload[35] = 2; // unique id length
+    payload[36] = 0xAB;
+    payload[37] = 0xCD;
     const std::vector<Frame> frames = parse(frame_bytes(MIMHID_T_PONG, payload));
     MIMHID_CHECK(frames.size() == 1U);
     if (frames.size() == 1U) {
@@ -154,8 +155,8 @@ void test_pong_of_this_version_decodes_every_field() {
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
                      info.max_nodes == 16U && info.max_interfaces == 15U && info.has_unique_id &&
                      info.chip == 2U && info.baud == 3000000U && info.max_control_rules == 8U &&
-                     info.unique_id_length == 2U && info.unique_id[0] == 0xABU &&
-                     info.unique_id[1] == 0xCDU);
+                     info.max_endpoint_number == 6U && info.unique_id_length == 2U &&
+                     info.unique_id[0] == 0xABU && info.unique_id[1] == 0xCDU);
         // One byte short of the fixed part is refused.
         const std::vector<Frame> shorter = parse(frame_bytes(
             MIMHID_T_PONG,

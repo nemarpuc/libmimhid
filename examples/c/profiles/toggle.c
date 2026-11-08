@@ -21,10 +21,9 @@ static const char* const k_expected[] = {"TEST_EVENT_CODE", "TEST_EVENT_CODE", "
 
 static const char* const k_send_sequence[] = {
     "mimhid_toggle_usage(node, 0x00CD, 1)   assert one allow-listed Usage",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)  sends the 1 edge",
+    "mimhid_node_submit(node, send_timeout_ms)  sends the 1 edge",
     "mimhid_toggle_usage(node, 0x00CD, 0)   release it",
-    "mimhid_node_submit(node, MIMHID_SEND_TIMEOUT_MS)  sends the 0 edge that completes the tap",
-    NULL};
+    "mimhid_node_submit(node, send_timeout_ms)  sends the 0 edge that completes the tap", NULL};
 
 int main(void) {
     mimhid_toggle_options options;
@@ -32,9 +31,12 @@ int main(void) {
     mimhid_result result;
 
     mimhid_toggle_options_init(&options);
-    /* The initializer selects Consumer Control. For System Control set the three pages to
-     * 0x01/0x80/0x01; for Camera keys keep 0x0C/0x01 and set field_page to 0x90 (Auto-focus 0x20
-     * and Shutter 0x21 only); for Telephony keys 0x0B/0x01/0x0B. */
+    /* Consumer Control. For System Control set the three pages to 0x01/0x80/0x01; for Camera keys
+     * keep 0x0C/0x01 and set field_page to 0x90 (Auto-focus 0x20 and Shutter 0x21 only); for
+     * Telephony keys 0x0B/0x01/0x0B. */
+    options.application_page = 0x0CU;
+    options.application_usage = 0x01U;
+    options.field_page = 0x0CU;
     options.allowed_usages = k_usages;
     options.allowed_usage_count = sizeof k_usages / sizeof k_usages[0];
     options.usage_semantics = k_semantics;

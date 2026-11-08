@@ -80,6 +80,10 @@ int main(void) {
 
     mimhid_toggle_options options;
     mimhid_toggle_options_init(&options);
+    /* Consumer Control: the Application Collection and the Usage Page of the allowed Usages. */
+    options.application_page = 0x0CU;
+    options.application_usage = 0x01U;
+    options.field_page = 0x0CU;
 
     uint16_t usages[TOGGLE_CASE_COUNT];
     mimhid_usage_semantic semantics[TOGGLE_CASE_COUNT];
@@ -100,7 +104,7 @@ int main(void) {
     mimhid_spec* spec = NULL;
     mimhid_result result = mimhid_spec_create_toggle(&options, &spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("toggle spec create", result);
     }
 
@@ -108,7 +112,7 @@ int main(void) {
     result = verify_open_node(device, spec, 0U, &node);
     mimhid_spec_release(spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("toggle node open", result);
     }
 
@@ -131,6 +135,6 @@ int main(void) {
                "  - nothing at all, not even in the viewer -> record as Failed for this exact\n"
                "    target/build, with the kernel log and viewer output attached\n");
     }
-    mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return exit_code;
 }

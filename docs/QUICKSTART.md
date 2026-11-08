@@ -28,7 +28,7 @@ Board pins:
 | STM32F4 (Black Pill) | PA2 (USART2 TX) | PA3 (USART2 RX) | the board's USB connector (OTG FS: PA11, PA12) |
 | ESP32-S3 | GPIO17 | GPIO18 | native USB (GPIO19 D-, GPIO20 D+), not the UART or JTAG USB port |
 
-Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own USB cable. Default pins can be overridden at firmware build time with `-DMIMHID_UART_TX_PIN=<pin> -DMIMHID_UART_RX_PIN=<pin>`. The rate is not a build setting: the board starts at 115,200 baud and the library agrees the fastest rate the bridge carries.
+Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own USB cable. The pins are stated at firmware build time (`-DMIMHID_UART_TX_PIN=<pin> -DMIMHID_UART_RX_PIN=<pin>`, and `-DMIMHID_UART_ID=uart0` on the Pico boards); the table above is the wiring of the released images. The nRF52840 and STM32F4 builds take them from the BSP board you select with `-DBOARD=`. The rate is not a build setting: the board starts at 115,200 baud and the library agrees the fastest rate the bridge carries.
 
 ---
 
@@ -108,7 +108,7 @@ build/examples/mimhid_verify_toggle
 build/examples/mimhid_verify_all
 ```
 
-Each uses the first board `mimhid_discover` finds, with the pid.codes test USB identity (`1209:0001`). That pair is for testing in-house only.
+Each uses the first board `mimhid_discover` finds, with the pid.codes test USB identity (`1209:0001`) that its code sets. That pair is for testing in-house only: the library fills in no identity, and a vendor ID of zero is refused.
 
 ---
 

@@ -23,14 +23,10 @@ MIMHID_CHIP_STM32F4 = 5
 MIMHID_CHIP_UNKNOWN = 0
 MIMHID_CONTROL_MAX_RULES = 8
 MIMHID_CONTROL_MAX_TIMEOUT_MS = 5000
-MIMHID_CONTROL_TIMEOUT_MS = 500
-MIMHID_DRAIN_TIMEOUT_MS = 1000
 MIMHID_HOST_MAX_REPORT_BYTES = 1024
 MIMHID_LOSS_MAX_INTERVAL_MS = 60000
-MIMHID_RECONNECT_TIMEOUT_MS = 3000
-MIMHID_SEND_TIMEOUT_MS = 500
 MIMHID_VERSION_MAJOR = 0
-MIMHID_VERSION_MINOR = 1
+MIMHID_VERSION_MINOR = 2
 MIMHID_VERSION_PATCH = 0
 MIMHID_OK = 0
 MIMHID_ERR_PARAM = 1
@@ -175,7 +171,7 @@ class DeviceInfo(c.Structure):
         ("max_report_bytes", c.c_uint8),
         ("max_descriptor_bytes", c.c_uint16),
         ("has_unique_id", c.c_uint8),
-        ("reserved8", c.c_uint8),
+        ("max_endpoint_number", c.c_uint8),
         ("baud_rate", c.c_uint32),
         ("max_baud", c.c_uint32),
         ("uart_flags", c.c_uint32),
@@ -197,6 +193,7 @@ class BoardLimits(c.Structure):
         ("max_frame_payload", c.c_uint32),
         ("max_control_data_bytes", c.c_uint32),
         ("max_control_rules", c.c_uint32),
+        ("max_endpoint_number", c.c_uint32),
     ]
 
 

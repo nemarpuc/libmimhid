@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 /* Checks that the C++ header forwards to the C ABI under namespace mimhid. */
+#include "../fill_values.h"
 #include "mimhid.hpp"
 
 int main() {
@@ -23,14 +24,19 @@ int main() {
 
     const mimhid_device_config config = mimhid::device_config();
     const mimhid_commit_timeouts timeouts = mimhid::commit_timeouts();
-    const mimhid_node_config node = mimhid::node_config(1);
-    if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0x1209 ||
-        config.usb_device.product_id != 0x0001 ||
-        timeouts.control_timeout_ms != MIMHID_CONTROL_TIMEOUT_MS || node.ep_in.address != 0x82) {
+    const mimhid_node_config node = mimhid::node_config();
+    // The wrappers return what the C *_init functions do: struct_size set, every other byte zero.
+    if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0 ||
+        config.usb_device.product_id != 0 || config.usb_device.bcd_usb != 0 ||
+        config.transport.baud_rate != 0 || config.usb_device.manufacturer != nullptr ||
+        timeouts.struct_size != sizeof(timeouts) || timeouts.control_timeout_ms != 0 ||
+        timeouts.reconnect_timeout_ms != 0 || node.struct_size != sizeof(node) ||
+        node.ep_in.address != 0 || node.ep_in.max_packet_size != 0 || node.iface.class_code != 0) {
         return 1;
     }
 
-    const mimhid_mouse_options mouse = mimhid::mouse_options();
+    mimhid_mouse_options mouse;
+    test_fill_mouse(&mouse);
     mimhid_spec* raw_spec = nullptr;
     if (mimhid::spec_create_mouse(&mouse, &raw_spec) != MIMHID_OK) {
         return 1;

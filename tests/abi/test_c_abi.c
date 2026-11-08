@@ -2,10 +2,12 @@
 // Copyright (c) 2026 libmimhid contributors
 /* Proves the public header and exported entry points are usable from C; USB
  * transport behavior is covered by the integration suite. */
+#include "../fill_values.h"
 #include "mimhid.h"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 /* These assertions are part of the ABI gate, not platform-behaviour claims.
@@ -80,19 +82,19 @@ static int initial_specs_build(void) {
     mimhid_digitizer_options digitizer;
     mimhid_spec* specs[8] = {NULL};
     int failed = 0;
-    mimhid_keyboard_options_init(&keyboard);
-    mimhid_mouse_options_init(&mouse);
-    mimhid_toggle_options_init(&toggle);
+    test_fill_keyboard(&keyboard);
+    test_fill_mouse(&mouse);
+    test_fill_toggle(&toggle);
     toggle.allowed_usages = usages;
     toggle.allowed_usage_count = 1;
     toggle.usage_semantics = semantics;
     toggle.expected_linux_event_types = types;
     toggle.expected_linux_codes = codes;
-    mimhid_gamepad_options_init(&gamepad);
-    mimhid_touchscreen_options_init(&touchscreen);
-    mimhid_touchpad_options_init(&touchpad);
-    mimhid_pen_options_init(&pen);
-    mimhid_digitizer_options_init(&digitizer);
+    test_fill_gamepad(&gamepad);
+    test_fill_touchscreen(&touchscreen);
+    test_fill_touchpad(&touchpad);
+    test_fill_pen(&pen);
+    test_fill_digitizer(&digitizer);
     failed |= mimhid_spec_create_keyboard(&keyboard, &specs[0]) != MIMHID_OK;
     failed |= mimhid_spec_create_mouse(&mouse, &specs[1]) != MIMHID_OK;
     failed |= mimhid_spec_create_toggle(&toggle, &specs[2]) != MIMHID_OK;
@@ -104,7 +106,7 @@ static int initial_specs_build(void) {
     for (size_t i = 0; i < 8; ++i) {
         mimhid_capability_manifest manifest;
         mimhid_capability_manifest_init(&manifest);
-        /* 64 bytes is the report maximum mimhid_device_config_init sets. */
+        /* 64 bytes is the report maximum test_fill_device_config sets. */
         failed |= specs[i] == NULL || mimhid_spec_manifest(specs[i], &manifest) != MIMHID_OK ||
                   manifest.reports[0].wire_length > 64U;
         mimhid_spec_release(specs[i]);
@@ -120,11 +122,24 @@ static int unset_fields_refused(void) {
     mimhid_device* device = NULL;
     mimhid_discovery* discovery = NULL;
     int failed = 0;
-    mimhid_keyboard_options_init(&keyboard);
+    test_fill_keyboard(&keyboard);
     keyboard.usage_maximum = 0;
     failed |= mimhid_spec_create_keyboard(&keyboard, &spec) == MIMHID_OK || spec != NULL;
-    mimhid_device_config_init(&config);
+    test_fill_device_config(&config);
     config.usb_device.bcd_usb = 0; /* a required value left zero */
+    failed |=
+        mimhid_device_open("unused", &config, &device) != MIMHID_ERR_UNSET_FIELD || device != NULL;
+    test_fill_device_config(&config);
+    config.usb_device.vendor_id = 0; /* zero stands for a vendor ID nobody set */
+    failed |=
+        mimhid_device_open("unused", &config, &device) != MIMHID_ERR_UNSET_FIELD || device != NULL;
+    test_fill_device_config(&config);
+    config.usb_device.product_id = 0; /* any product ID is valid, zero included: not UNSET_FIELD */
+    failed |= mimhid_device_open("unused", &config, &device) == MIMHID_ERR_UNSET_FIELD;
+    mimhid_device_close(device, 1U, 1U);
+    device = NULL;
+    /* An initialized configuration is all zero, so it is refused: nothing is filled in. */
+    mimhid_device_config_init(&config);
     failed |=
         mimhid_device_open("unused", &config, &device) != MIMHID_ERR_UNSET_FIELD || device != NULL;
     failed |= mimhid_discover(0, &discovery) != MIMHID_ERR_UNSET_FIELD || discovery != NULL;
@@ -144,13 +159,72 @@ static int names(void) {
     return failed;
 }
 
-/* The endpoint of an initialized node config follows its interface number. */
-static int node_config_follows_number(void) {
-    mimhid_node_config config;
-    mimhid_node_config_init(&config, 2);
-    return config.iface.number != 2 || config.ep_in.address != 0x83 || config.ep_out.address != 0;
+/* True when every byte of the structure after struct_size is zero and struct_size is its size. */
+static int zeroed_with_size(const void* value, size_t size) {
+    const unsigned char* bytes = (const unsigned char*)value;
+    uint32_t struct_size = 0;
+    memcpy(&struct_size, bytes, sizeof(struct_size));
+    if (struct_size != (uint32_t)size)
+        return 0;
+    for (size_t i = sizeof(struct_size); i < size; ++i) {
+        if (bytes[i] != 0)
+            return 0;
+    }
+    return 1;
+}
+
+#define INIT_IS_ZERO(type, init)                                                                   \
+    do {                                                                                           \
+        type value;                                                                                \
+        memset(&value, 0xA5, sizeof(value));                                                       \
+        init(&value);                                                                              \
+        failed |= !zeroed_with_size(&value, sizeof(value));                                        \
+    } while (0)
+
+/* Every *_init function zeroes the structure and sets struct_size; none fills in a value. */
+static int init_fills_nothing(void) {
+    int failed = 0;
+    INIT_IS_ZERO(mimhid_device_config, mimhid_device_config_init);
+    INIT_IS_ZERO(mimhid_commit_timeouts, mimhid_commit_timeouts_init);
+    INIT_IS_ZERO(mimhid_node_config, mimhid_node_config_init);
+    INIT_IS_ZERO(mimhid_board_limits, mimhid_board_limits_init);
+    INIT_IS_ZERO(mimhid_link_counters, mimhid_link_counters_init);
+    INIT_IS_ZERO(mimhid_keyboard_options, mimhid_keyboard_options_init);
+    INIT_IS_ZERO(mimhid_mouse_options, mimhid_mouse_options_init);
+    INIT_IS_ZERO(mimhid_toggle_options, mimhid_toggle_options_init);
+    INIT_IS_ZERO(mimhid_gamepad_options, mimhid_gamepad_options_init);
+    INIT_IS_ZERO(mimhid_touchscreen_options, mimhid_touchscreen_options_init);
+    INIT_IS_ZERO(mimhid_touchpad_options, mimhid_touchpad_options_init);
+    INIT_IS_ZERO(mimhid_pen_options, mimhid_pen_options_init);
+    INIT_IS_ZERO(mimhid_digitizer_options, mimhid_digitizer_options_init);
+    INIT_IS_ZERO(mimhid_raw_options, mimhid_raw_options_init);
+    INIT_IS_ZERO(mimhid_capability_manifest, mimhid_capability_manifest_init);
+    return failed;
+}
+
+/* A spec cannot be made from an initialized (all zero) profile: its fields are the caller's, and
+ * the library refuses what it is not given (MIMHID_ERR_PARAM or MIMHID_ERR_UNSET_FIELD). */
+static int init_options_are_refused(void) {
+    mimhid_mouse_options mouse;
+    mimhid_spec* spec = NULL;
+    mimhid_mouse_options_init(&mouse);
+    return mimhid_spec_create_mouse(&mouse, &spec) == MIMHID_OK || spec != NULL;
 }
 
 int main(void) {
-    return initial_specs_build() | unset_fields_refused() | names() | node_config_follows_number();
+    int failed = 0;
+    int result;
+#define RUN(check)                                                                                 \
+    do {                                                                                           \
+        result = check();                                                                          \
+        if (result != 0)                                                                           \
+            fprintf(stderr, "test_c_abi: %s failed\n", #check);                                    \
+        failed |= result;                                                                          \
+    } while (0)
+    RUN(initial_specs_build);
+    RUN(unset_fields_refused);
+    RUN(names);
+    RUN(init_fills_nothing);
+    RUN(init_options_are_refused);
+    return failed;
 }

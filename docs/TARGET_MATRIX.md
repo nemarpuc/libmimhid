@@ -11,8 +11,8 @@ Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspber
 | Raspberry Pi Pico / Pico H (RP2040) | 15 interfaces (max) | Official support. Verified on hardware with GP0/GP1 UART at 7 interfaces, the maximum of an earlier firmware: all seven enumerate and every profile's input arrives. Also verified (2026-11-07) with firmware 0.1.0 at 15 interfaces: 15 mouse nodes in one commit enumerated on the host as 15 interfaces, and the board's link counters (CRC, framing, UART overrun, ring) all read 0 after the link had run at 7,812,500 baud for 14 s. Only that enumeration was checked at 15 interfaces, not every profile's input. |
 | Raspberry Pi Pico 2 (RP2350) | 15 interfaces (max) | Official support. Dual-core RP architecture with `.scratch_y` DMA ring; builds and verified in CI / e2e tests. |
 | RP2040 `pico_w` | 15 interfaces (max) | Builds; not run. |
-| nRF52840 (`pca10056` DK by default) | 7 interfaces (max) | Builds; not run. |
-| STM32F4 (`stm32f411blackpill` by default) | 3 interfaces (max) | Builds; not run. |
+| nRF52840 (`-DBOARD=pca10056`, the DK) | 7 interfaces (max) | Builds; not run. |
+| STM32F4 (`-DBOARD=stm32f411blackpill`) | 3 interfaces (max; 5 on the F412 boards) | Builds; not run. |
 | ESP32-S3 | 4 interfaces (max) | Builds with ESP-IDF 5.4; not run. |
 | Other boards | | Not tested. See [PORTING.md](PORTING.md). |
 

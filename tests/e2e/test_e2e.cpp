@@ -3,6 +3,7 @@
 /* End to end: the host library talks through a pseudo-terminal to the real firmware core,
  * which presents what a USB target would see. */
 #include "fake_board.h"
+#include "fill_values.h"
 #include "mimhid.h"
 #include "mimhid_proto.h"
 #include "test.hpp"
@@ -117,7 +118,7 @@ bool wait_event(mimhid_event_kind kind, EventRecord* out, int timeout_ms = 2000)
 // ---- helpers ------------------------------------------------------------------------
 mimhid_device_config base_options() {
     mimhid_device_config o{};
-    mimhid_device_config_init(&o);
+    test_fill_device_config(&o);
     o.transport.baud_rate = 3000000;
     o.usb_device.vendor_id = 0x1209; // pid.codes test IDs
     o.usb_device.product_id = 0x0001;
@@ -230,7 +231,7 @@ mimhid_spec* raw_spec_io() {
 mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
                        const mimhid_node_config* options = nullptr) {
     mimhid_node_config defaults{};
-    mimhid_node_config_init(&defaults, 0);
+    test_fill_node_config(&defaults, 0);
     mimhid_node* node = nullptr;
     const mimhid_result r =
         mimhid_node_open(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
@@ -284,6 +285,7 @@ void test_open_identity_and_descriptors() {
                  board.version_patch == MIMHID_VERSION_PATCH);
     MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == MIMHID_MAX_NODES);
     MIMHID_CHECK(board.max_report_bytes == 64);
+    MIMHID_CHECK(board.max_endpoint_number == E2E_HID_ITFS);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
     MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
                  board.unique_id[0] == 0xDE && board.unique_id[7] == 0x04);
@@ -293,12 +295,12 @@ void test_open_identity_and_descriptors() {
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_spec* mouse = mouse_spec(2);
     mimhid_node_config no{};
-    mimhid_node_config_init(&no, 0);
+    test_fill_node_config(&no, 0);
     no.iface.name = "Keys";
     no.ep_in.poll_interval_ms = 4;
     no.ep_in.max_packet_size = 16;
     mimhid_node_config mo{};
-    mimhid_node_config_init(&mo, 1);
+    test_fill_node_config(&mo, 1);
     mimhid_node* nk = open_node(device, kbd, &no);
     mimhid_node* nm = open_node(device, mouse, &mo);
     MIMHID_CHECK(nk != nullptr && nm != nullptr);
@@ -528,7 +530,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
         mimhid_node_config opt{};
-        mimhid_node_config_init(&opt, static_cast<uint8_t>(i % E2E_HID_ITFS));
+        test_fill_node_config(&opt, static_cast<uint8_t>(i % E2E_HID_ITFS));
         nodes[i] = open_node(device, specs[i], &opt);
     }
     // Nothing is committed inside the batch, and staged nodes refuse reports.
@@ -594,7 +596,7 @@ void test_limits() {
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
         mimhid_node_config no{};
-        mimhid_node_config_init(&no, static_cast<uint8_t>(i));
+        test_fill_node_config(&no, static_cast<uint8_t>(i));
         mimhid_node* node = nullptr;
         last = mimhid_node_open(device, specs.back(), &no, &kCommit, &node);
         if (last != MIMHID_OK)
@@ -646,7 +648,7 @@ void test_events_and_raw() {
     limits.struct_size = sizeof(limits);
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_OK &&
                  limits.max_feature_bytes == 1024 && limits.max_report_bytes == 64 &&
-                 limits.max_endpoint_bytes == 64);
+                 limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == E2E_HID_ITFS);
     limits.reserved = 1;
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_ERR_PARAM);
     limits.reserved = 0;
@@ -741,7 +743,7 @@ void test_chip_serial_and_boot() {
         return;
     mimhid_spec* raw = raw_spec_no_id();
     mimhid_node_config no{};
-    mimhid_node_config_init(&no, 0);
+    test_fill_node_config(&no, 0);
     no.iface.subclass = 1;
     no.iface.protocol = 1;
     no.ep_in.max_packet_size = 6;
@@ -779,6 +781,24 @@ void test_chip_serial_and_boot() {
         broken.ep_out.max_packet_size = 8;
         broken.ep_out.poll_interval_ms = 1;
         MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    }
+    // A number the board's controller does not have is refused before the board is asked: the
+    // target's SET_CONFIGURATION would fail. The firmware core of this build has the numbers 1 to
+    // E2E_HID_ITFS (the board's PONG says so).
+    if (E2E_HID_ITFS < 15) {
+        const std::uint8_t above = static_cast<std::uint8_t>(E2E_HID_ITFS + 1);
+        broken = no;
+        broken.ep_in.address = static_cast<std::uint8_t>(0x80U | above);
+        MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
+                         MIMHID_ERR_OVERFLOW &&
+                     bad == nullptr);
+        broken = no;
+        broken.ep_out.address = above;
+        broken.ep_out.max_packet_size = 8;
+        broken.ep_out.poll_interval_ms = 1;
+        MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
+                         MIMHID_ERR_OVERFLOW &&
+                     bad == nullptr);
     }
     // The board opens HID interfaces only (HID 1.11 4.1: class 0x03).
     broken = no;
@@ -996,10 +1016,10 @@ void test_no_names() {
     mimhid_spec_release(raw);
 }
 
-// USB 2.0 9.6.1 reserves no idVendor or idProduct: zero is presented as given.
+// A product ID of zero is presented as given (the vendor ID of zero is refused:
+// test_init_fills_nothing).
 void test_zero_identity() {
     mimhid_device_config o = base_options();
-    o.usb_device.vendor_id = 0;
     o.usb_device.product_id = 0;
     mimhid_device* device = open_device(o);
     if (device == nullptr)
@@ -1008,7 +1028,7 @@ void test_zero_identity() {
     mimhid_node* node = open_node(device, raw);
     MIMHID_CHECK(node != nullptr);
     const std::uint8_t* d = fake_board_device_descriptor();
-    MIMHID_CHECK(d[8] == 0 && d[9] == 0 && d[10] == 0 && d[11] == 0); // idVendor, idProduct
+    MIMHID_CHECK(d[8] == 0x09 && d[9] == 0x12 && d[10] == 0 && d[11] == 0); // idVendor, idProduct
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(raw);
 }
@@ -1117,11 +1137,11 @@ void test_bad_arguments() {
     MIMHID_CHECK(mimhid_device_close(nullptr, kControlMs, kDrainMs) == MIMHID_ERR_PARAM);
 }
 
-// Every profile as its initializer fills it in opens on a board configured by
-// mimhid_device_config_init, sends a report and closes.
-void test_initial_values() {
+// Every profile filled in with the values the tests use opens on a board configured the same way,
+// sends a report and closes.
+void test_filled_values() {
     mimhid_device_config o{};
-    mimhid_device_config_init(&o);
+    test_fill_device_config(&o);
     o.usb_device.vendor_id = 0x1209;
     o.usb_device.product_id = 0x0001;
     o.transport.baud_rate = 3000000;
@@ -1137,26 +1157,26 @@ void test_initial_values() {
     static const char* const types[1] = {"EV_KEY"};
     static const char* const codes[1] = {"KEY_PLAYPAUSE"};
     mimhid_keyboard_options keyboard{};
-    mimhid_keyboard_options_init(&keyboard);
+    test_fill_keyboard(&keyboard);
     mimhid_mouse_options mouse{};
-    mimhid_mouse_options_init(&mouse);
+    test_fill_mouse(&mouse);
     mimhid_toggle_options toggle{};
-    mimhid_toggle_options_init(&toggle);
+    test_fill_toggle(&toggle);
     toggle.allowed_usages = usages;
     toggle.allowed_usage_count = 1;
     toggle.usage_semantics = semantics;
     toggle.expected_linux_event_types = types;
     toggle.expected_linux_codes = codes;
     mimhid_gamepad_options gamepad{};
-    mimhid_gamepad_options_init(&gamepad);
+    test_fill_gamepad(&gamepad);
     mimhid_touchscreen_options touchscreen{};
-    mimhid_touchscreen_options_init(&touchscreen);
+    test_fill_touchscreen(&touchscreen);
     mimhid_touchpad_options touchpad{};
-    mimhid_touchpad_options_init(&touchpad);
+    test_fill_touchpad(&touchpad);
     mimhid_pen_options pen{};
-    mimhid_pen_options_init(&pen);
+    test_fill_pen(&pen);
     mimhid_digitizer_options digitizer{};
-    mimhid_digitizer_options_init(&digitizer);
+    test_fill_digitizer(&digitizer);
     mimhid_spec* specs[8] = {};
     MIMHID_CHECK(mimhid_spec_create_keyboard(&keyboard, &specs[0]) == MIMHID_OK);
     MIMHID_CHECK(mimhid_spec_create_mouse(&mouse, &specs[1]) == MIMHID_OK);
@@ -1168,9 +1188,9 @@ void test_initial_values() {
     MIMHID_CHECK(mimhid_spec_create_digitizer(&digitizer, &specs[7]) == MIMHID_OK);
 
     mimhid_commit_timeouts timeouts{};
-    mimhid_commit_timeouts_init(&timeouts);
+    test_fill_commit_timeouts(&timeouts);
     mimhid_node_config config{};
-    mimhid_node_config_init(&config, 0);
+    test_fill_node_config(&config, 0);
     for (mimhid_spec* spec : specs) {
         mimhid_node* node = nullptr;
         MIMHID_CHECK(mimhid_node_open(device, spec, &config, &timeouts, &node) == MIMHID_OK);
@@ -1179,10 +1199,59 @@ void test_initial_values() {
             continue;
         MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
         fake_board_clear_reports();
-        MIMHID_CHECK(mimhid_node_close(node, &timeouts, MIMHID_DRAIN_TIMEOUT_MS) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_close(node, &timeouts, kDrainMs) == MIMHID_OK);
     }
-    MIMHID_CHECK(mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+}
+
+// The *_init functions fill nothing in: an initialized configuration is refused, and so is one
+// without a vendor ID or with zero commit timeouts; a product ID of zero is a valid one.
+void test_init_fills_nothing() {
+    mimhid_device_config o{};
+    mimhid_device_config_init(&o);
+    MIMHID_CHECK(o.struct_size == sizeof(o) && o.usb_device.vendor_id == 0 &&
+                 o.usb_device.product_id == 0 && o.usb_device.bcd_usb == 0 &&
+                 o.usb_device.language_id == 0 && o.usb_device.manufacturer == nullptr &&
+                 o.transport.baud_rate == 0 && o.transport.handshake_timeout_ms == 0 &&
+                 o.transport.maximum_report_bytes == 0 && o.transport.linux_hid.usages == 0 &&
+                 o.usb_config.bm_attributes == 0 && o.usb_config.bmax_power == 0);
+    mimhid_device* device = nullptr;
+    MIMHID_CHECK(mimhid_device_open(g_slave.c_str(), &o, &device) == MIMHID_ERR_UNSET_FIELD &&
+                 device == nullptr);
+
+    mimhid_node_config nc{};
+    mimhid_node_config_init(&nc);
+    MIMHID_CHECK(nc.struct_size == sizeof(nc) && nc.iface.class_code == 0 &&
+                 nc.iface.bcd_hid == 0 && nc.ep_in.address == 0 && nc.ep_in.poll_interval_ms == 0 &&
+                 nc.ep_in.max_packet_size == 0);
+    mimhid_commit_timeouts zero{};
+    mimhid_commit_timeouts_init(&zero);
+    MIMHID_CHECK(zero.struct_size == sizeof(zero) && zero.control_timeout_ms == 0 &&
+                 zero.reconnect_timeout_ms == 0);
+
+    // The vendor ID: zero stands for one nobody set.
+    o = base_options();
+    o.usb_device.vendor_id = 0;
+    MIMHID_CHECK(mimhid_device_open(g_slave.c_str(), &o, &device) == MIMHID_ERR_UNSET_FIELD &&
+                 device == nullptr);
+    // The product ID: any value is valid, zero included.
+    o = base_options();
+    o.usb_device.product_id = 0;
+    device = open_device(o);
+    if (device == nullptr)
+        return;
+    // A node cannot be opened with the timeouts of an initialized structure, nor with an
+    // initialized (all zero) node configuration.
+    mimhid_spec* kbd = keyboard_spec(1);
+    mimhid_node* node = nullptr;
+    mimhid_node_config good{};
+    test_fill_node_config(&good, 0);
+    MIMHID_CHECK(mimhid_node_open(device, kbd, &good, &zero, &node) == MIMHID_ERR_UNSET_FIELD &&
+                 node == nullptr);
+    MIMHID_CHECK(mimhid_node_open(device, kbd, &nc, &kCommit, &node) == MIMHID_ERR_UNSET_FIELD &&
+                 node == nullptr);
+    mimhid_spec_release(kbd);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
 // Nodes on one interface must agree on its settings, and two interfaces need their own endpoints.
@@ -1193,7 +1262,7 @@ void test_shared_interfaces() {
     mimhid_spec* kbd = keyboard_spec(1);
     mimhid_spec* mouse = mouse_spec(2);
     mimhid_node_config first{};
-    mimhid_node_config_init(&first, 0);
+    test_fill_node_config(&first, 0);
     mimhid_node* nk = open_node(device, kbd, &first);
 
     mimhid_node_config slower = first;
@@ -1202,7 +1271,7 @@ void test_shared_interfaces() {
     MIMHID_CHECK(mimhid_node_open(device, mouse, &slower, &kCommit, &nm) == MIMHID_ERR_PARAM &&
                  nm == nullptr);
     mimhid_node_config same_endpoint{};
-    mimhid_node_config_init(&same_endpoint, 1);
+    test_fill_node_config(&same_endpoint, 1);
     same_endpoint.ep_in.address = 0x81;
     MIMHID_CHECK(mimhid_node_open(device, mouse, &same_endpoint, &kCommit, &nm) ==
                      MIMHID_ERR_PARAM &&
@@ -1547,18 +1616,18 @@ void test_high_speed_rules() {
     mimhid_node_config nc{};
     mimhid_node* node = nullptr;
     for (const std::uint8_t interval : {0, 17, 255}) {
-        mimhid_node_config_init(&nc, 0);
+        test_fill_node_config(&nc, 0);
         nc.ep_in.poll_interval_ms = interval;
         MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) ==
                      (interval == 0 ? MIMHID_ERR_UNSET_FIELD : MIMHID_ERR_PARAM));
     }
-    mimhid_node_config_init(&nc, 0);
+    test_fill_node_config(&nc, 0);
     nc.ep_in.poll_interval_ms = 1;
     nc.ep_out.address = 0x01;
     nc.ep_out.max_packet_size = 8;
     nc.ep_out.poll_interval_ms = 17;
     MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) == MIMHID_ERR_PARAM);
-    mimhid_node_config_init(&nc, 0);
+    test_fill_node_config(&nc, 0);
     nc.ep_in.poll_interval_ms = 16;
     nc.ep_in.max_packet_size = 1024; // the packet of a high-speed interrupt endpoint (5.7.3)
     node = open_node(device, spec, &nc);
@@ -1599,7 +1668,8 @@ int main() {
     test_chip_serial_and_boot();
     test_keep_attached_and_discovery();
     test_control();
-    test_initial_values();
+    test_filled_values();
+    test_init_fills_nothing();
     test_shared_interfaces();
     test_link_loss();
 

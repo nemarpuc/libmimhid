@@ -53,36 +53,47 @@ The receiver must hold bytes for the core between polls. Choose a ring or DMA bu
 
 ## Endpoint count and the HID layout
 
-Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT endpoint). The number the MCU can spare is the port's `MIMHID_HID_ITFS` (the `max_interfaces` the board reports in its PONG):
+Each USB HID interface needs one interrupt IN endpoint (and optionally one OUT endpoint). A port states what its USB controller has in its build, on the compiler command line; `core.h` and `tusb_config.h` stop the build with an error when one is missing (nothing is guessed from the chip family or from the headers read so far):
 
-| `MIMHID_HID_ITFS` | Used by |
-|---:|---|
-| 15 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2): the endpoint numbers 1 to 15 in both directions (datasheets: RP2040 4.1.1.1.1, RP2350 12.7.1.1.1) |
-| 7 | nRF52840 (the default of `core.h`) |
-| 4 | ESP32-S3 (four usable IN endpoints) |
-| 3 | STM32F4 full speed (three usable IN endpoints) |
+| Macro | Meaning |
+|---|---|
+| `MIMHID_HID_ITFS` | the interfaces (one IN endpoint each) the controller can open at once; reported as `max_interfaces` in the PONG, and the host packs nodes to fit |
+| `MIMHID_MAX_ENDPOINT_NUMBER` | the highest endpoint number it has; reported as `max_endpoint_number`. The firmware refuses a larger endpoint address (`NAK_OVERFLOW`), and so does the host library (`MIMHID_ERR_OVERFLOW`), because the target's SET_CONFIGURATION would fail and nothing would say why |
+| `MIMHID_MAX_ENDPOINT_BYTES` | 64 at full speed, 1024 at high speed (USB 2.0 5.7.3, 5.7.4); `core.c` checks it against the speed TinyUSB is built for |
+| `CFG_TUSB_OS`, `CFG_TUSB_RHPORT0_MODE`, `CFG_TUD_MAX_SPEED` | TinyUSB's own, stated the same way |
 
-Set it as high as the MCU's endpoints and TinyUSB's `CFG_TUD_HID` allow, and no higher than 15 (USB has endpoint numbers 1 to 15, USB 2.0 glossary) and `MIMHID_MAX_NODES` (16, the nodes the wire format names); the firmware, host library, and wire protocol do not depend on the value. `core.h` picks 15 for the RP2040 and RP2350 from `PICO_RP2040` and `PICO_RP2350`, which the Pico SDK puts on the command line, and not from TinyUSB's `OPT_MCU_*` macros: those exist only once `tusb_option.h` is read, and an interface count that differs between sources overruns arrays (`firmware/tests` builds the check in both include orders). In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`.
+| `MIMHID_HID_ITFS` | `MIMHID_MAX_ENDPOINT_NUMBER` | Used by |
+|---:|---:|---|
+| 15 | 15 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2): the endpoint numbers 1 to 15 in both directions (datasheets: RP2040 4.1.1.1.1, RP2350 12.7.1.1.1) |
+| 7 | 7 | nRF52840: EPIN1 to EPIN7 and EPOUT1 to EPOUT7 (number 8 is the isochronous endpoint) |
+| 4 | 6 | ESP32-S3: TinyUSB's controller table has `ep_count` 7 and `ep_in_count` 5, both with endpoint 0, so the numbers are 1 to 6 and four IN endpoints can be open. Whether the IN and OUT endpoints together are limited further (the TRM's "six additional endpoints") has not been checked against the TRM |
+| 3 | 3 | STM32F4 full speed on the F401, F405, F407, F411, F429 and F439 (`USB_OTG_FS_MAX_IN_ENDPOINTS` 4 with endpoint 0) |
+| 5 | 5 | STM32F4 full speed on the F412 (`USB_OTG_FS_MAX_IN_ENDPOINTS` 6 with endpoint 0); the F413, F423, F446, F469 and F479 have 6 as well, but no board of them is listed in `ports/stm32f4/CMakeLists.txt` |
 
-`MIMHID_MAX_DESC_BYTES` (default 2048) bounds all report descriptors together. It is reported as `max_descriptor_bytes`.
+Set `MIMHID_HID_ITFS` as high as the controller's endpoints and TinyUSB's `CFG_TUD_HID` allow, and no higher than 15 (USB has endpoint numbers 1 to 15, USB 2.0 glossary) and `MIMHID_MAX_NODES` (16, the nodes the wire format names); the wire protocol does not depend on the values. They are on the command line (the CMake file of the port) so that every source sees the same numbers whatever it includes first: an interface count that differs between sources overruns arrays (`firmware/tests` builds the check in both include orders, and builds the probe once with each macro left out to see the error). In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`; the firmware takes every value as given and refuses a zero where one is required (a zero LANGID, `bcdUSB`, endpoint address, size or interval), and a COMMIT whose nodes of one interface disagree or reuse an endpoint number.
 
-The buffers follow the chip: `MIMHID_MAX_ENDPOINT_BYTES` is 64, or 1024 when the port's `CFG_TUSB_RHPORT0_MODE` asks for high speed; `MIMHID_MAX_REPORT_BYTES` defaults to it, and `MIMHID_FEATURE_MAX` to 1024. TinyUSB keeps a buffer of the larger of the two for every HID interface (`MIMHID_HID_BUFSIZE`), so on a chip with little RAM a port sets them lower before `config.h` is read. The PONG reports what was built. The high-speed values have not been run on a board.
+`MIMHID_MAX_DESC_BYTES` (default 2048) bounds all report descriptors together. It is reported as `max_descriptor_bytes`. It, `MIMHID_MAX_FEATURES`, `MIMHID_FEATURE_MAX` and `MIMHID_QUEUE_DEPTH` are sizes of the firmware's own buffers, announced in the PONG, not facts about the chip; the build RAM at the reference settings is 58 KB on the STM32F411, 108 KB on the nRF52840 and 125 KB on the RP2040, each well inside its RAM.
 
-`firmware/tests` builds the core for 7, 4, and 3 interfaces against a fake HAL and checks the descriptors and report routing. `tests/e2e` does the same with the real host library.
+`MIMHID_MAX_REPORT_BYTES` defaults to `MIMHID_MAX_ENDPOINT_BYTES`, and `MIMHID_FEATURE_MAX` to 1024. TinyUSB keeps a buffer of the larger of the two for every HID interface (`MIMHID_HID_BUFSIZE`), so on a chip with little RAM a port sets them lower before `config.h` is read. The PONG reports what was built. The high-speed values have not been run on a board.
+
+`firmware/tests` builds the core for 15, 7, 4, and 3 interfaces against a fake HAL and checks the descriptors and report routing. `tests/e2e` does the same with the real host library.
 
 ## Other MCUs
 
 | MCU family | USB | Notes |
 |---|---|---|
 | i.MX RT1062 (Teensy 4.x), STM32H7 | High-Speed | A higher poll rate is possible in principle. Add a port with a DMA UART receiver and the full layout (eight or more IN endpoints). |
-| STM32 with a High-Speed OTG core, or with at least eight IN endpoints | Full or High | Reuse `ports/stm32f4` and set `MIMHID_HID_ITFS=7`; check the TinyUSB BSP for the board and the USART/DMA mapping in `hal_stm32f4.c`. |
+| STM32 with a High-Speed OTG core, or with at least eight IN endpoints | Full or High | Reuse `ports/stm32f4`, add the board to its table of `USB_OTG_FS_MAX_IN_ENDPOINTS` (a High-Speed core has 6 with endpoint 0, so five interfaces, not seven), and mind `TUP_DCD_ENDPOINT_MAX`; check the TinyUSB BSP for the board and the USART/DMA mapping in `hal_stm32f4.c`. |
 | Other TinyUSB BSP families | Full | Copy `ports/nrf52840`, replace `hal_nrf52.c`. |
 
 ## STM32F4 port assumptions
 
-`hal_stm32f4.c` uses USART2 (PA2 TX, PA3 RX) and DMA1 stream 5 channel 4, which is the mapping on every STM32F4. The TinyUSB BSP's `board_init()` must have enabled USART2 and its pins; this holds for `stm32f411blackpill` (the default), `stm32f411disco`, and `stm32f407disco`. For another board, check that the BSP's `UART_DEV` is `USART2`.
+`hal_stm32f4.c` uses USART2 (PA2 TX, PA3 RX) and DMA1 stream 5 channel 4, which is the mapping on every STM32F4. The TinyUSB BSP's `board_init()` must have enabled USART2 and its pins; this holds for `stm32f411blackpill`, `stm32f411disco`, and `stm32f407disco`. `-DBOARD` is required, and a board missing from the endpoint table in `ports/stm32f4/CMakeLists.txt` stops the build. For another board, check that the BSP's `UART_DEV` is `USART2`.
 
 ## nRF52840 notes
+
+TinyUSB raises the D+ pull-up on every `USB_EVT_READY` (a cable plugged in, the target powering up), whatever `tud_disconnect()` did before; a board that has not been committed yet (or has been detached) would enumerate its placeholder identity with no interface. The port links `--wrap=tusb_hal_nrf_power_event` and takes the pull-up down again while `mimhid_core_attached()` is false. The ESP32-S3, STM32F4, RP2040 and RP2350 drivers keep the soft-disconnect across VBUS changes.
+
 
 `hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 makes the rates of its BAUDRATE register only, up to 1,000,000; 921,600 runs at 941,176 (+2.1 %), which UART receivers accept. The rate is changed with the receiver stopped and the peripheral disabled.
 

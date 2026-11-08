@@ -115,7 +115,6 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         add_executable(mimhid_e2e_${itfs}
             tests/e2e/test_e2e.cpp
             tests/e2e/fake_board.c
-        tests/e2e/pty_baud.c
             tests/e2e/pty_baud.c
             firmware/common/core.c
             firmware/common/control.c
@@ -125,8 +124,14 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         target_include_directories(mimhid_e2e_${itfs} PRIVATE
             include src proto tests tests/e2e
             firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
+        # What a port's build states (firmware/common/core.h): the interfaces, the highest endpoint
+        # number (the same number here), the packet size and the speed.
         target_compile_definitions(mimhid_e2e_${itfs} PRIVATE
             MIMHID_HID_ITFS=${itfs} E2E_HID_ITFS=${itfs}
+            MIMHID_MAX_ENDPOINT_NUMBER=${itfs} MIMHID_MAX_ENDPOINT_BYTES=64
+            CFG_TUSB_OS=OPT_OS_NONE
+            "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
+            CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
             CFG_TUSB_CONFIG_FILE="tusb_config.h")
         target_link_libraries(mimhid_e2e_${itfs} PRIVATE Threads::Threads)
         add_test(NAME mimhid.e2e-${itfs} COMMAND mimhid_e2e_${itfs})
@@ -147,6 +152,8 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
     target_compile_definitions(mimhid_e2e_hs PRIVATE
         MIMHID_HID_ITFS=7 E2E_HID_ITFS=7 E2E_HIGH_SPEED
+        MIMHID_MAX_ENDPOINT_NUMBER=7 MIMHID_MAX_ENDPOINT_BYTES=1024
+        CFG_TUSB_OS=OPT_OS_NONE
         CFG_TUSB_CONFIG_FILE="tusb_config.h"
         CFG_TUD_MAX_SPEED=OPT_MODE_HIGH_SPEED
         "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_HIGH_SPEED)")

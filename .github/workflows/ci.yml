@@ -405,9 +405,9 @@ jobs:
       matrix:
         include:
           - name: rp2040
-            args: ""
+            args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1"
           - name: rp2350
-            args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2"
+            args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1"
 
     steps:
       - name: Check out source
@@ -441,8 +441,10 @@ jobs:
         include:
           - name: nrf52840
             family: nrf
+            board: pca10056
           - name: stm32f4
             family: stm32f4
+            board: stm32f411blackpill
 
     steps:
       - name: Check out source
@@ -460,7 +462,7 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
-          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DTINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DTINYUSB_PATH="$HOME/tinyusb" -DBOARD=${{ matrix.board }}
           cmake --build build_fw
 
   firmware-esp32s3:
@@ -487,5 +489,5 @@ jobs:
           set -euo pipefail
           . "$IDF_PATH/export.sh"
           export TINYUSB_PATH="$HOME/tinyusb"
-          idf.py -C firmware/ports/esp32s3 -B build_fw set-target esp32s3
-          idf.py -C firmware/ports/esp32s3 -B build_fw build
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 build

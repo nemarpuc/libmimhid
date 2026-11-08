@@ -20,12 +20,8 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_CHIP_UNKNOWN".to_owned(), MIMHID_CHIP_UNKNOWN as i64);
     map.insert("MIMHID_CONTROL_MAX_RULES".to_owned(), MIMHID_CONTROL_MAX_RULES as i64);
     map.insert("MIMHID_CONTROL_MAX_TIMEOUT_MS".to_owned(), MIMHID_CONTROL_MAX_TIMEOUT_MS as i64);
-    map.insert("MIMHID_CONTROL_TIMEOUT_MS".to_owned(), MIMHID_CONTROL_TIMEOUT_MS as i64);
-    map.insert("MIMHID_DRAIN_TIMEOUT_MS".to_owned(), MIMHID_DRAIN_TIMEOUT_MS as i64);
     map.insert("MIMHID_HOST_MAX_REPORT_BYTES".to_owned(), MIMHID_HOST_MAX_REPORT_BYTES as i64);
     map.insert("MIMHID_LOSS_MAX_INTERVAL_MS".to_owned(), MIMHID_LOSS_MAX_INTERVAL_MS as i64);
-    map.insert("MIMHID_RECONNECT_TIMEOUT_MS".to_owned(), MIMHID_RECONNECT_TIMEOUT_MS as i64);
-    map.insert("MIMHID_SEND_TIMEOUT_MS".to_owned(), MIMHID_SEND_TIMEOUT_MS as i64);
     map.insert("MIMHID_VERSION_MAJOR".to_owned(), MIMHID_VERSION_MAJOR as i64);
     map.insert("MIMHID_VERSION_MINOR".to_owned(), MIMHID_VERSION_MINOR as i64);
     map.insert("MIMHID_VERSION_PATCH".to_owned(), MIMHID_VERSION_PATCH as i64);
@@ -136,7 +132,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_device_info.max_report_bytes".to_owned(), offset_of!(mimhid_device_info, max_report_bytes) as i64);
     map.insert("mimhid_device_info.max_descriptor_bytes".to_owned(), offset_of!(mimhid_device_info, max_descriptor_bytes) as i64);
     map.insert("mimhid_device_info.has_unique_id".to_owned(), offset_of!(mimhid_device_info, has_unique_id) as i64);
-    map.insert("mimhid_device_info.reserved8".to_owned(), offset_of!(mimhid_device_info, reserved8) as i64);
+    map.insert("mimhid_device_info.max_endpoint_number".to_owned(), offset_of!(mimhid_device_info, max_endpoint_number) as i64);
     map.insert("mimhid_device_info.baud_rate".to_owned(), offset_of!(mimhid_device_info, baud_rate) as i64);
     map.insert("mimhid_device_info.max_baud".to_owned(), offset_of!(mimhid_device_info, max_baud) as i64);
     map.insert("mimhid_device_info.uart_flags".to_owned(), offset_of!(mimhid_device_info, uart_flags) as i64);
@@ -154,6 +150,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_board_limits.max_frame_payload".to_owned(), offset_of!(mimhid_board_limits, max_frame_payload) as i64);
     map.insert("mimhid_board_limits.max_control_data_bytes".to_owned(), offset_of!(mimhid_board_limits, max_control_data_bytes) as i64);
     map.insert("mimhid_board_limits.max_control_rules".to_owned(), offset_of!(mimhid_board_limits, max_control_rules) as i64);
+    map.insert("mimhid_board_limits.max_endpoint_number".to_owned(), offset_of!(mimhid_board_limits, max_endpoint_number) as i64);
     map.insert("mimhid_link_counters.size".to_owned(), size_of::<mimhid_link_counters>() as i64);
     map.insert("mimhid_link_counters.struct_size".to_owned(), offset_of!(mimhid_link_counters, struct_size) as i64);
     map.insert("mimhid_link_counters.reserved".to_owned(), offset_of!(mimhid_link_counters, reserved) as i64);

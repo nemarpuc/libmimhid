@@ -241,16 +241,16 @@ int main(void) {
         return 1;
 
     mimhid_touchscreen_options touchscreen_options;
-    mimhid_touchscreen_options_init(&touchscreen_options);
+    example_fill_touchscreen_options(&touchscreen_options);
     touchscreen_options.maximum_contacts = 1U;
     touchscreen_options.contacts_per_report = 1U;
     touchscreen_options.contact_count = mimhid_integer_field_make(0, 1, 1U);
 
     mimhid_keyboard_options keyboard_options;
-    mimhid_keyboard_options_init(&keyboard_options);
+    example_fill_keyboard_options(&keyboard_options);
 
     mimhid_mouse_options mouse_options;
-    mimhid_mouse_options_init(&mouse_options);
+    example_fill_mouse_options(&mouse_options);
 
     mimhid_spec* touch_spec = NULL;
     mimhid_spec* keyboard_spec = NULL;
@@ -280,13 +280,13 @@ int main(void) {
     /* One batch, so the board enumerates once for all three Nodes. */
     {
         mimhid_commit_timeouts timeouts;
-        mimhid_commit_timeouts_init(&timeouts);
+        example_fill_commit_timeouts(&timeouts);
         mimhid_node_config touch_config;
-        mimhid_node_config_init(&touch_config, 0);
+        example_fill_node_config(&touch_config, 0);
         mimhid_node_config keyboard_config;
-        mimhid_node_config_init(&keyboard_config, 1);
+        example_fill_node_config(&keyboard_config, 1);
         mimhid_node_config mouse_config;
-        mimhid_node_config_init(&mouse_config, 2);
+        example_fill_node_config(&mouse_config, 2);
 
         mimhid_device_batch_begin(device);
         if ((result = mimhid_node_open(device, touch_spec, &touch_config, &timeouts,
@@ -305,7 +305,8 @@ int main(void) {
             goto cleanup;
         }
         if ((result = mimhid_device_batch_end(device, &timeouts)) != MIMHID_OK ||
-            (result = mimhid_device_wait_ready(device, MIMHID_RECONNECT_TIMEOUT_MS)) != MIMHID_OK) {
+            (result = mimhid_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS)) !=
+                MIMHID_OK) {
             exit_code = verify_fail("enumeration", result);
             goto cleanup;
         }
@@ -341,6 +342,6 @@ cleanup:
     if (mouse_spec != NULL)
         mimhid_spec_release(mouse_spec);
     if (device != NULL)
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return exit_code;
 }

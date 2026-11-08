@@ -22,12 +22,12 @@ int main(void) {
         return 1;
 
     mimhid_mouse_options options;
-    mimhid_mouse_options_init(&options);
+    example_fill_mouse_options(&options);
 
     mimhid_spec* spec = NULL;
     mimhid_result result = mimhid_spec_create_mouse(&options, &spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("mouse spec create", result);
     }
 
@@ -35,7 +35,7 @@ int main(void) {
     result = verify_open_node(device, spec, 0U, &node);
     mimhid_spec_release(spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("mouse node open", result);
     }
     /* The target may still be binding its driver to the new HID; input sent at once
@@ -65,12 +65,14 @@ int main(void) {
             if (dx != 0 || dy != 0) {
                 result = mimhid_mouse_move(node, dx, dy);
                 if (result != MIMHID_OK) {
-                    mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+                    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
+                                        EXAMPLE_DRAIN_TIMEOUT_MS);
                     return verify_fail("mouse move", result);
                 }
                 result = verify_submit(node);
                 if (result != MIMHID_OK) {
-                    mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+                    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
+                                        EXAMPLE_DRAIN_TIMEOUT_MS);
                     return verify_fail("submit mouse move", result);
                 }
             }
@@ -79,6 +81,6 @@ int main(void) {
     }
 
     printf("done. Expected result: the cursor traced circles, if your target shows one.\n");
-    mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return 0;
 }

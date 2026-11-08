@@ -54,11 +54,11 @@ int main(void) {
         return 1;
 
     mimhid_keyboard_options options;
-    mimhid_keyboard_options_init(&options);
+    example_fill_keyboard_options(&options);
     mimhid_spec* spec = NULL;
     mimhid_result result = mimhid_spec_create_keyboard(&options, &spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("keyboard spec create", result);
     }
 
@@ -66,7 +66,7 @@ int main(void) {
     result = verify_open_node(device, spec, 0U, &node);
     mimhid_spec_release(spec);
     if (result != MIMHID_OK) {
-        mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("keyboard node open", result);
     }
 
@@ -78,13 +78,13 @@ int main(void) {
     for (int round = 0; round < 3; ++round) {
         for (const char* p = message; *p != '\0'; ++p) {
             if (type_char(node, *p) != 0) {
-                mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+                mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
                 return 1;
             }
         }
     }
 
     printf("done. Expected result: \"%s\" typed 3 times.\n", "hello from libmimhid");
-    mimhid_device_close(device, MIMHID_CONTROL_TIMEOUT_MS, MIMHID_DRAIN_TIMEOUT_MS);
+    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return 0;
 }

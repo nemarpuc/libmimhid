@@ -272,7 +272,8 @@ digitizer_update(mimhid_node* node, const mimhid_digitizer_sample* sample) noexc
 }
 
 // ---- Initialized options ----------------------------------------------------------------
-// Each returns what the C *_init function of the same name fills in:
+// Each returns a zeroed structure with struct_size set, as the C *_init function of the same name
+// does:
 //   auto config = mimhid::device_config();
 [[nodiscard]] inline mimhid_device_config device_config() noexcept {
     mimhid_device_config value;
@@ -284,9 +285,9 @@ digitizer_update(mimhid_node* node, const mimhid_digitizer_sample* sample) noexc
     mimhid_commit_timeouts_init(&value);
     return value;
 }
-[[nodiscard]] inline mimhid_node_config node_config(uint8_t interface_number) noexcept {
+[[nodiscard]] inline mimhid_node_config node_config() noexcept {
     mimhid_node_config value;
-    mimhid_node_config_init(&value, interface_number);
+    mimhid_node_config_init(&value);
     return value;
 }
 [[nodiscard]] inline mimhid_board_limits board_limits() noexcept {

@@ -137,7 +137,7 @@ public unsafe struct DeviceInfo
     public byte MaxReportBytes;
     public ushort MaxDescriptorBytes;
     public byte HasUniqueId;
-    public byte Reserved8;
+    public byte MaxEndpointNumber;
     public uint BaudRate;
     public uint MaxBaud;
     public uint UartFlags;
@@ -159,6 +159,7 @@ public struct BoardLimits
     public uint MaxFramePayload;
     public uint MaxControlDataBytes;
     public uint MaxControlRules;
+    public uint MaxEndpointNumber;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -613,14 +614,10 @@ public static class Native
     public const int MIMHID_CHIP_UNKNOWN = 0;
     public const int MIMHID_CONTROL_MAX_RULES = 8;
     public const int MIMHID_CONTROL_MAX_TIMEOUT_MS = 5000;
-    public const uint MIMHID_CONTROL_TIMEOUT_MS = 500;
-    public const uint MIMHID_DRAIN_TIMEOUT_MS = 1000;
     public const int MIMHID_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMHID_LOSS_MAX_INTERVAL_MS = 60000;
-    public const uint MIMHID_RECONNECT_TIMEOUT_MS = 3000;
-    public const uint MIMHID_SEND_TIMEOUT_MS = 500;
     public const uint MIMHID_VERSION_MAJOR = 0;
-    public const uint MIMHID_VERSION_MINOR = 1;
+    public const uint MIMHID_VERSION_MINOR = 2;
     public const uint MIMHID_VERSION_PATCH = 0;
     public const int MIMHID_OK = 0;
     public const int MIMHID_ERR_PARAM = 1;
@@ -750,14 +747,10 @@ public static class Native
             ["MIMHID_CHIP_UNKNOWN"] = 0,
             ["MIMHID_CONTROL_MAX_RULES"] = 8,
             ["MIMHID_CONTROL_MAX_TIMEOUT_MS"] = 5000,
-            ["MIMHID_CONTROL_TIMEOUT_MS"] = 500,
-            ["MIMHID_DRAIN_TIMEOUT_MS"] = 1000,
             ["MIMHID_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMHID_LOSS_MAX_INTERVAL_MS"] = 60000,
-            ["MIMHID_RECONNECT_TIMEOUT_MS"] = 3000,
-            ["MIMHID_SEND_TIMEOUT_MS"] = 500,
             ["MIMHID_VERSION_MAJOR"] = 0,
-            ["MIMHID_VERSION_MINOR"] = 1,
+            ["MIMHID_VERSION_MINOR"] = 2,
             ["MIMHID_VERSION_PATCH"] = 0,
             ["MIMHID_OK"] = 0,
             ["MIMHID_ERR_PARAM"] = 1,

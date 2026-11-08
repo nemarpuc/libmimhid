@@ -15,6 +15,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#include "../example_values.h"
 #include "mimhid.h"
 
 #include <stdio.h>
@@ -61,13 +62,14 @@ static int verify_fail(const char* what, mimhid_result result) {
 /* Sends the pending edge. The library never retries: a timeout may have been
  * delivered, so it is reported rather than resent. */
 static mimhid_result verify_submit(mimhid_node* node) {
-    return mimhid_node_submit_blocking(node, MIMHID_SEND_TIMEOUT_MS);
+    return mimhid_node_submit_blocking(node, EXAMPLE_SEND_TIMEOUT_MS);
 }
 
 /* Finds the first board this host can see and opens it. On success the caller
  * owns *out_device and must close it; on failure *out_device is null and a
  * message has already been printed. The USB identity is the pid.codes test ID
- * pair, for testing in-house only: a device you hand out needs IDs of its own. */
+ * pair (example_values.h), for testing in-house only: a device you hand out needs IDs of its own.
+ */
 static int verify_open_first_board(mimhid_device** out_device) {
     *out_device = NULL;
 
@@ -90,11 +92,7 @@ static int verify_open_first_board(mimhid_device** out_device) {
     printf("using board: %s\n", info->port_name);
 
     mimhid_device_config config;
-    mimhid_device_config_init(&config);
-    config.usb_device.vendor_id = 0x1209;
-    config.usb_device.product_id = 0x0001;
-    config.usb_device.product = "libmimhid verify";
-    config.transport.baud_rate = info->baud_rate;
+    example_fill_device_config(&config, info->baud_rate, "libmimhid verify");
 
     result = mimhid_device_open(info->port_name, &config, out_device);
     mimhid_discovery_destroy(discovery);
@@ -109,12 +107,12 @@ VERIFY_MAYBE_UNUSED static mimhid_result verify_open_node(mimhid_device* device,
                                                           uint8_t interface_number,
                                                           mimhid_node** out_node) {
     mimhid_commit_timeouts timeouts;
-    mimhid_commit_timeouts_init(&timeouts);
+    example_fill_commit_timeouts(&timeouts);
     mimhid_node_config node_config;
-    mimhid_node_config_init(&node_config, interface_number);
+    example_fill_node_config(&node_config, interface_number);
     mimhid_result result = mimhid_node_open(device, spec, &node_config, &timeouts, out_node);
     if (result == MIMHID_OK)
-        result = mimhid_device_wait_ready(device, MIMHID_RECONNECT_TIMEOUT_MS);
+        result = mimhid_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS);
     return result;
 }
 

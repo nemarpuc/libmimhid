@@ -246,6 +246,7 @@ bool reserved_is_zero(const std::uint32_t reserved, const char* field) noexcept 
 mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
                                     const mimhid_usb_config& usb_config) noexcept {
     const std::pair<std::uint32_t, const char*> required_usb_device[] = {
+        {usb_device.vendor_id, "usb_device.vendor_id"},
         {usb_device.language_id, "usb_device.language_id"},
         {usb_device.bcd_usb, "usb_device.bcd_usb"},
         {usb_device.ep0_max_packet_size, "usb_device.ep0_max_packet_size"},
@@ -780,6 +781,7 @@ mimhid_device_info describe_board(const std::string& port, const std::string& de
         static_cast<std::uint8_t>(std::min<std::uint16_t>(board.max_report_bytes, 255U));
     info.max_descriptor_bytes = board.max_descriptor_bytes;
     info.has_unique_id = board.has_unique_id ? 1U : 0U;
+    info.max_endpoint_number = board.max_endpoint_number;
     info.baud_rate = baud;
     info.max_baud = board.max_baud;
     info.uart_flags = board.uart_flags;
