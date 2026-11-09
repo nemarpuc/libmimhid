@@ -12,6 +12,13 @@ function(mimhid_test_flags target)
         endif()
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -fno-rtti -UNDEBUG)
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12)
+            # GCC 12+ reports these two from inlined std::vector::insert/uninitialized_copy of
+            # small initializer lists in -O2 builds (GCC bug 105329 and related). They are false
+            # positives in libstdc++, they only fire in test helpers, and the library itself keeps
+            # the full warning set.
+            target_compile_options(${target} PRIVATE -Wno-array-bounds -Wno-stringop-overflow)
+        endif()
         if(MIMHID_WERROR)
             target_compile_options(${target} PRIVATE -Werror)
         endif()
