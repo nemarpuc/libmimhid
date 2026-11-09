@@ -24,9 +24,12 @@ std::string read_sysfs_string(const std::string& path) {
 
 namespace mimhid::transport {
 
-std::vector<PortCandidate> list_candidate_ports() {
+namespace detail {
+
+std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
+                                                   const std::string& dev) {
     std::vector<PortCandidate> out;
-    DIR* dir = opendir("/sys/class/tty");
+    DIR* dir = opendir(tty_class.c_str());
     if (!dir)
         return out;
 
@@ -35,7 +38,7 @@ std::vector<PortCandidate> list_candidate_ports() {
         if (name.rfind("ttyUSB", 0) != 0 && name.rfind("ttyACM", 0) != 0)
             continue;
 
-        std::string base = "/sys/class/tty/" + name;
+        std::string base = tty_class + "/" + name;
         if (access((base + "/device").c_str(), F_OK) != 0)
             continue;
 
@@ -45,10 +48,16 @@ std::vector<PortCandidate> list_candidate_ports() {
         if (product.empty())
             product = "USB Serial Device";
 
-        out.push_back({"/dev/" + name, product});
+        out.push_back({dev + "/" + name, product});
     }
     closedir(dir);
     return out;
+}
+
+} // namespace detail
+
+std::vector<PortCandidate> list_candidate_ports() {
+    return detail::list_candidate_ports_in("/sys/class/tty", "/dev");
 }
 
 } // namespace mimhid::transport

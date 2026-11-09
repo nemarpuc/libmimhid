@@ -79,4 +79,12 @@ struct PortCandidate {
 // USB serial ports that may hold a board.
 std::vector<PortCandidate> list_candidate_ports();
 
+#ifdef __linux__
+namespace detail {
+// list_candidate_ports on another sysfs tty class directory and /dev, for tests.
+std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
+                                                   const std::string& dev);
+} // namespace detail
+#endif
+
 } // namespace mimhid::transport

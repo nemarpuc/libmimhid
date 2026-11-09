@@ -49,6 +49,32 @@ endif()
 mimhid_test_flags(mimhid_tests)
 add_test(NAME mimhid.unit COMMAND mimhid_tests)
 
+# Scripted board: the transport and the C ABI against a board the test plays on a pseudo-terminal,
+# which can NAK, stay silent, stop reading or hang up (POSIX only; no TinyUSB needed).
+if(NOT WIN32)
+    # The rate of the library's end of a pseudo-terminal, which the scripted board compares with
+    # its own; C, so outside the C++ flags of mimhid_test_flags.
+    add_library(mimhid_scripted_pty OBJECT tests/sim/pty_baud.c)
+    add_executable(mimhid_scripted_tests
+        tests/scripted/test_scripted_main.cpp
+        tests/scripted/scripted_board.cpp
+        tests/scripted/test_api_commands.cpp
+        tests/scripted/test_api_events.cpp
+        tests/scripted/test_api_open.cpp
+        tests/scripted/test_api_raw_node.cpp
+        tests/scripted/test_api_reports.cpp
+        tests/scripted/test_handshaker.cpp
+        tests/scripted/test_link.cpp
+        tests/scripted/test_ports_linux.cpp
+        tests/scripted/test_serial_port.cpp
+        $<TARGET_OBJECTS:mimhid_scripted_pty>
+        $<TARGET_OBJECTS:mimhid_test_objects>)
+    target_include_directories(mimhid_scripted_tests PRIVATE include src proto tests tests/scripted)
+    target_link_libraries(mimhid_scripted_tests PRIVATE Threads::Threads)
+    mimhid_test_flags(mimhid_scripted_tests)
+    add_test(NAME mimhid.scripted COMMAND mimhid_scripted_tests)
+endif()
+
 # Descriptors for every profile must match the golden files byte for byte.
 add_executable(mimhid_export_descriptors tests/hidtools/export_descriptors.cpp)
 target_link_libraries(mimhid_export_descriptors PRIVATE mimhid::mimhid)
