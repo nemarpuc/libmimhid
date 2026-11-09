@@ -199,8 +199,20 @@ void log_message(const struct mimhid_device* device, mimhid_log_level level,
                  const char* message) noexcept;
 
 bool valid_boolean(std::uint32_t value) noexcept;
-bool valid_struct(const void* value, std::uint32_t actual_size, std::uint32_t expected_size,
-                  const char* field) noexcept;
+// Defined inline so that static analysis sees that a null pointer never passes.
+inline bool valid_struct(const void* value, const std::uint32_t actual_size,
+                         const std::uint32_t expected_size, const char* field) noexcept {
+    if (value == nullptr) {
+        set_error(MIMHID_ERR_PARAM, field, "The required structure pointer is null.");
+        return false;
+    }
+    if (actual_size != expected_size) {
+        set_error(MIMHID_ERR_PARAM, field,
+                  "struct_size must equal the size of the ABI structure used by this release.");
+        return false;
+    }
+    return true;
+}
 
 mimhid_result serialize_node(struct mimhid_node* node, std::uint8_t* report, std::size_t capacity,
                              std::size_t* report_length) noexcept;

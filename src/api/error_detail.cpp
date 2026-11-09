@@ -152,20 +152,6 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
 
 bool valid_boolean(const std::uint32_t value) noexcept { return value == 0U || value == 1U; }
 
-bool valid_struct(const void* value, const std::uint32_t actual_size,
-                  const std::uint32_t expected_size, const char* field) noexcept {
-    if (value == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field, "The required structure pointer is null.");
-        return false;
-    }
-    if (actual_size != expected_size) {
-        set_error(MIMHID_ERR_PARAM, field,
-                  "struct_size must equal the size of the ABI structure used by this release.");
-        return false;
-    }
-    return true;
-}
-
 } // namespace mimhid::detail
 
 extern "C" {

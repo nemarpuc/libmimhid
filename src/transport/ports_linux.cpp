@@ -4,7 +4,9 @@
 
 #include <dirent.h>
 #include <fstream>
+#include <string>
 #include <unistd.h>
+#include <utility>
 
 namespace {
 
@@ -38,7 +40,9 @@ std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
         if (name.rfind("ttyUSB", 0) != 0 && name.rfind("ttyACM", 0) != 0)
             continue;
 
-        std::string base = tty_class + "/" + name;
+        std::string base = tty_class;
+        base += '/';
+        base += name;
         if (access((base + "/device").c_str(), F_OK) != 0)
             continue;
 
@@ -48,7 +52,10 @@ std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
         if (product.empty())
             product = "USB Serial Device";
 
-        out.push_back({dev + "/" + name, product});
+        std::string path = dev;
+        path += '/';
+        path += name;
+        out.push_back({std::move(path), product});
     }
     closedir(dir);
     return out;
