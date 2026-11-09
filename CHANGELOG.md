@@ -9,6 +9,16 @@ change of the minor number may change the API, the ABI or the wire protocol.
 - **The release no longer publishes `*-runtime` bundles.** The `*-shared` archive already carries the
   shared library with the same license documents, and nothing in the project consumed the smaller
   bundle. A release now has 35 assets instead of 41.
+- **One archive per platform, one SBOM per release; asset names change.** Each platform's archive
+  is now `libmimhid-X.Y.Z-<platform>-<arch>[-ubuntu22.04].tar.gz|zip`, without the `-shared` /
+  `-static` suffix, and holds both libraries (the static one is `libmimhid_static.a` /
+  `mimhid_static.lib`), the CMake package files of both components and both pkg-config files;
+  `find_package(mimhid COMPONENTS shared)` and `COMPONENTS static` both work from it. The twelve
+  `.spdx.json` sidecars are replaced by `libmimhid-X.Y.Z.spdx.json`, one SPDX 2.3 document with a
+  package per archive. A release has 18 assets instead of 35; a script that downloads the old
+  names must be changed. The release workflow also gained a `workflow_dispatch` dry run
+  (`dry_run`, on by default) that builds and checks every asset and keeps them as a workflow
+  artifact without publishing anything.
 
 ## [0.2.0] - 2026-11-08
 
