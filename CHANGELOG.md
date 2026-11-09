@@ -6,6 +6,11 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+- **Tests.** A scripted board on a pseudo-terminal (`mimhid.scripted`) tests the transport and the C
+  ABI when the board NAKs, stays silent, refuses a rate or hangs up; new unit suites cover every
+  factory and input refusal. The pseudo-terminal tests of the real firmware core are now called
+  sim (`mimhid.sim-*`). A Coverage CI job measures `src/` with gcovr. `tests/README.md` describes
+  the unit, sim and hardware layers; `tests/hw/README.md` is the hardware procedure.
 - **The release no longer publishes `*-runtime` bundles.** The `*-shared` archive already carries the
   shared library with the same license documents, and nothing in the project consumed the smaller
   bundle. A release now has 35 assets instead of 41.

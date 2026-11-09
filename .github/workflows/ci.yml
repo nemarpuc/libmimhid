@@ -115,11 +115,12 @@ jobs:
           status=0
           gcovr --root . --object-directory build_cov --filter 'src/' \
             --exclude-throw-branches --exclude-unreachable-branches \
+            --exclude-lines-by-pattern '.*MIMHID_C_(RESULT|VALUE|VOID)_CATCH.*' \
             --txt build_cov/coverage/coverage.txt \
             --markdown build_cov/coverage/coverage.md \
             --cobertura build_cov/coverage/coverage.xml \
             --html-details build_cov/coverage/index.html \
-            --print-summary --fail-under-line 75 || status=$?
+            --print-summary --fail-under-line 86 --fail-under-branch 73 || status=$?
           cat build_cov/coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
