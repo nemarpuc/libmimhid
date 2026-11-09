@@ -336,9 +336,9 @@ mimhid_result validate_usb_identity_on_board(const tr::BoardInfo& board,
 
 mimhid_result prepare_device_config(const mimhid_device_config* config,
                                     mimhid_device_config* effective) noexcept {
-    if (config == nullptr || !mimhid::detail::valid_struct(
-                                 config, config->struct_size,
-                                 static_cast<std::uint32_t>(sizeof(*config)), "device_config")) {
+    if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*config)),
+                                      "device_config")) {
         return MIMHID_ERR_PARAM;
     }
     if (!reserved_is_zero(config->reserved, "device_config.reserved"))
@@ -473,8 +473,7 @@ mimhid_result require_timeout(const std::uint32_t timeout_ms, const char* field)
 
 mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
                                    CommitWaits* waits) noexcept {
-    if (timeouts == nullptr ||
-        !mimhid::detail::valid_struct(timeouts, timeouts->struct_size,
+    if (!mimhid::detail::valid_struct(timeouts, timeouts == nullptr ? 0U : timeouts->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*timeouts)), "timeouts")) {
         return MIMHID_ERR_PARAM;
     }

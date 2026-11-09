@@ -35,3 +35,7 @@ void test_profiles_touch();
 void test_profiles_pen();
 void test_profiles_raw();
 void test_profiles_battery();
+void test_error_detail();
+void test_api_arguments();
+void test_spec_rejections();
+void test_input_rejections();

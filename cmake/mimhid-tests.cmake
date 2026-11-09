@@ -36,6 +36,10 @@ add_executable(mimhid_tests
     tests/unit/test_profiles_pen.cpp
     tests/unit/test_profiles_raw.cpp
     tests/unit/test_profiles_battery.cpp
+    tests/unit/test_error_detail.cpp
+    tests/unit/test_api_arguments.cpp
+    tests/unit/test_spec_rejections.cpp
+    tests/unit/test_input_rejections.cpp
     $<TARGET_OBJECTS:mimhid_test_objects>)
 target_include_directories(mimhid_tests PRIVATE include src proto tests)
 target_link_libraries(mimhid_tests PRIVATE Threads::Threads)

@@ -133,6 +133,10 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
         return "LOSS_CONFIG";
     case MIMHID_T_QUEUE_DEPTH:
         return "QUEUE_DEPTH";
+    case MIMHID_T_PROBE:
+        return "PROBE";
+    case MIMHID_T_COUNTERS:
+        return "COUNTERS";
     case MIMHID_T_PONG:
         return "PONG";
     case MIMHID_T_ACK:

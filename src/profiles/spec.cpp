@@ -409,9 +409,9 @@ bool emit_usage_controls(DescriptorBuilder& builder, const mimhid_toggle_options
 
 mimhid_result create_usage_control_spec(const mimhid_toggle_options* options,
                                         mimhid_spec** out_spec) {
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options == nullptr ? 0U : options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "toggle_options")) {
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*options)),
+                                      "toggle_options")) {
         return MIMHID_ERR_PARAM;
     }
     if (options->reserved != 0U || options->reserved16 != 0U ||
@@ -636,8 +636,7 @@ extern "C" {
 static mimhid_result mimhid_spec_create_keyboard_impl(const mimhid_keyboard_options* options,
                                                       mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr ||
-        !mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
                                       "keyboard_options")) {
         return MIMHID_ERR_PARAM;
@@ -688,9 +687,9 @@ static mimhid_result mimhid_spec_create_keyboard_impl(const mimhid_keyboard_opti
 static mimhid_result mimhid_spec_create_mouse_impl(const mimhid_mouse_options* options,
                                                    mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options == nullptr ? 0U : options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "mouse_options")) {
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*options)),
+                                      "mouse_options")) {
         return MIMHID_ERR_PARAM;
     }
     if (options->reserved != 0U || !validate_report_id(options->report_id, "mouse.report_id") ||
@@ -791,8 +790,7 @@ constexpr mimhid_physical_properties kHatDegrees{1U, 0, 315, 0, 0x14U};
 
 static mimhid_result create_controller_spec(const mimhid_gamepad_options* options,
                                             mimhid_spec** out_spec) {
-    if (options == nullptr ||
-        !mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
                                       "gamepad_options")) {
         return MIMHID_ERR_PARAM;
@@ -1313,8 +1311,7 @@ static mimhid_result create_touch_spec_from_fields(
 static mimhid_result mimhid_spec_create_touchscreen_impl(const mimhid_touchscreen_options* options,
                                                          mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr ||
-        !mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
                                       "touchscreen_options")) {
         return MIMHID_ERR_PARAM;
@@ -1336,8 +1333,7 @@ static mimhid_result mimhid_spec_create_touchscreen_impl(const mimhid_touchscree
 static mimhid_result mimhid_spec_create_touchpad_impl(const mimhid_touchpad_options* options,
                                                       mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr ||
-        !mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
                                       "touchpad_options")) {
         return MIMHID_ERR_PARAM;
@@ -1584,9 +1580,9 @@ static mimhid_result create_stylus_spec(const mimhid_pen_options* options,
 static mimhid_result mimhid_spec_create_pen_impl(const mimhid_pen_options* options,
                                                  mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options == nullptr ? 0U : options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "pen_options")) {
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*options)),
+                                      "pen_options")) {
         return mimhid::detail::finish_result(MIMHID_ERR_PARAM, "pen_options",
                                              "The pen options contain an invalid required field.");
     }
@@ -1596,8 +1592,7 @@ static mimhid_result mimhid_spec_create_pen_impl(const mimhid_pen_options* optio
 static mimhid_result mimhid_spec_create_digitizer_impl(const mimhid_digitizer_options* options,
                                                        mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr ||
-        !mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
                                       "digitizer_options")) {
         return mimhid::detail::finish_result(
@@ -1629,9 +1624,9 @@ static mimhid_result mimhid_spec_create_digitizer_impl(const mimhid_digitizer_op
 static mimhid_result mimhid_spec_create_raw_impl(const mimhid_raw_options* options,
                                                  mimhid_spec** out_spec) {
     mimhid::detail::clear_error();
-    if (options == nullptr || !mimhid::detail::valid_struct(
-                                  options, options == nullptr ? 0U : options->struct_size,
-                                  static_cast<std::uint32_t>(sizeof(*options)), "raw_options")) {
+    if (!mimhid::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(*options)),
+                                      "raw_options")) {
         return MIMHID_ERR_PARAM;
     }
     if (out_spec == nullptr) {

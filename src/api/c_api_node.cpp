@@ -401,8 +401,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     CommitWaits waits;
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
-    if (config == nullptr ||
-        !mimhid::detail::valid_struct(config, config->struct_size,
+    if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }
@@ -562,8 +561,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     CommitWaits waits;
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
-    if (config == nullptr ||
-        !mimhid::detail::valid_struct(config, config->struct_size,
+    if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }

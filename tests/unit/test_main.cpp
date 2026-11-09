@@ -31,6 +31,10 @@ constexpr Suite kSuites[] = {
     {"profiles_pen", test_profiles_pen},
     {"profiles_raw", test_profiles_raw},
     {"profiles_battery", test_profiles_battery},
+    {"error_detail", test_error_detail},
+    {"api_arguments", test_api_arguments},
+    {"spec_rejections", test_spec_rejections},
+    {"input_rejections", test_input_rejections},
 };
 } // namespace
 
