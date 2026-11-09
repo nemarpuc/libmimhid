@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 /* The rules only a high-speed board has, against the firmware core built for high speed. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -14,9 +14,9 @@
 #include <thread>
 #include <vector>
 
-#ifdef E2E_HIGH_SPEED
+#ifdef SIM_HIGH_SPEED
 
-namespace e2e {
+namespace sim {
 
 // The rules only a high-speed board has: USB 2.0 9.6.1 (the control endpoint is 64 bytes) and
 // 9.6.6 (bInterval of an interrupt endpoint is an exponent, 1 to 16). The other tests assume
@@ -69,6 +69,6 @@ void test_high_speed_rules() {
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
-} // namespace e2e
+} // namespace sim
 
 #endif

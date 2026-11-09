@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* The shared parts of the end-to-end scenarios (e2e_support.hpp). */
-#include "e2e_support.hpp"
+/* The shared parts of the simulated-board scenarios (sim_support.hpp). */
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 
@@ -17,7 +17,7 @@
 int g_checks = 0;
 int g_failures = 0;
 
-namespace e2e {
+namespace sim {
 
 int g_master = -1;
 
@@ -222,4 +222,4 @@ bool all_zero_after_id(const fake_report_t& r, bool has_id) {
     return true;
 }
 
-} // namespace e2e
+} // namespace sim

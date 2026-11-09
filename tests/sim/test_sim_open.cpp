@@ -3,7 +3,7 @@
 /* Opening a device and a node: the USB identity and the descriptors the target reads, strings
  * left out, the chip serial number, a board left attached, filled-in values and the *_init
  * functions, and nodes sharing an interface. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -16,7 +16,7 @@
 #include <thread>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 void test_open_identity_and_descriptors() {
     mimhid_device_config o = base_options();
@@ -43,9 +43,9 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
                  board.version_minor == MIMHID_VERSION_MINOR &&
                  board.version_patch == MIMHID_VERSION_PATCH);
-    MIMHID_CHECK(board.max_interfaces == E2E_HID_ITFS && board.max_nodes == MIMHID_MAX_NODES);
+    MIMHID_CHECK(board.max_interfaces == SIM_HID_ITFS && board.max_nodes == MIMHID_MAX_NODES);
     MIMHID_CHECK(board.max_report_bytes == 64);
-    MIMHID_CHECK(board.max_endpoint_number == E2E_HID_ITFS);
+    MIMHID_CHECK(board.max_endpoint_number == SIM_HID_ITFS);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
     MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
                  board.unique_id[0] == 0xDE && board.unique_id[7] == 0x04);
@@ -192,9 +192,9 @@ void test_chip_serial_and_boot() {
     }
     // A number the board's controller does not have is refused before the board is asked: the
     // target's SET_CONFIGURATION would fail. The firmware core of this build has the numbers 1 to
-    // E2E_HID_ITFS (the board's PONG says so).
-    if (E2E_HID_ITFS < 15) {
-        const std::uint8_t above = static_cast<std::uint8_t>(E2E_HID_ITFS + 1);
+    // SIM_HID_ITFS (the board's PONG says so).
+    if (SIM_HID_ITFS < 15) {
+        const std::uint8_t above = static_cast<std::uint8_t>(SIM_HID_ITFS + 1);
         broken = no;
         broken.ep_in.address = static_cast<std::uint8_t>(0x80U | above);
         MIMHID_CHECK(mimhid_node_open(device, raw, &broken, &kCommit, &bad) ==
@@ -256,7 +256,7 @@ void test_keep_attached_and_discovery() {
     if (again != nullptr) {
         mimhid_device_info info{};
         MIMHID_CHECK(mimhid_device_board_info(again, &info) == MIMHID_OK &&
-                     info.max_interfaces == E2E_HID_ITFS);
+                     info.max_interfaces == SIM_HID_ITFS);
         MIMHID_CHECK(mimhid_device_close(again, kControlMs, kDrainMs) == MIMHID_OK);
     }
 }
@@ -414,4 +414,4 @@ void test_shared_interfaces() {
     mimhid_spec_release(mouse);
 }
 
-} // namespace e2e
+} // namespace sim

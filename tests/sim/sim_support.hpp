@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* What the end-to-end scenarios share: the pseudo-terminal the library and the simulated board
+/* What the simulated-board scenarios share: the pseudo-terminal the library and the simulated board
  * talk over, the event sink and its record, the waits every call takes, and the specs and
  * options the scenarios start from. Test-only. */
 #pragma once
@@ -15,11 +15,11 @@
 #include <string>
 #include <vector>
 
-#ifndef E2E_HID_ITFS
-#define E2E_HID_ITFS 7
+#ifndef SIM_HID_ITFS
+#define SIM_HID_ITFS 7
 #endif
 
-namespace e2e {
+namespace sim {
 
 // The waits every call takes; the library keeps none.
 inline constexpr std::uint32_t kControlMs = 500;
@@ -76,8 +76,8 @@ mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
 bool next_report(fake_report_t* r, int timeout_ms = 2000);
 bool all_zero_after_id(const fake_report_t& r, bool has_id);
 
-// ---- scenarios, by file; test_e2e_main.cpp decides the order ------------------------
-// test_e2e_open.cpp
+// ---- scenarios, by file; test_sim_main.cpp decides the order ------------------------
+// test_sim_open.cpp
 void test_open_identity_and_descriptors();
 void test_no_names();
 void test_zero_identity();
@@ -86,24 +86,24 @@ void test_keep_attached_and_discovery();
 void test_filled_values();
 void test_init_fills_nothing();
 void test_shared_interfaces();
-// test_e2e_arguments.cpp
+// test_sim_arguments.cpp
 void test_bad_arguments();
-// test_e2e_line_rate.cpp
+// test_sim_line_rate.cpp
 void test_line_rate();
-// test_e2e_reports.cpp
+// test_sim_reports.cpp
 void test_reports_and_neutral();
 void test_queue_depth_and_loss();
 void test_touch_feature();
 void test_batch_and_packing();
 void test_limits();
-// test_e2e_events.cpp (test_link_loss closes the pseudo-terminal, so it runs last)
+// test_sim_events.cpp (test_link_loss closes the pseudo-terminal, so it runs last)
 void test_events_and_raw();
 void test_link_loss();
-// test_e2e_control.cpp
+// test_sim_control.cpp
 void test_control();
-#ifdef E2E_HIGH_SPEED
-// test_e2e_high_speed.cpp
+#ifdef SIM_HIGH_SPEED
+// test_sim_high_speed.cpp
 void test_high_speed_rules();
 #endif
 
-} // namespace e2e
+} // namespace sim

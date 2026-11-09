@@ -2,7 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 /* The line rate: the rate search of mimhid_discover, a board left on a fast rate, BREAK and
  * adapters that round the rate. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 namespace {
 
@@ -171,4 +171,4 @@ void test_line_rate() {
 #endif
 }
 
-} // namespace e2e
+} // namespace sim

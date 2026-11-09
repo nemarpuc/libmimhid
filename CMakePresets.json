@@ -61,7 +61,7 @@
       "configurePreset": "tsan",
       "output": { "outputOnFailure": true },
       "environment": {
-        "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/e2e/tsan.supp halt_on_error=1"
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/sim/tsan.supp halt_on_error=1"
       }
     },
     { "name": "coverage", "configurePreset": "coverage", "output": { "outputOnFailure": true } }

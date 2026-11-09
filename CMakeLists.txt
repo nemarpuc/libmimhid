@@ -108,7 +108,7 @@ elseif(MIMHID_TSAN)
     add_link_options(-fsanitize=thread)
 endif()
 # Coverage: gcov notes and counters for every target. -O0 keeps each source line its own block;
-# atomic counter updates keep the multi-threaded tests (the link's reader thread, the e2e board)
+# atomic counter updates keep the multi-threaded tests (the link's reader thread, the simulated board)
 # from losing counts.
 if(MIMHID_COVERAGE)
     add_compile_options(--coverage -O0 -fprofile-update=atomic)

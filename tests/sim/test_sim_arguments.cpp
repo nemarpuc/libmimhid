@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 /* mimhid_device_open refuses every configuration it cannot present as given. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -14,7 +14,7 @@
 #include <thread>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 void test_bad_arguments() {
     mimhid_device_info info{};
@@ -120,4 +120,4 @@ void test_bad_arguments() {
     MIMHID_CHECK(mimhid_device_close(nullptr, kControlMs, kDrainMs) == MIMHID_ERR_PARAM);
 }
 
-} // namespace e2e
+} // namespace sim

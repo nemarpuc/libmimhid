@@ -56,8 +56,8 @@ jobs:
           cc $(pkg-config --cflags mimhid) pkgconfig_check.c $(pkg-config --libs mimhid) -o pkgconfig_check_shared
           LD_LIBRARY_PATH="$(dirname "$pc")" ./pkgconfig_check_shared
 
-  e2e:
-    name: End to end (${{ matrix.os }})
+  sim:
+    name: Simulated board (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -75,11 +75,11 @@ jobs:
       - name: Build the host library against the firmware core
         run: |
           set -euo pipefail
-          cmake -B build_e2e -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
-          cmake --build build_e2e --parallel
+          cmake -B build_sim -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_sim --parallel
 
-      - name: Run the end-to-end tests
-        run: ctest --test-dir build_e2e -R e2e --output-on-failure
+      - name: Run the simulated-board tests
+        run: ctest --test-dir build_sim -R sim --output-on-failure
 
   coverage:
     name: Coverage
@@ -96,7 +96,7 @@ jobs:
       - name: Install gcovr
         run: pipx install gcovr==8.8
 
-      # Unit, golden, ABI and end-to-end tests all run, so the counts describe the whole suite.
+      # Unit, golden, ABI and simulated-board tests all run, so the counts describe the whole suite.
       - name: Build every test with coverage instrumentation
         run: |
           set -euo pipefail
@@ -399,7 +399,7 @@ jobs:
 
       - name: Run the tests
         env:
-          TSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/e2e/tsan.supp halt_on_error=1
+          TSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/sim/tsan.supp halt_on_error=1
         run: ctest --test-dir build_san --output-on-failure
 
   release-tools:

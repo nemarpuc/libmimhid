@@ -52,9 +52,9 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
    cmake -B build_fwtest -S firmware/tests -DTINYUSB_PATH=<tinyusb>
    cmake --build build_fwtest && ctest --test-dir build_fwtest
    ```
-6. Run the end-to-end tests (POSIX; they need a TinyUSB checkout):
+6. Run the simulated-board tests (POSIX; they need a TinyUSB checkout):
    ```bash
-   cmake -B build_e2e -S . -DMIMHID_BUILD_TESTS=ON -DMIMHID_TINYUSB_PATH=<tinyusb>
-   cmake --build build_e2e && ctest --test-dir build_e2e -R e2e
+   cmake -B build_sim -S . -DMIMHID_BUILD_TESTS=ON -DMIMHID_TINYUSB_PATH=<tinyusb>
+   cmake --build build_sim && ctest --test-dir build_sim -R sim
    ```
 7. Submit pull requests with concise descriptions and test verification evidence.

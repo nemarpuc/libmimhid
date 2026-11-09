@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 /* A board made of the real firmware core (firmware/common) running on the build host: its
- * UART is a file descriptor and TinyUSB is replaced by recording stubs. The end-to-end tests
+ * UART is a file descriptor and TinyUSB is replaced by recording stubs. The simulated-board tests
  * drive the host library against it through a pseudo-terminal. */
 #ifndef MIMHID_FAKE_BOARD_H
 #define MIMHID_FAKE_BOARD_H

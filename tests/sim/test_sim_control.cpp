@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 /* Control transfers from the target: routing rules, held transfers and the replies to them. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -14,7 +14,7 @@
 #include <thread>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 namespace {
 
@@ -286,4 +286,4 @@ void test_control() {
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
-} // namespace e2e
+} // namespace sim

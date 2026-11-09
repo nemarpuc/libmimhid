@@ -2,7 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 /* Events from the board (mount, suspend, output and feature reports) and raw nodes, and the
  * loss of the serial link. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 void test_events_and_raw() {
     mimhid_device_config o = base_options();
@@ -52,7 +52,7 @@ void test_events_and_raw() {
     limits.struct_size = sizeof(limits);
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_OK &&
                  limits.max_feature_bytes == 1024 && limits.max_report_bytes == 64 &&
-                 limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == E2E_HID_ITFS);
+                 limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == SIM_HID_ITFS);
     limits.reserved = 1;
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_ERR_PARAM);
     limits.reserved = 0;
@@ -166,4 +166,4 @@ void test_link_loss() {
     mimhid_spec_release(kbd);
 }
 
-} // namespace e2e
+} // namespace sim

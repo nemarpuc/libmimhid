@@ -2,7 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 /* Reports on the wire: neutral reports on close, the board's queue depth and loss reporting,
  * the touch feature report, batched commits and packing, and the board's limits. */
-#include "e2e_support.hpp"
+#include "sim_support.hpp"
 
 #include "fill_values.h"
 #include "mimhid_proto.h"
@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-namespace e2e {
+namespace sim {
 
 namespace {
 
@@ -203,7 +203,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
         mimhid_node_config opt{};
-        test_fill_node_config(&opt, static_cast<uint8_t>(i % E2E_HID_ITFS));
+        test_fill_node_config(&opt, static_cast<uint8_t>(i % SIM_HID_ITFS));
         nodes[i] = open_node(device, specs[i], &opt);
     }
     // Nothing is committed inside the batch, and staged nodes refuse reports.
@@ -216,7 +216,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
 
     // Four nodes need four interfaces, or are packed when the board has fewer.
-    const unsigned expected = E2E_HID_ITFS >= 4 ? 4 : E2E_HID_ITFS;
+    const unsigned expected = SIM_HID_ITFS >= 4 ? 4 : SIM_HID_ITFS;
     MIMHID_CHECK(fake_board_interface_count() == expected);
     std::size_t total = 0;
     for (unsigned i = 0; i < expected; ++i) {
@@ -265,7 +265,7 @@ void test_limits() {
     std::vector<mimhid_node*> nodes;
     std::vector<mimhid_spec*> specs;
     mimhid_result last = MIMHID_OK;
-    const unsigned limit = E2E_HID_ITFS < MIMHID_MAX_NODES ? E2E_HID_ITFS : MIMHID_MAX_NODES;
+    const unsigned limit = SIM_HID_ITFS < MIMHID_MAX_NODES ? SIM_HID_ITFS : MIMHID_MAX_NODES;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
         mimhid_node_config no{};
@@ -287,4 +287,4 @@ void test_limits() {
         mimhid_spec_release(spec);
 }
 
-} // namespace e2e
+} // namespace sim

@@ -119,62 +119,62 @@ target_link_libraries(mimhid_cpp_wrapper_test PRIVATE mimhid::mimhid)
 mimhid_test_flags(mimhid_cpp_wrapper_test)
 add_test(NAME mimhid.cpp-wrapper COMMAND mimhid_cpp_wrapper_test)
 
-# End to end: the host library against the real firmware core running on the build host.
+# Simulated board: the host library against the real firmware core running on the build host.
 # Configure with -DMIMHID_TINYUSB_PATH=<tinyusb checkout> to enable (POSIX only).
-set(MIMHID_TINYUSB_PATH "" CACHE PATH "TinyUSB checkout for the end-to-end tests")
+set(MIMHID_TINYUSB_PATH "" CACHE PATH "TinyUSB checkout for the simulated-board tests")
 if(MIMHID_TINYUSB_PATH AND NOT WIN32)
-    # One scenario file per area (tests/e2e/test_e2e_*.cpp), the shared harness, the simulated
+    # One scenario file per area (tests/sim/test_sim_*.cpp), the shared harness, the simulated
     # board and the firmware core it runs.
-    set(MIMHID_E2E_SOURCES
-        tests/e2e/test_e2e_main.cpp
-        tests/e2e/e2e_support.cpp
-        tests/e2e/test_e2e_arguments.cpp
-        tests/e2e/test_e2e_control.cpp
-        tests/e2e/test_e2e_events.cpp
-        tests/e2e/test_e2e_high_speed.cpp
-        tests/e2e/test_e2e_line_rate.cpp
-        tests/e2e/test_e2e_open.cpp
-        tests/e2e/test_e2e_reports.cpp
-        tests/e2e/fake_board.c
-        tests/e2e/pty_baud.c
+    set(MIMHID_SIM_SOURCES
+        tests/sim/test_sim_main.cpp
+        tests/sim/sim_support.cpp
+        tests/sim/test_sim_arguments.cpp
+        tests/sim/test_sim_control.cpp
+        tests/sim/test_sim_events.cpp
+        tests/sim/test_sim_high_speed.cpp
+        tests/sim/test_sim_line_rate.cpp
+        tests/sim/test_sim_open.cpp
+        tests/sim/test_sim_reports.cpp
+        tests/sim/fake_board.c
+        tests/sim/pty_baud.c
         firmware/common/core.c
         firmware/common/control.c
         firmware/common/ep0.c
         firmware/common/usb_descriptors.c)
     foreach(itfs 15 7 3)
-        add_executable(mimhid_e2e_${itfs}
-            ${MIMHID_E2E_SOURCES}
+        add_executable(mimhid_sim_${itfs}
+            ${MIMHID_SIM_SOURCES}
             $<TARGET_OBJECTS:mimhid_test_objects>)
-        target_include_directories(mimhid_e2e_${itfs} PRIVATE
-            include src proto tests tests/e2e
+        target_include_directories(mimhid_sim_${itfs} PRIVATE
+            include src proto tests tests/sim
             firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
         # What a port's build states (firmware/common/core.h): the interfaces, the highest endpoint
         # number (the same number here), the packet size and the speed.
-        target_compile_definitions(mimhid_e2e_${itfs} PRIVATE
-            MIMHID_HID_ITFS=${itfs} E2E_HID_ITFS=${itfs}
+        target_compile_definitions(mimhid_sim_${itfs} PRIVATE
+            MIMHID_HID_ITFS=${itfs} SIM_HID_ITFS=${itfs}
             MIMHID_MAX_ENDPOINT_NUMBER=${itfs} MIMHID_MAX_ENDPOINT_BYTES=64
             CFG_TUSB_OS=OPT_OS_NONE
             "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
             CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
             CFG_TUSB_CONFIG_FILE="tusb_config.h")
-        target_link_libraries(mimhid_e2e_${itfs} PRIVATE Threads::Threads)
-        add_test(NAME mimhid.e2e-${itfs} COMMAND mimhid_e2e_${itfs})
+        target_link_libraries(mimhid_sim_${itfs} PRIVATE Threads::Threads)
+        add_test(NAME mimhid.sim-${itfs} COMMAND mimhid_sim_${itfs})
     endforeach()
 
     # The rules only a high-speed board has, against the firmware core built for high speed.
-    add_executable(mimhid_e2e_hs
-        ${MIMHID_E2E_SOURCES}
+    add_executable(mimhid_sim_hs
+        ${MIMHID_SIM_SOURCES}
         $<TARGET_OBJECTS:mimhid_test_objects>)
-    target_include_directories(mimhid_e2e_hs PRIVATE
-        include src proto tests tests/e2e
+    target_include_directories(mimhid_sim_hs PRIVATE
+        include src proto tests tests/sim
         firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
-    target_compile_definitions(mimhid_e2e_hs PRIVATE
-        MIMHID_HID_ITFS=7 E2E_HID_ITFS=7 E2E_HIGH_SPEED
+    target_compile_definitions(mimhid_sim_hs PRIVATE
+        MIMHID_HID_ITFS=7 SIM_HID_ITFS=7 SIM_HIGH_SPEED
         MIMHID_MAX_ENDPOINT_NUMBER=7 MIMHID_MAX_ENDPOINT_BYTES=1024
         CFG_TUSB_OS=OPT_OS_NONE
         CFG_TUSB_CONFIG_FILE="tusb_config.h"
         CFG_TUD_MAX_SPEED=OPT_MODE_HIGH_SPEED
         "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_HIGH_SPEED)")
-    target_link_libraries(mimhid_e2e_hs PRIVATE Threads::Threads)
-    add_test(NAME mimhid.e2e-hs COMMAND mimhid_e2e_hs)
+    target_link_libraries(mimhid_sim_hs PRIVATE Threads::Threads)
+    add_test(NAME mimhid.sim-hs COMMAND mimhid_sim_hs)
 endif()
