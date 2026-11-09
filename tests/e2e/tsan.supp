@@ -2,5 +2,6 @@
 # and the tests read the board's state from theirs. Races there are the harness's, not the
 # library's; a race with a frame in src/ is still reported.
 race:tests/e2e/fake_board.c
-race:tests/e2e/test_e2e.cpp
+race:tests/e2e/test_e2e_*.cpp
+race:tests/e2e/e2e_support.cpp
 race:firmware/common/

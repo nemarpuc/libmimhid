@@ -22,8 +22,20 @@ endfunction()
 add_executable(mimhid_tests
     tests/unit/test_main.cpp
     tests/unit/test_item_writer.cpp
+    tests/unit/test_descriptor_builder.cpp
+    tests/unit/test_validator_parser_state.cpp
+    tests/unit/test_validator_arithmetic.cpp
+    tests/unit/test_validator_encoding.cpp
     tests/unit/test_frame.cpp
-    tests/unit/test_profiles.cpp
+    tests/unit/test_profiles_common.cpp
+    tests/unit/test_profiles_keyboard.cpp
+    tests/unit/test_profiles_mouse.cpp
+    tests/unit/test_profiles_usage_controls.cpp
+    tests/unit/test_profiles_gamepad.cpp
+    tests/unit/test_profiles_touch.cpp
+    tests/unit/test_profiles_pen.cpp
+    tests/unit/test_profiles_raw.cpp
+    tests/unit/test_profiles_battery.cpp
     $<TARGET_OBJECTS:mimhid_test_objects>)
 target_include_directories(mimhid_tests PRIVATE include src proto tests)
 target_link_libraries(mimhid_tests PRIVATE Threads::Threads)
@@ -111,15 +123,27 @@ add_test(NAME mimhid.cpp-wrapper COMMAND mimhid_cpp_wrapper_test)
 # Configure with -DMIMHID_TINYUSB_PATH=<tinyusb checkout> to enable (POSIX only).
 set(MIMHID_TINYUSB_PATH "" CACHE PATH "TinyUSB checkout for the end-to-end tests")
 if(MIMHID_TINYUSB_PATH AND NOT WIN32)
+    # One scenario file per area (tests/e2e/test_e2e_*.cpp), the shared harness, the simulated
+    # board and the firmware core it runs.
+    set(MIMHID_E2E_SOURCES
+        tests/e2e/test_e2e_main.cpp
+        tests/e2e/e2e_support.cpp
+        tests/e2e/test_e2e_arguments.cpp
+        tests/e2e/test_e2e_control.cpp
+        tests/e2e/test_e2e_events.cpp
+        tests/e2e/test_e2e_high_speed.cpp
+        tests/e2e/test_e2e_line_rate.cpp
+        tests/e2e/test_e2e_open.cpp
+        tests/e2e/test_e2e_reports.cpp
+        tests/e2e/fake_board.c
+        tests/e2e/pty_baud.c
+        firmware/common/core.c
+        firmware/common/control.c
+        firmware/common/ep0.c
+        firmware/common/usb_descriptors.c)
     foreach(itfs 15 7 3)
         add_executable(mimhid_e2e_${itfs}
-            tests/e2e/test_e2e.cpp
-            tests/e2e/fake_board.c
-            tests/e2e/pty_baud.c
-            firmware/common/core.c
-            firmware/common/control.c
-            firmware/common/ep0.c
-            firmware/common/usb_descriptors.c
+            ${MIMHID_E2E_SOURCES}
             $<TARGET_OBJECTS:mimhid_test_objects>)
         target_include_directories(mimhid_e2e_${itfs} PRIVATE
             include src proto tests tests/e2e
@@ -139,13 +163,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
 
     # The rules only a high-speed board has, against the firmware core built for high speed.
     add_executable(mimhid_e2e_hs
-        tests/e2e/test_e2e.cpp
-        tests/e2e/fake_board.c
-        tests/e2e/pty_baud.c
-        firmware/common/core.c
-        firmware/common/control.c
-        firmware/common/ep0.c
-        firmware/common/usb_descriptors.c
+        ${MIMHID_E2E_SOURCES}
         $<TARGET_OBJECTS:mimhid_test_objects>)
     target_include_directories(mimhid_e2e_hs PRIVATE
         include src proto tests tests/e2e

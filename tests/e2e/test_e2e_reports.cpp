@@ -1,0 +1,290 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 libmimhid contributors
+/* Reports on the wire: neutral reports on close, the board's queue depth and loss reporting,
+ * the touch feature report, batched commits and packing, and the board's limits. */
+#include "e2e_support.hpp"
+
+#include "fill_values.h"
+#include "mimhid_proto.h"
+
+#include <array>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace e2e {
+
+namespace {
+
+// Presses and releases a key in turn, count times, one report each (an unchanged state would
+// send nothing).
+void queue_key_reports(mimhid_node* node, int count) {
+    static bool down = false;
+    for (int i = 0; i < count; ++i) {
+        down = !down;
+        MIMHID_CHECK(mimhid_keyboard_key(node, 0x04, down ? 1 : 0) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_submit_blocking(node, kSendMs) == MIMHID_OK);
+    }
+}
+
+std::uint32_t lost_reports(std::uint16_t node_id, int timeout_ms) {
+    std::uint32_t lost = 0;
+    EventRecord e{};
+    while (wait_event(MIMHID_EVENT_REPORT_LOST, &e, timeout_ms)) {
+        MIMHID_CHECK(e.node_id == node_id);
+        lost += e.value;
+    }
+    return lost;
+}
+
+} // namespace
+
+void test_reports_and_neutral() {
+    mimhid_device_config o = base_options();
+    mimhid_device* device = open_device(o);
+    if (device == nullptr)
+        return;
+    mimhid_spec* kbd = keyboard_spec(1);
+    mimhid_spec* mouse = mouse_spec(2);
+    mimhid_node* nk = open_node(device, kbd);
+    mimhid_node* nm = open_node(device, mouse);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    fake_board_clear_reports();
+
+    mimhid_capability_manifest manifest{};
+    manifest.struct_size = sizeof(manifest);
+    MIMHID_CHECK(mimhid_node_manifest(nk, &manifest) == MIMHID_OK);
+    const std::uint32_t kbd_bytes = manifest.reports[0].wire_length;
+
+    // Key down, then up.
+    MIMHID_CHECK(mimhid_keyboard_key(nk, 0x04, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
+    fake_report_t r{};
+    MIMHID_CHECK(next_report(&r));
+    MIMHID_CHECK(r.data[0] == 1 && r.length == kbd_bytes && !all_zero_after_id(r, true));
+    MIMHID_CHECK(mimhid_node_submit(nk, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_submit_blocking(nk, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_keyboard_key(nk, 0x04, 0) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(next_report(&r) && all_zero_after_id(r, true));
+
+    // Mouse motion lands in the 16-bit X and Y fields.
+    MIMHID_CHECK(mimhid_mouse_move(nm, 5, -3) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nm, kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(next_report(&r) && r.data[0] == 2);
+    bool seen_x = false, seen_y = false;
+    for (std::size_t i = 1; i + 1 < r.length; ++i) {
+        seen_x = seen_x || (r.data[i] == 0x05 && r.data[i + 1] == 0x00);
+        seen_y = seen_y || (r.data[i] == 0xFD && r.data[i + 1] == 0xFF);
+    }
+    MIMHID_CHECK(seen_x && seen_y);
+
+    // Closing a node with held input sends the neutral report first.
+    MIMHID_CHECK(mimhid_keyboard_key(nk, 0x05, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nk, kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(next_report(&r) && !all_zero_after_id(r, true));
+    fake_board_clear_reports();
+    MIMHID_CHECK(mimhid_node_close(nk, &kCommit, kDrainMs) == MIMHID_OK);
+    // The release was sent before the board re-enumerated without the keyboard.
+    MIMHID_CHECK(next_report(&r) && r.data[0] == 1 && all_zero_after_id(r, true));
+    MIMHID_CHECK(fake_board_interface_count() == 1);
+
+    // Closing the Device detaches the last node.
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(fake_board_interface_count() == 0);
+    mimhid_spec_release(kbd);
+    mimhid_spec_release(mouse);
+}
+
+void test_queue_depth_and_loss() {
+    mimhid_device_config o = base_options();
+    mimhid_device* device = open_device(o);
+    if (device == nullptr)
+        return;
+    mimhid_spec* kbd = keyboard_spec(1);
+    mimhid_node* nk = open_node(device, kbd);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    const std::uint16_t id = mimhid_node_id(nk);
+    {
+        std::lock_guard<std::mutex> lock(g_event_mutex);
+        g_events.clear();
+    }
+
+    // Arguments.
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nullptr, 1, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 0, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 256, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 1, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 255, kControlMs) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(nullptr, 1, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 20, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 2, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 20, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, MIMHID_LOSS_MAX_INTERVAL_MS + 1,
+                                                  kControlMs) == MIMHID_ERR_PARAM);
+
+    // Off by default: a full queue drops silently, and nothing extra crosses the link.
+    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 2, kControlMs) == MIMHID_OK);
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 5);
+    MIMHID_CHECK(lost_reports(id, 100) == 0);
+    fake_board_hold_reports(0);
+    fake_report_t r{};
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    // Asked for: the two that fit are sent, the three others are reported.
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 0, kControlMs) == MIMHID_OK);
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 5);
+    MIMHID_CHECK(lost_reports(id, 200) == 3);
+    fake_board_hold_reports(0);
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    // The depth stays with the node when another node's commit rebuilds the interfaces.
+    mimhid_spec* mouse = mouse_spec(2);
+    mimhid_node* nm = open_node(device, mouse);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    {
+        std::lock_guard<std::mutex> lock(g_event_mutex);
+        g_events.clear();
+    }
+    fake_board_clear_reports();
+    fake_board_hold_reports(1);
+    queue_key_reports(nk, 4);
+    MIMHID_CHECK(lost_reports(mimhid_node_id(nk), 200) == 2);
+    fake_board_hold_reports(0);
+    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+
+    MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 0, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    mimhid_spec_release(kbd);
+    mimhid_spec_release(mouse);
+    (void)nm;
+}
+
+void test_touch_feature() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    mimhid_spec* touch = touch_spec(3, 1);
+    mimhid_node* node = open_node(device, touch);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    std::uint8_t buffer[8] = {};
+    MIMHID_CHECK(fake_board_feature(0, 3, buffer, sizeof(buffer)) == 1 && buffer[0] == 3);
+
+    // A touch frame: contact down, then lifted.
+    fake_board_clear_reports();
+    MIMHID_CHECK(mimhid_touchscreen_contact(node, 0, 1, 100, 200, nullptr) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit_blocking(node, 1000) == MIMHID_OK);
+    fake_report_t r{};
+    MIMHID_CHECK(next_report(&r) && r.data[0] == 3);
+    MIMHID_CHECK(mimhid_touchscreen_contact(node, 0, 0, 100, 200, nullptr) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit_blocking(node, 1000) == MIMHID_OK);
+    MIMHID_CHECK(next_report(&r));
+
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    mimhid_spec_release(touch);
+}
+
+void test_batch_and_packing() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    mimhid_spec* specs[4] = {keyboard_spec(1), mouse_spec(2), touch_spec(3, 0), pen_spec(4)};
+    mimhid_node* nodes[4] = {};
+    const unsigned connects_before = fake_board_connects();
+    MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
+    for (int i = 0; i < 4; ++i) {
+        mimhid_node_config opt{};
+        test_fill_node_config(&opt, static_cast<uint8_t>(i % E2E_HID_ITFS));
+        nodes[i] = open_node(device, specs[i], &opt);
+    }
+    // Nothing is committed inside the batch, and staged nodes refuse reports.
+    MIMHID_CHECK(fake_board_connects() == connects_before);
+    MIMHID_CHECK(mimhid_keyboard_key(nodes[0], 0x04, 1) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(mimhid_node_submit(nodes[0], kSendMs) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_ERR_BUSY);
+    MIMHID_CHECK(fake_board_connects() == connects_before + 1);
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+
+    // Four nodes need four interfaces, or are packed when the board has fewer.
+    const unsigned expected = E2E_HID_ITFS >= 4 ? 4 : E2E_HID_ITFS;
+    MIMHID_CHECK(fake_board_interface_count() == expected);
+    std::size_t total = 0;
+    for (unsigned i = 0; i < expected; ++i) {
+        uint16_t length = 0;
+        fake_board_report_descriptor(static_cast<std::uint8_t>(i), &length);
+        total += length;
+    }
+    std::size_t expected_total = 0;
+    for (auto* spec : specs) {
+        const std::uint8_t* bytes = nullptr;
+        size_t length = 0;
+        MIMHID_CHECK(mimhid_spec_descriptor(spec, &bytes, &length) == MIMHID_OK);
+        expected_total += length;
+    }
+    MIMHID_CHECK(total == expected_total);
+
+    // Reports of packed nodes all arrive, each with its own Report ID.
+    fake_board_clear_reports();
+    MIMHID_CHECK(mimhid_keyboard_key(nodes[0], 0x04, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nodes[0], kSendMs) == MIMHID_OK);
+    fake_report_t r{};
+    MIMHID_CHECK(next_report(&r) && r.data[0] == 1);
+    MIMHID_CHECK(mimhid_mouse_move(nodes[1], 1, 1) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_submit(nodes[1], kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(next_report(&r) && r.data[0] == 2);
+
+    // Closing inside a batch only stages the change.
+    MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
+    const unsigned connects = fake_board_connects();
+    for (auto* node : nodes)
+        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(fake_board_connects() == connects);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
+    MIMHID_CHECK(fake_board_interface_count() == 0);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    for (auto* spec : specs)
+        mimhid_spec_release(spec);
+}
+
+void test_limits() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    // Nodes without Report IDs cannot share an interface, so the board's interface count is a hard
+    // limit; the node count is another.
+    std::vector<mimhid_node*> nodes;
+    std::vector<mimhid_spec*> specs;
+    mimhid_result last = MIMHID_OK;
+    const unsigned limit = E2E_HID_ITFS < MIMHID_MAX_NODES ? E2E_HID_ITFS : MIMHID_MAX_NODES;
+    for (unsigned i = 0; i < limit + 1; ++i) {
+        specs.push_back(raw_spec_no_id());
+        mimhid_node_config no{};
+        test_fill_node_config(&no, static_cast<uint8_t>(i));
+        mimhid_node* node = nullptr;
+        last = mimhid_node_open(device, specs.back(), &no, &kCommit, &node);
+        if (last != MIMHID_OK)
+            break;
+        nodes.push_back(node);
+    }
+    MIMHID_CHECK(nodes.size() == limit && last == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(fake_board_interface_count() == limit);
+    // The failed open left the others working.
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    for (auto* node : nodes)
+        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    for (auto* spec : specs)
+        mimhid_spec_release(spec);
+}
+
+} // namespace e2e

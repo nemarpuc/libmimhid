@@ -290,7 +290,7 @@ int main(const int argc, char** argv) {
          ok;
     spec = nullptr;
 
-    // These audited vectors are shared with tests/unit/test_profiles.cpp.  They
+    // These audited vectors are shared with tests/unit/test_profiles_usage_controls.cpp.  They
     // exercise each supported one-control Main-item semantic without claiming
     // an operating-system mapping.
     static constexpr std::array<std::uint16_t, 6U> consumer_usages{0x00CDU, 0x00E9U, 0x00E2U,
