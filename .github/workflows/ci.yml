@@ -81,6 +81,56 @@ jobs:
       - name: Run the end-to-end tests
         run: ctest --test-dir build_e2e -R e2e --output-on-failure
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch TinyUSB
+        run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
+
+      - name: Install gcovr
+        run: pipx install gcovr==8.8
+
+      # Unit, golden, ABI and end-to-end tests all run, so the counts describe the whole suite.
+      - name: Build every test with coverage instrumentation
+        run: |
+          set -euo pipefail
+          cmake -B build_cov -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
+            -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_COVERAGE=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake --build build_cov --parallel
+
+      - name: Run the tests
+        run: ctest --test-dir build_cov --output-on-failure
+
+      # gcovr writes every report before it checks the floor, so the summary is there either way.
+      - name: Report coverage of src/
+        run: |
+          set -euo pipefail
+          mkdir -p build_cov/coverage
+          status=0
+          gcovr --root . --object-directory build_cov --filter 'src/' \
+            --exclude-throw-branches --exclude-unreachable-branches \
+            --txt build_cov/coverage/coverage.txt \
+            --markdown build_cov/coverage/coverage.md \
+            --cobertura build_cov/coverage/coverage.xml \
+            --html-details build_cov/coverage/index.html \
+            --print-summary --fail-under-line 75 || status=$?
+          cat build_cov/coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Keep the coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage
+          path: build_cov/coverage/
+          if-no-files-found: warn
+
   fuzz-smoke:
     name: libFuzzer builder/serializer/raw/frame smoke
     runs-on: ubuntu-24.04

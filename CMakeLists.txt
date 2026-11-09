@@ -18,6 +18,7 @@ option(MIMHID_BUILD_EXAMPLES "Build examples." OFF)
 option(MIMHID_BUILD_FUZZ "Build fuzz targets (Clang only)." OFF)
 option(MIMHID_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer." OFF)
 option(MIMHID_TSAN "Enable ThreadSanitizer for race detection." OFF)
+option(MIMHID_COVERAGE "Instrument every target for gcov line and branch coverage (GCC or Clang)." OFF)
 
 if(MIMHID_SANITIZE AND MIMHID_TSAN)
     message(FATAL_ERROR
@@ -76,6 +77,25 @@ if(MIMHID_TSAN)
     endif()
 endif()
 
+if(MIMHID_COVERAGE)
+    if(MIMHID_SANITIZE OR MIMHID_TSAN)
+        message(FATAL_ERROR
+            "MIMHID_COVERAGE cannot be combined with MIMHID_SANITIZE or MIMHID_TSAN: the sanitizer "
+            "runtimes change the generated code and the counts would not describe a plain build.")
+    endif()
+    if(MIMHID_BUILD_FUZZ)
+        message(FATAL_ERROR
+            "MIMHID_COVERAGE cannot be combined with MIMHID_BUILD_FUZZ, which sets its own "
+            "instrumentation.")
+    endif()
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$" OR
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        message(FATAL_ERROR
+            "MIMHID_COVERAGE requires GNU or Clang C and C++ compilers; found "
+            "C='${CMAKE_C_COMPILER_ID}' and CXX='${CMAKE_CXX_COMPILER_ID}'.")
+    endif()
+endif()
+
 # Every target of this build, tests and examples included, carries the instrumentation: a
 # sanitizer runtime cannot observe accesses in uninstrumented code. -fno-sanitize-recover makes
 # the first finding fail the process instead of scrolling past.
@@ -86,6 +106,13 @@ if(MIMHID_SANITIZE AND NOT MSVC)
 elseif(MIMHID_TSAN)
     add_compile_options(-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=thread)
+endif()
+# Coverage: gcov notes and counters for every target. -O0 keeps each source line its own block;
+# atomic counter updates keep the multi-threaded tests (the link's reader thread, the e2e board)
+# from losing counts.
+if(MIMHID_COVERAGE)
+    add_compile_options(--coverage -O0 -fprofile-update=atomic)
+    add_link_options(--coverage)
 endif()
 
 if(WIN32)

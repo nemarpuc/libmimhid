@@ -34,12 +34,25 @@
         "MIMHID_BUILD_EXAMPLES": "ON",
         "MIMHID_TSAN": "ON"
       }
+    },
+    {
+      "name": "coverage",
+      "displayName": "gcov line and branch coverage build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MIMHID_BUILD_TESTS": "ON",
+        "MIMHID_BUILD_EXAMPLES": "OFF",
+        "MIMHID_COVERAGE": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "tsan", "configurePreset": "tsan" }
+    { "name": "tsan", "configurePreset": "tsan" },
+    { "name": "coverage", "configurePreset": "coverage" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
@@ -50,6 +63,7 @@
       "environment": {
         "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/e2e/tsan.supp halt_on_error=1"
       }
-    }
+    },
+    { "name": "coverage", "configurePreset": "coverage", "output": { "outputOnFailure": true } }
   ]
 }
