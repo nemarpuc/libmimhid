@@ -402,7 +402,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
     if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
-                                      static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
+                                      static_cast<std::uint32_t>(sizeof(mimhid_node_config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }
     mimhid_node_config effective = *config;
@@ -562,7 +562,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
     if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
-                                      static_cast<std::uint32_t>(sizeof(*config)), "node_config")) {
+                                      static_cast<std::uint32_t>(sizeof(mimhid_node_config)), "node_config")) {
         return MIMHID_ERR_PARAM;
     }
     mimhid_node_config effective = *config;

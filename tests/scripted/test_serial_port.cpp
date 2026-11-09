@@ -55,10 +55,12 @@ void test_open_steps() {
         return;
     r = port.open(pty.slave, 1000000); // a rate other than the boot rate is set after the rest
     MIMHID_CHECK(r.ok && port.is_open());
+#ifndef __APPLE__ // macOS does not enforce TIOCEXCL on a pty slave (a real serial port does)
     // The port is held for this process: a second open is refused.
     tr::SerialPort second;
     r = second.open(pty.slave, MIMHID_BOOT_BAUD);
     MIMHID_CHECK(!r.ok && r.step == tr::OpenStep::open);
+#endif
     port.close();
     port.close(); // twice is harmless
     r = second.open(pty.slave, MIMHID_BOOT_BAUD);

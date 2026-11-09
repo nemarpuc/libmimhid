@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #ifdef __linux__
+#include <asm/ioctls.h> /* TCGETS2; glibc's <sys/ioctl.h> pulls it in, musl's does not */
 #include <asm/termbits.h>
 #include <sys/ioctl.h>
 

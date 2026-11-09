@@ -242,10 +242,12 @@ void test_port_is_exclusive() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
+#ifndef __APPLE__ // macOS does not enforce TIOCEXCL on a pty slave (a real serial port does)
     mimhid_device* second = nullptr;
     const mimhid_device_config o = board_options();
     MIMHID_CHECK(mimhid_device_open(board.path(), &o, &second) == MIMHID_ERR_ACCESS);
     MIMHID_CHECK(second == nullptr);
+#endif
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
