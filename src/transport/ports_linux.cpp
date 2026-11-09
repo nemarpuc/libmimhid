@@ -28,8 +28,9 @@ namespace mimhid::transport {
 
 namespace detail {
 
-std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
-                                                   const std::string& dev) {
+std::vector<PortCandidate> list_candidate_ports_in(
+    const std::string& tty_class, // NOLINT(bugprone-easily-swappable-parameters)
+    const std::string& dev) {
     std::vector<PortCandidate> out;
     DIR* dir = opendir(tty_class.c_str());
     if (!dir)
