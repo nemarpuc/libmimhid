@@ -180,22 +180,24 @@ The declarations and the C layout oracle are generated from `include/mimhid.h` b
 
 ## Releases
 
-A pushed `v*` tag builds and checks the release, then publishes a GitHub Release. The release matrix produces:
+A pushed `v*` tag builds and checks the release, then publishes a GitHub Release. Run by hand (`workflow_dispatch`, `dry_run` on by default), the same workflow builds, packages and checks every asset and keeps them as the `release-assets` workflow artifact, but publishes nothing. The release matrix produces:
 
 - Linux x86_64 and AArch64 shared objects and static archives;
 - Windows x86_64 and ARM64 DLLs, import libraries, and static archives;
 - macOS arm64 and x86_64 dynamic libraries and static archives;
-- headers, CMake and pkg-config metadata, notices, checksums, SPDX SBOMs, and the firmware images.
+- headers, CMake and pkg-config metadata, notices, checksums, an SPDX SBOM, and the firmware images.
 
-For version `X.Y.Z`, the GitHub Release contains exactly 35 uploaded assets, in the same layout as `libaoahid` plus the firmware:
+For version `X.Y.Z`, the GitHub Release contains exactly 18 uploaded assets:
 
-- twelve archives: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04-{shared,static}.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}-{shared,static}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}-{shared,static}.zip`;
-- twelve matching `.spdx.json` SBOM sidecars;
+- six archives, one per platform: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}.zip`;
+- one SPDX 2.3 SBOM, `libmimhid-X.Y.Z.spdx.json`, with a package (and its SHA-256) for every archive, each generated from the source archive;
 - the tagged tree as `libmimhid-X.Y.Z-source.tar.gz`;
 - `release-manifest.json` and `SHA256SUMS`;
 - eight firmware files: `mimhid_firmware-rp2040-X.Y.Z.uf2`, `mimhid_firmware-rp2350-X.Y.Z.uf2`, `mimhid_firmware-nrf52840-X.Y.Z.{hex,bin}`, `mimhid_firmware-stm32f4-X.Y.Z.{hex,bin}`, `mimhid_firmware-esp32s3-X.Y.Z.bin`, and `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt`.
 
-The complete `*-shared` or `*-static` archive is what you build against: it carries the headers, the library, CMake package files, pkg-config files, and `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`). Consume an archive with `find_package(mimhid COMPONENTS shared)` (or `static`) or with pkg-config (`mimhid`, `mimhid-static`).
+Releases up to 0.2.0 published a `-shared` and a `-static` archive per platform, each with its own `.spdx.json`; from the next release on there is one archive per platform without that suffix, and one SBOM. A download script that names the old files must be changed.
+
+Each archive is what you build against: it carries the headers, both the shared library (`lib/libmimhid.so`, `lib/libmimhid.dylib`, or `bin/mimhid.dll` with `lib/mimhid.lib`) and the static library (`lib/libmimhid_static.a`, or `lib/mimhid_static.lib`), CMake package files for both, pkg-config files, and `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`). Pick the kind with `find_package(mimhid COMPONENTS shared)` (target `mimhid::mimhid`) or `find_package(mimhid COMPONENTS static)` (target `mimhid::mimhid_static`), or with pkg-config (`mimhid`, `mimhid-static`).
 
 Platform baselines: Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 and are signed ad hoc, not notarized; Windows archives use the dynamic MSVC runtime. The AArch64 Linux and ARM64 Windows libraries are cross-built and are not run in CI.
 

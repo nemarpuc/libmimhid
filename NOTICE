@@ -15,7 +15,7 @@ and is licensed under the MIT License. The complete license text is in LICENSE.
 ------------------------------------------------------------------
 
 The host library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`,
-`libmimhid.a`, `mimhid_static.lib`) is compiled solely from first-party MIT
+`libmimhid.a`, `libmimhid_static.a`, `mimhid_static.lib`) is compiled solely from first-party MIT
 source code in `src/`, `include/`, and `proto/`. It talks to the serial port
 through operating-system primitives (`termios` on Linux and macOS, Win32 file
 and SetupAPI calls on Windows) and links no third-party library dynamically or
@@ -23,10 +23,11 @@ statically. On Linux, the C++ runtime (`libstdc++` and `libgcc`) is linked
 statically with `-Wl,--exclude-libs,ALL` under the GCC Runtime Library
 Exception 3.1.
 
-Every host binary archive (`*-shared`, `*-static`, and `*-runtime`) carries
-`LICENSE`, this `NOTICE`, `THIRD_PARTY_NOTICES.md`, and `CHANGELOG.md` under
-`share/doc/libmimhid/`, together with `build-metadata.json`. Every `*-shared`
-and `*-static` archive has a matching SPDX 2.3 SBOM sidecar (`*.spdx.json`).
+Every host binary archive (one per platform, holding both the shared and the
+static library) carries `LICENSE`, this `NOTICE`, `THIRD_PARTY_NOTICES.md`, and
+`CHANGELOG.md` under `share/doc/libmimhid/`, together with `build-metadata.json`.
+One SPDX 2.3 SBOM per release (`libmimhid-<version>.spdx.json`) describes every
+archive.
 
 2. Source repository (`firmware/pico_sdk_import.cmake`)
 -------------------------------------------------------

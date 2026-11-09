@@ -14,6 +14,37 @@ import generate_spdx
 import release_names
 
 
+def check_sbom(dist: Path, version: str, digests: dict[str, str]) -> None:
+    """The release's one SPDX document must describe exactly the binary archives in dist/, by
+    checksum, each generated from the source archive in dist/."""
+    name = release_names.sbom_name(version)
+    try:
+        document = json.loads((dist / name).read_text(encoding="utf-8"))
+    except ValueError as error:
+        raise release_names.ReleaseError(f"{name} is not JSON: {error}") from error
+    if document.get("spdxVersion") != "SPDX-2.3" or document.get("name") != name[: -len(".spdx.json")]:
+        raise release_names.ReleaseError(f"{name} is not the SPDX 2.3 document of release {version}")
+    packages = {p.get("packageFileName"): p for p in document.get("packages", [])}
+    expected = set(release_names.archive_names(version)) | {release_names.source_name(version)}
+    if set(packages) != expected:
+        raise release_names.ReleaseError(
+            f"{name} describes {sorted(n for n in packages if n)}, the release has {sorted(expected)}")
+    ids = {}
+    for file_name, package in packages.items():
+        checksums = {c.get("algorithm"): c.get("checksumValue") for c in package.get("checksums", [])}
+        if checksums.get("SHA256") != digests[file_name]:
+            raise release_names.ReleaseError(f"{name} has the wrong SHA-256 for {file_name}")
+        ids[file_name] = package.get("SPDXID")
+    relations = {(r.get("spdxElementId"), r.get("relationshipType"), r.get("relatedSpdxElement"))
+                 for r in document.get("relationships", [])}
+    source_id = ids[release_names.source_name(version)]
+    for archive in release_names.archive_names(version):
+        if ("SPDXRef-DOCUMENT", "DESCRIBES", ids[archive]) not in relations:
+            raise release_names.ReleaseError(f"{name} does not describe {archive}")
+        if (ids[archive], "GENERATED_FROM", source_id) not in relations:
+            raise release_names.ReleaseError(f"{name} does not tie {archive} to the source archive")
+
+
 def collect(dist: Path, version: str, source_sha: str) -> None:
     expected = set(release_names.expected_assets(version)) - {"release-manifest.json", "SHA256SUMS"}
     present = {p.name for p in dist.iterdir() if p.is_file()} - {"release-manifest.json", "SHA256SUMS"}
@@ -26,14 +57,7 @@ def collect(dist: Path, version: str, source_sha: str) -> None:
         if path.stat().st_size == 0:
             raise release_names.ReleaseError(f"{name} is empty")
         assets.append({"name": name, "size": path.stat().st_size, "sha256": generate_spdx.sha256_file(path)})
-    for asset in assets:
-        # An SPDX sidecar must describe the archive of the same name.
-        if asset["name"].endswith(".spdx.json"):
-            document = json.loads((dist / asset["name"]).read_text(encoding="utf-8"))
-            stem = asset["name"][: -len(".spdx.json")]
-            archive = next(a for a in assets if a["name"] in (stem + ".tar.gz", stem + ".zip"))
-            if document.get("name") not in (stem + ".tar.gz", stem + ".zip") or document["name"] != archive["name"]:
-                raise release_names.ReleaseError(f"{asset['name']} describes the wrong archive")
+    check_sbom(dist, version, {a["name"]: a["sha256"] for a in assets})
     manifest = {
         "project": release_names.PROJECT,
         "version": version,

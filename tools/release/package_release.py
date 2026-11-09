@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
-"""Create one deterministic binary archive (and its SPDX sidecar) from an install tree."""
+"""Create one deterministic binary archive from an install tree that holds both library kinds.
+
+The SPDX document of the release covers every archive; generate_spdx.py writes it once all
+archives are together."""
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
 import gzip
-import hashlib
 import io
 import json
+import re
 from pathlib import Path
 import shutil
 import stat
@@ -18,7 +21,6 @@ import sys
 import tarfile
 import zipfile
 
-import generate_spdx
 import release_names
 
 DOC = "share/doc/libmimhid"
@@ -30,7 +32,15 @@ def collect(stage: Path) -> list[Path]:
     return sorted(p.relative_to(stage) for p in stage.rglob("*") if p.is_file() or p.is_symlink())
 
 
-def validate_layout(stage: Path, platform: str, variant: str) -> None:
+SHARED_LIBRARY = {"linux": "lib/libmimhid.so", "macos": "lib/libmimhid.dylib", "windows": "bin/mimhid.dll"}
+# With both kinds built the static library is called mimhid_static everywhere (CMakeLists.txt).
+STATIC_LIBRARY = {"linux": "lib/libmimhid_static.a", "macos": "lib/libmimhid_static.a",
+                  "windows": "lib/mimhid_static.lib"}
+CMAKE_TRUE = {"ON", "TRUE", "1", "YES", "Y"}
+
+
+def validate_layout(stage: Path, platform: str) -> None:
+    """One archive per platform carries both library kinds and the package files of both."""
     required = [
         f"{DOC}/LICENSE",
         f"{DOC}/NOTICE",
@@ -39,21 +49,22 @@ def validate_layout(stage: Path, platform: str, variant: str) -> None:
     ]
     required.append(f"{DOC}/examples/README.md")
     required += ["include/mimhid.h", "include/mimhid.hpp"]
-    required += [f"lib/cmake/mimhid/mimhid-{variant}-targets.cmake", "lib/cmake/mimhid/mimhid-config.cmake"]
-    if variant == "shared":
-        names = {"linux": "lib/libmimhid.so", "macos": "lib/libmimhid.dylib", "windows": "bin/mimhid.dll"}
-        required.append(names[platform])
-        if platform == "windows":
-            required.append("lib/mimhid.lib")
-    if variant == "static":
-        required.append("lib/mimhid_static.lib" if platform == "windows" else "lib/libmimhid.a")
+    required += ["lib/cmake/mimhid/mimhid-config.cmake", "lib/cmake/mimhid/mimhid-config-version.cmake"]
+    required += [f"lib/cmake/mimhid/mimhid-{component}-targets.cmake" for component in release_names.COMPONENTS]
+    required += ["lib/pkgconfig/mimhid.pc", "lib/pkgconfig/mimhid-static.pc"]
+    required += [SHARED_LIBRARY[platform], STATIC_LIBRARY[platform]]
+    if platform == "windows":
+        required.append("lib/mimhid.lib")
     for relative in required:
         if not (stage / relative).exists():
             raise release_names.ReleaseError(f"required package file is missing: {relative}")
-    if variant == "static":
-        for path in stage.rglob("*"):
-            if path.is_file() and (".so" in path.name or path.suffix in (".dll", ".dylib")):
-                raise release_names.ReleaseError(f"static package contains a shared library: {path.name}")
+    # find_package(mimhid COMPONENTS x) finds x only when the configured tree built it, so the
+    # installed config must say that both were built.
+    config = (stage / "lib/cmake/mimhid/mimhid-config.cmake").read_text(encoding="utf-8")
+    for component in release_names.COMPONENTS:
+        match = re.search(rf"^set\(_MIMHID_BUILT_{component.upper()} (\S+)\)", config, re.MULTILINE)
+        if match is None or match.group(1).upper() not in CMAKE_TRUE:
+            raise release_names.ReleaseError(f"the installed CMake package was not built with the {component} library")
 
 
 def write_tar_gz(out: Path, root_name: str, stage: Path, files: list[Path], epoch: int) -> None:
@@ -99,21 +110,6 @@ def write_zip(out: Path, root_name: str, stage: Path, files: list[Path], epoch: 
             archive.writestr(info, (stage / relative).read_bytes())
 
 
-def archive_members(path: Path) -> list[tuple[str, str]]:
-    members = []
-    if path.name.endswith(".zip"):
-        with zipfile.ZipFile(path) as archive:
-            for info in sorted(archive.infolist(), key=lambda i: i.filename):
-                if not info.is_dir():
-                    members.append((info.filename, hashlib.sha256(archive.read(info)).hexdigest()))
-    else:
-        with tarfile.open(path) as tar:
-            for info in sorted(tar.getmembers(), key=lambda i: i.name):
-                if info.isfile():
-                    members.append((info.name, hashlib.sha256(tar.extractfile(info).read()).hexdigest()))
-    return members
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", type=Path, required=True)
@@ -121,7 +117,6 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
     parser.add_argument("--arch", required=True)
-    parser.add_argument("--variant", required=True, choices=release_names.VARIANTS)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--epoch", type=int, required=True, help="commit time, seconds since 1970")
     parser.add_argument("--build-metadata", action="append", default=[], metavar="KEY=VALUE")
@@ -131,17 +126,17 @@ def main() -> int:
     try:
         if len(args.source_sha) != 40 or any(c not in "0123456789abcdef" for c in args.source_sha):
             raise release_names.ReleaseError("source SHA must be 40 lowercase hexadecimal characters")
-        base = release_names.base_name(args.version, args.platform, args.arch, args.variant)
+        base = release_names.base_name(args.version, args.platform, args.arch)
         shutil.copytree(args.source_root / "examples", args.stage / DOC / "examples",
                         dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        validate_layout(args.stage, args.platform, args.variant)
+        validate_layout(args.stage, args.platform)
         metadata = {
             "project": release_names.PROJECT,
             "version": args.version,
             "platform": args.platform,
             "arch": args.arch,
-            "variant": args.variant,
+            "components": list(release_names.COMPONENTS),
             "source_commit": args.source_sha,
             "source_epoch": args.epoch,
         }
@@ -156,14 +151,11 @@ def main() -> int:
 
         files = collect(args.stage)
         args.out_dir.mkdir(parents=True, exist_ok=True)
-        out = args.out_dir / release_names.archive_name(args.version, args.platform, args.arch, args.variant)
+        out = args.out_dir / release_names.archive_name(args.version, args.platform, args.arch)
         if args.platform == "windows":
             write_zip(out, base, args.stage, files, args.epoch)
         else:
             write_tar_gz(out, base, args.stage, files, args.epoch)
-        created = datetime.fromtimestamp(args.epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        document = generate_spdx.spdx_document(out, args.version, args.source_sha, created, archive_members(out))
-        generate_spdx.write_spdx(out.with_name(base + ".spdx.json"), document)
     except release_names.ReleaseError as error:
         print(f"packaging failed: {error}", file=sys.stderr)
         return 1

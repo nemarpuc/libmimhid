@@ -10,7 +10,7 @@ field yourself. A required field left zero is refused with
 `MIMHID_ERR_UNSET_FIELD`.
 
 The Python package version and the native libmimhid version must match. Complete
-native archives, dependency notices, and SPDX documents are published with the
+native archives, dependency notices, and an SPDX SBOM are published with the
 corresponding GitHub Release.
 
 The declarations are generated from `include/mimhid.h` by

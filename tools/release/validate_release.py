@@ -56,16 +56,41 @@ def validate(root: Path, tag: str, allow_undated: bool = False) -> tuple[str, st
     return version, notes
 
 
+def dry_run_tag(root: Path) -> tuple[str, bool, str]:
+    """The tag a dry run validates as, whether its CHANGELOG section may be undated, and where the
+    version came from. Normally that is the newest dated CHANGELOG section; when the version files
+    have moved on to the next release (all of them agreeing), the version files are used and the
+    section may still be undated."""
+    dated = release_names.newest_dated_version(root)
+    found = set(release_names.read_versions(root).values())
+    if found == {dated}:
+        return f"v{dated}", False, f"the newest dated CHANGELOG section ({dated}), which every version file carries"
+    if len(found) != 1:
+        raise release_names.ReleaseError(f"the version files disagree: {sorted(found)}")
+    version = found.pop()
+    return (f"v{version}", True,
+            f"the version files ({version}); the newest dated CHANGELOG section is {dated}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--tag", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--tag")
+    mode.add_argument("--dry-run", action="store_true",
+                      help="no tag: take the version from the CHANGELOG or the version files")
+    parser.add_argument("--version-out", type=Path, help="write the validated version here")
+    parser.add_argument("--summary-out", type=Path, help="append a Markdown line saying where the version came from")
     parser.add_argument("--notes-out", type=Path)
     parser.add_argument("--allow-undated", action="store_true",
                         help="dry run: accept a CHANGELOG section without a release date")
     args = parser.parse_args()
     try:
-        version, notes = validate(args.root, args.tag, args.allow_undated)
+        tag, allow_undated, origin = args.tag, args.allow_undated, "the tag"
+        if args.dry_run:
+            tag, undated, origin = dry_run_tag(args.root)
+            allow_undated = allow_undated or undated
+        version, notes = validate(args.root, tag, allow_undated)
     except release_names.ReleaseError as error:
         print(f"release validation failed: {error}", file=sys.stderr)
         return 1
@@ -73,7 +98,13 @@ def main() -> int:
         args.notes_out.parent.mkdir(parents=True, exist_ok=True)
         full_notes = notes + FIRMWARE_LICENSE_NOTES.format(version=version) + "\n"
         args.notes_out.write_text(full_notes, encoding="utf-8")
-    print(f"release {version} is consistent")
+    if args.version_out is not None:
+        args.version_out.write_text(version + "\n", encoding="utf-8")
+    if args.summary_out is not None:
+        with args.summary_out.open("a", encoding="utf-8") as summary:
+            kind = "Dry run" if args.dry_run else "Release"
+            summary.write(f"{kind} of libmimhid {version}: the version comes from {origin}.\n")
+    print(f"release {version} is consistent (version from {origin})")
     return 0
 
 

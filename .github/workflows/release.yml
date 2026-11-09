@@ -1,12 +1,19 @@
 name: Release
 
-# A pushed v* tag builds, checks, and publishes the release. Run by hand (workflow_dispatch) it
-# builds and checks everything and uploads the assets as workflow artifacts, but publishes nothing.
+# A pushed v* tag builds, checks, and publishes the release. Run by hand (workflow_dispatch) with
+# dry_run on (the default), or on anything but a tag, it builds and checks everything and uploads
+# the assembled assets as the release-assets workflow artifact, but publishes nothing: no GitHub
+# Release, no PyPI, no NuGet.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and check every asset, publish nothing
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -24,6 +31,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       epoch: ${{ steps.metadata.outputs.epoch }}
       source_sha: ${{ steps.metadata.outputs.source_sha }}
+      publish: ${{ steps.metadata.outputs.publish }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,20 +42,35 @@ jobs:
       - name: Verify the tag, the versions, and the CHANGELOG
         id: metadata
         shell: bash
+        env:
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           python3 tools/check_license_headers.py
           python3 tests/release/test_release_tools.py
           python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
+          # Only a tag publishes; a manual run on a tag publishes only with dry_run turned off.
+          publish=false
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$DRY_RUN_INPUT" != true ]; then publish=true; fi
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            python3 tools/release/validate_release.py --tag "$GITHUB_REF_NAME" --notes-out build/release-notes.md
+            python3 tools/release/validate_release.py --tag "$GITHUB_REF_NAME" --notes-out build/release-notes.md \
+              --summary-out "$GITHUB_STEP_SUMMARY"
             test "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" = "$(git rev-parse HEAD)"
             version="${GITHUB_REF_NAME#v}"
           else
-            version="$(sed -n 's/^project(libmimhid VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
-            python3 tools/release/validate_release.py --tag "v$version" --notes-out build/release-notes.md --allow-undated
+            # No tag: the version comes from the newest dated CHANGELOG section, or from the
+            # version files when they are ahead of it; the summary says which.
+            python3 tools/release/validate_release.py --dry-run --notes-out build/release-notes.md \
+              --version-out build/release-version.txt --summary-out "$GITHUB_STEP_SUMMARY"
+            version="$(cat build/release-version.txt)"
+          fi
+          if [ "$publish" = true ]; then
+            echo "This run publishes the GitHub Release v$version." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Dry run: nothing is published; the assets are kept as the release-assets artifact." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -127,17 +150,14 @@ jobs:
           cmake --build build_test --config Release --parallel
           ctest --test-dir build_test -C Release --output-on-failure
 
-      - name: Build and install the shared and static packages
+      - name: Build and install the shared and static libraries in one tree
         shell: bash
         run: |
           set -euo pipefail
-          for variant in shared static; do
-            if [ "$variant" = shared ]; then only="-DMIMHID_BUILD_STATIC=OFF"; else only="-DMIMHID_BUILD_SHARED=OFF"; fi
-            cmake -B "build_$variant" -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
-              -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF $only
-            cmake --build "build_$variant" --config Release --parallel
-            cmake --install "build_$variant" --config Release --prefix "$PWD/stage-$variant"
-          done
+          cmake -B build_release -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
+            -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON
+          cmake --build build_release --config Release --parallel
+          cmake --install build_release --config Release --prefix "$PWD/stage"
 
       - name: Check the exported symbols and the platform baseline
         shell: bash
@@ -145,36 +165,36 @@ jobs:
           set -euo pipefail
           case "${{ matrix.platform }}" in
             linux)
-              library="$(ls stage-shared/lib/libmimhid.so.*.*.*)"
+              library="$(ls stage/lib/libmimhid.so.*.*.*)"
               objdump=objdump
               nm=nm
               if [ "${{ matrix.arch }}" = aarch64 ]; then objdump=aarch64-linux-gnu-objdump; nm=aarch64-linux-gnu-nm; fi
               python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library" --nm "$nm"
               python tools/release/glibc_check.py --library "$library" --objdump "$objdump" ;;
             macos)
-              library="$(ls stage-shared/lib/libmimhid.*.*.*.dylib)"
+              library="$(ls stage/lib/libmimhid.*.*.*.dylib)"
               codesign --force --sign - "$library"
               codesign --verify --strict "$library"
               python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library"
               otool -l "$library" | grep -A4 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' ;;
             windows)
-              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library stage-shared/bin/mimhid.dll ;;
+              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library stage/bin/mimhid.dll ;;
           esac
 
-      - name: Build an external consumer against both installed packages
+      - name: Build an external consumer of each component against the one install
         if: matrix.run_tests
         shell: bash
         run: |
           set -euo pipefail
-          for variant in shared static; do
-            cmake -B "build_consumer_$variant" -S tools/release/consumer ${{ matrix.cmake_args }} \
-              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage-$variant" -DMIMHID_COMPONENT=$variant \
+          for component in shared static; do
+            cmake -B "build_consumer_$component" -S tools/release/consumer ${{ matrix.cmake_args }} \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage" -DMIMHID_COMPONENT=$component \
               -DMIMHID_VERSION=${{ needs.verify.outputs.version }}
-            cmake --build "build_consumer_$variant" --config Release
+            cmake --build "build_consumer_$component" --config Release
             if [ "${{ matrix.platform }}" = windows ]; then
-              PATH="$PWD/stage-$variant/bin:$PATH" "build_consumer_$variant/Release/consumer.exe"
+              PATH="$PWD/stage/bin:$PATH" "build_consumer_$component/Release/consumer.exe"
             else
-              "build_consumer_$variant/consumer"
+              "build_consumer_$component/consumer"
             fi
           done
 
@@ -182,17 +202,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          compiler="$(cmake -LA -N build_shared | sed -n 's/^CMAKE_CXX_COMPILER:FILEPATH=//p')"
-          for variant in shared static; do
-            stage=stage-shared
-            if [ "$variant" = static ]; then stage=stage-static; fi
-            python tools/release/package_release.py --stage "$stage" --out-dir dist \
-              --version "${{ needs.verify.outputs.version }}" --platform "${{ matrix.platform }}" \
-              --arch "${{ matrix.arch }}" --variant "$variant" \
-              --source-sha "${{ needs.verify.outputs.source_sha }}" --epoch "${{ needs.verify.outputs.epoch }}" \
-              --build-metadata "runner=${{ matrix.os }}" --build-metadata "cxx_compiler=$compiler" \
-              --build-metadata "tests_run=${{ matrix.run_tests }}"
-          done
+          compiler="$(cmake -LA -N build_release | sed -n 's/^CMAKE_CXX_COMPILER:FILEPATH=//p')"
+          python tools/release/package_release.py --stage stage --out-dir dist \
+            --version "${{ needs.verify.outputs.version }}" --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --source-sha "${{ needs.verify.outputs.source_sha }}" --epoch "${{ needs.verify.outputs.epoch }}" \
+            --build-metadata "runner=${{ matrix.os }}" --build-metadata "cxx_compiler=$compiler" \
+            --build-metadata "tests_run=${{ matrix.run_tests }}"
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 1
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -477,12 +494,18 @@ jobs:
           cp THIRD_PARTY_NOTICES.md "dist/mimhid_firmware-THIRD_PARTY_NOTICES-${{ needs.verify.outputs.version }}.txt"
           python3 tools/release/package_source.py --version "${{ needs.verify.outputs.version }}" \
             --commit "${{ needs.verify.outputs.source_sha }}" --out-dir dist
+          python3 tools/release/generate_spdx.py --dist dist --version "${{ needs.verify.outputs.version }}" \
+            --source-sha "${{ needs.verify.outputs.source_sha }}" --epoch "${{ needs.verify.outputs.epoch }}"
           python3 tools/release/collect_release.py --dist dist --version "${{ needs.verify.outputs.version }}" \
             --source-sha "${{ needs.verify.outputs.source_sha }}"
           (cd dist && sha256sum --check --strict SHA256SUMS)
+          expected="$(python3 -c 'import sys; sys.path.insert(0, "tools/release"); import release_names; print(len(release_names.expected_assets(sys.argv[1])))' "${{ needs.verify.outputs.version }}")"
+          test "$expected" -eq 18
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq "$expected"
+          echo "$expected release assets assembled." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the assembled release (dry runs)
-        if: github.ref_type != 'tag'
+        if: needs.verify.outputs.publish != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-assets
@@ -490,7 +513,7 @@ jobs:
           if-no-files-found: error
 
       - name: Require a successful CI run for the tagged commit
-        if: github.ref_type == 'tag'
+        if: needs.verify.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -514,17 +537,28 @@ jobs:
           exit 1
 
       - name: Publish the release
-        if: github.ref_type == 'tag'
+        if: needs.verify.outputs.publish == 'true'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           body_path: parts/release-notes/release-notes.md
           fail_on_unmatched_files: true
 
+      - name: Check the number of uploaded assets
+        if: needs.verify.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uploaded="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          test "$uploaded" -eq "$(find dist -maxdepth 1 -type f | wc -l)"
+
   publish-pypi:
     name: Publish Python wheel through PyPI Trusted Publishing
-    if: vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    if: needs.verify.outputs.publish == 'true' && vars.MIMHID_PUBLISH_BINDINGS == 'true'
     needs:
+      - verify
       - publish
       - binding-packages
     runs-on: ubuntu-22.04
@@ -548,8 +582,9 @@ jobs:
 
   publish-nuget:
     name: Publish NuGet package with a scoped API key
-    if: vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    if: needs.verify.outputs.publish == 'true' && vars.MIMHID_PUBLISH_BINDINGS == 'true'
     needs:
+      - verify
       - publish
       - binding-packages
     runs-on: ubuntu-22.04
