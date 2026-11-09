@@ -25,25 +25,9 @@ DOC = "share/doc/libmimhid"
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
-def collect(stage: Path, platform: str, variant: str) -> list[Path]:
+def collect(stage: Path) -> list[Path]:
     """The install-tree files that belong to the archive, relative to stage."""
-    everything = sorted(p.relative_to(stage) for p in stage.rglob("*") if p.is_file() or p.is_symlink())
-    if variant != "runtime":
-        return everything
-    keep = []
-    for path in everything:
-        text = path.as_posix()
-        if text.startswith(DOC + "/examples/"):
-            continue  # the runtime bundle has no headers to build them against
-        if text.startswith(DOC + "/"):
-            keep.append(path)
-        elif platform == "windows" and text.startswith("bin/") and text.endswith(".dll"):
-            keep.append(path)
-        elif platform == "linux" and text.startswith("lib/") and ".so" in path.name:
-            keep.append(path)
-        elif platform == "macos" and text.startswith("lib/") and path.name.endswith(".dylib"):
-            keep.append(path)
-    return keep
+    return sorted(p.relative_to(stage) for p in stage.rglob("*") if p.is_file() or p.is_symlink())
 
 
 def validate_layout(stage: Path, platform: str, variant: str) -> None:
@@ -53,11 +37,9 @@ def validate_layout(stage: Path, platform: str, variant: str) -> None:
         f"{DOC}/THIRD_PARTY_NOTICES.md",
         f"{DOC}/CHANGELOG.md",
     ]
-    if variant in ("shared", "static"):
-        required.append(f"{DOC}/examples/README.md")
-        required += ["include/mimhid.h", "include/mimhid.hpp"]
-        flavor = "shared" if variant == "shared" else "static"
-        required += [f"lib/cmake/mimhid/mimhid-{flavor}-targets.cmake", "lib/cmake/mimhid/mimhid-config.cmake"]
+    required.append(f"{DOC}/examples/README.md")
+    required += ["include/mimhid.h", "include/mimhid.hpp"]
+    required += [f"lib/cmake/mimhid/mimhid-{variant}-targets.cmake", "lib/cmake/mimhid/mimhid-config.cmake"]
     if variant == "shared":
         names = {"linux": "lib/libmimhid.so", "macos": "lib/libmimhid.dylib", "windows": "bin/mimhid.dll"}
         required.append(names[platform])
@@ -150,10 +132,9 @@ def main() -> int:
         if len(args.source_sha) != 40 or any(c not in "0123456789abcdef" for c in args.source_sha):
             raise release_names.ReleaseError("source SHA must be 40 lowercase hexadecimal characters")
         base = release_names.base_name(args.version, args.platform, args.arch, args.variant)
-        if args.variant != "runtime":
-            shutil.copytree(args.source_root / "examples", args.stage / DOC / "examples",
-                            dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(args.source_root / "examples", args.stage / DOC / "examples",
+                        dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         validate_layout(args.stage, args.platform, args.variant)
         metadata = {
             "project": release_names.PROJECT,
@@ -173,17 +154,16 @@ def main() -> int:
         (args.stage / DOC / "build-metadata.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-        files = collect(args.stage, args.platform, args.variant)
+        files = collect(args.stage)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         out = args.out_dir / release_names.archive_name(args.version, args.platform, args.arch, args.variant)
         if args.platform == "windows":
             write_zip(out, base, args.stage, files, args.epoch)
         else:
             write_tar_gz(out, base, args.stage, files, args.epoch)
-        if args.variant != "runtime":
-            created = datetime.fromtimestamp(args.epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            document = generate_spdx.spdx_document(out, args.version, args.source_sha, created, archive_members(out))
-            generate_spdx.write_spdx(out.with_name(base + ".spdx.json"), document)
+        created = datetime.fromtimestamp(args.epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        document = generate_spdx.spdx_document(out, args.version, args.source_sha, created, archive_members(out))
+        generate_spdx.write_spdx(out.with_name(base + ".spdx.json"), document)
     except release_names.ReleaseError as error:
         print(f"packaging failed: {error}", file=sys.stderr)
         return 1

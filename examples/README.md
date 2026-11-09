@@ -43,11 +43,6 @@ above, and make sure the shared library is on your loader's search path at run
 time (`LD_LIBRARY_PATH=./lib` on Linux, `DYLD_LIBRARY_PATH=./lib` on macOS, or
 just keep the `.dll` next to the `.exe` on Windows).
 
-The `*-runtime` release bundle is not enough to compile any of this: it carries
-the shared libraries and their license material for deploying a finished
-application, but no headers, import library, or package metadata. Build against
-a `*-shared` or `*-static` archive of the same version.
-
 With CMake, `examples/CMakeLists.txt` builds all of them against an installed
 package (`find_package(mimhid REQUIRED)`), or from a source checkout with
 `-DMIMHID_BUILD_EXAMPLES=ON`.

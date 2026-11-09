@@ -4,6 +4,12 @@ All notable changes to libmimhid are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); until 1.0.0 a
 change of the minor number may change the API, the ABI or the wire protocol.
 
+## [Unreleased]
+
+- **The release no longer publishes `*-runtime` bundles.** The `*-shared` archive already carries the
+  shared library with the same license documents, and nothing in the project consumed the smaller
+  bundle. A release now has 35 assets instead of 41.
+
 ## [0.2.0] - 2026-11-08
 
 The wire protocol, the C ABI and the firmware build interface change; a 0.1.0 board and a 0.2.0

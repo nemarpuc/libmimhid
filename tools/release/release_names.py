@@ -23,7 +23,7 @@ TARGETS = (
     ("windows", "x86_64"),
     ("windows", "arm64"),
 )
-VARIANTS = ("shared", "static", "runtime")
+VARIANTS = ("shared", "static")
 
 # Firmware images published with the library; libaoahid has no firmware.
 FIRMWARE_SUFFIXES = {
@@ -53,9 +53,6 @@ def base_name(version: str, platform: str, arch: str, variant: str) -> str:
     middle = f"{platform}-{arch}"
     if platform == "linux":
         middle += "-ubuntu22.04"
-    if variant == "runtime":
-        # The shared and static names stay unchanged; the runtime bundle appends its role.
-        return f"{PROJECT}-{version}-{middle}-runtime"
     return f"{PROJECT}-{version}-{middle}-{variant}"
 
 
@@ -81,7 +78,7 @@ def firmware_notices_name(version: str) -> str:
 
 
 def expected_assets(version: str) -> list[str]:
-    """Every file a release uploads: 12 archives, 12 SPDX sidecars, 6 runtime bundles, the
+    """Every file a release uploads: 12 archives, 12 SPDX sidecars, the
     source archive, the manifest, the checksums, the firmware images, and the firmware
     third-party notices file."""
     names: list[str] = []
@@ -90,7 +87,6 @@ def expected_assets(version: str) -> list[str]:
             archive = archive_name(version, platform, arch, variant)
             names.append(archive)
             names.append(archive.rsplit(".tar.gz", 1)[0].rsplit(".zip", 1)[0] + ".spdx.json")
-        names.append(archive_name(version, platform, arch, "runtime"))
     names.append(source_name(version))
     names.extend(firmware_names(version))
     names.append(firmware_notices_name(version))

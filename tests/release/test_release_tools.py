@@ -55,11 +55,10 @@ class Names(unittest.TestCase):
     def test_asset_set(self):
         assets = release_names.expected_assets("1.2.3")
         self.assertEqual(len(assets), len(set(assets)))
-        self.assertEqual(len(assets), 12 + 12 + 6 + 1 + 7 + 1 + 2)
+        self.assertEqual(len(assets), 12 + 12 + 1 + 7 + 1 + 2)
         self.assertIn("libmimhid-1.2.3-linux-aarch64-ubuntu22.04-static.tar.gz", assets)
-        self.assertIn("libmimhid-1.2.3-macos-arm64-runtime.tar.gz", assets)
+        self.assertNotIn("libmimhid-1.2.3-macos-arm64-runtime.tar.gz", assets)
         self.assertIn("libmimhid-1.2.3-windows-x86_64-shared.spdx.json", assets)
-        self.assertIn("libmimhid-1.2.3-windows-arm64-runtime.zip", assets)
         self.assertIn("mimhid_firmware-rp2040-1.2.3.uf2", assets)
         self.assertIn("mimhid_firmware-THIRD_PARTY_NOTICES-1.2.3.txt", assets)
 
@@ -171,17 +170,14 @@ class Package(unittest.TestCase):
             self.assertEqual(spdx["spdxVersion"], "SPDX-2.3")
             self.assertEqual(spdx["name"], first.name)
 
-    def test_windows_zip_and_runtime(self):
+    def test_windows_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
             shared = self.run_package(tmp, "windows", "shared", Path(tmp) / "w")
             self.assertTrue(zipfile.is_zipfile(shared))
-            runtime = self.run_package(tmp, "windows", "runtime", Path(tmp) / "w")
-            with zipfile.ZipFile(runtime) as archive:
+            with zipfile.ZipFile(shared) as archive:
                 names = archive.namelist()
             self.assertTrue(any(n.endswith("bin/mimhid.dll") for n in names))
-            self.assertFalse(any(n.endswith("mimhid.h") for n in names))
-            self.assertFalse(any(n.endswith(".lib") for n in names))
-            self.assertFalse(any("/examples/" in n for n in names))
+            self.assertTrue(any(n.endswith("lib/mimhid.lib") for n in names))
 
     def test_missing_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

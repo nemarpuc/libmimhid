@@ -187,16 +187,15 @@ A pushed `v*` tag builds and checks the release, then publishes a GitHub Release
 - macOS arm64 and x86_64 dynamic libraries and static archives;
 - headers, CMake and pkg-config metadata, notices, checksums, SPDX SBOMs, and the firmware images.
 
-For version `X.Y.Z`, the GitHub Release contains exactly 41 uploaded assets, in the same layout as `libaoahid` plus the firmware:
+For version `X.Y.Z`, the GitHub Release contains exactly 35 uploaded assets, in the same layout as `libaoahid` plus the firmware:
 
 - twelve archives: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04-{shared,static}.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}-{shared,static}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}-{shared,static}.zip`;
 - twelve matching `.spdx.json` SBOM sidecars;
-- six runtime bundles: the same six target names with `-runtime.tar.gz` on Linux and macOS and `-runtime.zip` on Windows;
 - the tagged tree as `libmimhid-X.Y.Z-source.tar.gz`;
 - `release-manifest.json` and `SHA256SUMS`;
 - eight firmware files: `mimhid_firmware-rp2040-X.Y.Z.uf2`, `mimhid_firmware-rp2350-X.Y.Z.uf2`, `mimhid_firmware-nrf52840-X.Y.Z.{hex,bin}`, `mimhid_firmware-stm32f4-X.Y.Z.{hex,bin}`, `mimhid_firmware-esp32s3-X.Y.Z.bin`, and `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt`.
 
-The complete `*-shared` or `*-static` archive is what you build against: it carries the headers, the library, CMake package files, pkg-config files, and `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`). The `*-runtime` bundle is for deploying next to an application that is already built: it holds only the shared library and the license and notice documents (`LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `CHANGELOG.md`). Consume an archive with `find_package(mimhid COMPONENTS shared)` (or `static`) or with pkg-config (`mimhid`, `mimhid-static`).
+The complete `*-shared` or `*-static` archive is what you build against: it carries the headers, the library, CMake package files, pkg-config files, and `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`). Consume an archive with `find_package(mimhid COMPONENTS shared)` (or `static`) or with pkg-config (`mimhid`, `mimhid-static`).
 
 Platform baselines: Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 and are signed ad hoc, not notarized; Windows archives use the dynamic MSVC runtime. The AArch64 Linux and ARM64 Windows libraries are cross-built and are not run in CI.
 

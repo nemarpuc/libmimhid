@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           compiler="$(cmake -LA -N build_shared | sed -n 's/^CMAKE_CXX_COMPILER:FILEPATH=//p')"
-          for variant in shared static runtime; do
+          for variant in shared static; do
             stage=stage-shared
             if [ "$variant" = static ]; then stage=stage-static; fi
             python tools/release/package_release.py --stage "$stage" --out-dir dist \
