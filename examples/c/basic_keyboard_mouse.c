@@ -84,6 +84,9 @@ int main(void) {
     mimhid_mouse_button(mouse, 1, 0);
     mimhid_node_submit(mouse, EXAMPLE_SEND_TIMEOUT_MS);
 
+    // Taking the USB device off the target drops reports still queued on the board, so the
+    // target gets time to poll the last one first.
+    sleep_ms(50);
     // Closing the Device closes its Nodes too.
     r = mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return r == MIMHID_OK ? 0 : fail("device_close", r);

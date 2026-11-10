@@ -36,8 +36,8 @@ share the same `Spec` / `Node` model and profile state machines.
   that waits.
 - **Not reflashed per device.** One firmware image per MCU serves any USB
   identity, interface layout, and report descriptor sent at runtime.
-- **Not verified on every board.** Only the RP2040 has been tested on physical
-  hardware; see [Verification status](#verification-status).
+- **Not hardware-verified.** No release has been verified on a board; see
+  [Verification status](#verification-status).
 
 ## Install
 
@@ -54,12 +54,35 @@ flashed with `mimhid_firmware` and a 3.3 V USB-UART adapter
 
 ## First program
 
-Pressing and releasing the `a` key on a board on `/dev/ttyUSB0` (see
+Pressing and releasing the `a` key on a board on `/dev/ttyUSB0`. Every value the
+library needs is set, including `transport.log_level`: a zero there is refused
+like any other unset field. See
 [examples/c/basic_keyboard_mouse.c](examples/c/basic_keyboard_mouse.c) for port
-discovery and full error reporting):
+discovery.
 
 ```c
+#define _POSIX_C_SOURCE 200809L /* nanosleep */
 #include "mimhid.h"
+
+#include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+static void pause_ms(unsigned ms) { Sleep(ms); }
+#else
+#include <time.h>
+static void pause_ms(unsigned ms) {
+    const struct timespec t = {0, (long)ms * 1000000L};
+    nanosleep(&t, NULL);
+}
+#endif
+
+static int failed(const char* call, mimhid_result result) {
+    const mimhid_error_detail* detail = mimhid_last_error();
+    fprintf(stderr, "%s: %s (%s: %s)\n", call, mimhid_result_name(result),
+            detail->field != NULL ? detail->field : "-",
+            detail->reason != NULL ? detail->reason : "-");
+    return 1;
+}
 
 int main(void) {
     mimhid_device_config dev_cfg;
@@ -75,9 +98,10 @@ int main(void) {
     dev_cfg.transport.handshake_timeout_ms = 200;
     dev_cfg.transport.maximum_report_bytes = 64;
     dev_cfg.transport.linux_hid = (mimhid_linux_hid_policy){4096, 256, 4, 256, 12288, 65528};
+    dev_cfg.transport.log_level = MIMHID_LOG_DISABLED; /* zero is refused as unset */
     dev_cfg.usb_device.bcd_usb = 0x0200;
     dev_cfg.usb_device.ep0_max_packet_size = 64;
-    dev_cfg.usb_device.vendor_id = 0x1209;
+    dev_cfg.usb_device.vendor_id = 0x1209; /* pid.codes test IDs: in-house testing only */
     dev_cfg.usb_device.product_id = 0x0001;
     dev_cfg.usb_device.language_id = 0x0409;
     dev_cfg.usb_config.configuration_value = 1;
@@ -91,23 +115,46 @@ int main(void) {
     kb_opts.usage_minimum = 0x04;
     kb_opts.usage_maximum = 0xDD;
 
-    mimhid_device *dev = NULL;
-    mimhid_spec *spec = NULL;
-    mimhid_node *kb = NULL;
-    if (mimhid_device_open("/dev/ttyUSB0", &dev_cfg, &dev) == MIMHID_OK &&
-        mimhid_spec_create_keyboard(&kb_opts, &spec) == MIMHID_OK &&
-        mimhid_node_open(dev, spec, &node_cfg, &waits, &kb) == MIMHID_OK &&
-        mimhid_device_wait_ready(dev, 5000) == MIMHID_OK) {
-        mimhid_keyboard_key(kb, 0x04, 1); /* Keyboard a */
-        mimhid_node_submit(kb, 500);
-        mimhid_keyboard_key(kb, 0x04, 0);
-        mimhid_node_submit(kb, 500);
+    mimhid_device* dev = NULL;
+    mimhid_spec* spec = NULL;
+    mimhid_node* kb = NULL;
+    mimhid_result r = mimhid_device_open("/dev/ttyUSB0", &dev_cfg, &dev);
+    if (r != MIMHID_OK)
+        return failed("mimhid_device_open", r);
+    int status = 1;
+    if ((r = mimhid_spec_create_keyboard(&kb_opts, &spec)) != MIMHID_OK) {
+        failed("mimhid_spec_create_keyboard", r);
+    } else if ((r = mimhid_node_open(dev, spec, &node_cfg, &waits, &kb)) != MIMHID_OK) {
+        failed("mimhid_node_open", r);
+    } else if ((r = mimhid_device_wait_ready(dev, 5000)) != MIMHID_OK) {
+        failed("mimhid_device_wait_ready", r);
+    } else if ((r = mimhid_keyboard_key(kb, 0x04, 1)) != MIMHID_OK || /* Keyboard a */
+               (r = mimhid_node_submit(kb, 500)) != MIMHID_OK ||
+               (r = mimhid_keyboard_key(kb, 0x04, 0)) != MIMHID_OK ||
+               (r = mimhid_node_submit(kb, 500)) != MIMHID_OK) {
+        failed("typing a", r);
+    } else {
+        status = 0;
     }
-    if (kb != NULL) mimhid_node_close(kb, &waits, 1000);
-    if (spec != NULL) mimhid_spec_release(spec);
-    if (dev != NULL) mimhid_device_close(dev, 500, 1000);
-    return 0;
+    /* Taking the device off the target drops reports still queued on the board, so give the
+     * target, which polls every bInterval (1 ms here), time to read them first. */
+    pause_ms(50);
+    if (kb != NULL && (r = mimhid_node_close(kb, &waits, 1000)) != MIMHID_OK)
+        status = failed("mimhid_node_close", r);
+    if (spec != NULL)
+        mimhid_spec_release(spec);
+    if ((r = mimhid_device_close(dev, 500, 1000)) != MIMHID_OK)
+        status = failed("mimhid_device_close", r);
+    return status;
 }
+```
+
+On Linux, from the directory of a release archive that holds `include/` and
+`lib/` (the static library needs the C++ runtime; [examples/README.md](examples/README.md)
+has the other link lines):
+
+```sh
+cc -std=c11 -Iinclude first.c lib/libmimhid_static.a -lstdc++ -lpthread -o first
 ```
 
 [QUICKSTART.md](docs/QUICKSTART.md) walks through wiring a board, setting serial
@@ -118,37 +165,60 @@ permissions, and running the watchable demos under
 
 | Profile | Factory | Input | Output / Feature |
 |---|---|---|---|
-| Keyboard (NKRO bitmap) | `mimhid_spec_create_keyboard` | 8 modifiers + `usage_minimum..usage_maximum` bitmap | Optional 5-LED Output report |
-| Mouse (relative pointer) | `mimhid_spec_create_mouse` | `1..16` buttons, `X`/`Y`, optional Wheel and AC Pan | — |
-| Toggle controls | `mimhid_spec_create_toggle` | Allow-list on Consumer (`0x0C`), Generic Desktop (`0x01`), Telephony (`0x0B`), or Camera (`0x90`) | — |
-| Gamepad | `mimhid_spec_create_gamepad` | `1..32` buttons, caller-declared axes, optional hat or 4-button D-pad | — |
-| Touchscreen (multi-touch) | `mimhid_spec_create_touchscreen` | `1..32` contact slots (`X`, `Y`, optional width/height/pressure) | `Contact Count Maximum` Feature report |
-| Touchpad | `mimhid_spec_create_touchpad` | `1..32` contact slots + `1..3` buttons | `Contact Count Maximum` Feature report |
-| Pen (direct screen) | `mimhid_spec_create_pen` | In-Range, Tip, Invert, Eraser, barrel switches, `X`/`Y`, optional pressure/tilt | — |
-| Digitizer | `mimhid_spec_create_digitizer` | Pen state machine under `Digitizer` (`0x0D/0x01`) | — |
-| Raw descriptor | `mimhid_spec_create_raw` / `mimhid_node_open_raw` | Any validated Input report (`mimhid_raw_submit` / `mimhid_report_send`) | Output and Feature events via `transport.event_sink` |
+| Keyboard (NKRO bitmap) | `mimhid_spec_create_keyboard` | 8 modifiers + one bit per Usage from `usage_minimum` (at least `0x04`) to `usage_maximum` | — |
+| Mouse (relative pointer) | `mimhid_spec_create_mouse` | `1..65535` buttons, `X`/`Y`, optional Wheel and AC Pan | — |
+| Toggle controls | `mimhid_spec_create_toggle` | `1..65535` one-bit controls from an allow-list on a page of the caller's choice (Consumer `0x0C`, Generic Desktop `0x01`, Telephony `0x0B`, Camera Control `0x90`, ...) | — |
+| Gamepad | `mimhid_spec_create_gamepad` | `1..65535` buttons, at least two caller-declared axes (`X` and `Y` among them), optional hat or 4-button D-pad | — |
+| Touchscreen (multi-touch) | `mimhid_spec_create_touchscreen` | `1..16` contact slots (`X`, `Y`, optional pressure, width, height, azimuth), optional Scan Time | Optional `Contact Count Maximum` Feature report |
+| Touchpad | `mimhid_spec_create_touchpad` | `1..16` contact slots + `0..65535` buttons | Optional `Contact Count Maximum` Feature report |
+| Pen (direct screen) | `mimhid_spec_create_pen` | In Range, Tip, optional Invert (eraser), up to two barrel switches, `X`/`Y`, optional pressure, tilt, twist | — |
+| Digitizer | `mimhid_spec_create_digitizer` | The Pen report under `Digitizers / Digitizer` (`0x0D/0x01`) | — |
+| Raw descriptor | `mimhid_spec_create_raw` / `mimhid_node_open_raw` | Any Input report (`mimhid_raw_submit` checks it against the Spec; `mimhid_report_send` does not) | Output reports and Feature writes arrive through `transport.event_sink`; Feature reads are answered with `mimhid_node_set_feature_response` |
 
 Any generated profile can also include a battery-strength Input report. Full
 descriptor layouts and state-machine rules are in [PROFILES.md](docs/PROFILES.md).
 
 ## Moving between libaoahid and libmimhid
 
-Both libraries share the same profile `Spec` factories, report state machines,
-and error model (`s/aoahid/mimhid/` for profile and mutation calls). They differ
-where the hardware differs: `libmimhid` has no `Context` handle, takes a serial
-port name and full USB/endpoint descriptors (`mimhid_device_config`,
-`mimhid_node_config`), uses `mimhid_commit_timeouts` on calls that re-enumerate
-the board, and supports two-way HID traffic (Output reports, Feature responses,
-bus connect/disconnect, and endpoint 0 control transfer routing). The full
-comparison is in [API.md](docs/API.md#differences-from-libaoahid).
+Both libraries share the profile `Spec` factories, the report state machines,
+and the input calls (`aoahid_keyboard_key` and `mimhid_keyboard_key`, and so
+on). They differ where the hardware differs: `libmimhid` has no `Context`
+handle, takes a serial port name and the full USB and endpoint descriptors
+(`mimhid_device_config`, `mimhid_node_config`), uses `mimhid_commit_timeouts` on
+calls that re-enumerate the board, and carries two-way HID traffic (Output
+reports, Feature answers, bus connect and disconnect, endpoint 0 control
+transfer routing). Three differences change code that is moved across:
+
+- **Initializers.** `libaoahid`'s `*_init` functions fill in values that work
+  with a current Android phone, and its header has the timeout constants
+  `AOAHID_CONTROL_TIMEOUT_MS`, `AOAHID_SEND_TIMEOUT_MS` and
+  `AOAHID_DRAIN_TIMEOUT_MS`. `libmimhid`'s `*_init` functions only zero the
+  structure and set `struct_size`, there are no timeout constants, and a
+  required field or timeout left at zero is refused with
+  `MIMHID_ERR_UNSET_FIELD`.
+- **Closing.** `libaoahid` has `AOAHID_CLOSE_PENDING` (15): a transfer of the
+  object is still in flight and the caller calls again later. In `libmimhid`
+  writes to the serial port finish within the call, so a close never leaves
+  anything pending and code 15 is not used.
+- **Result code 4.** It is `AOAHID_ERR_NOT_AOA` in `libaoahid` and
+  `MIMHID_ERR_PROTOCOL` (firmware of another major or minor version) here.
+
+The full comparison is in [API.md](docs/API.md#differences-from-libaoahid).
 
 ## Verification status
 
-- **Hardware (RP2040):** verified on 2026-11-07 on a Raspberry Pi Pico with a Prolific PL2303 USB-UART adapter against a Linux 7.2 target (15 mouse interfaces at 7,812,500 baud with 0 link errors, 500-keystroke end-to-end latency run, endpoint 0 control routing, and the 7-interface all-profile verification run).
-- **Release 0.2.0 itself is not hardware-verified:** protocol 0.2.0 and the initial-value rules changed after the 2026-11-07 hardware run ([CHANGELOG.md](CHANGELOG.md)).
-- **Not tested on hardware:** RP2350, nRF52840, STM32F4, and ESP32-S3 firmware ports, raw descriptors, System Control / Camera / Telephony toggles, battery reports, and Windows or macOS hosts and targets ([TARGET_MATRIX.md](docs/TARGET_MATRIX.md)).
-- **Automated CI:** unit, scripted-board (`tests/scripted`), and simulated-board (`tests/sim`, running the real C firmware core over a pseudo-terminal) suites run with ASan/UBSan, ThreadSanitizer, and an 86% line / 73% branch coverage gate on `src/`.
-- **Details and commands:** [VERIFICATION.md](docs/VERIFICATION.md) has the feature-by-layer matrix and exact reproduction steps.
+- **Hardware:** no release is hardware-verified. [CHANGELOG.md](CHANGELOG.md)
+  records for 0.1.0 that an earlier firmware ran on a Raspberry Pi Pico and
+  that the 0.1.0 firmware has not, and for 0.2.0 that none of it has run on a
+  board yet.
+- **One latency measurement** is recorded in
+  [LATENCY.md](docs/LATENCY.md#measured-once), as it was written.
+- **Automated CI:** unit, scripted-board (`tests/scripted`), and simulated-board
+  (`tests/sim`, the real C firmware core over a pseudo-terminal) suites, also
+  under ASan/UBSan and ThreadSanitizer, and an 86% line / 73% branch coverage
+  floor on `src/` (the `Coverage` job).
+- **Details and commands:** [VERIFICATION.md](docs/VERIFICATION.md) has the
+  feature-by-layer matrix and the commands to reproduce each check.
 
 ## Documentation
 
@@ -156,16 +226,16 @@ comparison is in [API.md](docs/API.md#differences-from-libaoahid).
 |---|---|
 | [QUICKSTART.md](docs/QUICKSTART.md) | Wiring a board, flashing firmware, permissions, and running the verification demos |
 | [BUILDING.md](docs/BUILDING.md) | Host requirements, CMake options and presets, firmware builds, package consumption, bindings |
-| [API.md](docs/API.md) | Complete C and C++ API reference: handles, structs, rules, every public function, result codes |
+| [API.md](docs/API.md) | C and C++ API reference: handles, structs, rules, every public function with its results, result codes |
 | [PROFILES.md](docs/PROFILES.md) | Descriptor and state-machine contract of all nine profiles and the battery report |
 | [EXAMPLES.md](docs/EXAMPLES.md) | Walkthrough of the C, C++, Python, C#, and Rust example programs |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System structure, threading, data paths, and design decisions |
 | [INTERNALS.md](docs/INTERNALS.md) | Contributor guide: source map, handle internals, locking, teardown, design decisions |
 | [PROTOCOL.md](docs/PROTOCOL.md) | Binary UART wire protocol (frames, CRC-16, commands, events, line-rate handshake) |
 | [LIMITS.md](docs/LIMITS.md) | Every numeric limit with its USB, HID, chip, or firmware source |
-| [LATENCY.md](docs/LATENCY.md) | Where time goes, measured RP2040 end-to-end latency, and how to measure |
+| [LATENCY.md](docs/LATENCY.md) | Where time goes, the one recorded latency measurement, and how to measure |
 | [PORTING.md](docs/PORTING.md) | Adding a new MCU port (the 12 HAL functions) or a new host OS serial backend |
-| [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) | Hardware verification status per MCU board, host OS, and HID profile |
+| [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) | Build and verification status per MCU board, host OS, and target |
 | [VERIFICATION.md](docs/VERIFICATION.md) | Feature × test-layer verification matrix, coverage numbers, and reproduction commands |
 | [RELEASES.md](docs/RELEASES.md) | The 18 release assets, archive layout, platform baselines, and component licenses |
 | [CHANGELOG.md](CHANGELOG.md) | Release history and hardware verification notes |
@@ -183,6 +253,6 @@ TinyUSB (MIT) and vendor HALs under BSD-3-Clause and Apache-2.0; see
 Most of the code, tests, and documentation in this repository were written by
 an AI coding assistant. Architecture and design decisions, hardware
 verification steps, debugging, and review of the AI's output were done by a
-human. Hardware results are listed in
+human. The hardware status is in
 [TARGET_MATRIX.md](docs/TARGET_MATRIX.md); review the code before relying on
 it for anything security- or safety-relevant.
