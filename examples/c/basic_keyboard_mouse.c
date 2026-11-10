@@ -16,7 +16,9 @@
 #endif
 
 static int fail(const char* what, mimhid_result r) {
-    fprintf(stderr, "%s: %s (%s)\n", what, mimhid_result_name(r), mimhid_last_error()->reason);
+    // Read the record first: mimhid_result_name is a call too and replaces it.
+    const char* reason = mimhid_last_error()->reason;
+    fprintf(stderr, "%s: %s (%s)\n", what, mimhid_result_name(r), reason);
     return 1;
 }
 

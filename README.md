@@ -77,10 +77,11 @@ static void pause_ms(unsigned ms) {
 #endif
 
 static int failed(const char* call, mimhid_result result) {
+    /* Read the record first: mimhid_result_name is a call too and replaces it. */
     const mimhid_error_detail* detail = mimhid_last_error();
-    fprintf(stderr, "%s: %s (%s: %s)\n", call, mimhid_result_name(result),
-            detail->field != NULL ? detail->field : "-",
-            detail->reason != NULL ? detail->reason : "-");
+    const char* field = detail->field != NULL ? detail->field : "-";
+    const char* reason = detail->reason;
+    fprintf(stderr, "%s: %s (%s: %s)\n", call, mimhid_result_name(result), field, reason);
     return 1;
 }
 
