@@ -8,20 +8,10 @@ require and reject, and how their state machines behave across
 
 ## Hardware status
 
-- **RP2040 verified on 2026-11-07** on a Raspberry Pi Pico wired to a Prolific
-  PL2303 USB-UART adapter against a Linux 7.2 target: keyboard (with Caps Lock
-  LED Output report echo), mouse (buttons, X/Y, wheel, pan), 10-contact
-  touchscreen (with `Contact Count Maximum` Feature read), touchpad, pen (hover,
-  tip, pressure, tilt, barrel switch, eraser transition), gamepad (hat, buttons,
-  axes), and Consumer Control media keys took effect in the 7-interface
-  `verify_all` run, and 15 simultaneous mouse interfaces ran at `7,812,500` baud
-  with zero link errors ([TARGET_MATRIX.md](TARGET_MATRIX.md)).
-- **Release 0.2.0 itself is not hardware-verified:** the `*_init` contract and
-  wire protocol `0.2.0` changed after the 2026-11-07 hardware run
-  ([CHANGELOG.md](../CHANGELOG.md)).
-- **Not tested on hardware:** System Control, Camera, and Telephony toggles,
-  battery reports, `mimhid_spec_create_raw`, and all non-RP2040 boards and
-  non-Linux targets ([VERIFICATION.md](VERIFICATION.md)).
+No profile is hardware-verified: [CHANGELOG.md](../CHANGELOG.md) records that
+neither 0.1.0 nor 0.2.0 has run on a board ([VERIFICATION.md](VERIFICATION.md#hardware-verification-status)).
+Every profile is covered by the unit, scripted, and simulated-board tests listed
+in [VERIFICATION.md](VERIFICATION.md#feature-verification-matrix).
 
 ## Rules shared by every profile
 
@@ -356,8 +346,10 @@ Application Collection `Digitizers / Touch Screen` (`0x000D / 0x0004`):
    - Optional `Tip Pressure` (`0x0030`), `Width` (`0x0048`), `Height` (`0x0049`),
      and `Azimuth` (`0x003F`), each padded to a byte boundary.
 4. **Scan Time (optional):** when `enable_scan_time == 1` (requires
-   `scan_time_unit_100us == 1`), `Digitizers / Scan Time` (`0x0056`) with HID
-   Unit `0x1001` (seconds) and Unit Exponent `-4` (`100 µs` steps).
+   `scan_time_unit_100us == 1`), `Digitizers / Scan Time` (`0x0056`). The builder
+   emits no Unit or Unit Exponent item for it (`scan_time.physical` must be
+   disabled); the count is in `100 µs` steps, which the caller states with
+   `scan_time_unit_100us == 1`.
 5. **Contact Count:** `Digitizers / Contact Count` (`0x0054`).
 
 ### Option validation
@@ -379,8 +371,8 @@ Application Collection `Digitizers / Touch Screen` (`0x000D / 0x0004`):
   `azimuth.logical_maximum > 0`.
 - When `enable_scan_time == 1`, `scan_time_unit_100us == 1`,
   `scan_time.logical_minimum == 0`, `scan_time.logical_maximum >= 1`, and
-  `scan_time.physical` must be disabled (`0`), because the builder supplies the
-  mandatory `100 µs` unit items itself.
+  `scan_time.physical` must be disabled (`0`); the descriptor then carries no
+  physical unit for Scan Time.
 
 ### Contact state machine, Scan Time, and multi-packet frames
 
