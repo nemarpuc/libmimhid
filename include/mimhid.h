@@ -82,7 +82,7 @@ extern "C" {
 
 #define MIMHID_VERSION_MAJOR 0
 #define MIMHID_VERSION_MINOR 2
-#define MIMHID_VERSION_PATCH 0
+#define MIMHID_VERSION_PATCH 1
 /* The largest report the library builds, whatever a board holds. */
 #define MIMHID_HOST_MAX_REPORT_BYTES 1024
 

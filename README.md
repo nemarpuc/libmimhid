@@ -9,7 +9,7 @@ UART link. The target machine sees a standard USB composite HID device and needs
 no driver, no app, and no agent. Linux, Windows, and macOS hosts; usable from C,
 C++, Python, C#, and Rust. MIT licensed.
 
-> Version 0.2.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 0.2.1. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 `libmimhid` is a C++20 library with a stable C ABI. You describe the USB device
 identity and each HID interface (ranges, bit widths, Report IDs, Usages,

@@ -6,6 +6,14 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-10
+
+**Not hardware-verified.** The wire protocol and the C ABI are those of 0.2.0 (a 0.2.0 board and this library
+talk to each other); this release fixes four bugs, changes the release packaging and adds tests and
+documentation. None of it has run on a board. Asset names changed: a script that downloads the old
+`-shared` / `-static` names must be changed.
+
+
 ### Fixed
 
 - **Null options and configuration pointers are recorded in `mimhid_last_error`.** Passing a null
