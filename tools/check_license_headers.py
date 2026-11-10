@@ -32,11 +32,11 @@ THIRD_PARTY_HEADERS: dict[str, tuple[str, str]] = {
     ),
 }
 
-SLASH_COMMENT_SUFFIXES = frozenset({".c", ".h", ".cpp", ".hpp"})
+SLASH_COMMENT_SUFFIXES = frozenset({".c", ".h", ".cpp", ".hpp", ".rs", ".cs"})
 HASH_COMMENT_SUFFIXES = frozenset({".py", ".cmake", ".sh"})
 HASH_COMMENT_NAMES = frozenset({"CMakeLists.txt"})
 
-EXCLUDED_DIRECTORIES = ("build", ".git", "__pycache__")
+EXCLUDED_DIRECTORIES = ("build", ".git", "__pycache__", "target")
 
 
 def in_scope(path: Path) -> bool:

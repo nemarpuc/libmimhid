@@ -106,9 +106,9 @@ void test_io_on_a_pty() {
     // A BREAK reaches the observer.
     tr::set_break_observer(count_break);
     const int before = g_breaks.load();
-    (void)port.send_break(1);
+    MIMHID_CHECK(port.send_break(1));
     tr::set_break_observer(nullptr);
-    MIMHID_CHECK(g_breaks.load() <= before + 1);
+    MIMHID_CHECK(g_breaks.load() >= before && g_breaks.load() <= before + 1);
     port.drain();
     port.discard_input();
 

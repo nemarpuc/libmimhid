@@ -6,6 +6,8 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+### Fixed
+
 - **Null options and configuration pointers are recorded in `mimhid_last_error`.** Passing a null
   `options` or `config` pointer to the nine `mimhid_spec_create_*` factories, `mimhid_device_open`,
   `mimhid_node_open`, `mimhid_node_open_raw`, or the calls taking `mimhid_commit_timeouts` now
@@ -13,17 +15,22 @@ change of the minor number may change the API, the ABI or the wire protocol.
   the thread-local error detail at `MIMHID_OK`.
 - **Frame type names.** `mimhid_frame_type_name` now returns `"PROBE"` for `MIMHID_T_PROBE`
   (`0x1C`) and `"COUNTERS"` for `MIMHID_T_COUNTERS` (`0x1D`).
+- **3-byte detach `COMMIT` on close.** `mimhid_device_close` now sends the standard 3-byte
+  `{1, 0, 0}` detach `COMMIT` payload matching `Link::disconnect` and `commit_device` instead of a
+  1-byte `{1}` payload.
+- **`device->closing` check across all device calls.** `mimhid_device_wait_ready`,
+  `mimhid_device_remote_wakeup`, `mimhid_device_board_info`, `mimhid_device_link_counters`, and
+  `mimhid_device_limits` now reject a closing `mimhid_device*` with `MIMHID_ERR_PARAM`, matching
+  the other device operations.
+
+### Changed
+
 - **Tests.** A scripted board on a pseudo-terminal (`mimhid.scripted`) tests the transport and the C
   ABI when the board NAKs, stays silent, refuses a rate or hangs up; new unit suites cover every
   factory and input refusal. The pseudo-terminal tests of the real firmware core are now called
   sim (`mimhid.sim-*`). A Coverage CI job measures `src/` with gcovr. `tests/README.md` describes
-  the unit, sim and hardware layers; `tests/hw/README.md` is the hardware procedure;
+  the unit, scripted, sim and hardware layers; `tests/hw/README.md` is the hardware procedure;
   `docs/VERIFICATION.md` summarizes what is verified across all four layers.
-- **Known issues documented (`docs/LIMITS.md#known-issues`).** `mimhid_device_close` sends a 1-byte
-  detach `COMMIT` `{1}` while `Link::disconnect` sends 3 bytes `{1, 0, 0}`; `Link::ping` is never
-  called by the library (dead code); and `mimhid_device_wait_ready`, `mimhid_device_remote_wakeup`,
-  `mimhid_device_board_info`, `mimhid_device_limits`, and `mimhid_device_link_counters` do not check
-  `device->closing`.
 - **The release no longer publishes `*-runtime` bundles.** The `*-shared` archive already carries the
   shared library with the same license documents, and nothing in the project consumed the smaller
   bundle. A release now has 35 assets instead of 41.

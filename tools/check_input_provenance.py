@@ -20,7 +20,7 @@ PREFIX = "MIMHID"
 TYPO = "M" + "IHID_"
 # Names in code quotes that are options (the other MIMHID_ names are constants, macros and functions).
 OPTION_SHAPE = re.compile(
-    PREFIX + r"_(?:BUILD_[A-Z_]+|WERROR|SANITIZE|TSAN|USE_FAKE_LIBUSB|CHECK_SERIALIZATION|TINYUSB_PATH)\b"
+    PREFIX + r"_(?:BUILD_[A-Z_]+|WERROR|SANITIZE|TSAN|COVERAGE|TINYUSB_PATH)\b"
 )
 DECLARED = re.compile(
     r"^\s*(?:option|set)\(\s*(" + PREFIX + r"_[A-Z0-9_]+)|\bDEFINED\s+(" + PREFIX + r"_[A-Z0-9_]+)",

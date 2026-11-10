@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* The running link below the C ABI, against the scripted board: pings, commands and their answers,
+/* The running link below the C ABI, against the scripted board: commands and their answers,
  * the limits of a frame, events handed to the handler, and a reader that sees the cable go. */
 #include "mimhid_proto.h"
 #include "scripted_support.hpp"
@@ -16,7 +16,7 @@ namespace tr = mimhid::transport;
 
 namespace {
 
-void test_ping_and_commands() {
+void test_commands_and_events() {
     Board board;
     if (!board.start())
         return;
@@ -24,12 +24,6 @@ void test_ping_and_commands() {
     MIMHID_CHECK(link.open(board.path()).ok);
     std::atomic<int> events{0};
     link.start([&](const tr::BoardEvent&) { ++events; });
-
-    tr::BoardInfo info;
-    MIMHID_CHECK(link.ping(200, &info) && info.compatible && info.max_nodes == 8);
-    board.set_answer_pings(false);
-    MIMHID_CHECK(!link.ping(30, &info));
-    board.set_answer_pings(true);
 
     const std::uint8_t payload[2] = {7, 8};
     tr::CommandResult r = link.command(MIMHID_T_RESET, payload, sizeof(payload), 200, 1);
@@ -127,8 +121,6 @@ void test_reader_sees_the_hang_up() {
     MIMHID_CHECK(link.send_report(0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
     MIMHID_CHECK(link.send_control_reply(1, 0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
     MIMHID_CHECK(!link.wait_ready(10));
-    tr::BoardInfo info;
-    MIMHID_CHECK(!link.ping(20, &info));
     link.close();
 }
 
@@ -156,7 +148,7 @@ void test_command_write_failures() {
 } // namespace
 
 void test_link() {
-    test_ping_and_commands();
+    test_commands_and_events();
     test_reader_sees_the_hang_up();
     test_command_write_failures();
 }

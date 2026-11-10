@@ -55,9 +55,6 @@ class Link final {
     void start(EventHandler handler);
     void close();
 
-    // Pings until the board answers or the timeout passes.
-    bool ping(std::uint32_t timeout_ms, BoardInfo* out);
-
     // Sends a command frame (a sequence number is prepended) and waits for its ACK or NAK. An
     // attempt that heard nothing back is sent again unchanged, with the same sequence number, so
     // the board answers it again instead of running it twice (and a late answer still counts).
@@ -66,9 +63,6 @@ class Link final {
 
     // Reads the board's line counters, and zeroes them when reset is true.
     CommandResult counters(bool reset, std::uint32_t timeout_ms, LinkCounters* out);
-
-    // Sends a commit command with reconnect delay and waits for ACK or NAK.
-    CommandResult commit(std::uint16_t delay_ms, std::uint32_t timeout_ms);
 
     // Asserts physical D+ High (connect) and waits for ACK or NAK.
     CommandResult connect(std::uint32_t timeout_ms);
@@ -105,7 +99,7 @@ class Link final {
 
     std::mutex tx_mutex_;    // one frame on the wire at a time
     std::mutex cmd_mutex_;   // one command in flight
-    std::mutex state_mutex_; // guards the reply slot and the pong
+    std::mutex state_mutex_; // guards the reply slot
     std::condition_variable state_cv_;
     std::uint8_t seq_{0};
     std::uint8_t pending_seq_{0};
@@ -115,8 +109,6 @@ class Link final {
     std::uint8_t reply_code_{0};
     std::uint8_t reply_data_length_{0};
     std::array<std::uint8_t, 16> reply_data_{};
-    bool pong_ready_{false};
-    BoardInfo pong_{};
 };
 
 } // namespace mimhid::transport

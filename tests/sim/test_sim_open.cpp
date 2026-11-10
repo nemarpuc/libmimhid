@@ -273,7 +273,7 @@ void test_filled_values() {
     if (device == nullptr)
         return;
     char text[64];
-    MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) == 0 ||
+    MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) > 0 &&
                  std::strcmp(text, "libmimhid") == 0);
 
     static const std::uint16_t usages[1] = {0xCD};

@@ -407,9 +407,9 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
     }
     if (!device->link.failed() && device->configured &&
         device->config.transport.keep_attached == 0U) {
-        const std::uint8_t detach[1] = {1U};
-        const tr::CommandResult sent =
-            device->link.command(MIMHID_T_COMMIT, detach, 1, control_timeout_ms, kCommandAttempts);
+        const std::uint8_t detach[3] = {1U, 0U, 0U};
+        const tr::CommandResult sent = device->link.command(MIMHID_T_COMMIT, detach, sizeof(detach),
+                                                            control_timeout_ms, kCommandAttempts);
         if (sent.status != tr::CommandStatus::ack && retained == MIMHID_OK)
             retained = command_error(sent, "device.close", "The board did not go off the bus.",
                                      MIMHID_T_COMMIT);
@@ -469,8 +469,8 @@ int32_t MIMHID_CALL mimhid_device_is_ready(const mimhid_device* device) {
 mimhid_result MIMHID_CALL mimhid_device_wait_ready(mimhid_device* device,
                                                    const uint32_t timeout_ms) try {
     mimhid::detail::clear_error();
-    if (device == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "device", "The Device handle is null.");
+    if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
     if (device->link.wait_ready(timeout_ms))
@@ -536,8 +536,8 @@ MIMHID_C_RESULT_CATCH("device.batch_end")
 mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
                                                       const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
-    if (device == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "device", "The Device handle is null.");
+    if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
         return MIMHID_ERR_PARAM;
     }
     if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
@@ -553,8 +553,9 @@ MIMHID_C_RESULT_CATCH("device.remote_wakeup")
 mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_device* device,
                                                    mimhid_device_info* out_info) try {
     mimhid::detail::clear_error();
-    if (device == nullptr || out_info == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "device", "A Device and an output pointer are required.");
+    if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
+        out_info == nullptr) {
+        set_error(MIMHID_ERR_PARAM, "device", "A live Device and an output pointer are required.");
         return MIMHID_ERR_PARAM;
     }
     *out_info = device->info;
@@ -567,12 +568,13 @@ mimhid_result MIMHID_CALL mimhid_device_link_counters(mimhid_device* device, con
                                                       const uint32_t control_timeout_ms,
                                                       mimhid_link_counters* out_counters) try {
     mimhid::detail::clear_error();
-    if (device == nullptr || out_counters == nullptr ||
+    if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
+        out_counters == nullptr ||
         !mimhid::detail::valid_struct(out_counters, out_counters->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*out_counters)),
                                       "link_counters")) {
         set_error(MIMHID_ERR_PARAM, "device",
-                  "A Device and an output with its struct_size set are required.");
+                  "A live Device and an output with its struct_size set are required.");
         return MIMHID_ERR_PARAM;
     }
     if (!reserved_is_zero(out_counters->reserved, "link_counters.reserved"))
@@ -598,12 +600,13 @@ MIMHID_C_RESULT_CATCH("device.link_counters")
 mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
                                                mimhid_board_limits* out_limits) try {
     mimhid::detail::clear_error();
-    if (device == nullptr || out_limits == nullptr ||
+    if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
+        out_limits == nullptr ||
         !mimhid::detail::valid_struct(out_limits, out_limits->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*out_limits)),
                                       "board_limits")) {
         set_error(MIMHID_ERR_PARAM, "device",
-                  "A Device and an output with its struct_size set are required.");
+                  "A live Device and an output with its struct_size set are required.");
         return MIMHID_ERR_PARAM;
     }
     if (!reserved_is_zero(out_limits->reserved, "board_limits.reserved"))

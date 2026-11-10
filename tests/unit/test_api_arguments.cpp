@@ -27,7 +27,8 @@ void test_device_arguments() {
     const mimhid_commit_timeouts timeouts{sizeof(mimhid_commit_timeouts), 0, 100, 1000};
     MIMHID_CHECK(refused(mimhid_device_close(nullptr, 100, 100)));
     MIMHID_CHECK(refused(mimhid_device_set_usb_identity(nullptr, nullptr, nullptr, &timeouts)));
-    MIMHID_CHECK(mimhid_device_latched_error(nullptr) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(refused(mimhid_device_latched_error(nullptr)) &&
+                 std::strcmp(mimhid_last_error()->field, "device") == 0);
     MIMHID_CHECK(mimhid_device_is_ready(nullptr) == 0);
     MIMHID_CHECK(refused(mimhid_device_wait_ready(nullptr, 10)));
     MIMHID_CHECK(refused(mimhid_device_batch_begin(nullptr)));
@@ -51,7 +52,8 @@ void test_device_arguments() {
 void test_node_arguments() {
     const mimhid_commit_timeouts timeouts{sizeof(mimhid_commit_timeouts), 0, 100, 1000};
     MIMHID_CHECK(refused(mimhid_node_close(nullptr, &timeouts, 100)));
-    MIMHID_CHECK(mimhid_node_id(nullptr) == 0U);
+    MIMHID_CHECK(mimhid_node_id(nullptr) == 0U && mimhid_last_error()->code == MIMHID_ERR_PARAM &&
+                 std::strcmp(mimhid_last_error()->field, "node") == 0);
     const std::uint8_t data[1] = {0};
     MIMHID_CHECK(refused(mimhid_node_set_feature_response(nullptr, 0, data, 1, 100)));
     MIMHID_CHECK(refused(mimhid_node_set_queue_depth(nullptr, 1, 100)));
@@ -102,10 +104,15 @@ void test_spec_arguments() {
 
 void test_discovery_arguments() {
     MIMHID_CHECK(refused(mimhid_discover(100, nullptr)));
-    MIMHID_CHECK(mimhid_discovery_count(nullptr) == 0U);
-    MIMHID_CHECK(mimhid_discovery_get(nullptr, 0) == nullptr);
-    mimhid_discovery_destroy(nullptr); // ignored
-    MIMHID_CHECK(true);
+    MIMHID_CHECK(mimhid_discovery_count(nullptr) == 0U &&
+                 mimhid_last_error()->code == MIMHID_ERR_PARAM &&
+                 std::strcmp(mimhid_last_error()->field, "discovery") == 0);
+    MIMHID_CHECK(mimhid_discovery_get(nullptr, 0) == nullptr &&
+                 mimhid_last_error()->code == MIMHID_ERR_PARAM &&
+                 std::strcmp(mimhid_last_error()->field, "discovery") == 0);
+    mimhid_discovery_destroy(nullptr);
+    MIMHID_CHECK(mimhid_last_error()->code == MIMHID_ERR_PARAM &&
+                 std::strcmp(mimhid_last_error()->field, "discovery") == 0);
 }
 
 } // namespace

@@ -55,16 +55,6 @@ void Link::reader_loop() {
 
 void Link::handle_frame(const Frame& frame) {
     switch (frame.type) {
-    case MIMHID_T_PONG: {
-        BoardInfo info;
-        if (decode_pong(frame, &info)) {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            pong_ = info;
-            pong_ready_ = true;
-            state_cv_.notify_all();
-        }
-        break;
-    }
     case MIMHID_T_ACK:
     case MIMHID_T_NAK: {
         const std::size_t need = frame.type == MIMHID_T_ACK ? 2U : 3U;
@@ -112,32 +102,6 @@ void Link::handle_frame(const Frame& frame) {
     default:
         break;
     }
-}
-
-bool Link::ping(std::uint32_t timeout_ms, BoardInfo* out) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    std::uint8_t frame[8];
-    const std::size_t n = encode_frame(MIMHID_T_PING, nullptr, 0, frame);
-    while (std::chrono::steady_clock::now() < deadline) {
-        {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            pong_ready_ = false;
-        }
-        std::lock_guard<std::mutex> tx(tx_mutex_);
-        if (port_.write_all(frame, n, 100, nullptr) != IoStatus::ok)
-            return false;
-        std::unique_lock<std::mutex> lock(state_mutex_);
-        const auto step = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-        state_cv_.wait_until(lock, step < deadline ? step : deadline,
-                             [&] { return pong_ready_ || failed(); });
-        if (pong_ready_) {
-            *out = pong_;
-            return true;
-        }
-        if (failed())
-            return false;
-    }
-    return false;
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -202,17 +166,6 @@ CommandResult Link::counters(bool reset, std::uint32_t timeout_ms, LinkCounters*
     if (result.ok() && !decode_counters(result.data.data(), result.data_length, out))
         result.status = CommandStatus::io_error;
     return result;
-}
-
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-CommandResult Link::commit(std::uint16_t delay_ms, std::uint32_t timeout_ms) {
-    clear_ready();
-    const std::uint8_t payload[3] = {
-        0, // detach: 0
-        static_cast<std::uint8_t>(delay_ms & 0xFF),
-        static_cast<std::uint8_t>((delay_ms >> 8) & 0xFF),
-    };
-    return command(MIMHID_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
 }
 
 CommandResult Link::connect(std::uint32_t timeout_ms) {

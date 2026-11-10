@@ -11,8 +11,8 @@ THIRD_PARTY_NOTICES.md and in each release's accompanying notices.
 This distribution includes software developed by the libmimhid contributors
 and is licensed under the MIT License. The complete license text is in LICENSE.
 
-1. Host library (`libmimhid` shared, static, and runtime archives)
-------------------------------------------------------------------
+1. Host library (`libmimhid` shared and static archives)
+--------------------------------------------------------
 
 The host library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`,
 `libmimhid.a`, `libmimhid_static.a`, `mimhid_static.lib`) is compiled solely from first-party MIT
