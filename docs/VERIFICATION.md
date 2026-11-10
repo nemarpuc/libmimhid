@@ -54,7 +54,7 @@ The two sister libraries use some of the same words for different things:
 |---|---|---|---|---|
 | HID item writer & descriptor builder (`src/hid/`) | `item_writer`, `descriptor_builder`, `mimhid.golden-descriptors` | — | Used by every profile open | — |
 | Raw descriptor validator (`src/hid/validator.cpp`) | `validator_parser_state`, `validator_arithmetic`, `validator_encoding`, `spec_rejections`, `mimhid_fuzz_descriptor` | `api_raw_node` | `test_sim_reports` (raw Input, Output, Feature) | — |
-| Profile specs & option validation (`src/profiles/spec.cpp`) | `profiles_*`, `spec_rejections`, `mimhid.golden-descriptors`, `hid-tools` (`hid_decode.py`) | `api_open` | `test_sim_open`, `test_sim_reports` | — |
+| Profile specs & option validation (`src/profiles/spec.cpp`) | `profiles_*`, `spec_rejections`, `mimhid.golden-descriptors`, the `hid-tools` CI job (the official hid-tools parser) | `api_open` | `test_sim_open`, `test_sim_reports` | — |
 | Profile state machines & edge guards (`src/profiles/state.cpp`) | `profiles_common`, `profiles_keyboard`, `profiles_mouse`, `profiles_usage_controls`, `profiles_gamepad`, `profiles_touch`, `profiles_pen`, `profiles_raw`, `profiles_battery`, `input_rejections` | `api_reports` | `test_sim_reports` | — |
 | Null, unset, and out-of-range API arguments (`src/api/`) | `api_arguments`, `error_detail`, `spec_rejections`, `input_rejections` | `api_open`, `api_commands` | `test_sim_arguments` | — |
 | C ABI struct layout, exports & C++20 wrapper (`include/`) | `mimhid.abi-layout-oracle`, `mimhid.c-abi`, `mimhid.cpp-wrapper`, `symbol_lint.py` | — | — | — |

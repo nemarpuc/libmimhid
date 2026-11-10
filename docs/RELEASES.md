@@ -93,7 +93,7 @@ firmware from source with your board and pin definitions
 - **Linux (`ubuntu22.04`).** Built on Ubuntu 22.04 and checked by
   `tools/release/glibc_check.py` so no symbol requires a `GLIBC` version newer
   than `2.35`. `libmimhid.so` links `-static-libstdc++ -static-libgcc` and hides
-  all non-API symbols behind `cmake/mimhid.map` (`MIMHID_0.2`), so the shared
+  all non-API symbols behind `cmake/mimhid.map` (version node `MIMHID_2.0`), so the shared
   library does not expose or depend on the host's `libstdc++.so`.
 - **macOS (`macos-x86_64`, `macos-arm64`).** Built with
   `-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0`, restricted to the public C symbol list

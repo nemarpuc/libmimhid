@@ -14,7 +14,7 @@ firmware/
     config.h       configuration structures and limits
     tusb_config.h  TinyUSB configuration
     hal.h          the twelve functions a port provides
-  rp/            RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2) - official support
+  rp/            RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2)
   ports/
     nrf52840/      nRF52840 (TinyUSB BSP, UARTE1 + interrupt)
     stm32f4/       STM32F4 (TinyUSB BSP, USART2 + circular DMA)
@@ -50,9 +50,9 @@ A port implements the twelve functions declared in `firmware/common/hal.h`:
 | `hal_unique_id(out, max)` | Copy the chip's unique id and return its length, or 0 when there is none. Used for `serial_from_chip_id`. |
 | `hal_control_silent_drop()` | Disarm endpoint 0 IN and OUT without a STALL, so that it NAKs until the target gives up. `control.c` calls it for `MIMHID_CONTROL_ACTION_DROP`, and in place of the endpoint 0 stall the stack makes after a dropped transfer. Only the RP2040/RP2350 port implements it; the other ports have an empty function. |
 
-The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the official RP2040 and RP2350 dual-core Pico builds do this).
+The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the RP2040 and RP2350 port, `firmware/rp/main.c`, does this).
 
-The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 5 bytes (1,045 with the defaults). The core keeps its own receive ring of `16,384` bytes (`MIMHID_UART_RX_RING_LEN` in `firmware/common/config.h`), so a port DMA buffer of 512 to 4,096 bytes is a reasonable choice.
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 6 bytes (`MIMHID_MAX_FRAME_PAYLOAD` is 1,032 with the defaults of `firmware/common/config.h`, so 1,038 bytes). The core keeps its own receive ring (`RX_SIZE` in `firmware/common/core.c`: 4,096 bytes for a `MIMHID_MAX_FRAME_PAYLOAD` up to 1,500, else 8,192); the RP port's DMA ring is 1,024 bytes (`DMA_BUF_SIZE`).
 
 ## Endpoint count and the HID layout
 
