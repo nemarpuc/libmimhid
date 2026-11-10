@@ -54,7 +54,7 @@ The board acknowledges each command (`0x10..0x1B`, `0x1D`). The host waits the c
 3. The host sends an attach `COMMIT` (`Link::connect`) and waits up to `reconnect_timeout_ms` for its `ACK`. The board builds the device, configuration, string, and report descriptors (`NAK_DESCRIPTOR` when they do not fit or when two interfaces reuse an endpoint number), drops queued reports, calls `tud_connect()`, and sends `ACK`. The host returns on that `ACK`.
 4. When the target configures the device (`SET_CONFIGURATION(1)`), the board sends `EVENT MOUNTED`. `mimhid_device_wait_ready` waits for it; no commit does.
 
-The receive side of the firmware answers `PING`, `SET_BAUD`, `COUNTERS`, `PROBE`, and `CONTROL_REPLY` itself. It puts every other command in a mailbox of four slots (`cmd_push`; a full mailbox drops the frame, and the host sends it again when no answer comes), and the USB side runs it (`run_command`, from `mimhid_usb_poll`). Staging and applying a configuration therefore both happen on the USB side, so on a two-core MCU no core changes a descriptor that the other is serving.
+The receive side of the firmware answers `PING`, `SET_BAUD`, `COUNTERS`, `PROBE`, and `CONTROL_REPLY` itself. It puts every other command in a mailbox (`g_cmd`, `cmd_push`: a ring of four slots that holds three commands; a full mailbox drops the frame, and the host sends it again when no answer comes), and the USB side runs it (`run_command`, from `mimhid_usb_poll`). Staging and applying a configuration therefore both happen on the USB side, so on a two-core MCU no core changes a descriptor that the other is serving.
 
 ## Interfaces and nodes
 

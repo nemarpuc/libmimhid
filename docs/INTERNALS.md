@@ -31,11 +31,12 @@ There is no Context: a Device owns its port and one reader thread, so two Device
 | `mimhid_device::nodes_mutex` | `slots` | The reader thread reads it to find the Node an event belongs to; Node open and close write it. `live_nodes` copies the pointers under it. |
 | `Link::tx_mutex_` | One frame on the wire at a time | Reports, commands, and control replies all go through it. |
 | `Link::cmd_mutex_` | One command in flight | A command waits for its ACK or NAK while holding it. |
-| `Link::state_mutex_`, `state_cv_` | The reply slot (`reply_ready_`, `reply_nak_`, `reply_code_`), `mounted_`, and the pong | The reader thread fills the slot; the command waits on the condition variable. |
+| `Link::state_mutex_`, `state_cv_` | The reply slot (`reply_ready_`, `reply_nak_`, `reply_code_`, `reply_data_`) | The reader thread fills the slot; the command waits on the condition variable. |
+| `Link::ready_`, `failed_`, `stop_` | Mounted state, a failed port, the reader thread's stop request | Atomics. The reader thread sets `ready_` on `EVENT MOUNTED`; `mimhid_device_is_ready` and `mimhid_device_wait_ready` read it. |
 | `reconfiguring`, `closing`, `latched`, `loss_reported`, `control_routed` | Flags the reader thread and the caller both read | Atomics. `closing` is set once by close; `latched` holds `MIMHID_ERR_NO_DEVICE` after a serial failure. |
 | `mimhid_node::transfer_inflight` and the `completion_*` fields | The one report a Node may have in flight | `exchange(true)` on entry is the check that refuses a second submit with `MIMHID_ERR_BUSY`. |
 
-Order, where they nest: `cmd_mutex_`, then `tx_mutex_`, then `state_mutex_` (`Link::ping` waits for the pong holding `tx_mutex_`). `nodes_mutex` is never held across a `Link` call.
+`Link::command` holds `cmd_mutex_` for the whole command and, inside it, takes `tx_mutex_` for the write and then, after releasing it, `state_mutex_` for the wait; `tx_mutex_` and `state_mutex_` are not held together.
 
 Apart from these, the library relies on the caller. A Device and its Nodes form one domain, and the caller makes sure no two calls in a domain run at once (see [API.md](API.md#threading-and-domains)). The Node mutators (`mimhid_keyboard_key` and the others in `state.cpp`) take no lock for that reason. The reader thread touches only the atomics, `nodes_mutex`, the `Link` internals, and the event sink; it never reads Node state.
 
@@ -46,12 +47,12 @@ The error record is `thread_local` (`error_detail.cpp`): each call clears it on 
 `mimhid_node_submit` (`c_api_send.cpp`) builds and writes one report, synchronously:
 
 1. Check the arguments and the profile (a Raw Node must use `mimhid_raw_submit`).
-2. `link_available`: refuse when the serial link is gone, a batch is open, or the board is re-enumerating.
+2. `link_available`: refuse when the serial link is gone, the Node was opened in a batch that has not ended, or the board is re-enumerating.
 3. `transfer_inflight.exchange(true)`; refuse with `MIMHID_ERR_BUSY` when it was already set.
 4. `consume_completion`: surface the result of the previous report.
 5. Pick the report: pending input first, then the battery report if its level changed.
 6. For a touch Node, derive Scan Time from a steady-clock epoch.
-7. `serialize_node` or `serialize_battery` writes the bytes into a stack buffer. Nothing is allocated on this path.
+7. `serialize_node` or `serialize_battery` writes the bytes into a stack buffer of `kMaximumReportBytes` (`MIMHID_HOST_MAX_REPORT_BYTES`, `src/api/support.hpp`).
 8. With `transport.validate_reports` set to `1`, `validate_serialized_report` checks them against the Spec.
 9. `write_report` calls `Link::send_report` (one `write` under `tx_mutex_`, bounded by the caller's timeout) and settles the Node with `transfer_complete`.
 
@@ -61,12 +62,11 @@ Reports are not acknowledged by the board. A failed write rolls the scan time ba
 
 `commit_device` (`src/api/device_ops.cpp`) applies every staged change and is the only place the board's configuration changes:
 
-1. It takes a `ReconfigGuard`, which sets `reconfiguring = true` so input calls return `MIMHID_ERR_BUSY` meanwhile.
-2. With no live Node left, it sends a `COMMIT` with byte `1` (`{1, 0, 0}`) that detaches the board from the USB bus, sets `device->configured = false`, and returns.
-3. When `device->configured` is already `true`, it first detaches the board by calling `Link::disconnect` (`COMMIT` `{1, 0, 0}`) and, if `usb_config.reconnect_delay_ms > 0`, sleeps `reconnect_delay_ms` on the host so the target USB host observes the disconnect cleanly.
-4. It encodes and sends `DEVICE_CONFIG`, then for each live Node sends `NODE_BEGIN`, one or more `NODE_DATA` chunks (up to 240 bytes each), `QUEUE_DEPTH` (when `node->queue_depth != 0`), and every registered `FEATURE` answer.
-5. It calls `Link::connect(reconnect_delay_ms, reconnect_timeout_ms)`, which sends `COMMIT` `{0, delay_lo, delay_hi}`, waits up to `500 ms` (`kDefaultCommandTimeoutMs`) for the board's `ACK`, and then waits up to `reconnect_timeout_ms` on `state_cv_` for `mounted_` (`EVENT MOUNTED`).
-6. Each command is tried up to `kCommandAttempts` (3) times with the same sequence number; the board answers a repeated sequence number again instead of running the command twice.
+1. It takes a `ReconfigGuard`, which sets `reconfiguring`, so input calls return `MIMHID_ERR_BUSY` meanwhile.
+2. With no live Node left, it sends a detach `COMMIT` (`{1, reconnect_delay_ms & 0xFF, reconnect_delay_ms >> 8}`; the firmware ignores the last two bytes) when the board is configured, sets `configured = false`, and returns.
+3. It checks the descriptors together against the board's `max_descriptor_bytes` (`MIMHID_ERR_OVERFLOW`), assigns the interface numbers (`assign_interfaces`), and sends `DEVICE_CONFIG`, then for each live Node `NODE_BEGIN`, `NODE_DATA` chunks of up to `MIMHID_NODE_DATA_CHUNK` (240) bytes, every registered `FEATURE` answer, and `QUEUE_DEPTH` when `queue_depth` is not 0. Each frame goes through `Link::command` with `kCommandAttempts` (3) and `control_timeout_ms`; the board answers a repeated sequence number again instead of running the command twice.
+4. When the board is configured, it calls `Link::disconnect` (detach `COMMIT` `{1, 0, 0}`, one attempt, `control_timeout_ms`) and, when `reconnect_delay_ms` is not 0, sleeps that long on the host.
+5. It calls `Link::connect` (attach `COMMIT` `{0, 0, 0}`, one attempt), which waits up to `reconnect_timeout_ms` for the board's `ACK`. It does not wait for `EVENT MOUNTED`; `mimhid_device_wait_ready` does.
 
 `mimhid_device_batch_begin` sets `batch_open`; while it is set, Node open and close only stage their change (`staged_only`, `dirty`) and `mimhid_device_batch_end` commits once.
 
@@ -74,7 +74,7 @@ Reports are not acknowledged by the board. A failed write rolls the scan time ba
 
 The reader thread (`Link::reader_loop`) feeds bytes to a `FrameParser`, completes the pending command on an ACK or NAK, and passes every other frame to `handle_frame`, which hands events to `deliver_event` in `device_ops.cpp`. That function turns a `BoardEvent` into a `mimhid_event`, finds the Node by interface under `nodes_mutex`, and calls `transport.event_sink` on the reader thread. The data pointer is valid only during the call. The one library call the sink may make is `mimhid_device_control_reply`, which only writes a frame (`Link::send_control_reply`) and never waits for an answer.
 
-`FrameParser` keeps a 16 KiB ring. It skips garbage one byte at a time, accepts only the frame types a board sends, and drops an incomplete frame byte by byte when the line has been idle for 10 ms (`MIMHID_PARSER_IDLE_RESET_MS`).
+`FrameParser` keeps a 16 KiB ring (`kCapacity`). It skips garbage one byte at a time, accepts only the frame types a board sends (`PONG`, `ACK`, `NAK`, `EVENT`), and drops an incomplete frame one byte at a time (`FrameParser::idle`) when a read of 10 ms, the reader thread's wait while a frame is incomplete, brings nothing.
 
 ## Close
 
@@ -88,56 +88,56 @@ The reader thread (`Link::reader_loop`) feeds bytes to a `FrameParser`, complete
 - Only exported functions are bound: `static inline` functions are skipped.
 - In C#, a function with a structure pointer has two forms with the same entry point: `in`/`ref` for the common case, `nint` where `null` is allowed. An array in a structure is a `fixed` buffer, which keeps the structure blittable (no marshalling copy, and a default structure is valid). A `size_t*` named `out_*` is `out nuint`, any other is `ref nuint`.
 - `bindings/python/tests/test_contract.py` is hand-written: what the package exports, and that the binding fills no option field. The layout tests also check that a new options structure has `struct_size` 0.
-- `tools/bindings/generate.py` is shared with `libaoahid` (the two copies differ only in the copyright line); `TYPE_RENAMES` and `CS_MEMBER_RENAMES` hold the few names that are not the C name with its prefix cut, kept because `libaoahid` published them first.
+- `libaoahid` has its own copy of `tools/bindings/generate.py`; the two differ in more than the copyright line (compare them before changing one). `TYPE_RENAMES` and `CS_MEMBER_RENAMES` hold the few names that are not the C name with its prefix cut.
 - The layout test of each language runs the oracle and compares every structure size, field offset, and constant. `generate.py --check` fails when a committed file differs from the header; CI runs both (`bindings` job).
 - `tools/release/version_files.py` lists the version sites of the hand-written files; the constants inside the generated files are not on it, because `--check` pins them to the header.
 - The generator refuses what it cannot bind (an unknown type, a field named like a Python keyword, two types with one short name) instead of guessing.
 
 ## Design decisions
 
-Each internal design decision below states the mechanism, its reason, the alternative that was rejected, and where it is documented in the repository.
+Each decision states what the code does. A reason is given only where the repository records one (a code comment, `CHANGELOG.md`, or a commit message), and says where.
 
-### 1. Zero heap allocation on the mutation and report-submit paths, and one report in flight per Node
+### Reports are written synchronously, one in flight per Node
 
-- **Decision:** Mutating a Node (`src/profiles/state.cpp`) updates fixed-size arrays inside `NodeState`. `mimhid_node_submit` (`src/api/c_api_send.cpp:181-207`) serializes the report into a stack buffer (`std::array<uint8_t, kMaxStackReport>`), and `Link::send_report` (`src/transport/link.cpp:240-257`) encodes the wire frame into a stack buffer (`uint8_t buf[MIMHID_PROTO_MAX_PAYLOAD + 8]`) before calling `SerialPort::write` under `tx_mutex_`. `mimhid_node::transfer_inflight` permits at most one report submission in flight per Node at a time.
-- **Reason:** Input submission runs at up to 1000 Hz per interface; avoiding heap allocation and dynamic queueing on the submit path keeps host CPU cost deterministic and eliminates unbounded host-side queue buildup if the serial port stalls (`docs/ARCHITECTURE.md:47`, `docs/LATENCY.md:64`, `docs/LIMITS.md:108`, `src/api/c_api_send.cpp:181-207`).
-- **Rejected alternative:** Allocating a `std::vector<uint8_t>` per report or queueing reports on a host-side background writer thread, which would add allocator jitter and hide serial backpressure from the caller.
+- **Decision:** The Node mutators in `src/profiles/state.cpp` change fixed-size arrays inside `NodeState`. `mimhid_node_submit` serializes the report into a stack buffer (`std::array<std::uint8_t, kMaximumReportBytes>`) and `Link::send_report` writes the frame under `tx_mutex_` on the caller's thread. `mimhid_node::transfer_inflight` allows one report of a Node in flight at a time.
+- **Reason:** Not recorded.
+- **Rejected:** Not recorded.
 
-### 2. Pending-edge guard (`MIMHID_ERR_BUSY`) on opposite state transitions
+### An opposite transition waits for the report of the first
 
-- **Decision:** Each profile state machine tracks which keys, buttons, toggle usages, or contact slots have an unsent transition (`keys_edge`, `buttons_edge`, `usages_edge`, `pending_edge`, `tip_edge`, `barrel_edge` in `src/profiles/state.cpp`). Attempting to reverse a transition (for example, pressing and releasing a key, or lifting and re-placing the same touch slot) before `mimhid_node_submit` has sent the first transition returns `MIMHID_ERR_BUSY` without mutating state.
-- **Reason:** Because state mutators update a snapshot that is serialized only when `mimhid_node_submit` is called, allowing both a press and a release before a submit would collapse the two opposite edges into a no-op and silently drop the tap or click on the target OS (`include/mimhid.h:1433-1435`, `src/profiles/state.cpp:110-114,193-194,274-275,382-383,465-469`).
-- **Rejected alternative:** Silently overwriting the previous unsent state (which loses short taps/clicks when a caller forgets to submit between press and release) or maintaining an unbounded internal event queue per Node.
+- **Decision:** Each profile state keeps which keys, buttons, controls, or lifecycle changes have not yet been sent (`key_transitions`, `modifier_transitions`, `button_transitions`, `transitions`, `hat_transition_pending`, `lifecycle_transition_pending`, `barrel_transitions`, `in_range_transition_pending`, `tip_transition_pending`, `eraser_transition_pending`, `tool_switch_departure`). Reversing one of them before a report has carried it (`pending_transition` in `state.cpp`) returns `MIMHID_ERR_BUSY` and changes nothing.
+- **Reason:** Not recorded. `mimhid.h` states the result ("an opposite edge is unsent").
+- **Rejected:** Not recorded.
 
-### 3. Lock-free SPSC ring per HID interface on the board, dropping the newest report with `REPORT_LOST` when full
+### One report queue per interface on the board; a full queue drops the new report
 
-- **Decision:** In `firmware/common/core.c:104-149`, each USB HID interface has a fixed-size single-producer single-consumer ring (`MIMHID_REPORT_QUEUE_LEN = 16`, holding 15 reports) indexed by `head` and `tail` with C11 `__atomic_load_n(__ATOMIC_ACQUIRE)` and `__atomic_store_n(__ATOMIC_RELEASE)`. On RP2040 and RP2350 (`firmware/rp/main.c:8-25`, `firmware/rp/hal_rp.c:34-99`), core 1 produces into the ring and core 0 pops and calls `tud_hid_n_report`, with the UART DMA buffer placed in `.scratch_y` SRAM. When a ring is full, `queue_push` drops the incoming report and increments `dropped_reports` (reported via `EVENT REPORT_LOST` when enabled by `LOSS_CONFIG`).
-- **Reason:** Running UART parsing on core 1 and TinyUSB on core 0 with acquire/release SPSC rings avoids disabling interrupts or taking locks across cores, and placing the DMA buffer in `.scratch_y` prevents bus contention with core 0. Dropping the newest report when full preserves already-queued state transitions in order and lets the host observe saturation through `MIMHID_EVENT_REPORT_LOST` (`docs/ARCHITECTURE.md:58-65`, `docs/LATENCY.md:65,67`, commits `ab98886` and `8add634`).
-- **Rejected alternative:** Sharing a mutex-protected queue across cores or overwriting the oldest queued report on overflow (which could drop a key-down or contact-lift edge while keeping a later motion frame).
+- **Decision:** Each HID interface has a single-producer single-consumer ring (`report_queue_t`, `MIMHID_QUEUE_DEPTH` slots, `head` and `tail` read and written with `__atomic_load_n` and `__atomic_store_n`). The receive side writes it and the USB side reads it; on the RP2040 and RP2350 these are core 1 and core 0. A report that finds the queue full is dropped and, once `LOSS_CONFIG` turned loss reporting on, counted in `g_lost` and reported as `EVENT REPORT_LOST`.
+- **Reason:** Recorded for the depth: `core.c` says "A short queue bounds how late a report can reach the target". Commit `ab98886` ("tell the host about dropped reports") added the count. Not recorded for the queue design or for dropping the new report rather than the oldest.
+- **Rejected:** Not recorded.
 
-### 4. Two-copy configuration staging (`staging` vs. `active`) and a single-slot command mailbox
+### Staged and active configuration on the USB side, behind a command mailbox
 
-- **Decision:** `firmware/common/core.c:72-97,151-158` maintains two complete `mimhid_config_state_t` structures (`staging` and `active`) and a single-slot command mailbox (`cmd_slot`). The UART receive context (`mimhid_rx_poll`) writes `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA` directly into `staging`, and posts commands (`COMMIT`, `FEATURE`, `RESET`, `REMOTE_WAKEUP`, `CONTROL_CONFIG`, `LOSS_CONFIG`, `QUEUE_DEPTH`) to `cmd_slot`. Only the USB context (`mimhid_usb_poll`) reads `cmd_slot` and copies `staging` to `active` during `COMMIT`.
-- **Reason:** On dual-core ports (RP2040, RP2350), core 0 serves USB descriptor requests from `active` inside `tud_task()` while core 1 parses UART frames. Keeping `staging` separate from `active` and executing `COMMIT` on core 0 ensures no core ever mutates a descriptor table while the other core is serving it to the USB host (`docs/PROTOCOL.md:53`, `firmware/common/core.c:72-97,568-602`).
-- **Rejected alternative:** Mutating the live descriptor state directly from the UART receive context or taking a cross-core lock on every USB descriptor read.
+- **Decision:** The receive side passes every command except `PING`, `SET_BAUD`, `COUNTERS`, `PROBE`, and `CONTROL_REPLY` to the USB side through `g_cmd` (four slots, three commands). The USB side (`run_command`) fills the staged configuration (`g_staged`) from `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA`, and builds the active descriptors from it on an attach `COMMIT` (`mimhid_apply_config` in `usb_descriptors.c`).
+- **Reason:** Recorded for the commands kept on the receive side: `SET_BAUD` "Runs on the receive side: the ACK has to leave at the old rate before the switch", `COUNTERS` because "the counters belong to it", and `CONTROL_REPLY` because "The USB side may be waiting in a TinyUSB callback, so the reply is taken here" (all `core.c`). Not recorded for the rest.
+- **Rejected:** Not recorded.
 
-### 5. Command sequence numbers (`1..255`) with single-slot deduplication on the board
+### A repeated command is answered, not run again
 
-- **Decision:** Every command frame (except `PING` and `PROBE`) begins with a 1-byte sequence number (`1..255`, wrapping from `255` to `1`). The host (`Link::send_command` in `src/transport/link.cpp:150-220`) retries an unacknowledged command up to 3 times (`kCommandAttempts`) with the **same** sequence number. The board (`firmware/common/core.c:568-589`) caches the last executed `(seq, type, is_nak, code, data)` and, if the same `(seq, type)` arrives again, resends the cached `ACK`/`NAK` without re-executing the command. A `PING` clears `last_cmd_seq`.
-- **Reason:** If a board's `ACK` is corrupted on the UART return path (or delayed past the host's timeout by a USB-UART adapter latency timer) and the host retransmits the command, re-executing a side-effecting command like `COMMIT` would cause a second USB bus disconnect/re-enumeration, and re-executing `RESET` would drop newly queued reports (`docs/PROTOCOL.md:45`, `src/transport/link.cpp:150-220`, commit `8add634`).
-- **Rejected alternative:** Stateless command handling on the board (where every retry re-runs the command) or sequence numbers without reset on `PING` (which would collide when a new host process connects and starts at sequence number `1`).
+- **Decision:** Every command frame starts with a one-byte sequence number; the host counts it up per command and lets it wrap (`Link::command`, `seq_`). The host resends an unanswered command with the same number up to `kCommandAttempts` (3) times. The board keeps the answer to the last command it ran (`g_answer_last`: sequence number, type, NAK code, and the `PING` count) and answers a command with the same number and type again without running it. A `PING` makes it forget.
+- **Reason:** `docs/PROTOCOL.md` gives the effect ("a `COMMIT` does not re-enumerate, a `RESET` drops nothing more") and "A `PING` makes the board forget it, since a new host starts its numbers anew". Commit `8add634` states the decision without a reason.
+- **Rejected:** Commit `ab98886` skipped sequence number 0; commit `8add634` removed the skip. Why is not recorded.
 
-### 6. Endpoint 0 control-transfer interception and packet splitting via linker `--wrap` instead of forking TinyUSB
+### Endpoint 0 is reached by wrapping TinyUSB's controller driver calls
 
-- **Decision:** `firmware/common/control.c` and `firmware/common/ep0.c` intercept TinyUSB's device controller driver boundary using GNU ld's `-Wl,--wrap=dcd_event_handler`, `-Wl,--wrap=dcd_edpt_xfer`, and `-Wl,--wrap=dcd_edpt_stall`. Matched setup packets are held before TinyUSB sees them, and when answered with `ANSWER` or `STALL` their `bmRequestType` type field is rewritten to Vendor so `tud_vendor_control_xfer_cb` serves the host's payload or stalls. When `bMaxPacketSize0 < 64`, `__wrap_dcd_edpt_xfer` slices each endpoint 0 transfer into packets of `bMaxPacketSize0` bytes and schedules subsequent slices via `usbd_defer_func`.
-- **Reason:** Wrapping the three `dcd_*` symbols at link time works identically across every MCU port's USB controller driver (RP2040/RP2350, STM32 DWC2, ESP32-S3 DWC2, nRF52840) and allows an unmodified upstream TinyUSB checkout (`MIMHID_TINYUSB_PATH`) to be used (`docs/PROTOCOL.md:124`, `docs/PORTING.md:27-29`, `firmware/common/control.h:13-17`, `firmware/common/ep0.h:19-26`, commits `b449e39` and `9f32c91`).
-- **Rejected alternative:** Patching TinyUSB's `usbd.c` or per-MCU `dcd_*.c` drivers in a forked submodule, which would have to be maintained across every MCU family and TinyUSB upgrade.
+- **Decision:** `firmware/common/control.c` and `firmware/common/ep0.c` wrap `dcd_event_handler`, `dcd_edpt_xfer`, and `dcd_edpt_stall` with the linker (`-Wl,--wrap=...`). A held request is kept from TinyUSB; for `ANSWER` and `STALL` its type bits are set to vendor so that `tud_vendor_control_xfer_cb` serves it. With a `bMaxPacketSize0` below 64, `__wrap_dcd_edpt_xfer` sends endpoint 0 transfers one packet at a time, starting the next from the stack's task (`usbd_defer_func`).
+- **Reason:** Recorded for the packet splitting: `ep0.h` says TinyUSB and the RP2040 driver use 64 bytes, "so with a smaller size the target would see packets longer than it was told". `control.h` says "TinyUSB's control state machine is never bypassed". Not recorded for wrapping rather than changing TinyUSB.
+- **Rejected:** Not recorded.
 
-### 7. Two-pass descriptor construction (`counting_builder` then `emitting_builder`) and self-validation
+### A generated descriptor is built twice and parsed back
 
-- **Decision:** `build_with_two_passes` (`src/profiles/spec.cpp:232-269`) runs each profile's descriptor recipe twice: first against a `counting_builder` (which tracks byte count and layout without allocating), then `reserve(counted_bytes)` on a single `std::vector<uint8_t>` followed by an `emitting_builder`, and finally parses the generated descriptor back through `validate_generated` (`src/hid/validator.cpp`). Every report section is padded to a whole byte boundary (`pad_to_byte_boundary`).
-- **Reason:** Two-pass construction allocates the exact descriptor buffer once and verifies that the counted size and emitted size match (`MIMHID_ERR_INTERNAL` if they diverge), while running the independent HID parser/validator (`validate_generated`) computes the exact `DescriptorRequirements` (`descriptor_bytes`, `fields_per_report`, `global_stack_depth`, `report_size_bits`, `usages`, `report_data_bits`) and catches any malformed HID item before a Spec can be created (`src/profiles/spec.cpp:132-137,232-269,757-760,935-954`).
-- **Rejected alternative:** Single-pass growth with repeated vector reallocations and trusting the builder's output without parsing it back through the HID validator.
+- **Decision:** `build_generated_spec` (`src/profiles/spec.cpp`) runs each profile's recipe against a counting `DescriptorBuilder` (`counting_builder`) for the size, the layout, and the `DescriptorRequirements`, then against an emitting one (`emitting_builder`) into a buffer of that size. Any difference in size or requirements between the two passes is `MIMHID_ERR_INTERNAL`. The result is then parsed back by `validate_generated` (`src/hid/validator.cpp`).
+- **Reason:** Not recorded.
+- **Rejected:** Not recorded.
 
 ## How the tests reach this code
 
