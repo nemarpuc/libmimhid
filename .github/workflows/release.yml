@@ -75,7 +75,7 @@ jobs:
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Keep the release notes
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
           path: build/release-notes.md
@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.13'
 
@@ -212,7 +212,7 @@ jobs:
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 1
 
       - name: Upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: host-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/*
@@ -254,7 +254,7 @@ jobs:
           cp build_fw/mimhid_firmware.uf2 "dist/mimhid_firmware-${{ matrix.name }}-${version}.uf2"
 
       - name: Upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firmware-${{ matrix.name }}
           path: dist/*
@@ -295,7 +295,7 @@ jobs:
           cp build_fw/mimhid_firmware_${{ matrix.name }}.bin "dist/mimhid_firmware-${{ matrix.name }}-${version}.bin"
 
       - name: Upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firmware-${{ matrix.name }}
           path: dist/*
@@ -332,7 +332,7 @@ jobs:
           idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 merge-bin -o "$PWD/dist/mimhid_firmware-esp32s3-${version}.bin"
 
       - name: Upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firmware-esp32s3
           path: dist/*
@@ -357,12 +357,12 @@ jobs:
           persist-credentials: false
 
       - name: Select Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
 
       - name: Select exact .NET SDK with deterministic NuGet pack support
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.400'
 
@@ -454,7 +454,7 @@ jobs:
           --version '${{ needs.verify.outputs.version }}'
 
       - name: Upload validated binding packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: binding-packages
           path: |
@@ -481,7 +481,7 @@ jobs:
           persist-credentials: false
 
       - name: Download the build outputs
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: parts
 
@@ -506,7 +506,7 @@ jobs:
 
       - name: Keep the assembled release (dry runs)
         if: needs.verify.outputs.publish != 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-assets
           path: dist/*
@@ -538,7 +538,7 @@ jobs:
 
       - name: Publish the release
         if: needs.verify.outputs.publish == 'true'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: dist/*
           body_path: parts/release-notes/release-notes.md
@@ -568,13 +568,13 @@ jobs:
       id-token: write
     steps:
       - name: Download validated binding packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: binding-packages
           path: build/bindings
 
       - name: Publish the wheel without a long-lived credential
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: build/bindings/python-dist
           verify-metadata: true
@@ -593,13 +593,13 @@ jobs:
       contents: read
     steps:
       - name: Download validated binding packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: binding-packages
           path: build/bindings
 
       - name: Select exact .NET SDK
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.400'
 
