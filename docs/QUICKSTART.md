@@ -1,11 +1,11 @@
 # Quickstart Guide
 
-Set up `libmimhid` on Linux, macOS, or Windows with a supported microcontroller board that has a UART and a USB device port. Official support is provided for both the Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350).
+Set up `libmimhid` on Linux, macOS, or Windows with a microcontroller board that has a UART and a USB device port. The Raspberry Pi Pico (RP2040) and Pico 2 (RP2350) have released firmware images; no release is hardware-verified ([TARGET_MATRIX.md](TARGET_MATRIX.md)).
 
 You need:
 
 - a board from [TARGET_MATRIX.md](TARGET_MATRIX.md) with its USB port reachable by a cable (Raspberry Pi Pico or Pico 2 recommended)
-- a USB-to-UART bridge at 3.3 V logic (CP2102, FT232RL, CH340) and three jumper wires
+- a USB-to-UART bridge at 3.3 V logic and three jumper wires. `udev/51-mimhid.rules` lists the Silicon Labs CP210x, FTDI FT232, WCH CH340/CH341, and Prolific PL2303 bridges; the one recorded measurement ([LATENCY.md](LATENCY.md#measured-once)) used a PL2303, and no other bridge has a recorded run
 - a USB cable from the board to the target device (an OTG adapter when the target is a phone)
 - the toolchain for the firmware you build (see [BUILDING.md](BUILDING.md#building-the-firmware))
 
@@ -32,16 +32,16 @@ Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own US
 
 ---
 
-## 2. Build and flash the firmware
+## 2. Get the firmware and flash it
 
-The build commands for each port are in [BUILDING.md](BUILDING.md#building-the-firmware). Flashing:
+Each release has firmware images built by `.github/workflows/release.yml` with the wiring above: `mimhid_firmware-rp2040-X.Y.Z.uf2` (Raspberry Pi Pico), `mimhid_firmware-rp2350-X.Y.Z.uf2` (Pico 2), `mimhid_firmware-nrf52840-X.Y.Z.hex` / `.bin`, `mimhid_firmware-stm32f4-X.Y.Z.hex` / `.bin`, and `mimhid_firmware-esp32s3-X.Y.Z.bin` (a merged image). To build one yourself, follow [BUILDING.md](BUILDING.md#building-the-firmware); a source build names its output `mimhid_firmware.uf2` (Pico boards), `mimhid_firmware_nrf52840.hex` / `.bin`, or `mimhid_firmware_stm32f4.hex` / `.bin`.
 
 | Board | Flash |
 | :--- | :--- |
-| RP2040 (Raspberry Pi Pico) / RP2350 (Raspberry Pi Pico 2) | Hold **BOOTSEL** while plugging the board into the PC. It appears as a drive (`RPI-RP2` or `RP2350`); copy `mimhid_firmware.uf2` to it and the board reboots. |
-| nRF52840 | Program `mimhid_firmware_nrf52840.hex` with your debug probe (for example `nrfjprog --program <file> --chiperase --verify --reset`, or OpenOCD / pyOCD). |
-| STM32F4 | Program `mimhid_firmware_stm32f4.bin` at `0x08000000` with an ST-Link (`st-flash write <file> 0x08000000`) or the ROM DFU bootloader (`dfu-util -a 0 -s 0x08000000:leave -D <file>`). |
-| ESP32-S3 | `idf.py flash`, or write the merged image at `0x0`: `esptool.py --chip esp32s3 write_flash 0x0 <merged.bin>`. |
+| RP2040 (Raspberry Pi Pico) / RP2350 (Raspberry Pi Pico 2) | Hold **BOOTSEL** while plugging the board into the PC. It appears as a USB drive; copy the `.uf2` file to it and the board reboots. |
+| nRF52840 | Program the `.hex` file with your debug probe (for example `nrfjprog --program <file> --chiperase --verify --reset`, or OpenOCD / pyOCD). |
+| STM32F4 | Program the `.bin` file at `0x08000000` with an ST-Link (`st-flash write <file> 0x08000000`) or the ROM DFU bootloader (`dfu-util -a 0 -s 0x08000000:leave -D <file>`). |
+| ESP32-S3 | Write the merged image at `0x0`: `esptool.py --chip esp32s3 write_flash 0x0 <file>`, or `idf.py flash` from a source build. |
 
 The firmware keeps USB disconnected until the host library opens the first node (`mimhid_node_open`), so the board does not show up on the target before then. Calling `mimhid_device_disconnect()` or closing the device detaches it from the bus (unless `keep_attached` is set).
 
