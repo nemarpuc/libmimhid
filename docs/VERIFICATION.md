@@ -16,7 +16,7 @@ The two sister libraries use some of the same words for different things:
 | `unit` | In-process tests with no serial port and no board (`mimhid.unit` and the other suites of layer 1 below) | "nothing but memory": no USB transport at all |
 | `scripted` | The host library over a pseudo-terminal against a peer the test drives frame by frame (`tests/scripted/scripted_board.cpp`) | — (no such layer) |
 | `sim` | The host library over a pseudo-terminal against the real firmware core (`firmware/common`) built for the build host (`tests/sim/fake_board.c`) | The library against "the fake libusb in `fake_libusb/`" |
-| `hw` | A physical board, a USB-UART adapter, and a target computer ([tests/hw/README.md](../tests/hw/README.md)) | "a real Android phone" |
+| `hw` | A physical board, a USB-UART adapter, and a target computer ([tests/hw/README.md](../tests/hw/README.md#hardware-tests)) | "a real Android phone" |
 | hardware-verified | A release whose library and firmware ran on a physical board as `tests/hw/README.md` describes | A release run against a real Android phone |
 
 ## Four verification layers
