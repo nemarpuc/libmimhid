@@ -108,3 +108,11 @@ Windows and macOS parse descriptors with their own limits; these fields do not d
 2. Input calls do not allocate after the node is open.
 3. A node close sends the neutral report first, so held keys and contacts are released.
 4. Calls on a node return `MIMHID_ERR_BUSY` while the board is re-enumerating, and on a node opened in a batch until the batch ends.
+
+## Known issues
+
+The following three issues exist in the current implementation (`src/api/` and `src/transport/`):
+
+1. **Inconsistent detach `COMMIT` payload length (`1` byte vs. `3` bytes):** `mimhid_device_close` (`src/api/c_api_device.cpp:365`) sends a 1-byte `COMMIT` payload `{1}` when detaching on close, whereas `Link::disconnect` (`src/transport/link.cpp:280`) and an empty-device `commit_device` (`src/api/device_ops.cpp:529`) send a 3-byte payload `{1, 0, 0}`. The firmware (`cmd_commit` in `firmware/common/core.c:777`) accepts both because it checks only the first byte after the sequence number (`c->len >= 2 && c->data[1] == 1`).
+2. **Unused `Link::ping` method (dead code):** `Link::ping` (`src/transport/link.cpp:222-238`) is never called by the library; discovery and device open use `Handshaker::ping` (`src/transport/handshaker.cpp`) before the `Link` reader thread starts.
+3. **Missing `device->closing` check on five device calls:** `mimhid_device_wait_ready`, `mimhid_device_remote_wakeup`, `mimhid_device_board_info`, `mimhid_device_limits`, and `mimhid_device_link_counters` (`src/api/c_api_device.cpp:427-519`) check `device == nullptr` directly instead of calling `valid_device(device)`, and therefore do not check `device->closing.load()`. (Note that concurrent calls on the same `mimhid_device` domain during `mimhid_device_close` are already prohibited by the [threading contract](API.md#threading-and-domains).)
