@@ -7,7 +7,7 @@ You need:
 - a board from [TARGET_MATRIX.md](TARGET_MATRIX.md) with its USB port reachable by a cable (Raspberry Pi Pico or Pico 2 recommended)
 - a USB-to-UART bridge at 3.3 V logic (CP2102, FT232RL, CH340) and three jumper wires
 - a USB cable from the board to the target device (an OTG adapter when the target is a phone)
-- the toolchain for the firmware you build (see the Building section of `README.md`)
+- the toolchain for the firmware you build (see [BUILDING.md](BUILDING.md#building-the-firmware))
 
 ---
 
@@ -34,7 +34,7 @@ Do not connect the bridge's 5 V or 3V3 pin. The board is powered over its own US
 
 ## 2. Build and flash the firmware
 
-The build commands for each port are in the Building section of `README.md`. Flashing:
+The build commands for each port are in [BUILDING.md](BUILDING.md#building-the-firmware). Flashing:
 
 | Board | Flash |
 | :--- | :--- |

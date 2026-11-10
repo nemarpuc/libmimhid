@@ -2,237 +2,155 @@
 
 [Canonical repository](https://github.com/nemarpuc/libmimhid)
 
-Physical USB HID emulation for a target device, driven from a Linux, macOS, or Windows PC. The PC sends reports over a high-speed serial link to a microcontroller board (Raspberry Pi Pico or Pico 2, with ports for other chips), which presents them to the target as a composite USB HID device. The target needs no driver, software, or special mode. You need a board, a 3.3 V
-USB-to-UART bridge, and three wires ([QUICKSTART.md](docs/QUICKSTART.md)).
+Send keyboard, mouse, gamepad, touchscreen, touchpad, pen, and media-key input
+from a PC to any USB host through a microcontroller board (Raspberry Pi Pico
+RP2040 / RP2350, Nordic nRF52840, STM32F4, or ESP32-S3) connected over a high-speed
+UART link. The target machine sees a standard USB composite HID device and needs
+no driver, no app, and no agent. Linux, Windows, and macOS hosts; usable from C,
+C++, Python, C#, and Rust. MIT licensed.
 
-Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which sends the same kind of input to an Android phone over USB (AOA 2.0), with no extra hardware needed. The C ABI and C++ header follow the same shape, so code moves between the two with few changes; see [Moving between libaoahid and libmimhid](#moving-between-libaoahid-and-libmimhid).
-
-> [!NOTE]
 > Version 0.2.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-## Features
+`libmimhid` is a C++20 library with a stable C ABI. You describe the USB device
+identity and each HID interface (ranges, bit widths, Report IDs, Usages,
+endpoints); the library validates the descriptor against the USB HID 1.11, HUT
+1.7, and target Linux parser rules, streams the configuration over UART to the
+board, and keeps the report state machines (multi-touch contacts, key rollover,
+pointer deltas, pen tool transitions) bit-exact. The board holds its USB data
+lines at 0 V until your first configuration is committed, so no generic vendor
+or bootloader device ever appears on the target bus.
 
-- **Profiles.** Keyboard, mouse, toggle (consumer, system, telephony, camera), gamepad, touchscreen, touchpad, pen, digitizer, and raw HID (`mimhid_node_open_raw`), with Battery Strength on the profiles that support it. Descriptors are byte-identical to `libaoahid`'s for equal options ([Profiles](#profiles)).
-- **Configured from the host, without reflashing.** Every USB identity field (VID, PID, release number, language, device class, power, remote wakeup, and string descriptors) and per-interface parameter (`iface.number`, the `ep_in` / `ep_out` address, `poll_interval_ms` and `max_packet_size`, `bcd_hid`, country code, boot protocol).
-- **Physical bus control.** `mimhid_device_connect()` and `mimhid_device_disconnect()` command D+=3.3V attachment or D+=0V stealth disconnection at will. `mimhid_device_commit(device, delay_ms, timeouts)` handles staged dynamic re-enumeration with a controlled disconnect window.
-- **Events from the target.** Output reports (keyboard LEDs), Feature reads (answered with `mimhid_node_set_feature_response`), `SET_PROTOCOL`, `SET_IDLE`, mount, suspend, and resume reach your callback.
-- **Control transfers of the target.** Every request on endpoint 0 (descriptors, `GET_REPORT`, `SET_REPORT`, vendor requests) can be reported, and chosen ones answered from the program with data, an acknowledgement or a STALL, through up to 8 rules of `mimhid_device_set_control_routing`. Off until asked; the board answers by itself as before ([API.md](docs/API.md#control-transfers-of-the-target)).
-- **Low level.** Applications that need no profile helper can stay at the low level: `mimhid_discover`, `mimhid_device_open`, `mimhid_node_open_raw`, `mimhid_raw_submit` / `mimhid_report_send`, and `event_sink`. [`docs/API.md`](docs/API.md) lists the calls by group; every call is documented in [`include/mimhid.h`](include/mimhid.h).
+Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which
+sends the same kind of input to an Android device over a plain USB cable using
+Android Open Accessory 2.0, with no microcontroller board needed. Both libraries
+share the same `Spec` / `Node` model and profile state machines.
 
-## Design principles
+## What it is not
 
-- **Ultra-low latency.** Input calls do not allocate on the hot path; one report submission is a single contiguous serial write (`3.3 µs/byte` at 3,000,000 baud; the host and the board agree the fastest rate the serial adapter carries). On RP2040 and RP2350, UART DMA runs into a dedicated `.scratch_y` SRAM bank polled by Core 1, handing off reports via lock-free single-producer single-consumer (SPSC) queues to Core 0 (`TinyUSB`) for 1000 Hz (`bInterval = 1 ms`) USB Interrupt IN delivery ([LATENCY.md](docs/LATENCY.md)).
-- **Thin firmware.** The host PC builds every HID report descriptor and encodes every report. The microcontroller acts strictly as a stateless-per-report I/O bridge: it knows nothing about keyboards, mice, or touchscreens, holds only the descriptors uploaded by the host, and forwards raw report payloads directly to USB endpoints. Hardware-specific code is isolated behind a small HAL (`firmware/common/hal.h`).
-- **The libaoahid model.** The same objects and call shapes: a Spec (`mimhid_spec_create_*`), Nodes (`mimhid_node_open` / `mimhid_node_open_raw`, with an explicit interface number), profile calls that change state (`mimhid_keyboard_key`, `mimhid_mouse_move`, ...), and `mimhid_node_submit` that sends. `mimhid_device_batch_begin` / `mimhid_device_batch_end` combine several opens into one re-enumeration. The life cycle is in [API.md](docs/API.md#lifecycle).
-- **Nothing guessed, nothing shaped.** Every call that can wait takes its timeout as an argument, and zero is refused with `MIMHID_ERR_UNSET_FIELD` ([API.md](docs/API.md#timeouts)). Each options structure has an `_init` function that zeroes it and sets `struct_size` and nothing else: the library fills in no value, and a required field left zero is refused with `MIMHID_ERR_UNSET_FIELD` (the vendor ID included: the example below uses the pid.codes test pair 0x1209/0x0001, which a device you hand out must replace with IDs of its own; a product ID of zero is a valid one). What a program must set is listed in [API.md](docs/API.md#structures-and-initial-values). The library does not smooth, pace, or randomize input.
+- **Not a source of defaults.** Every `*_init` function zeroes its structure and
+  sets `struct_size` only. Any required USB, transport, endpoint, or profile
+  field left zero is rejected with `MIMHID_ERR_UNSET_FIELD` (`mimhid_last_error`
+  names the exact field).
+- **Not a scheduler.** The library generates no key repeat, debounce, or timed
+  motion, and stores no timeout on a handle: every wait is passed to the call
+  that waits.
+- **Not reflashed per device.** One firmware image per MCU serves any USB
+  identity, interface layout, and report descriptor sent at runtime.
+- **Not verified on every board.** Only the RP2040 has been tested on physical
+  hardware; see [Verification status](#verification-status).
 
-## Status
+## Install
 
-- Official support: Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350). Verified on hardware: the Pico (RP2040), against a Linux target. The Pico 2 is verified in CI and by the end-to-end tests.
-- Verified on the build host and in CI: the host library builds and passes its tests on Linux, macOS, and Windows; an end-to-end test runs the host library against the real firmware core through a pseudo-terminal (Linux and macOS); the firmware core is tested against a fake HAL; the firmware builds for RP2040, RP2350, nRF52840, STM32F4, and ESP32-S3.
-- See [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) for platform support details. Wiring, pins, and flashing are in [QUICKSTART.md](docs/QUICKSTART.md).
+Requirements: a C11/C++20 compiler and CMake 3.20 or later; no external host
+libraries are needed. To talk to a real board you also need one supported MCU
+flashed with `mimhid_firmware` and a 3.3 V USB-UART adapter
+([QUICKSTART.md](docs/QUICKSTART.md)).
 
-## Example
+- **Release archive.** The [Releases](https://github.com/nemarpuc/libmimhid/releases)
+  page publishes **exactly 18 uploaded assets** per release: one
+  `libmimhid-X.Y.Z-<platform>-<arch>[-ubuntu22.04]` archive per platform (Linux,
+  Windows, macOS) carrying both the shared and static libraries, the headers,
+  and the CMake and `pkg-config` files, alongside the prebuilt firmware images,
+  source archive, SPDX 2.3 SBOM, and SHA-256 checksums
+  ([RELEASES.md](docs/RELEASES.md)).
+- **CMake.** `find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)` or
+  `COMPONENTS static` (or both), then link `mimhid::shared` or `mimhid::static`
+  (or `mimhid::cpp` / `mimhid::cpp_static` for the C++20 header). A `0.2`
+  request is satisfied by a `0.2.x` install only.
+- **pkg-config.** `pkg-config --cflags --libs mimhid` for the shared library, or
+  `pkg-config --static --cflags --libs mimhid-static` for the static archive.
+- **From source.**
 
-With a flashed board connected (wiring and flashing are in [QUICKSTART.md](docs/QUICKSTART.md), the build in [Building](#building)), this types the letter `a` on the target:
+  ```sh
+  cmake -S . -B build -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON
+  cmake --build build --config Release
+  cmake --install build --prefix staging --config Release
+  ```
+
+  Every CMake option, the presets, the firmware builds, and the sanitizer and
+  coverage commands are in [BUILDING.md](docs/BUILDING.md).
+
+## First program
+
+Pressing and releasing the `a` key on an already-opened `device` (error checks
+and `config` field assignments omitted for brevity; every call returns a
+`mimhid_result`, and [examples/c/basic_keyboard_mouse.c](examples/c/basic_keyboard_mouse.c)
+has the complete runnable session):
 
 ```c
-#include <mimhid.h>
+#include "mimhid.h"
 
-enum { CONTROL_MS = 500, SEND_MS = 500, DRAIN_MS = 1000, RECONNECT_MS = 3000 }; /* yours to choose */
-
-/* mimhid_device_config_init zeroes the structure; every value below is set by the program. */
-mimhid_device_config config;
-mimhid_device_config_init(&config);
-config.transport.baud_rate = MIMHID_BAUD_FASTEST;  /* measure the fastest rate this link carries */
-config.transport.handshake_timeout_ms = 50;
-config.transport.maximum_report_bytes = 64;
-config.transport.log_level = MIMHID_LOG_DISABLED;
-config.transport.linux_hid.descriptor_bytes = 4096;    /* the Linux HID parser limits of */
-config.transport.linux_hid.fields_per_report = 256;    /* docs/LIMITS.md#linux-hid-parser */
-config.transport.linux_hid.global_stack_depth = 4;
-config.transport.linux_hid.report_size_bits = 256;
-config.transport.linux_hid.usages = 12288;
-config.transport.linux_hid.report_data_bits = 65528;
-config.usb_device.bcd_usb = 0x0200;
-config.usb_device.ep0_max_packet_size = 64;
-config.usb_device.language_id = 0x0409;
-config.usb_device.vendor_id = 0x1209;   /* the pid.codes test IDs, for testing in-house only: */
-config.usb_device.product_id = 0x0001;  /* a device you hand out needs IDs of its own */
-config.usb_device.manufacturer = "libmimhid";
-config.usb_device.product = "libmimhid";
-config.usb_config.configuration_value = 1;
-config.usb_config.bm_attributes = 0xA0;  /* bus powered, remote wakeup */
-config.usb_config.bmax_power = 50;       /* 100 mA */
-
-mimhid_device* device = NULL;
-mimhid_device_open("/dev/ttyACM0", &config, &device);
-
-mimhid_keyboard_options keyboard;
-mimhid_keyboard_options_init(&keyboard);
-keyboard.usage_minimum = 0x04;           /* Keyboard a */
-keyboard.usage_maximum = 0xDD;           /* Keypad Hexadecimal */
-mimhid_spec* spec = NULL;
-mimhid_spec_create_keyboard(&keyboard, &spec);
-
-mimhid_node_config node;
-mimhid_node_config_init(&node);
-node.iface.number = 0;
-node.iface.class_code = 0x03;            /* HID */
-node.iface.bcd_hid = 0x0111;
-node.ep_in.address = 0x81;               /* interface 0, IN endpoint 1 */
-node.ep_in.poll_interval_ms = 1;
-node.ep_in.max_packet_size = 64;
-mimhid_commit_timeouts timeouts;
-mimhid_commit_timeouts_init(&timeouts);
-timeouts.control_timeout_ms = CONTROL_MS;
-timeouts.reconnect_timeout_ms = RECONNECT_MS;
-mimhid_node* keys = NULL;
-mimhid_node_open(device, spec, &node, &timeouts, &keys); /* the board attaches to the target */
-mimhid_spec_release(spec);                               /* the Node keeps its own reference */
-mimhid_device_wait_ready(device, 5000);
-
-mimhid_keyboard_key(keys, 0x04, 1);   /* Keyboard a */
-mimhid_node_submit(keys, SEND_MS);
-mimhid_keyboard_key(keys, 0x04, 0);
-mimhid_node_submit(keys, SEND_MS);
-
-mimhid_device_close(device, CONTROL_MS, DRAIN_MS); /* closes keys too */
+void send_key_a(mimhid_device* device, const mimhid_node_config* node_cfg,
+                const mimhid_commit_timeouts* waits) {
+    mimhid_keyboard_options kb;
+    mimhid_keyboard_options_init(&kb);
+    kb.usage_minimum = 0x04;
+    kb.usage_maximum = 0xDD;
+    mimhid_spec* spec = NULL;
+    mimhid_spec_create_keyboard(&kb, &spec);
+    mimhid_node* node = NULL;
+    mimhid_node_open(device, spec, node_cfg, waits, &node);
+    mimhid_spec_release(spec); /* the Node keeps its own reference */
+    mimhid_device_wait_ready(device, 5000);
+    mimhid_keyboard_key(node, 0x04, 1); /* Keyboard a */
+    mimhid_node_submit(node, 500);
+    mimhid_keyboard_key(node, 0x04, 0);
+    mimhid_node_submit(node, 500);
+    mimhid_device_close(device, 500, 1000);
+}
 ```
 
-Every call returns a `mimhid_result`; check it, and read `mimhid_last_error()` for the details. Complete programs: [`examples/`](examples/) and [EXAMPLES.md](docs/EXAMPLES.md). For a single profile in isolation, [`examples/c/profiles/`](examples/c/profiles) has one self-contained program per HID profile kind and one for the battery report, all ten of which run without a board. [`examples/c/verify/`](examples/c/verify) holds programs built to be watched on a real target (typing, dragging, moving the mouse); [QUICKSTART.md](docs/QUICKSTART.md) walks through them.
-
-## Building
-
-Prebuilt libraries and firmware images are on the [Releases](https://github.com/nemarpuc/libmimhid/releases) page ([Releases](#releases) below). To build them yourself:
-
-Requirements: CMake 3.20+, a C11/C++20 compiler (GCC, Clang, MSVC 2019+, MinGW-w64). Firmware also needs `arm-none-eabi-gcc` and the SDK of the port.
-
-```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-```
-
-This produces `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` with `mimhid.lib`. Options: `MIMHID_BUILD_TESTS` and `MIMHID_BUILD_EXAMPLES` (both off by default), `MIMHID_WERROR` (on by default), `MIMHID_SANITIZE` (AddressSanitizer and UBSan), `MIMHID_TSAN` (ThreadSanitizer, Linux, GCC 12+ or Clang; not together with `MIMHID_SANITIZE` or `MIMHID_BUILD_FUZZ`), `MIMHID_BUILD_FUZZ` (the libFuzzer target, Clang only; it sets its own sanitizers). The CMake presets `dev`, `release` and `tsan` set these for you. To also run the end-to-end tests, pass `-DMIMHID_TINYUSB_PATH=<TinyUSB 0.18.0 checkout>` (POSIX only).
-
-### Firmware
-
-| Target | Prerequisites | Command |
-|---|---|---|
-| RP2040 (Raspberry Pi Pico) | [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.2.0 | `export PICO_SDK_PATH=<pico-sdk>`<br>`cmake -B build_fw -S firmware -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1 && cmake --build build_fw` |
-| RP2350 (Raspberry Pi Pico 2) | Pico SDK 2.2.0 | `cmake -B build_fw -S firmware -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1 && cmake --build build_fw` |
-| nRF52840 | [TinyUSB](https://github.com/hathach/tinyusb) 0.18.0 and `python3 <tinyusb>/tools/get_deps.py nrf` | `cmake -B build_fw -S firmware/ports/nrf52840 -G Ninja -DTINYUSB_PATH=<tinyusb> -DBOARD=pca10056 && cmake --build build_fw` |
-| STM32F4 | TinyUSB 0.18.0 and `get_deps.py stm32f4` | `cmake -B build_fw -S firmware/ports/stm32f4 -G Ninja -DTINYUSB_PATH=<tinyusb> -DBOARD=stm32f411blackpill && cmake --build build_fw` |
-| ESP32-S3 | ESP-IDF 5.4 and TinyUSB 0.18.0 | `export TINYUSB_PATH=<tinyusb>`<br>`idf.py -C firmware/ports/esp32s3 -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3 build` |
-
-Nothing about the chip or the wiring is assumed: a firmware build states its chip (`PICO_PLATFORM`, `PICO_BOARD`, or the TinyUSB `BOARD`), the UART pins (`MIMHID_UART_*`; the nRF52840 and STM32F4 take them from the board's BSP) and, in each port's CMake file, the interfaces, the highest endpoint number, the endpoint packet size and the speed of its USB controller. A build that leaves one out stops with an error naming it. The values above are the reference wiring (GP0/GP1 on the Pico boards, GPIO17/18 on the ESP32-S3).
-
-Host test of the firmware core: `cmake -B build_fwtest -S firmware/tests -DTINYUSB_PATH=<tinyusb> && cmake --build build_fwtest && ctest --test-dir build_fwtest`. Flashing is in the [Quickstart](docs/QUICKSTART.md#2-build-and-flash-the-firmware).
-
-## Profiles
-
-Each profile derives the report mechanics from its immutable Spec; the product and target values are what its options say (the `*_init` functions fill in none: the caller sets every field). The descriptors and state machines are those of `libaoahid`, byte for byte for equal options ([PROFILES.md](docs/PROFILES.md)).
-
-| Profile | Derived by the library | You specify |
-|---|---|---|
-| Keyboard | Modifier routing and a full N-Key Rollover bitmap: every declared key has its own bit, so any number of simultaneous keys is reported. | Key Usage range, Report ID, layout, locale, IME behavior. |
-| Mouse | Signed 64-bit pending totals for X, Y, Wheel, and AC Pan, split into in-range report fragments; a fragment is consumed only when its report has been written. | Axis ranges and widths, button count, Wheel/Pan presence, Report ID. |
-| Consumer, System, Camera, Telephony | One allow-listed field per press; press/release/tap produce the `1` then `0` sequence each HID control type expects. | Each allowed Usage and its semantics, Report ID. |
-| Gamepad | D-pad directions become the eight Hat values plus Null (`15`); adjacent pairs become diagonals, opposite pairs are rejected. Raw four-bit D-pad and no-D-pad modes are also available. | Axes (role, range, width, neutral), buttons, D-pad form, Report ID. |
-| Touchscreen / touchpad | Contact Count, multi-report frames, Tip=0 release records with stable Contact IDs, Scan Time, packet sequencing. | Coordinate ranges, maximum contacts, contacts per report, optional fields. |
-| Pen, Digitizer | Tip/pressure consistency, out-of-range normalization, automatic leave-and-re-enter when switching pen/eraser. | Coordinate and optional-field ranges, hover/eraser/barrel options. |
-| Battery report | A second Input report inside any profile, sent only when the level changed and no input report is waiting. | Range, width, both Report IDs. |
-| Raw Input | Only length, Report ID, and padding are checked against your descriptor. | Descriptor and report bytes. |
-
-A state change is kept until its report is written; a conflicting change while a report is in flight returns `MIMHID_ERR_BUSY` instead of being merged ([API.md](docs/API.md#input)).
-
-## Language bindings
-
-The C ABI of `mimhid.h` can be called from Python, C# and Rust through declarations in [`bindings/`](bindings/):
-
-| Language | Path | Package | Layout check |
-|---|---|---|---|
-| Python 3.9+ | `bindings/python` (`ctypes`) | wheel `mimhid` | `tests/test_layout.py` |
-| C# (.NET 8) | `bindings/csharp/MimHid` (P/Invoke) | NuGet `MimHid` | `MimHid.Tests` |
-| Rust 1.89+ | `bindings/rust/mimhid-sys` (FFI), `bindings/rust/mimhid` (owning wrappers) | crates `mimhid-sys`, `mimhid` | `tests/layout.rs` |
-
-They hold declarations only: no native library, and no default for any field. The caller passes the path of the matching shared library (Python `mimhid.load(path)`), or makes it findable under the name `mimhid` (C#, Rust). The inline `*_init` functions of the header are C code, not part of the ABI, so a binding fills `struct_size` and every field itself. The `mimhid` crate adds typed ownership on top of the FFI declarations: a Spec that releases itself, and one node type per profile with `bool` instead of `0/1`. Each language has a short `enumerate` example (`examples/python`, `examples/csharp`, `bindings/rust/mimhid-sys/examples`); the full life cycle is shown in C only.
-
-The declarations and the C layout oracle are generated from `include/mimhid.h` by `tools/bindings/generate.py` (needs Clang), and each layout test compares its language's sizes, offsets and constants with what the C compiler produced; see [INTERNALS.md](docs/INTERNALS.md#language-bindings). Wheel and NuGet packages are built and checked by the release workflow; they reach PyPI and NuGet only when the repository variable `MIMHID_PUBLISH_BINDINGS` is `true`.
+[QUICKSTART.md](docs/QUICKSTART.md) walks through wiring a board, setting serial
+permissions, and running the watchable demos under
+[examples/c/verify/](examples/c/verify). What each of the nine HID profiles
+builds and validates is in [PROFILES.md](docs/PROFILES.md).
 
 ## Moving between libaoahid and libmimhid
 
-| | `libaoahid` | `libmimhid` |
-|---|---|---|
-| Header | `aoahid.h` / `aoahid.hpp` | `mimhid.h` / `mimhid.hpp` |
-| Link | USB to an Android device | UART to an MCU board, which presents USB to any target |
-| Open | `aoahid_context_*`, `aoahid_device_open` | `mimhid_device_open(port_path, ...)` (no context) |
-| Spec, options, node calls | `aoahid_spec_create_*`, `aoahid_node_*`, `aoahid_keyboard_key`, ... | same names with the `mimhid_` prefix |
-| Waits | every call that can wait takes its timeout as an argument (`control_timeout_ms`, `send_timeout_ms`, `drain_timeout_ms`; libaoahid 2.0 and later) | the same rule and names; `mimhid_commit_timeouts` adds the wait for the board's re-enumeration |
-| Node id, error detail | `aoahid_node_id`; `aoahid_error_detail.node_id`, `.transport_status` | `mimhid_node_id`; `mimhid_error_detail.node_id`, `.transport_status` |
-| Opening a node | registers an accessory HID device | `mimhid_node_open` / `mimhid_node_open_raw` (one re-enumeration each, or one per `mimhid_device_batch_begin` / `mimhid_device_batch_end`) |
-| Interface setup | implicit / accessory defined | `mimhid_node_config`: the interface number and endpoints are explicit (`config.iface.number` and `config.ep_in.address` are set by the caller) |
-| USB identity | fixed Google accessory ID | set in `mimhid_device_config` |
-| Physical bus control | handled by Android OS | `mimhid_device_connect()`, `mimhid_device_disconnect()`, `mimhid_device_commit()` |
-| Output of the target | AOA has none | `event_sink` |
-| Control transfers of the target | AOA has none | `mimhid_device_set_control_routing`, `mimhid_device_control_reply` |
+Both libraries share the same profile `Spec` factories, report state machines,
+and error model (`s/aoahid/mimhid/` for profile and mutation calls). They differ
+where the hardware differs: `libmimhid` has no `Context` handle, takes a serial
+port name and full USB/endpoint descriptors (`mimhid_device_config`,
+`mimhid_node_config`), uses `mimhid_commit_timeouts` on calls that re-enumerate
+the board, and supports two-way HID traffic (Output reports, Feature responses,
+bus connect/disconnect, and endpoint 0 control transfer routing). The full
+comparison is in [API.md](docs/API.md#differences-from-libaoahid).
 
-## Releases
+## Verification status
 
-A pushed `v*` tag builds and checks the release, then publishes a GitHub Release. Run by hand (`workflow_dispatch`, `dry_run` on by default), the same workflow builds, packages and checks every asset and keeps them as the `release-assets` workflow artifact, but publishes nothing. The release matrix produces:
-
-- Linux x86_64 and AArch64 shared objects and static archives;
-- Windows x86_64 and ARM64 DLLs, import libraries, and static archives;
-- macOS arm64 and x86_64 dynamic libraries and static archives;
-- headers, CMake and pkg-config metadata, notices, checksums, an SPDX SBOM, and the firmware images.
-
-For version `X.Y.Z`, the GitHub Release contains exactly 18 uploaded assets:
-
-- six archives, one per platform: `libmimhid-X.Y.Z-linux-{x86_64,aarch64}-ubuntu22.04.tar.gz`, `libmimhid-X.Y.Z-macos-{arm64,x86_64}.tar.gz`, and `libmimhid-X.Y.Z-windows-{x86_64,arm64}.zip`;
-- one SPDX 2.3 SBOM, `libmimhid-X.Y.Z.spdx.json`, with a package (and its SHA-256) for every archive, each generated from the source archive;
-- the tagged tree as `libmimhid-X.Y.Z-source.tar.gz`;
-- `release-manifest.json` and `SHA256SUMS`;
-- eight firmware files: `mimhid_firmware-rp2040-X.Y.Z.uf2`, `mimhid_firmware-rp2350-X.Y.Z.uf2`, `mimhid_firmware-nrf52840-X.Y.Z.{hex,bin}`, `mimhid_firmware-stm32f4-X.Y.Z.{hex,bin}`, `mimhid_firmware-esp32s3-X.Y.Z.bin`, and `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt`.
-
-Releases up to 0.2.0 published a `-shared` and a `-static` archive per platform, each with its own `.spdx.json`; from the next release on there is one archive per platform without that suffix, and one SBOM. A download script that names the old files must be changed.
-
-Each archive is what you build against: it carries the headers, both the shared library (`lib/libmimhid.so`, `lib/libmimhid.dylib`, or `bin/mimhid.dll` with `lib/mimhid.lib`) and the static library (`lib/libmimhid_static.a`, or `lib/mimhid_static.lib`), CMake package files for both, pkg-config files, and `examples/` with the commands to build them (`share/doc/libmimhid/examples/README.md`). Pick the kind with `find_package(mimhid COMPONENTS shared)` (target `mimhid::mimhid`) or `find_package(mimhid COMPONENTS static)` (target `mimhid::mimhid_static`), or with pkg-config (`mimhid`, `mimhid-static`).
-
-Platform baselines: Linux archives target glibc 2.35 (Ubuntu 22.04); macOS archives target macOS 11 and are signed ad hoc, not notarized; Windows archives use the dynamic MSVC runtime. The AArch64 Linux and ARM64 Windows libraries are cross-built and are not run in CI.
-
-The bindings are in the source archive (`bindings/`); the binary archives carry no binding. The Python wheel and the NuGet package are built and checked by the release workflow and kept as workflow artifacts, not as release assets; they go to PyPI and NuGet only when the repository variable `MIMHID_PUBLISH_BINDINGS` is `true`.
+- **Hardware (RP2040):** verified on 2026-11-07 on a Raspberry Pi Pico with a Prolific PL2303 USB-UART adapter against a Linux 7.2 target (15 mouse interfaces at 7,812,500 baud with 0 link errors, 500-keystroke end-to-end latency run, endpoint 0 control routing, and the 7-interface all-profile verification run).
+- **Release 0.2.0 itself is not hardware-verified:** protocol 0.2.0 and the initial-value rules changed after the 2026-11-07 hardware run ([CHANGELOG.md](CHANGELOG.md)).
+- **Not tested on hardware:** RP2350, nRF52840, STM32F4, and ESP32-S3 firmware ports, raw descriptors, System Control / Camera / Telephony toggles, battery reports, and Windows or macOS hosts and targets ([TARGET_MATRIX.md](docs/TARGET_MATRIX.md)).
+- **Automated CI:** unit, scripted-board (`tests/scripted`), and simulated-board (`tests/sim`, running the real C firmware core over a pseudo-terminal) suites run with ASan/UBSan, ThreadSanitizer, and an 86% line / 73% branch coverage gate on `src/`.
+- **Details and commands:** [VERIFICATION.md](docs/VERIFICATION.md) has the feature-by-layer matrix and exact reproduction steps.
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
-| [QUICKSTART.md](docs/QUICKSTART.md) | Wiring, flashing, serial-port access, first run, programs to watch, troubleshooting |
-| [API.md](docs/API.md) | The model, structures and initial values, life cycle, timeouts, events, control transfers, result codes |
-| [EXAMPLES.md](docs/EXAMPLES.md) | Walkthrough of the example programs and usage patterns |
-| [PROFILES.md](docs/PROFILES.md) | The profiles and what they assume of the target |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Host, interface configuration, firmware, re-enumeration, tests |
-| [PROTOCOL.md](docs/PROTOCOL.md) | The serial wire protocol: frames, commands, line rate, events, control transfers |
-| [LIMITS.md](docs/LIMITS.md) | Protocol, board, host, and Linux HID parser limits |
-| [LATENCY.md](docs/LATENCY.md) | Where the time goes, what is arithmetic and what is measured |
-| [PORTING.md](docs/PORTING.md) | Firmware layout, the HAL, endpoint counts, other MCUs, the host serial backend |
-| [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) | What has been verified, on which board, host, and target |
-| [INTERNALS.md](docs/INTERNALS.md) | Ownership, locks, the report and commit paths, and how the bindings are generated, for people changing the library |
+| [QUICKSTART.md](docs/QUICKSTART.md) | Wiring a board, flashing firmware, permissions, and running the verification demos |
+| [BUILDING.md](docs/BUILDING.md) | Host requirements, CMake options and presets, firmware builds, package consumption, bindings |
+| [API.md](docs/API.md) | Complete C and C++ API reference: handles, structs, rules, every public function, result codes |
+| [PROFILES.md](docs/PROFILES.md) | Descriptor and state-machine contract of all nine profiles and the battery report |
+| [EXAMPLES.md](docs/EXAMPLES.md) | Walkthrough of the C, C++, Python, C#, and Rust example programs |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System structure, threading, data paths, and design decisions |
+| [INTERNALS.md](docs/INTERNALS.md) | Contributor guide: source map, handle internals, locking, teardown, design decisions |
+| [PROTOCOL.md](docs/PROTOCOL.md) | Binary UART wire protocol (frames, CRC-16, commands, events, line-rate handshake) |
+| [LIMITS.md](docs/LIMITS.md) | Every numeric limit with its USB, HID, chip, or firmware source, plus known issues |
+| [LATENCY.md](docs/LATENCY.md) | Where time goes, measured RP2040 end-to-end latency, and how to measure |
+| [PORTING.md](docs/PORTING.md) | Adding a new MCU port (the 12 HAL functions) or a new host OS serial backend |
+| [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) | Hardware verification status per MCU board, host OS, and HID profile |
+| [VERIFICATION.md](docs/VERIFICATION.md) | Feature × test-layer verification matrix, coverage numbers, and reproduction commands |
+| [RELEASES.md](docs/RELEASES.md) | The 18 release assets, archive layout, platform baselines, and component licenses |
+| [CHANGELOG.md](CHANGELOG.md) | Release history and hardware verification notes |
 
 ## License
 
-`libmimhid` itself is **MIT** licensed. The full text is in [LICENSE](LICENSE). The host library is built from first-party source only and has no third-party dependency (on Linux the C++ runtime is linked statically under the GCC Runtime Library Exception 3.1). The prebuilt firmware images are different: they link third-party SDK and USB stack code under permissive licenses, and their notices are reproduced in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and in the `mimhid_firmware-THIRD_PARTY_NOTICES-X.Y.Z.txt` release asset.
-
-| What you receive | License | Where the text is |
-|---|---|---|
-| Host library, headers, bindings, examples, firmware source | MIT | `LICENSE` |
-| Every firmware image | TinyUSB 0.18.0 (MIT), Newlib C runtime | `THIRD_PARTY_NOTICES.md` section 3 |
-| `rp2040`, `rp2350` images | Raspberry Pi Pico SDK 2.2.0 (BSD-3-Clause), Arm CMSIS Core (Apache-2.0) | sections 3.2, 3.6 |
-| `nrf52840` images | Nordic `nrfx` (BSD-3-Clause), Arm CMSIS 5 (Apache-2.0) | sections 3.3, 3.6 |
-| `stm32f4` images | ST `stm32f4xx_hal_driver` (BSD-3-Clause), `cmsis_device_f4` (Apache-2.0 / BSD-3-Clause), Arm CMSIS 5 (Apache-2.0) | sections 3.4, 3.6 |
-| `esp32s3` image | Espressif ESP-IDF 5.4.2 (Apache-2.0), Amazon FreeRTOS Kernel (MIT) | section 3.5 |
-
-[NOTICE](NOTICE) summarizes the same; `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md` and `CHANGELOG.md` are in every host archive under `share/doc/libmimhid/`.
+`libmimhid`, its headers, examples, language bindings, and portable firmware
+core are MIT licensed ([LICENSE](LICENSE)). Prebuilt firmware images link
+TinyUSB (MIT) and vendor HALs under BSD-3-Clause and Apache-2.0; see
+[RELEASES.md](docs/RELEASES.md#licenses) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## AI disclosure
 
