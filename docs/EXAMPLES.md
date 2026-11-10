@@ -43,7 +43,7 @@ The programs find a board with `mimhid_discover` (or connect directly via port p
 
 `verify_common.h` finds the first board and opens a Node. It sets every value itself, and its USB identity is the pid.codes test pair, for testing in-house only.
 
-The commands to compile all of them against a release archive are in [`examples/README.md`](../examples/README.md).
+The commands to compile all of them against a release archive are in [`examples/README.md`](../examples/README.md#compiling-these-examples).
 
 ## Other languages
 

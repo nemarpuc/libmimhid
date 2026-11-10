@@ -116,9 +116,9 @@ SDKs and TinyUSB under permissive licenses:
 |---|---|---|---|
 | `libmimhid` host library, headers, bindings, examples | Host archives, source archive | MIT | [LICENSE](../LICENSE), [NOTICE](../NOTICE) |
 | `libmimhid` firmware core and HAL ports (`firmware/`) | Firmware images, source archive | MIT | [LICENSE](../LICENSE) |
-| TinyUSB (`hathach/tinyusb`) | All firmware images and `tests/sim` | MIT | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
-| Raspberry Pi Pico SDK (`raspberrypi/pico-sdk`) | RP2040 and RP2350 `.uf2` images | BSD-3-Clause | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
-| Nordic `nrfx` (`NordicSemiconductor/nrfx`) | nRF52840 `.hex` and `.bin` images | BSD-3-Clause | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
-| ARM CMSIS 5 (`ARM-software/CMSIS_5`) | STM32F4 `.hex` and `.bin` images | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
-| STMicroelectronics `cmsis_device_f4` | STM32F4 `.hex` and `.bin` images | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
-| Espressif ESP-IDF (`espressif/esp-idf`) | ESP32-S3 `.bin` image | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `THIRD_PARTY_NOTICES.firmware.txt` |
+| TinyUSB (`hathach/tinyusb`) | All firmware images and `tests/sim` | MIT | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |
+| Raspberry Pi Pico SDK (`raspberrypi/pico-sdk`) | RP2040 and RP2350 `.uf2` images | BSD-3-Clause | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |
+| Nordic `nrfx` (`NordicSemiconductor/nrfx`) | nRF52840 `.hex` and `.bin` images | BSD-3-Clause | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |
+| ARM CMSIS 5 (`ARM-software/CMSIS_5`) | STM32F4 `.hex` and `.bin` images | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |
+| STMicroelectronics `cmsis_device_f4` | STM32F4 `.hex` and `.bin` images | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |
+| Espressif ESP-IDF (`espressif/esp-idf`) | ESP32-S3 `.bin` image | Apache-2.0 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#third-party-notices), `THIRD_PARTY_NOTICES.firmware.txt` |

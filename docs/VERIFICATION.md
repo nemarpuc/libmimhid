@@ -4,9 +4,9 @@ What is tested in each verification layer, what has and has not been verified on
 real hardware, the coverage floor, and the exact commands to reproduce every
 check.
 
-Detailed test organization lives in [tests/README.md](../tests/README.md); the
+Detailed test organization lives in [tests/README.md](../tests/README.md#tests); the
 step-by-step physical board checklist lives in
-[tests/hw/README.md](../tests/hw/README.md).
+[tests/hw/README.md](../tests/hw/README.md#hardware-tests).
 
 ## Four verification layers
 
@@ -31,7 +31,7 @@ step-by-step physical board checklist lives in
    in a background thread, compiled four ways: `15`, `7`, and `3` Full-Speed
    interfaces (`mimhid.sim-15`, `mimhid.sim-7`, `mimhid.sim-3`) and `7`
    High-Speed interfaces (`mimhid.sim-hs`).
-4. **`hw` ([tests/hw/README.md](../tests/hw/README.md), [examples/c/verify/](../examples/c/verify)).**
+4. **`hw` ([tests/hw/README.md](../tests/hw/README.md#hardware-tests), [examples/c/verify/](../examples/c/verify)).**
    Manual runs with a physical microcontroller board wired to a USB-UART adapter
    and plugged into a real target host. Only this layer exercises the real silicon
    USB controller, crystal/PLL baud dividers, DMA ring wrap-around, physical D+

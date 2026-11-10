@@ -357,7 +357,7 @@ Application Collection `Digitizers / Touch Screen` (`0x000D / 0x0004`):
      and `Azimuth` (`0x003F`), each padded to a byte boundary.
 4. **Scan Time (optional):** when `enable_scan_time == 1` (requires
    `scan_time_unit_100us == 1`), `Digitizers / Scan Time` (`0x0056`) with HID
-   Unit `0x1001` (seconds) and Unit Exponent `-4` ($100\ \mu\text{s}$ steps).
+   Unit `0x1001` (seconds) and Unit Exponent `-4` (`100 µs` steps).
 5. **Contact Count:** `Digitizers / Contact Count` (`0x0054`).
 
 ### Option validation
@@ -380,7 +380,7 @@ Application Collection `Digitizers / Touch Screen` (`0x000D / 0x0004`):
 - When `enable_scan_time == 1`, `scan_time_unit_100us == 1`,
   `scan_time.logical_minimum == 0`, `scan_time.logical_maximum >= 1`, and
   `scan_time.physical` must be disabled (`0`), because the builder supplies the
-  mandatory $100\ \mu\text{s}$ unit items itself.
+  mandatory `100 µs` unit items itself.
 
 ### Contact state machine, Scan Time, and multi-packet frames
 
@@ -392,7 +392,7 @@ Application Collection `Digitizers / Touch Screen` (`0x000D / 0x0004`):
   returns `MIMHID_ERR_BUSY`; placing a `contact_id` whose lift has not yet been
   submitted also returns `MIMHID_ERR_BUSY`.
 - When `enable_scan_time == 1`, `mimhid_node_submit` computes `Scan Time`
-  automatically from `std::chrono::steady_clock` in $100\ \mu\text{s}$ ticks
+  automatically from `std::chrono::steady_clock` in `100 µs` ticks
   modulo `scan_time.logical_maximum + 1` (rolling the epoch back if the serial
   write fails).
 - When `enable_multi_packet_frames == 1` and more than `contacts_per_report`

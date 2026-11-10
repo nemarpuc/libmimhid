@@ -99,7 +99,7 @@ TinyUSB raises the D+ pull-up on every `USB_EVT_READY` (a cable plugged in, the 
 
 `hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 makes the rates of its `BAUDRATE` register only, up to 1,000,000; 921,600 runs at 941,176 (+2.1 %), which UART receivers accept. The rate is changed with the receiver stopped and the peripheral disabled.
 
-## Host
+## Host {#host}
 
 The serial backend lives in `src/transport/`:
 

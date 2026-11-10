@@ -77,7 +77,7 @@ All wider values are little endian. The length is `36 + n`. (Version 0.2.0 added
 
 **Versions.** The firmware and the library of one release speak the same protocol. A host talks to a board whose `fw_major` and `fw_minor` equal its own; `fw_patch` never changes the wire. The first four bytes keep their place in every release, so the host can read them from any board: it lists a board of another major or minor version in `mimhid_discover` with only those values (`firmware_compatible` 0), and refuses to open it with `MIMHID_ERR_PROTOCOL`. A change of the frame format or of any layout in this document raises the minor number.
 
-## Line rate
+## Line rate {#line-rate}
 
 There is no table of rates. Only the boot rate is fixed: 115,200 baud (`MIMHID_BOOT_BAUD`), because two parties that have never spoken need one rate in common. Any other rate from there up to the board's `max_baud` (from its UART clock and divider limits, in the `PONG`) can be agreed.
 
@@ -112,7 +112,7 @@ There is no table of rates. Only the boot rate is fixed: 115,200 baud (`MIMHID_B
 
 The host maps the interface to the node and delivers `mimhid_event` on its reader thread.
 
-## Control transfers
+## Control transfers {#control-transfers}
 
 Besides the reports, the target talks to the board on endpoint 0. Without configuration the board answers it all itself (TinyUSB does, and the HID class driver for the report requests). `CONTROL_CONFIG` changes that, for as long as the host wants:
 

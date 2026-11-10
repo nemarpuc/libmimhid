@@ -97,33 +97,40 @@ Every public options or output structure with `struct_size` has a static inline
 
 ## Lifecycle and USB bus behavior
 
-1. **Before the first commit (`0 V` stealth state):** when the board boots and
-   when `mimhid_device_open` completes the UART handshake, the board's USB `D+`
-   pull-up remains disabled (`0 V`). The target PC sees no USB device at all.
-2. **Opening Nodes and committing:** each `mimhid_node_open`,
-   `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_set_usb_identity`,
-   `mimhid_device_batch_end`, or `mimhid_device_commit` streams `DEVICE_CONFIG`,
-   `NODE_BEGIN`, `NODE_DATA`, `FEATURE`, `QUEUE_DEPTH`, and `COMMIT` frames to
-   the board:
-   - On the **first** commit, the board builds the USB descriptors, pulls `D+`
-     high (`tud_connect()`), and the host waits up to `reconnect_timeout_ms` for
-     the board to report `MOUNTED` (`SET_CONFIGURATION` from the target OS).
-   - On a **subsequent** commit while the board is already attached, the host
-     first sends a detach `COMMIT` (`Link::disconnect`), sleeps
-     `reconnect_delay_ms` on the host when `mimhid_device_commit` is given a
-     nonzero `reconnect_delay_ms`, and then sends an attach `COMMIT`
-     (`Link::connect`) and waits up to `reconnect_timeout_ms` for `MOUNTED`.
-   - When the **last** live Node is closed (`mimhid_node_close`), the library
-     sends a detach `COMMIT` so the board drops off the target USB bus.
-3. **Sharing vs separating USB interfaces:**
-   - Up to `MIMHID_MAX_NODES` (`16`) Nodes can be open on a `Device`, packed
-     across the board's `max_interfaces` (`15` on RP2040/RP2350, `7` on
-     nRF52840, `4` on ESP32-S3, `3` on STM32F411).
-   - Nodes given the **same** `iface.number` share one USB HID interface: their
-     `iface`, `ep_in`, and `ep_out` settings must match, and every Node on that
-     shared interface must declare a distinct nonzero `Report ID` (`1..255`).
-   - Nodes on **different** `iface.number` values must use distinct endpoint
-     numbers (`1..max_endpoint_number`).
+### 1. Before the first commit (`0 V` stealth state)
+
+When the board boots and when `mimhid_device_open` completes the UART
+handshake, the board's USB `D+` pull-up remains disabled (`0 V`). The target PC
+sees no USB device at all.
+
+### 2. Opening Nodes and committing
+
+Each `mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`,
+`mimhid_device_set_usb_identity`, `mimhid_device_batch_end`, or
+`mimhid_device_commit` streams `DEVICE_CONFIG`, `NODE_BEGIN`, `NODE_DATA`,
+`FEATURE`, `QUEUE_DEPTH`, and `COMMIT` frames to the board:
+
+- On the **first** commit, the board builds the USB descriptors, pulls `D+`
+  high (`tud_connect()`), and the host waits up to `reconnect_timeout_ms` for
+  the board to report `MOUNTED` (`SET_CONFIGURATION` from the target OS).
+- On a **subsequent** commit while the board is already attached, the host
+  first sends a detach `COMMIT` (`Link::disconnect`), sleeps
+  `reconnect_delay_ms` on the host when `mimhid_device_commit` is given a
+  nonzero `reconnect_delay_ms`, and then sends an attach `COMMIT`
+  (`Link::connect`) and waits up to `reconnect_timeout_ms` for `MOUNTED`.
+- When the **last** live Node is closed (`mimhid_node_close`), the library
+  sends a detach `COMMIT` so the board drops off the target USB bus.
+
+### 3. Sharing vs separating USB interfaces
+
+- Up to `MIMHID_MAX_NODES` (`16`) Nodes can be open on a `Device`, packed
+  across the board's `max_interfaces` (`15` on RP2040/RP2350, `7` on
+  nRF52840, `4` on ESP32-S3, `3` on STM32F411).
+- Nodes given the **same** `iface.number` share one USB HID interface: their
+  `iface`, `ep_in`, and `ep_out` settings must match, and every Node on that
+  shared interface must declare a distinct nonzero `Report ID` (`1..255`).
+- Nodes on **different** `iface.number` values must use distinct endpoint
+  numbers (`1..max_endpoint_number`).
 
 ---
 
@@ -139,7 +146,7 @@ const mimhid_error_detail* mimhid_last_error(void);
 
 - **Purpose:** Returns the calling thread's `mimhid_error_detail` record for the
   most recent `libmimhid` call on that thread.
-- **Ownership & threading:** Thread-local pointer valid until the calling
+- **Ownership and threading:** Thread-local pointer valid until the calling
   thread's next `libmimhid` call; never `NULL`.
 
 #### `mimhid_result_name`
@@ -151,7 +158,7 @@ const char* mimhid_result_name(mimhid_result result);
 - **Purpose:** Returns the constant name of `result` (for example,
   `"MIMHID_ERR_TIMEOUT"`), or `"MIMHID_RESULT_UNKNOWN"` (recording
   `MIMHID_ERR_PARAM`) for an unknown integer.
-- **Ownership & threading:** Static string; safe from any thread.
+- **Ownership and threading:** Static string; safe from any thread.
 
 #### `mimhid_frame_type_name`
 
@@ -165,7 +172,7 @@ const char* mimhid_frame_type_name(int32_t frame_type);
   `"CONTROL_REPLY"`, `"LOSS_CONFIG"`, `"QUEUE_DEPTH"`, `"PROBE"`, `"COUNTERS"`,
   `"REPORT"`, `"PONG"`, `"ACK"`, `"NAK"`, `"EVENT"`), or `"UNKNOWN"` (recording
   `MIMHID_ERR_PARAM`).
-- **Ownership & threading:** Static string; safe from any thread.
+- **Ownership and threading:** Static string; safe from any thread.
 
 #### `mimhid_version`
 
@@ -582,11 +589,11 @@ Every result code shared with `libaoahid` uses the same integer value (numbers
 
 | Area | `libaoahid` (Android Open Accessory 2.0) | `libmimhid` (MCU USB-HID bridge) |
 |---|---|---|
-| **Target & transport** | Android phone/tablet directly over USB (`libusb`, AOA 2.0 control requests `54..57` on endpoint 0) | Any USB host (PC, console, phone) through an MCU board over a host serial port (`termios`/`Win32`) |
+| **Target and transport** | Android phone/tablet directly over USB (`libusb`, AOA 2.0 control requests `54..57` on endpoint 0) | Any USB host (PC, console, phone) through an MCU board over a host serial port (`termios`/`Win32`) |
 | **Top-level handles** | `aoahid_context*`, `aoahid_discovery*`, `aoahid_device*`, `aoahid_spec*`, `aoahid_node*` | No `Context` handle: `mimhid_discovery*`, `mimhid_device*`, `mimhid_spec*`, `mimhid_node*` |
 | **Initializers (`*_init`)** | `aoahid_*_init` fills in working defaults for a current Android phone | `mimhid_*_init` only zeroes the struct and sets `struct_size`; every required field is set by the caller |
 | **USB descriptors** | Fixed by the Android phone (`ACCESSORY_START` strings only) | Caller supplies full USB Device, Configuration, Interface, and Endpoint descriptors (`mimhid_device_config`, `mimhid_node_config`) |
-| **Opening & closing a Node** | Sends `REGISTER_HID` + `SET_HID_REPORT_DESCRIPTOR` with a single `control_timeout_ms` | Takes `const mimhid_commit_timeouts*` (`control_timeout_ms` + `reconnect_timeout_ms`); can be batched with `mimhid_device_batch_begin` / `end` |
+| **Opening and closing a Node** | Sends `REGISTER_HID` + `SET_HID_REPORT_DESCRIPTOR` with a single `control_timeout_ms` | Takes `const mimhid_commit_timeouts*` (`control_timeout_ms` + `reconnect_timeout_ms`); can be batched with `mimhid_device_batch_begin` / `end` |
 | **Submit calls** | `aoahid_node_submit_blocking` and `aoahid_node_submit` | `mimhid_node_submit` (one report) and `mimhid_node_submit_blocking` (drains multi-packet frames and remainders) |
-| **Two-way HID & bus control** | Input-only (AOA 2.0 defines no Output or Feature requests) | Full two-way HID via `transport.event_sink` (`OUTPUT_REPORT`, `FEATURE_REPORT`, `SET_PROTOCOL`, `SET_IDLE`, `REPORT_LOST`, bus state), `mimhid_node_set_feature_response`, `mimhid_device_disconnect`/`connect`/`remote_wakeup`, and endpoint 0 control transfer routing (`mimhid_device_set_control_routing`, `mimhid_device_control_reply`) |
+| **Two-way HID and bus control** | Input-only (AOA 2.0 defines no Output or Feature requests) | Full two-way HID via `transport.event_sink` (`OUTPUT_REPORT`, `FEATURE_REPORT`, `SET_PROTOCOL`, `SET_IDLE`, `REPORT_LOST`, bus state), `mimhid_node_set_feature_response`, `mimhid_device_disconnect`/`connect`/`remote_wakeup`, and endpoint 0 control transfer routing (`mimhid_device_set_control_routing`, `mimhid_device_control_reply`) |
 | **Result codes** | Shares the common integer values plus `5` (`AOAHID_ERR_NOT_AOA`), `9` (`AOAHID_ERR_STALL`), and `15` (`AOAHID_ERR_CLOSE_PENDING`) | Shares the common integer values plus `4` (`MIMHID_ERR_PROTOCOL`) |

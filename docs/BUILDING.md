@@ -65,7 +65,7 @@ ctest --preset dev
 
 For the complete test, sanitizer, and coverage commands, see
 [VERIFICATION.md](VERIFICATION.md#reproducing-the-checks) and
-[tests/README.md](../tests/README.md).
+[tests/README.md](../tests/README.md#tests).
 
 ## Using the installed package
 

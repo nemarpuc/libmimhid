@@ -28,7 +28,7 @@ application call
 
 The USB poll wait dominates once the UART frame is on the wire. Raising the baud rate shortens only the UART term. The rate is the fastest one the board, the operating system, and the serial adapter carry without loss: no table caps it, the search starts at the board's `max_baud` (see [PROTOCOL.md](PROTOCOL.md#line-rate)), and `mimhid_device_link_counters` shows whether the line keeps losing nothing while the program runs. A High-Speed target-facing port would shorten the larger term (125 µs microframes instead of 1 ms frames); the firmware has no High-Speed port yet.
 
-## Measured, once
+## Measured, once {#measured-once}
 
 2026-11-07, libmimhid 0.1.0 on a Raspberry Pi Pico (RP2040), a Prolific PL2303 USB-UART adapter (USB Full-Speed), the program and the target on the same Linux machine, which is a VMware guest with both USB devices passed through. The program times a key press from just before `mimhid_node_submit` returns to the moment the target's evdev device reports it (monotonic clock, 8 to 9 ms between presses, the input device grabbed so nothing is typed). The link ran at 7,812,500 baud, the rate the search chose. 500 presses and 500 releases: none lost, and the board's link counters stayed zero.
 
@@ -71,7 +71,7 @@ Plugging **both** the USB-UART bridge and the board's USB device cable into the 
 When the target is a separate device such as an Android phone, the host PC and the phone do not share a `CLOCK_MONOTONIC` epoch.
 
 - **How to compare fairly:** Use the **same** phone, the **same** USB port/cable topology, and the **same** target-side timestamping method (such as `adb shell getevent -lt` or a small target agent recording `CLOCK_MONOTONIC` on input receipt) for both `libaoahid` (PC USB directly to phone in AOA mode) and `libmimhid` (PC UART to MCU board, MCU board USB via OTG adapter to the phone), running the two trials back-to-back.
-- **What it shows:** The relative latency **difference** ($\Delta = \text{latency}_{\text{mimhid}} - \text{latency}_{\text{aoahid}}$) when the host and phone clocks are compared against a common synchronization reference or over a short back-to-back window where clock drift is negligible; the unknown constant offset between the PC clock and the phone clock cancels **only in a difference**.
+- **What it shows:** The relative latency **difference** (`latency_mimhid - latency_aoahid`) when the host and phone clocks are compared against a common synchronization reference or over a short back-to-back window where clock drift is negligible; the unknown constant offset between the PC clock and the phone clock cancels **only in a difference**.
 - **What it cannot show:** Absolute one-way latency in microseconds from the PC to a separate target machine. **Measuring absolute cross-machine latency requires a hardware USB protocol analyzer** (or a shared hardware GPIO pulse / logic analyzer probing both the host UART TX line and the target's response).
 
 ## Host serial latency
