@@ -40,7 +40,7 @@ At least one of `MIMHID_BUILD_SHARED` and `MIMHID_BUILD_STATIC` must be `ON`.
 | `MIMHID_TSAN` | `OFF` | Instrument every target with ThreadSanitizer (`-fsanitize=thread -fno-sanitize-recover=all`, Linux with Clang or GCC 12+ and PIE support) |
 | `MIMHID_COVERAGE` | `OFF` | Instrument every target with `--coverage -O0 -fprofile-update=atomic` for `gcov` / `gcovr` line and branch coverage (GCC or Clang) |
 | `MIMHID_BUILD_FUZZ` | `OFF` | Build the `mimhid_fuzz_descriptor` libFuzzer target ([tests/fuzz/fuzz_descriptor.cpp](../tests/fuzz/fuzz_descriptor.cpp), Clang only) |
-| `MIMHID_TINYUSB_PATH` | `""` | Path to a TinyUSB source checkout; when set on POSIX with `MIMHID_BUILD_TESTS=ON`, builds the simulated-board test executables (`mimhid_sim_15`, `mimhid_sim_7`, `mimhid_sim_3`, `mimhid_sim_hs`) |
+| `MIMHID_TINYUSB_PATH` | `""` | A cache variable (`cmake/mimhid-tests.cmake`), not an `option()`: the path to a TinyUSB source checkout. When set on a non-Windows host with `MIMHID_BUILD_TESTS=ON`, it builds the simulated-board test executables (`mimhid_sim_15`, `mimhid_sim_7`, `mimhid_sim_3`, `mimhid_sim_hs`; CTest `mimhid.sim-*`) |
 
 `MIMHID_SANITIZE`, `MIMHID_TSAN`, `MIMHID_COVERAGE`, and `MIMHID_BUILD_FUZZ`
 are mutually exclusive: CMake stops during configuration if more than one is
@@ -120,12 +120,12 @@ Nothing about the chip, the board, or the UART pinout is guessed by the build:
 every port requires its chip/board and UART pins on the command line and fails
 at configure or compile time if any required setting is omitted.
 
-| Target | Source directory | USB controller | `MIMHID_HID_ITFS` | `MIMHID_MAX_ENDPOINT_NUMBER` | `MIMHID_MAX_ENDPOINT_BYTES` | Max UART rate | Cores |
+| Target | Source directory | USB controller | `MIMHID_HID_ITFS` | `MIMHID_MAX_ENDPOINT_NUMBER` | `MIMHID_MAX_ENDPOINT_BYTES` | Max UART rate (`hal_uart_max_baud`) | Cores |
 |---|---|---|---:|---:|---:|---:|---|
-| RP2040 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | 7,812,500 baud | Core 0 USB, Core 1 UART + DMA ring |
-| RP2350 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | 9,375,000 baud | Core 0 USB, Core 1 UART + endless DMA ring |
+| RP2040 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | `clk_peri / 16` (7,812,500 at 125 MHz) | Core 0 USB, Core 1 UART + DMA ring |
+| RP2350 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | `clk_peri / 16` (9,375,000 at 150 MHz) | Core 0 USB, Core 1 UART + endless DMA ring |
 | nRF52840 | `firmware/ports/nrf52840` | Full-Speed USBD | 7 | 7 | 64 | 1,000,000 baud | Single loop (`UARTE1` 1-byte EasyDMA + ISR software ring, `UARTE0` disabled) |
-| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 3 (5 on F412) | 64 | 5,250,000 baud | Single loop (`USART2` + `DMA1_Stream5` circular DMA ring) |
+| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 3 (5 on F412) | 64 | PCLK1 / 8 | Single loop (`USART2` + `DMA1_Stream5` circular DMA ring) |
 | ESP32-S3 | `firmware/ports/esp32s3` | Full-Speed OTG | 4 | 6 | 64 | 5,000,000 baud | Single loop (`UART1` hardware FIFO + driver ring) |
 
 ### RP2040 and RP2350 (Pico SDK)
@@ -171,7 +171,7 @@ cmake -S firmware/ports/stm32f4 -B build-stm32f4 -G Ninja \
 cmake --build build-stm32f4
 ```
 
-### ESP32-S3 (ESP-IDF 5.3+)
+### ESP32-S3 (ESP-IDF; CI builds with v5.4.2)
 
 Requires an activated ESP-IDF environment (`$IDF_PATH/export.sh`) and
 `TINYUSB_PATH` in the environment. Both UART GPIO numbers must be specified:
@@ -200,14 +200,14 @@ ctest --test-dir build-fw-tests --output-on-failure
 ## Language bindings
 
 - **Python** ([bindings/python/](../bindings/python)): pure `ctypes` package
-  (`mimhid`). Set `MIMHID_LIBRARY_PATH` to the full path of `libmimhid.so`,
-  `libmimhid.dylib`, or `mimhid.dll`, or install the shared library on the
-  system loader path. Build a wheel with `python3 -m build --wheel bindings/python`.
+  (`mimhid`). It reads no environment variable: pass the full path of
+  `libmimhid.so`, `libmimhid.dylib`, or `mimhid.dll` to `mimhid.load(path)`. Build a wheel with `python3 -m build --wheel bindings/python`.
 - **C#** ([bindings/csharp/MimHid/](../bindings/csharp/MimHid)): .NET 8 P/Invoke
   binding (`MimHid`). Pack with `dotnet pack bindings/csharp/MimHid/MimHid.csproj -c Release`.
 - **Rust** ([bindings/rust/mimhid-sys/](../bindings/rust/mimhid-sys)): raw FFI
-  crate (`mimhid-sys`). Set `MIMHID_LIB_DIR` (and `MIMHID_INCLUDE_DIR` when
-  needed) before running `cargo build` or `cargo test`.
+  crate (`mimhid-sys`). Set `MIMHID_LIB_DIR` to the directory that holds the
+  library before running `cargo build` or `cargo test` (its `build.rs` reads no
+  other variable).
 
 All three bindings are generated from [include/mimhid.h](../include/mimhid.h) by
 `tools/bindings/generate.py`. Verify that the checked-in bindings match
