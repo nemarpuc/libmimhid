@@ -26,6 +26,7 @@ simulated board running the real firmware core, and `hw` means real hardware and
 | `fuzz/` | (CI job `fuzz-smoke`) | libFuzzer on the raw descriptor validator. Clang only; `MIMHID_BUILD_FUZZ=ON`. |
 | `cmake/` | `mimhid.package-*` | The installed CMake package: components and the multi-architecture layout. |
 | `release/` | (CI, `python3 tests/release/test_release_tools.py`) | The release tooling in `tools/release`. |
+| `docs/` | (CI, `python3 tests/docs/test_doc_references.py`) | `tools/check_doc_references.py`, which fails when a document names a `mimhid_*` / `MIMHID_*` / `mimhid::*` identifier the code does not have, or a path that does not exist; deliberate exceptions go in `tools/doc_reference_allowlist.txt`, each with its reason. |
 | `hw/` | none | The hardware procedure. Nothing here runs by itself. |
 
 The firmware core also has its own host-side tests in `firmware/tests` (CI job "Firmware core tests").
@@ -34,33 +35,33 @@ Every runner counts the checks it ran and prints `N checks, M failed`, and every
 takes suite names as arguments (`--list` prints them):
 
 ```sh
-../../build/libmimhid_dev/mimhid_tests --list
-../../build/libmimhid_dev/mimhid_tests profiles_touch spec_rejections
-../../build/libmimhid_dev/mimhid_scripted_tests handshaker
+build/dev/mimhid_tests --list
+build/dev/mimhid_tests profiles_touch spec_rejections
+build/dev/mimhid_scripted_tests handshaker
 ```
 
 ## Running them
 
-All commands run from the repository root and build outside it, under the workspace `build/`.
+All commands run from the repository root and build into `build/` there (ignored by git).
 
 ```sh
 # Unit, scripted, ABI, golden and package tests, plus sim when TinyUSB is given
-cmake --preset dev -B ../../build/libmimhid_dev -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
-cmake --build ../../build/libmimhid_dev
-ctest --test-dir ../../build/libmimhid_dev --output-on-failure
+cmake --preset dev -B build/dev -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
+cmake --build build/dev
+ctest --test-dir build/dev --output-on-failure
 
 # One test, or one layer
-ctest --test-dir ../../build/libmimhid_dev -R mimhid.unit --output-on-failure
-ctest --test-dir ../../build/libmimhid_dev -R sim --output-on-failure
+ctest --test-dir build/dev -R mimhid.unit --output-on-failure
+ctest --test-dir build/dev -R sim --output-on-failure
 
 # AddressSanitizer and UndefinedBehaviorSanitizer
-cmake -B ../../build/libmimhid_asan -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
+cmake -B build/asan -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
       -DMIMHID_SANITIZE=ON -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
-cmake --build ../../build/libmimhid_asan && ctest --test-dir ../../build/libmimhid_asan
+cmake --build build/asan && ctest --test-dir build/asan
 
 # ThreadSanitizer (tests/sim/tsan.supp holds the suppressions)
-cmake --preset tsan -B ../../build/libmimhid_tsan -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
-cmake --build ../../build/libmimhid_tsan && ctest --test-dir ../../build/libmimhid_tsan
+cmake --preset tsan -B build/tsan -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
+cmake --build build/tsan && ctest --test-dir build/tsan
 ```
 
 `.github/scripts/setup-tinyusb.sh <dir>` fetches the pinned TinyUSB that CI uses.
@@ -72,16 +73,16 @@ only; it cannot be combined with the sanitizers or the fuzz build. The CI job "C
 same commands and fails when line or branch coverage of `src/` drops under its floor.
 
 ```sh
-cmake --preset coverage -B ../../build/libmimhid_coverage -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
-cmake --build ../../build/libmimhid_coverage
-find ../../build/libmimhid_coverage -name '*.gcda' -delete   # counts from an earlier run
-ctest --test-dir ../../build/libmimhid_coverage
-mkdir -p ../../build/libmimhid_coverage/coverage
-gcovr --root . --object-directory ../../build/libmimhid_coverage --filter 'src/' \
+cmake --preset coverage -B build/coverage -DMIMHID_TINYUSB_PATH=$HOME/tinyusb
+cmake --build build/coverage
+find build/coverage -name '*.gcda' -delete   # counts from an earlier run
+ctest --test-dir build/coverage
+mkdir -p build/coverage/coverage
+gcovr --root . --object-directory build/coverage --filter 'src/' \
   --exclude-throw-branches --exclude-unreachable-branches \
   --exclude-lines-by-pattern '.*MIMHID_C_(RESULT|VALUE|VOID)_CATCH.*' \
-  --txt ../../build/libmimhid_coverage/coverage/coverage.txt \
-  --html-details ../../build/libmimhid_coverage/coverage/index.html \
+  --txt build/coverage/coverage/coverage.txt \
+  --html-details build/coverage/coverage/index.html \
   --print-summary --fail-under-line 86 --fail-under-branch 73
 ```
 

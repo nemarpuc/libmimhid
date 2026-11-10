@@ -1,0 +1,7 @@
+# References tools/check_doc_references.py accepts although the code does not have them.
+# One reference per line, then '#' and why it is allowed.
+MIMHID_CONTROL_TIMEOUT_MS # removed in 0.2.0; ARCHITECTURE.md names it as the rejected alternative
+MIMHID_SEND_TIMEOUT_MS # removed in 0.2.0; ARCHITECTURE.md names it as the rejected alternative
+MIMHID_DRAIN_TIMEOUT_MS # removed in 0.2.0; ARCHITECTURE.md names it as the rejected alternative
+MIMHID_RECONNECT_TIMEOUT_MS # removed in 0.2.0; ARCHITECTURE.md names it as the rejected alternative
+include/linux/hid.h # a file of the Linux kernel source tree, cited by LIMITS.md
