@@ -85,8 +85,8 @@ static void fill_node(mimhid_node_config* config, uint8_t n) {
 #include <mimhid.h>
 
 static void open_two_nodes_in_batch(mimhid_device* device,
-                                    const mimhid_spec* keyboard_spec,
-                                    const mimhid_spec* mouse_spec,
+                                    mimhid_spec* keyboard_spec,
+                                    mimhid_spec* mouse_spec,
                                     const mimhid_commit_timeouts* commit_timeouts,
                                     mimhid_node** keyboard,
                                     mimhid_node** mouse) {

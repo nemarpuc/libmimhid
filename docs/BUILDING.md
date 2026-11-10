@@ -77,18 +77,17 @@ components, `shared` and `static`:
 
 ```cmake
 find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)
-target_link_libraries(my_c_app PRIVATE mimhid::shared)
+target_link_libraries(my_c_app PRIVATE mimhid::mimhid)
 ```
 
 Available imported targets:
 
 | Target | Component | Description |
 |---|---|---|
-| `mimhid::shared` | `shared` | Shared library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`) |
-| `mimhid::static` | `static` | Static archive (`libmimhid_static.a` when built alongside `shared`, or `libmimhid.a` in a static-only build; `mimhid_static.lib` on Windows) along with its required interface link libraries (`pthread` + C++ runtime on POSIX, `setupapi` + `advapi32` on Windows) |
-| `mimhid::mimhid` | either | Alias for `mimhid::shared` when the `shared` component is loaded, otherwise `mimhid::static` |
-| `mimhid::cpp` | `shared` (or `static` in a static-only install) | Header-only C++20 interface target ([include/mimhid.hpp](../include/mimhid.hpp)) linked against the primary library |
-| `mimhid::cpp_static` | `static` | Header-only C++20 interface target linked against `mimhid::static` |
+| `mimhid::mimhid` | `shared` (or `static` when only `static` is requested) | Shared library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`), or alias for `mimhid::mimhid_static` when only the `static` component is loaded |
+| `mimhid::mimhid_static` | `static` | Static archive (`libmimhid_static.a` when built alongside `shared`, or `libmimhid.a` in a static-only build; `mimhid_static.lib` on Windows) along with its required interface link libraries (`pthread` + C++ runtime on POSIX, `setupapi` + `advapi32` on Windows) |
+| `mimhid::cpp` | `shared` (or `static` in a static-only install) | Header-only C++20 interface target ([include/mimhid.hpp](../include/mimhid.hpp)) linked against `mimhid::mimhid` |
+| `mimhid::cpp_static` | `static` | Header-only C++20 interface target linked against `mimhid::mimhid_static` |
 
 While the major version is `0`, `mimhid-config-version.cmake` uses
 `SameMinorVersion` compatibility: a `find_package(mimhid 0.2)` request is
@@ -125,8 +124,8 @@ at configure or compile time if any required setting is omitted.
 |---|---|---|---:|---:|---:|---:|---|
 | RP2040 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | 7,812,500 baud | Core 0 USB, Core 1 UART + DMA ring |
 | RP2350 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | 9,375,000 baud | Core 0 USB, Core 1 UART + endless DMA ring |
-| nRF52840 | `firmware/ports/nrf52840` | Full-Speed USBD | 7 | 7 | 64 | 1,000,000 baud | Single loop (`UARTE0` EasyDMA double buffer) |
-| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 3 (5 on F412) | 64 | 5,250,000 baud | Single loop (`USART2` RXNE ISR ring) |
+| nRF52840 | `firmware/ports/nrf52840` | Full-Speed USBD | 7 | 7 | 64 | 1,000,000 baud | Single loop (`UARTE1` 1-byte EasyDMA + ISR software ring, `UARTE0` disabled) |
+| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 3 (5 on F412) | 64 | 5,250,000 baud | Single loop (`USART2` + `DMA1_Stream5` circular DMA ring) |
 | ESP32-S3 | `firmware/ports/esp32s3` | Full-Speed OTG | 4 | 6 | 64 | 5,000,000 baud | Single loop (`UART1` hardware FIFO + driver ring) |
 
 ### RP2040 and RP2350 (Pico SDK)

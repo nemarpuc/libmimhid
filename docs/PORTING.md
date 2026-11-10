@@ -1,5 +1,7 @@
 # Porting
 
+Host operating-system portability (Linux, macOS, and Windows requirements, builds, and serial backends) is covered in [BUILDING.md](BUILDING.md) and the [Host](#host) section below; this document focuses on porting microcontroller firmware.
+
 ## Firmware layout
 
 ```text

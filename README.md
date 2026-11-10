@@ -46,64 +46,90 @@ libraries are needed. To talk to a real board you also need one supported MCU
 flashed with `mimhid_firmware` and a 3.3 V USB-UART adapter
 ([QUICKSTART.md](docs/QUICKSTART.md)).
 
-- **Release archive.** The [Releases](https://github.com/nemarpuc/libmimhid/releases)
-  page publishes **exactly 18 uploaded assets** per release: one
-  `libmimhid-X.Y.Z-<platform>-<arch>[-ubuntu22.04]` archive per platform (Linux,
-  Windows, macOS) carrying both the shared and static libraries, the headers,
-  and the CMake and `pkg-config` files, alongside the prebuilt firmware images,
-  source archive, SPDX 2.3 SBOM, and SHA-256 checksums
-  ([RELEASES.md](docs/RELEASES.md)).
-- **CMake.** `find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)` or
-  `COMPONENTS static` (or both), then link `mimhid::shared` or `mimhid::static`
-  (or `mimhid::cpp` / `mimhid::cpp_static` for the C++20 header). A `0.2`
-  request is satisfied by a `0.2.x` install only.
-- **pkg-config.** `pkg-config --cflags --libs mimhid` for the shared library, or
-  `pkg-config --static --cflags --libs mimhid-static` for the static archive.
-- **From source.**
-
-  ```sh
-  cmake -S . -B build -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON
-  cmake --build build --config Release
-  cmake --install build --prefix staging --config Release
-  ```
-
-  Every CMake option, the presets, the firmware builds, and the sanitizer and
-  coverage commands are in [BUILDING.md](docs/BUILDING.md).
+- **Release archive.** The [Releases](https://github.com/nemarpuc/libmimhid/releases) page publishes **exactly 18 uploaded assets** per release: one `libmimhid-X.Y.Z-<platform>-<arch>[-ubuntu22.04]` archive per platform (Linux, Windows, macOS) carrying both the shared and static libraries, the headers, and the CMake and `pkg-config` files, alongside the prebuilt firmware images, source archive, SPDX 2.3 SBOM, and SHA-256 checksums ([RELEASES.md](docs/RELEASES.md)).
+- **CMake.** `find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)` or `COMPONENTS static` (or both), then link `mimhid::mimhid` or `mimhid::mimhid_static` (or `mimhid::cpp` / `mimhid::cpp_static` for the C++20 header). A `0.2` request is satisfied by a `0.2.x` install only.
+- **pkg-config.** `pkg-config --cflags --libs mimhid` for the shared library, or `pkg-config --static --cflags --libs mimhid-static` for the static archive.
+- **vcpkg.** Not needed: the host library has zero external dependencies and uses operating-system serial APIs (`termios` on Linux and macOS, Win32 on Windows) directly.
+- **From source.** `cmake -S . -B build -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON && cmake --build build --config Release && cmake --install build --prefix staging --config Release`. Every CMake option, the presets, the firmware builds, and the sanitizer and coverage commands are in [BUILDING.md](docs/BUILDING.md).
 
 ## First program
 
-Pressing and releasing the `a` key on an already-opened `device` (error checks
-and `config` field assignments omitted for brevity; every call returns a
-`mimhid_result`, and [examples/c/basic_keyboard_mouse.c](examples/c/basic_keyboard_mouse.c)
-has the complete runnable session):
+Pressing and releasing the `a` key on a board on `/dev/ttyUSB0` (see
+[examples/c/basic_keyboard_mouse.c](examples/c/basic_keyboard_mouse.c) for port
+discovery and full error reporting):
 
 ```c
 #include "mimhid.h"
 
-void send_key_a(mimhid_device* device, const mimhid_node_config* node_cfg,
-                const mimhid_commit_timeouts* waits) {
-    mimhid_keyboard_options kb;
-    mimhid_keyboard_options_init(&kb);
-    kb.usage_minimum = 0x04;
-    kb.usage_maximum = 0xDD;
-    mimhid_spec* spec = NULL;
-    mimhid_spec_create_keyboard(&kb, &spec);
-    mimhid_node* node = NULL;
-    mimhid_node_open(device, spec, node_cfg, waits, &node);
-    mimhid_spec_release(spec); /* the Node keeps its own reference */
-    mimhid_device_wait_ready(device, 5000);
-    mimhid_keyboard_key(node, 0x04, 1); /* Keyboard a */
-    mimhid_node_submit(node, 500);
-    mimhid_keyboard_key(node, 0x04, 0);
-    mimhid_node_submit(node, 500);
-    mimhid_device_close(device, 500, 1000);
+int main(void) {
+    mimhid_device_config dev_cfg;
+    mimhid_node_config node_cfg;
+    mimhid_commit_timeouts waits;
+    mimhid_keyboard_options kb_opts;
+    mimhid_device_config_init(&dev_cfg);
+    mimhid_node_config_init(&node_cfg);
+    mimhid_commit_timeouts_init(&waits);
+    mimhid_keyboard_options_init(&kb_opts);
+
+    dev_cfg.transport.baud_rate = MIMHID_BAUD_FASTEST;
+    dev_cfg.transport.handshake_timeout_ms = 200;
+    dev_cfg.transport.maximum_report_bytes = 64;
+    dev_cfg.transport.linux_hid = (mimhid_linux_hid_policy){4096, 256, 4, 256, 12288, 65528};
+    dev_cfg.usb_device.bcd_usb = 0x0200;
+    dev_cfg.usb_device.ep0_max_packet_size = 64;
+    dev_cfg.usb_device.vendor_id = 0x1209;
+    dev_cfg.usb_device.product_id = 0x0001;
+    dev_cfg.usb_device.language_id = 0x0409;
+    dev_cfg.usb_config.configuration_value = 1;
+    dev_cfg.usb_config.bm_attributes = 0x80;
+    dev_cfg.usb_config.bmax_power = 50;
+    node_cfg.iface.class_code = 0x03;
+    node_cfg.iface.bcd_hid = 0x0111;
+    node_cfg.ep_in = (mimhid_usb_endpoint){0x81, 1, 64};
+    waits.control_timeout_ms = 500;
+    waits.reconnect_timeout_ms = 3000;
+    kb_opts.usage_minimum = 0x04;
+    kb_opts.usage_maximum = 0xDD;
+
+    mimhid_device *dev = NULL;
+    mimhid_spec *spec = NULL;
+    mimhid_node *kb = NULL;
+    if (mimhid_device_open("/dev/ttyUSB0", &dev_cfg, &dev) == MIMHID_OK &&
+        mimhid_spec_create_keyboard(&kb_opts, &spec) == MIMHID_OK &&
+        mimhid_node_open(dev, spec, &node_cfg, &waits, &kb) == MIMHID_OK &&
+        mimhid_device_wait_ready(dev, 5000) == MIMHID_OK) {
+        mimhid_keyboard_key(kb, 0x04, 1); /* Keyboard a */
+        mimhid_node_submit(kb, 500);
+        mimhid_keyboard_key(kb, 0x04, 0);
+        mimhid_node_submit(kb, 500);
+    }
+    if (kb != NULL) mimhid_node_close(kb, &waits, 1000);
+    if (spec != NULL) mimhid_spec_release(spec);
+    if (dev != NULL) mimhid_device_close(dev, 500, 1000);
+    return 0;
 }
 ```
 
 [QUICKSTART.md](docs/QUICKSTART.md) walks through wiring a board, setting serial
 permissions, and running the watchable demos under
-[examples/c/verify/](examples/c/verify). What each of the nine HID profiles
-builds and validates is in [PROFILES.md](docs/PROFILES.md).
+[examples/c/verify/](examples/c/verify).
+
+## Profiles
+
+| Profile | Factory | Input | Output / Feature |
+|---|---|---|---|
+| Keyboard (NKRO bitmap) | `mimhid_spec_create_keyboard` | 8 modifiers + `usage_minimum..usage_maximum` bitmap | Optional 5-LED Output report |
+| Mouse (relative pointer) | `mimhid_spec_create_mouse` | `1..16` buttons, `X`/`Y`, optional Wheel and AC Pan | — |
+| Toggle controls | `mimhid_spec_create_toggle` | Allow-list on Consumer (`0x0C`), Generic Desktop (`0x01`), Telephony (`0x0B`), or Camera (`0x90`) | — |
+| Gamepad | `mimhid_spec_create_gamepad` | `1..32` buttons, caller-declared axes, optional hat or 4-button D-pad | — |
+| Touchscreen (multi-touch) | `mimhid_spec_create_touchscreen` | `1..32` contact slots (`X`, `Y`, optional width/height/pressure) | `Contact Count Maximum` Feature report |
+| Touchpad | `mimhid_spec_create_touchpad` | `1..32` contact slots + `1..3` buttons | `Contact Count Maximum` Feature report |
+| Pen (direct screen) | `mimhid_spec_create_pen` | In-Range, Tip, Invert, Eraser, barrel switches, `X`/`Y`, optional pressure/tilt | — |
+| Digitizer | `mimhid_spec_create_digitizer` | Pen state machine under `Digitizer` (`0x0D/0x01`) | — |
+| Raw descriptor | `mimhid_spec_create_raw` / `mimhid_node_open_raw` | Any validated Input report (`mimhid_raw_submit` / `mimhid_report_send`) | Output and Feature events via `transport.event_sink` |
+
+Any generated profile can also include a battery-strength Input report. Full
+descriptor layouts and state-machine rules are in [PROFILES.md](docs/PROFILES.md).
 
 ## Moving between libaoahid and libmimhid
 
@@ -136,7 +162,7 @@ comparison is in [API.md](docs/API.md#differences-from-libaoahid).
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System structure, threading, data paths, and design decisions |
 | [INTERNALS.md](docs/INTERNALS.md) | Contributor guide: source map, handle internals, locking, teardown, design decisions |
 | [PROTOCOL.md](docs/PROTOCOL.md) | Binary UART wire protocol (frames, CRC-16, commands, events, line-rate handshake) |
-| [LIMITS.md](docs/LIMITS.md) | Every numeric limit with its USB, HID, chip, or firmware source, plus known issues |
+| [LIMITS.md](docs/LIMITS.md) | Every numeric limit with its USB, HID, chip, or firmware source |
 | [LATENCY.md](docs/LATENCY.md) | Where time goes, measured RP2040 end-to-end latency, and how to measure |
 | [PORTING.md](docs/PORTING.md) | Adding a new MCU port (the 12 HAL functions) or a new host OS serial backend |
 | [TARGET_MATRIX.md](docs/TARGET_MATRIX.md) | Hardware verification status per MCU board, host OS, and HID profile |

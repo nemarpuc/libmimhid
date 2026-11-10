@@ -129,15 +129,15 @@ Each architectural choice below states what the library does, why it does so, wh
 
 ### 6. Stable C11 ABI (`include/mimhid.h`) with a private C++20 implementation and a header-only C++20 facade (`include/mimhid.hpp`)
 
-- **Decision:** The shared and static libraries export only `extern "C"` functions with a versioned symbol script (`tools/symbol-lint/mimhid.version` on Linux, `-exported_symbols_list` on macOS) and link no C++ standard library symbols into the public ABI (`-static-libstdc++ -static-libgcc` on Linux). All C++ exceptions are caught at the `MIMHID_API_TRY` / `MIMHID_API_CATCH` boundary in `src/api/support.hpp`. `include/mimhid.hpp` is a header-only `mimhid::cpp` RAII wrapper layered strictly on top of `include/mimhid.h`.
+- **Decision:** The shared and static libraries export only `extern "C"` functions with a versioned symbol script (`cmake/mimhid.map` on Linux, `-exported_symbols_list` on macOS) and link no C++ standard library symbols into the public ABI (`-static-libstdc++ -static-libgcc` on Linux). All C++ exceptions are caught at the `MIMHID_C_RESULT_CATCH` / `MIMHID_C_VALUE_CATCH` / `MIMHID_C_VOID_CATCH` boundary in `src/api/support.hpp`. `include/mimhid.hpp` is a header-only `mimhid::cpp` RAII wrapper layered strictly on top of `include/mimhid.h`.
 - **Reason:** A pure C11 ABI with `struct_size`-versioned option structs can be consumed directly by C, C++, Python (`ctypes`), C# (`LibraryImport`), and Rust (`extern "C"`) without C++ name mangling or `libstdc++`/`libc++` ABI mismatches, while the implementation still benefits from C++20 (`std::variant`, `std::atomic`, RAII locks) internally (`CMakeLists.txt:226-234,266-290`, `src/api/support.hpp:23-62`, commits `43b015a` and `bc6e6da`).
 - **Rejected alternative:** Exporting C++ classes from the shared library (which breaks across compilers, standard libraries, and FFI generators) or writing the internal state machines and transport in C (losing type-safe `std::variant` dispatch and RAII lock guards).
 
 ## Tests
 
-- `tests/unit`: HID layer and profile state machines (`mimhid.unit`). `tests/hidtools`: descriptors checked against `libaoahid`'s golden files (`mimhid.hidtools`).
-- `tests/abi`: headers compiled from C11 and C++20 (`mimhid.abi-c`, `mimhid.abi-cpp`) and structure layout verification (`mimhid.layout`).
+- `tests/unit`: HID layer and profile state machines (`mimhid.unit`). `tests/hidtools`: descriptors checked against `libaoahid`'s golden files (`mimhid.golden-descriptors`).
+- `tests/abi`: headers compiled from C11 and C++20 (`mimhid.c-abi`, `mimhid.cpp-wrapper`) and structure layout verification (`mimhid.abi-layout-oracle`).
 - `tests/scripted`: the host library run over a pseudo-terminal against a programmable scripted peer (`mimhid.scripted`) that injects NAKs, corrupted CRCs, silent timeouts, rate refusals, and mid-operation hangups.
 - `tests/sim`: the host library run against the real firmware core (`firmware/common`) on the build host through a pseudo-terminal (`tests/sim/fake_board.c`), with TinyUSB replaced by recording stubs. It checks the descriptors the target would receive, reports, events, batching, control routing, and error cases for 15-, 7-, and 3-interface Full-Speed builds and a High-Speed build (`mimhid.sim-15`, `mimhid.sim-7`, `mimhid.sim-3`, `mimhid.sim-hs`).
-- `firmware/tests`: the firmware core tested directly against a fake HAL with real TinyUSB headers (`mimhid_fw_test_15`, `_7`, `_4`, `_3`, `_hs`).
+- `firmware/tests`: the firmware core tested directly against a fake HAL with real TinyUSB headers (`test_core_15`, `test_core_7`, `test_core_4`, `test_core_3`, `test_core_hs`; CTest names `firmware_core_15`, `firmware_core_7`, `firmware_core_4`, `firmware_core_3`, `firmware_core_hs`).
 - See [VERIFICATION.md](VERIFICATION.md) for the complete verification matrix and coverage numbers.

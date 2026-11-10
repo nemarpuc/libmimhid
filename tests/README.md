@@ -1,23 +1,25 @@
 # Tests
 
-libmimhid is tested in three layers. Each one shows something the others cannot, and each says
+libmimhid is tested in four layers. Each one shows something the others cannot, and each says
 plainly what it does not show.
 
 | Layer | Runs on | Shows | Does not show |
 |---|---|---|---|
 | **unit** | any host, no board | the HID layer, the profile state machines, the ABI's argument checks, framing | anything that crosses the serial port |
+| **scripted** | Linux and macOS, no board | the host transport and C ABI against a programmable pseudo-terminal peer that injects NAKs, corrupt frames, rate refusals, and hang-ups | the real firmware core, TinyUSB, or real hardware |
 | **sim** | Linux and macOS, no board | the whole host library talking to the real firmware core (`firmware/common`) over a pseudo-terminal | USB, real serial adapters, real target operating systems |
 | **hw** | a real board, adapter and target | that a release works on hardware | anything not on the bench that day |
 
-The names are kept strictly: "sim" is the simulated board, "e2e" and "hw" mean real hardware and
-nothing else. [`hw/README.md`](hw/README.md) is the procedure for the hardware layer.
+The names are kept strictly: `unit` is in-process, `scripted` is the programmable peer, `sim` is the
+simulated board running the real firmware core, and `hw` means real hardware and nothing else.
+[`hw/README.md`](hw/README.md) is the procedure for the hardware layer.
 
 ## Directories
 
 | Directory | ctest name | What it guards, and why |
 |---|---|---|
 | `unit/` | `mimhid.unit` | One file per area (`test_<suite>.cpp`). Links the library's internal objects, so it can test parsers, builders and per-node state without a device. `test_main.cpp` lists the suites. |
-| `scripted/` | `mimhid.scripted` | A board the test plays itself on a pseudo-terminal, frame by frame (`scripted_board.*`). It can NAK, stay silent, refuse a rate, stop reading, hang up, or send broken frames: the error paths a working firmware rarely takes. POSIX only; no TinyUSB. Part of the unit layer. |
+| `scripted/` | `mimhid.scripted` | A board the test plays itself on a pseudo-terminal, frame by frame (`scripted_board.*`). It can NAK, stay silent, refuse a rate, stop reading, hang up, or send broken frames: the error paths a working firmware rarely takes. POSIX only; no TinyUSB. |
 | `sim/` | `mimhid.sim-15`, `-7`, `-3`, `-hs` | The real firmware core (`firmware/common`) built for the host against TinyUSB, driven over a pseudo-terminal (`fake_board.c`). Four builds with 15, 7 and 3 HID interfaces and high speed. Needs `MIMHID_TINYUSB_PATH`. |
 | `abi/` | `mimhid.abi-layout-oracle`, `mimhid.c-abi`, `mimhid.cpp-wrapper` | The C ABI's structure layouts against `abi_layout.golden`, a C11 consumer, and the C++ header-only wrapper. Any change to a public structure shows up here first. |
 | `golden/` | `mimhid.golden-descriptors` | Every profile's report descriptor, byte for byte (`tests/hidtools/export_descriptors.cpp` writes them). A descriptor change has to be deliberate. CI also parses them with the official hid-tools parser. |

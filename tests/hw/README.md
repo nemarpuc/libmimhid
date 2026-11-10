@@ -1,7 +1,7 @@
 # Hardware tests
 
-The unit and sim layers run without hardware (see [`../README.md`](../README.md)). This page is the
-procedure for the third layer: a real board, a real serial adapter, a real target machine. Nothing
+The `unit`, `scripted`, and `sim` layers run without hardware (see [`../README.md`](../README.md)). This page is the
+procedure for the fourth layer (`hw`): a real board, a real serial adapter, a real target machine. Nothing
 here runs by itself, and nothing in CI stands in for it. A release is "hardware-verified" only after
 this procedure has been followed for it and the result recorded as below.
 

@@ -85,8 +85,9 @@ step-by-step physical board checklist lives in
 
 When `MIMHID_COVERAGE=ON` is enabled, every target is compiled with
 `--coverage -O0 -fprofile-update=atomic` and measured over `src/` by `gcovr`
-(with `--exclude-throw-branches` and the C ABI exception-containment macros
-excluded via `GCOVR_EXCL_START`/`GCOVR_EXCL_STOP`; see
+(with `--exclude-throw-branches --exclude-unreachable-branches` and the C ABI
+exception-containment macros excluded via
+`--exclude-lines-by-pattern '.*MIMHID_C_(RESULT|VALUE|VOID)_CATCH.*'`; see
 [tests/README.md](../tests/README.md#coverage)):
 
 - **Current coverage on `src/`:** **88.3% line coverage** and **75.1% branch
@@ -138,8 +139,9 @@ ctest --preset tsan
 cmake --preset coverage -DMIMHID_TINYUSB_PATH=/path/to/tinyusb
 cmake --build --preset coverage
 ctest --preset coverage
-gcovr --root . --filter 'src/' build/coverage \
-  --exclude-throw-branches \
+gcovr --root . --object-directory build/coverage --filter 'src/' \
+  --exclude-throw-branches --exclude-unreachable-branches \
+  --exclude-lines-by-pattern '.*MIMHID_C_(RESULT|VALUE|VOID)_CATCH.*' \
   --fail-under-line 86 --fail-under-branch 73 \
   --txt-summary
 ```
