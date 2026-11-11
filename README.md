@@ -47,7 +47,7 @@ flashed with `mimhid_firmware` and a 3.3 V USB-UART adapter
 ([QUICKSTART.md](docs/QUICKSTART.md)).
 
 - **Release archive.** The [Releases](https://github.com/nemarpuc/libmimhid/releases) page publishes **exactly 18 uploaded assets** per release: one `libmimhid-X.Y.Z-<platform>-<arch>[-ubuntu22.04]` archive per platform (Linux, Windows, macOS) carrying both the shared and static libraries, the headers, and the CMake and `pkg-config` files, alongside the prebuilt firmware images, source archive, SPDX 2.3 SBOM, and SHA-256 checksums ([RELEASES.md](docs/RELEASES.md)).
-- **CMake.** `find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)` or `COMPONENTS static` (or both), then link `mimhid::mimhid` or `mimhid::mimhid_static` (or `mimhid::cpp` / `mimhid::cpp_static` for the C++20 header). A `0.2` request is satisfied by a `0.2.x` install only.
+- **CMake.** `find_package(mimhid 0.3 CONFIG REQUIRED COMPONENTS shared)` or `COMPONENTS static` (or both), then link `mimhid::mimhid` or `mimhid::mimhid_static` (or `mimhid::cpp` / `mimhid::cpp_static` for the C++20 header). A `0.3` request is satisfied by a `0.3.x` install only.
 - **pkg-config.** `pkg-config --cflags --libs mimhid` for the shared library, or `pkg-config --static --cflags --libs mimhid-static` for the static archive.
 - **vcpkg.** Not needed: the host library has zero external dependencies and uses operating-system serial APIs (`termios` on Linux and macOS, Win32 on Windows) directly.
 - **From source.** `cmake -S . -B build -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON && cmake --build build --config Release && cmake --install build --prefix staging --config Release`. Every CMake option, the presets, the firmware builds, and the sanitizer and coverage commands are in [BUILDING.md](docs/BUILDING.md).
@@ -87,11 +87,11 @@ static int failed(const char* call, mimhid_result result) {
 
 int main(void) {
     mimhid_device_config dev_cfg;
-    mimhid_node_config node_cfg;
+    mimhid_hid_node_config node_cfg;
     mimhid_commit_timeouts waits;
     mimhid_keyboard_options kb_opts;
     mimhid_device_config_init(&dev_cfg);
-    mimhid_node_config_init(&node_cfg);
+    mimhid_hid_node_config_init(&node_cfg);
     mimhid_commit_timeouts_init(&waits);
     mimhid_keyboard_options_init(&kb_opts);
 
@@ -108,9 +108,9 @@ int main(void) {
     dev_cfg.usb_config.configuration_value = 1;
     dev_cfg.usb_config.bm_attributes = 0x80;
     dev_cfg.usb_config.bmax_power = 50;
-    node_cfg.iface.class_code = 0x03;
-    node_cfg.iface.bcd_hid = 0x0111;
-    node_cfg.ep_in = (mimhid_usb_endpoint){0x81, 1, 64};
+    node_cfg.bcd_hid = 0x0111;
+    node_cfg.ep_in = (mimhid_usb_endpoint){0x81, MIMHID_TRANSFER_INTERRUPT, 1, 0, 64, 0,
+                                           {MIMHID_FULL_DROP_NEWEST, 7}};
     waits.control_timeout_ms = 500;
     waits.reconnect_timeout_ms = 3000;
     kb_opts.usage_minimum = 0x04;
@@ -125,8 +125,8 @@ int main(void) {
     int status = 1;
     if ((r = mimhid_spec_create_keyboard(&kb_opts, &spec)) != MIMHID_OK) {
         failed("mimhid_spec_create_keyboard", r);
-    } else if ((r = mimhid_node_open(dev, spec, &node_cfg, &waits, &kb)) != MIMHID_OK) {
-        failed("mimhid_node_open", r);
+    } else if ((r = mimhid_node_open_profile(dev, spec, &node_cfg, &waits, &kb)) != MIMHID_OK) {
+        failed("mimhid_node_open_profile", r);
     } else if ((r = mimhid_device_wait_ready(dev, 5000)) != MIMHID_OK) {
         failed("mimhid_device_wait_ready", r);
     } else if ((r = mimhid_keyboard_key(kb, 0x04, 1)) != MIMHID_OK || /* Keyboard a */
@@ -185,7 +185,7 @@ Both libraries share the profile `Spec` factories, the report state machines,
 and the input calls (`aoahid_keyboard_key` and `mimhid_keyboard_key`, and so
 on). They differ where the hardware differs: `libmimhid` has no `Context`
 handle, takes a serial port name and the full USB and endpoint descriptors
-(`mimhid_device_config`, `mimhid_node_config`), uses `mimhid_commit_timeouts` on
+(`mimhid_device_config`, `mimhid_node_config`, `mimhid_hid_node_config`), uses `mimhid_commit_timeouts` on
 calls that re-enumerate the board, and carries two-way HID traffic (Output
 reports, Feature answers, bus connect and disconnect, endpoint 0 control
 transfer routing). Three differences change code that is moved across:

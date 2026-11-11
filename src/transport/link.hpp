@@ -33,6 +33,8 @@ struct CommandResult {
     operator bool() const noexcept { return status == CommandStatus::ack; }
 };
 
+// kind is a MIMHID_EV_* value, or for a packet of the target on an OUT endpoint the type of its
+// frame, MIMHID_T_EP_OUT_BASE | the endpoint number (data holds the packet, length may be 0).
 struct BoardEvent {
     std::uint8_t kind{};
     std::size_t length{};

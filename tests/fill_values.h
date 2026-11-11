@@ -44,13 +44,15 @@ static inline void test_fill_commit_timeouts(mimhid_commit_timeouts* timeouts) {
 
 /* A HID interface with bInterfaceNumber interface_number, polled every 1 ms through IN endpoint
  * 0x81 + interface_number with 64-byte packets, and no OUT endpoint. */
-static inline void test_fill_node_config(mimhid_node_config* config, uint8_t interface_number) {
-    mimhid_node_config_init(config);
-    config->iface.number = interface_number;
-    config->iface.class_code = 0x03U;
-    config->iface.bcd_hid = 0x0111U;
+static inline void test_fill_node_config(mimhid_hid_node_config* config, uint8_t interface_number) {
+    mimhid_hid_node_config_init(config);
+    config->interface_number = interface_number;
+    config->bcd_hid = 0x0111U;
     config->ep_in.address = (uint8_t)(0x81U + interface_number);
-    config->ep_in.poll_interval_ms = 1U;
+    config->ep_in.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    config->ep_in.interval = 1U;
+    config->ep_in.policy.on_full = MIMHID_FULL_DROP_NEWEST;
+    config->ep_in.policy.depth = 7U;
     config->ep_in.max_packet_size = 64U;
 }
 

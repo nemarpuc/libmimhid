@@ -9,6 +9,7 @@
 #include "mimhid_proto.h"
 #include "test.hpp"
 #include "usb/descriptor_composer.hpp"
+#include "usb/hid_layer.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -21,7 +22,32 @@ namespace {
 using mimhid::usb::Composed;
 using mimhid::usb::ComposerError;
 using mimhid::usb::ComposerInput;
-using mimhid::usb::ComposerNode;
+using mimhid::usb::HidNodeInput;
+
+// The step 1 vectors are of HID Nodes. The HID layer joins them into interfaces and the composer
+// writes the descriptors, as commit_device does: this wrapper does both from the old inputs.
+struct TestInput : ComposerInput {
+    std::vector<HidNodeInput> nodes;
+    std::size_t max_interfaces{15};
+    bool board_has_unique_id{true};
+};
+
+mimhid_result compose(const TestInput& in, Composed* out, ComposerError* error) {
+    ComposerInput full = in;
+    full.limits.max_interfaces = in.max_interfaces;
+    full.limits.max_hid_interfaces = in.max_interfaces;
+    full.limits.max_endpoint_number = 15;
+    full.limits.max_endpoint_bytes = 64;
+    full.limits.max_config_bytes = 1024;
+    full.limits.max_strings = 24;
+    full.limits.endpoint_queue_slots = 64;
+    full.limits.transfer_types = (1U << MIMHID_TRANSFER_BULK) | (1U << MIMHID_TRANSFER_INTERRUPT);
+    full.limits.has_unique_id = in.board_has_unique_id;
+    const mimhid_result grouped = mimhid::usb::compose_hid_groups(in.nodes, &full.groups, error);
+    if (grouped != MIMHID_OK)
+        return grouped;
+    return mimhid::usb::compose_descriptors(full, out, error);
+}
 
 std::string hex(const std::vector<std::uint8_t>& bytes) {
     static const char digits[] = "0123456789abcdef";
@@ -47,11 +73,11 @@ const std::vector<std::uint8_t> kRdC = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01
                                         0x75, 0x08, 0x95, 0x04, 0x09, 0x02, 0x81, 0x02, 0xC0};
 const std::vector<std::uint8_t> kRdD = {0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x03, 0xC0};
 
-void set_device(ComposerInput* in, std::uint16_t vid, std::uint16_t pid, std::uint16_t bcd,
+void set_device(TestInput* in, std::uint16_t vid, std::uint16_t pid, std::uint16_t bcd,
                 std::uint8_t cls, std::uint8_t sub, std::uint8_t proto, std::uint16_t lang,
                 std::uint16_t bcd_usb, std::uint8_t ep0, std::uint8_t attr, std::uint8_t power,
                 bool serial_from_id) {
-    *in = ComposerInput{};
+    *in = TestInput{};
     in->device.vendor_id = vid;
     in->device.product_id = pid;
     in->device.bcd_device = bcd;
@@ -65,27 +91,34 @@ void set_device(ComposerInput* in, std::uint16_t vid, std::uint16_t pid, std::ui
     in->config.configuration_value = 1;
     in->config.bm_attributes = attr;
     in->config.bmax_power = power;
-    in->max_interfaces = 15;
-    in->board_has_unique_id = true;
 }
 
-ComposerNode make_node(std::uint8_t number, std::uint8_t sub, std::uint8_t proto,
+HidNodeInput make_node(std::uint8_t number, std::uint8_t sub, std::uint8_t proto,
                        std::uint16_t bcd_hid, std::uint8_t country, std::uint8_t in_address,
                        std::uint16_t in_size, std::uint8_t in_interval, std::uint8_t out_address,
                        std::uint16_t out_size, std::uint8_t out_interval,
                        const std::vector<std::uint8_t>* descriptor, const char* name,
                        bool has_ids = false, std::uint8_t report_id = 0) {
-    ComposerNode n;
-    n.iface.number = number;
-    n.iface.class_code = 0x03;
-    n.iface.subclass = sub;
-    n.iface.protocol = proto;
-    n.iface.bcd_hid = bcd_hid;
-    n.iface.country_code = country;
-    n.ep_in = {in_address, in_interval, in_size};
-    n.ep_out = {out_address, out_interval, out_size};
+    HidNodeInput n;
+    mimhid_hid_node_config& c = n.config;
+    c.interface_number = number;
+    c.subclass = sub;
+    c.protocol = proto;
+    c.bcd_hid = bcd_hid;
+    c.country_code = country;
+    c.ep_in.address = in_address;
+    c.ep_in.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    c.ep_in.interval = in_interval;
+    c.ep_in.max_packet_size = in_size;
+    c.ep_in.policy = {MIMHID_FULL_DROP_NEWEST, 7};
+    if (out_address != 0) {
+        c.ep_out.address = out_address;
+        c.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+        c.ep_out.interval = out_interval;
+        c.ep_out.max_packet_size = out_size;
+    }
     n.report_descriptor = descriptor;
-    n.interface_name = ascii(name);
+    n.name = ascii(name);
     n.has_report_ids = has_ids;
     if (has_ids)
         n.report_ids.set(report_id);
@@ -108,15 +141,15 @@ void check_reports(const Composed& c, const std::vector<std::string>& expected) 
     }
 }
 
-Composed compose_ok(const ComposerInput& in) {
+Composed compose_ok(const TestInput& in) {
     Composed c;
     ComposerError e;
-    MIMHID_CHECK(mimhid::usb::compose_descriptors(in, &c, &e) == MIMHID_OK);
+    MIMHID_CHECK(compose(in, &c, &e) == MIMHID_OK);
     return c;
 }
 
 void test_minimal_keyboard() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x1234, 0x5678, 0x0100, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 50, false);
     in.nodes.push_back(make_node(0, 1, 1, 0x0111, 0, 0x81, 8, 10, 0, 0, 0, &kRdA, ""));
     const Composed c = compose_ok(in);
@@ -128,7 +161,7 @@ void test_minimal_keyboard() {
 }
 
 void test_strings_and_two_out_endpoints() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0xCAFE, 0x4001, 0x0203, 0, 0, 0, 0x0409, 0x0200, 16, 0xA0, 100, false);
     in.manufacturer = ascii("Acme");
     in.product = ascii("Widget");
@@ -142,7 +175,7 @@ void test_strings_and_two_out_endpoints() {
     MIMHID_CHECK(
         hex(c.configuration) ==
         "09026200030104a0640904000002030000050921100121012207000705810308000407050103080004090401"
-        "000103000200092111010001220900070582034000010904020002030000070921010100012212000705850320"
+        "000103000200092111010001220900070582034000010904020002030000060921010100012212000705850320"
         "000807050303100002");
     const std::map<int, std::string> s = strings_of(c);
     MIMHID_CHECK(s.size() == 6U);
@@ -150,8 +183,10 @@ void test_strings_and_two_out_endpoints() {
     MIMHID_CHECK(s.at(2) == "0e03570069006400670065007400");
     MIMHID_CHECK(s.at(3) == "0e0353004e003000300030003100");
     MIMHID_CHECK(s.at(4) == "0a034d00610069006e00");
-    MIMHID_CHECK(s.at(5) == "0a034b00650079007300");     // interface 0: 5 + 0
-    MIMHID_CHECK(s.at(7) == "0c0354006800690072006400"); // interface 2: 5 + 2
+    MIMHID_CHECK(s.at(5) == "0a034b00650079007300");
+    // The names take the lowest free indices from 5, in interface order (the fixed 5 + interface
+    // number of step 1 is gone): "Keys" of interface 0 is 5, "Third" of interface 2 is 6.
+    MIMHID_CHECK(s.at(6) == "0c0354006800690072006400");
     for (const auto& text : c.strings)
         MIMHID_CHECK(text.language == 0x0409 && !text.from_chip_id);
     check_reports(c,
@@ -159,7 +194,7 @@ void test_strings_and_two_out_endpoints() {
 }
 
 void test_shared_interface() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x0001, 0x0002, 0x0003, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 250, false);
     in.nodes.push_back(
         make_node(0, 0, 0, 0x0111, 0, 0x81, 16, 5, 0, 0, 0, &kRdB, "Shared", true, 1));
@@ -180,7 +215,7 @@ void test_shared_interface() {
 }
 
 void test_unicode_and_serial_from_chip_id() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0xFFFF, 0xFFFE, 0x9999, 0xEF, 2, 1, 0x0409, 0x0210, 8, 0xE0, 250, true);
     in.manufacturer = {0x00DC, 0x006E, 0x00EF, 0x0020, 0xD83D, 0xDE00};
     in.product = {0x65E5, 0x672C, 0x8A9E};
@@ -216,7 +251,7 @@ void test_unicode_and_serial_from_chip_id() {
 }
 
 void test_four_interfaces_in_number_order() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x0483, 0x5750, 0x0001, 0, 0, 0, 0x0809, 0x0200, 32, 0x80, 1, false);
     in.product = ascii("Quad");
     // Nodes in an order that is not the order of their interfaces.
@@ -230,31 +265,31 @@ void test_four_interfaces_in_number_order() {
         hex(c.configuration) ==
         "09027b000401008001090400000203010105092111010001220900070581030800020705020308000309040100"
         "020300000609210002000122090007058203400004070505034000050904020001030102000921110100012212"
-        "000705830340000309040300010300000809211101000122070007058403080001");
+        "000705830340000309040300010300000709211101000122070007058403080001");
     const std::map<int, std::string> s = strings_of(c);
     MIMHID_CHECK(s.size() == 4U);
     MIMHID_CHECK(s.at(2) == "0a035100750061006400" && s.at(5) == "04036100" &&
-                 s.at(6) == "04036200" && s.at(8) == "04036400");
+                 s.at(6) == "04036200" && s.at(7) == "04036400");
     check_reports(c, {"05010902a1018501c0", "050c0901a1018503c0",
                       "0600ff0901a10185027508950409028102c0", "05010906a101c0"});
 }
 
-ComposerError compose_error(const ComposerInput& in, mimhid_result expected) {
+ComposerError compose_error(const TestInput& in, mimhid_result expected) {
     Composed c;
     ComposerError e;
-    MIMHID_CHECK(mimhid::usb::compose_descriptors(in, &c, &e) == expected);
+    MIMHID_CHECK(compose(in, &c, &e) == expected);
     MIMHID_CHECK(e.result == expected && e.field != nullptr && e.reason != nullptr);
     return e;
 }
 
 // Interface numbers are real: 0, 1, 2, ... without a gap, and the error names the missing number.
 void test_gap_in_interface_numbers() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x1234, 0x5678, 0x0100, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 50, false);
     in.nodes.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
     in.nodes.push_back(make_node(2, 0, 0, 0x0111, 0, 0x82, 8, 1, 0, 0, 0, &kRdA, ""));
     ComposerError e = compose_error(in, MIMHID_ERR_PARAM);
-    MIMHID_CHECK(std::strcmp(e.field, "node_config.iface.number") == 0 && e.offset == 1U);
+    MIMHID_CHECK(std::strcmp(e.field, "node_config.interfaces.number") == 0 && e.offset == 1U);
 
     // Not starting at 0: 0 is the missing number.
     in.nodes.clear();
@@ -282,7 +317,7 @@ void test_gap_in_interface_numbers() {
 }
 
 void test_interface_limit() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x1234, 0x5678, 0x0100, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 50, false);
     in.max_interfaces = 2;
     for (std::uint8_t i = 0; i < 3; ++i)
@@ -293,7 +328,7 @@ void test_interface_limit() {
 }
 
 void test_shared_interface_rules() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x1234, 0x5678, 0x0100, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 50, false);
     // Without Report IDs two Nodes cannot share an interface (HID 1.11 6.2.2.7).
     in.nodes.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
@@ -318,12 +353,12 @@ void test_shared_interface_rules() {
 }
 
 void test_endpoint_address_used_twice() {
-    ComposerInput in;
+    TestInput in;
     set_device(&in, 0x1234, 0x5678, 0x0100, 0, 0, 0, 0x0409, 0x0200, 64, 0x80, 50, false);
     in.nodes.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
     in.nodes.push_back(make_node(1, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
     const ComposerError e = compose_error(in, MIMHID_ERR_PARAM);
-    MIMHID_CHECK(std::strcmp(e.field, "node_config.ep_in.address") == 0 && e.length == 1U);
+    MIMHID_CHECK(std::strcmp(e.field, "node_config.interfaces.endpoints.address") == 0 && e.length == 1U);
     // An OUT endpoint of another interface on the same address as an OUT endpoint.
     in.nodes.back() = make_node(1, 0, 0, 0x0111, 0, 0x82, 8, 1, 0x01, 8, 1, &kRdA, "");
     in.nodes.front() = make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0x01, 8, 1, &kRdA, "");
@@ -331,6 +366,165 @@ void test_endpoint_address_used_twice() {
     // IN and OUT of one number are different addresses (USB 2.0 9.6.6): fine.
     in.nodes.back() = make_node(1, 0, 0, 0x0111, 0, 0x82, 8, 1, 0x02, 8, 1, &kRdA, "");
     compose_ok(in);
+}
+
+
+// ---- interfaces of any class (no HID layer) ----
+mimhid_usb_endpoint general_ep(std::uint8_t address, std::uint8_t type, std::uint16_t size,
+                               std::uint8_t interval = 0) {
+    mimhid_usb_endpoint e{};
+    e.address = address;
+    e.transfer_type = type;
+    e.max_packet_size = size;
+    e.interval = interval;
+    if ((address & 0x80U) != 0U)
+        e.policy = {MIMHID_FULL_WAIT, 2};
+    return e;
+}
+
+mimhid::usb::ComposerLimits full_speed_limits() {
+    mimhid::usb::ComposerLimits lim;
+    lim.max_interfaces = 15;
+    lim.max_hid_interfaces = 15;
+    lim.max_endpoint_number = 15;
+    lim.max_endpoint_bytes = 64;
+    lim.max_config_bytes = 1024;
+    lim.max_strings = 24;
+    lim.endpoint_queue_slots = 32;
+    lim.transfer_types = 0x0C;
+    return lim;
+}
+
+ComposerInput general_input(std::vector<mimhid::usb::ComposerGroup> groups) {
+    ComposerInput in;
+    in.device.vendor_id = 0x1234;
+    in.device.product_id = 0x5678;
+    in.device.bcd_usb = 0x0200;
+    in.device.ep0_max_packet_size = 64;
+    in.device.language_id = 0x0409;
+    in.config.configuration_value = 1;
+    in.config.bm_attributes = 0x80;
+    in.config.bmax_power = 50;
+    in.groups = std::move(groups);
+    in.limits = full_speed_limits();
+    return in;
+}
+
+mimhid::usb::ComposerInterface general_itf(std::uint8_t number, std::uint8_t cls,
+                                           std::vector<mimhid_usb_endpoint> eps) {
+    mimhid::usb::ComposerInterface i;
+    i.number = number;
+    i.class_code = cls;
+    i.endpoints = std::move(eps);
+    return i;
+}
+
+void test_general_vendor_and_association() {
+    mimhid::usb::ComposerGroup g;
+    g.interfaces.push_back(general_itf(0, 0xFF, {general_ep(0x81, 2, 64), general_ep(0x01, 2, 64)}));
+    g.interfaces[0].class_descriptors = {3, 0x24, 7};
+    Composed c;
+    ComposerError e;
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(general_input({g}), &c, &e) == MIMHID_OK);
+    // Configuration, Interface (class 0xFF, 2 endpoints), the class bytes as given, two Endpoint
+    // descriptors (USB 2.0 9.6.3, 9.6.5, 9.6.6).
+    MIMHID_CHECK(hex(c.configuration) ==
+                 "09022300010100803209040000" "02ff000000" "032407" "07058102400000" "07050102400000");
+    MIMHID_CHECK(c.interfaces.size() == 1U && !c.interfaces[0].hid &&
+                 c.interfaces[0].report_descriptor.empty());
+
+    // An association goes before the first interface of its Node, which is its bFirstInterface.
+    mimhid::usb::ComposerGroup comm, hid;
+    hid.interfaces.push_back(general_itf(0, 0xFF, {general_ep(0x82, 2, 64)}));
+    comm.interfaces.push_back(general_itf(1, 0x02, {general_ep(0x83, 3, 16, 4)}));
+    comm.interfaces.push_back(general_itf(2, 0x0A, {general_ep(0x84, 2, 64), general_ep(0x04, 2, 64)}));
+    comm.association = {8, 0x0B, 1, 2, 0x02, 0x02, 0x01, 0};
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(general_input({comm, hid}), &c, &e) == MIMHID_OK);
+    MIMHID_CHECK(c.configuration[4] == 3 && c.interfaces.size() == 3U);
+    std::size_t at = 9 + 9 + 7; // after interface 0 and its endpoint
+    MIMHID_CHECK(c.configuration[at] == 8 && c.configuration[at + 1] == 0x0B &&
+                 c.configuration[at + 8 + 2] == 1);
+
+    // Refusals.
+    const auto refused = [&](mimhid::usb::ComposerGroup group, mimhid_result want,
+                             const char* field) {
+        ComposerError err;
+        Composed out;
+        MIMHID_CHECK(mimhid::usb::compose_descriptors(general_input({group}), &out, &err) == want);
+        MIMHID_CHECK(want == MIMHID_OK || (err.field != nullptr && std::strstr(err.field, field)));
+    };
+    mimhid::usb::ComposerGroup base;
+    base.interfaces.push_back(general_itf(0, 0xFF, {general_ep(0x81, 2, 64)}));
+    mimhid::usb::ComposerGroup m = base;
+    m.association = {8, 0x0B, 0, 1, 0xFF, 0, 0, 0};
+    refused(m, MIMHID_OK, "");
+    m.association = {8, 0x0B, 0, 2, 0xFF, 0, 0, 0};
+    refused(m, MIMHID_ERR_PARAM, "association");
+    m.association = {8, 0x0B, 1, 1, 0xFF, 0, 0, 0};
+    refused(m, MIMHID_ERR_PARAM, "association");
+    m.association = {7, 0x0B, 0, 1, 0xFF, 0, 0};
+    refused(m, MIMHID_ERR_PARAM, "association");
+    m = base;
+    m.interfaces[0].endpoints[0].max_packet_size = 100;
+    refused(m, MIMHID_ERR_OVERFLOW, "max_packet_size");
+    m = base;
+    m.interfaces[0].endpoints[0].max_packet_size = 24;
+    refused(m, MIMHID_ERR_PARAM, "max_packet_size");
+    m = base;
+    m.interfaces[0].endpoints[0].transfer_type = 0;
+    refused(m, MIMHID_ERR_UNSET_FIELD, "transfer_type");
+    m.interfaces[0].endpoints[0].transfer_type = 1;
+    refused(m, MIMHID_ERR_UNSUPPORTED, "transfer_type");
+    m.interfaces[0].endpoints[0].transfer_type = 4;
+    refused(m, MIMHID_ERR_PARAM, "transfer_type");
+    m = base;
+    m.interfaces[0].endpoints[0].policy = {};
+    refused(m, MIMHID_ERR_UNSET_FIELD, "policy");
+    m = base;
+    m.interfaces[0].endpoints[0].policy = {MIMHID_FULL_DROP_OLDEST, 200};
+    refused(m, MIMHID_ERR_OVERFLOW, "policy");
+    m = base;
+    m.interfaces[0].class_descriptors = {1, 0x24};
+    refused(m, MIMHID_ERR_PARAM, "class_descriptors");
+    m = base;
+    m.interfaces[0].endpoints.push_back(general_ep(0x03, 3, 8, 0));
+    refused(m, MIMHID_ERR_UNSET_FIELD, "interval");
+    m = base;
+    m.interfaces[0].endpoints.push_back(general_ep(0x03, 2, 64));
+    m.interfaces[0].endpoints.back().policy = {MIMHID_FULL_WAIT, 1};
+    refused(m, MIMHID_ERR_PARAM, "policy");
+    // Queue slots: depth + 1 for DROP_NEWEST and WAIT, 2 * depth + 1 for DROP_OLDEST.
+    MIMHID_CHECK(mimhid::usb::queue_slots(5, MIMHID_FULL_WAIT) == 6U &&
+                 mimhid::usb::queue_slots(5, MIMHID_FULL_DROP_NEWEST) == 6U &&
+                 mimhid::usb::queue_slots(5, MIMHID_FULL_DROP_OLDEST) == 11U);
+    // High speed: bulk packets are 512 bytes (USB 2.0 5.8.3); an interrupt bInterval is 1 to 16.
+    ComposerInput hs = general_input({base});
+    hs.limits.high_speed = true;
+    hs.limits.max_endpoint_bytes = 1024;
+    Composed out;
+    ComposerError err;
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(hs, &out, &err) == MIMHID_ERR_PARAM);
+    hs.groups[0].interfaces[0].endpoints[0].max_packet_size = 512;
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(hs, &out, &err) == MIMHID_OK);
+    hs.groups[0].interfaces[0].endpoints.push_back(general_ep(0x02, 3, 64, 17));
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(hs, &out, &err) == MIMHID_ERR_PARAM);
+    // The totals: the configuration descriptor and the strings against the board's limits.
+    ComposerInput small = general_input({base});
+    small.limits.max_config_bytes = 20;
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(small, &out, &err) == MIMHID_ERR_OVERFLOW);
+    small = general_input({base});
+    small.limits.max_strings = 1;
+    small.manufacturer = ascii("a");
+    small.product = ascii("b");
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(small, &out, &err) == MIMHID_ERR_OVERFLOW);
+    // The caller's strings keep their indices; a name takes the lowest index nothing else has.
+    ComposerInput named = general_input({base});
+    named.groups[0].interfaces[0].name = ascii("n");
+    named.user_strings[5] = ascii("u5");
+    named.user_strings[7] = ascii("u7");
+    MIMHID_CHECK(mimhid::usb::compose_descriptors(named, &out, &err) == MIMHID_OK);
+    const std::map<int, std::string> strs = strings_of(out);
+    MIMHID_CHECK(strs.count(5) && strs.count(6) && strs.count(7) && out.configuration[9 + 8] == 6);
 }
 
 } // namespace
@@ -345,4 +539,5 @@ void test_descriptor_composer() {
     test_interface_limit();
     test_shared_interface_rules();
     test_endpoint_address_used_twice();
+    test_general_vendor_and_association();
 }

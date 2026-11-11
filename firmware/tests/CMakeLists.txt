@@ -36,6 +36,7 @@ foreach(itfs 15 7 4 3)
         ../common/control.c
         ../common/ep0.c
         ../common/usb_descriptors.c
+        ../common/generic.c
     )
     target_include_directories(test_core_${itfs} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}      # test tusb_config.h
@@ -59,6 +60,7 @@ add_executable(test_core_hs
     ../common/control.c
     ../common/ep0.c
     ../common/usb_descriptors.c
+    ../common/generic.c
 )
 target_include_directories(test_core_hs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

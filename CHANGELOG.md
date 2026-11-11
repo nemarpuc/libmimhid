@@ -6,8 +6,28 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
-**The wire protocol and the C ABI change; the version numbers have not been chosen yet** (a 0.2.1
-board and this library do not talk to each other until they do). Not hardware-verified.
+**Version 0.3.0, not released and not hardware-verified.** The wire protocol and the C ABI change: a
+0.2.1 board and this library do not talk to each other.
+
+### Step 2: generic USB interfaces
+
+- **`mimhid_node_open` takes interfaces of any class but HID** (`mimhid_node_config`: interfaces, bulk
+  and interrupt endpoints, class descriptors, an interface association). HID moved to
+  `mimhid_node_open_profile` and `mimhid_node_open_raw` with `mimhid_hid_node_config`. The composer knows
+  no class; `src/usb/hid_layer.cpp` makes the HID interfaces.
+- **Endpoint calls:** `mimhid_node_endpoint_write`, `_stall`, `_clear_stall`, `_flush`, `_set_policy`
+  (replacing `mimhid_node_set_queue_depth`); policies `MIMHID_FULL_DROP_NEWEST`, `_DROP_OLDEST`, `_WAIT`;
+  `mimhid_device_add_string` / `_remove_string`. New events `MIMHID_EVENT_ENDPOINT_DATA`,
+  `MIMHID_EVENT_ENDPOINT_HALT`, `MIMHID_EVENT_TRANSFER_LOST` (replacing `REPORT_LOST`; the event has
+  `endpoint_address` and `interface_number`).
+- **Wire:** `EP_STALL` (`0x1E`), `EP_FLUSH` (`0x1F`), `EP_OUT` (`0xC1`..`0xCF`), `EV_EP_DONE`,
+  `EV_EP_HALT`; `PONG` gains `max_interfaces_any`, `max_config_descriptor_bytes`, `max_strings`,
+  `max_transfer_bytes`, `endpoint_queue_slots`, `transfer_types` (bytes 36 to 44; the unique id moves to
+  45). Interface names take the lowest free string index from 5 up.
+- **Firmware:** a generic driver (`firmware/common/generic.c`) on TinyUSB 0.18.0's `usbd_edpt_*`.
+- Versions 0.3.0 (CMake, Cargo, pyproject, csproj); the bindings are regenerated.
+
+### Step 1 (earlier in this release)
 
 ### Changed
 

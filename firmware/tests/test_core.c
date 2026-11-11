@@ -135,6 +135,53 @@ bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     return true;
 }
 
+// The endpoint calls of the stack's device layer (src/device/usbd.c) that the generic driver makes,
+// with the state they keep: usbd_edpt_stall sets both stalled and busy, usbd_edpt_clear_stall clears
+// both, and usbd_edpt_xfer refuses an endpoint that is busy.
+static struct {
+    bool opened, busy, stalled;
+    uint8_t* buffer;
+    uint16_t length;
+    int xfers; // transfers started since the endpoint was opened
+    uint16_t packet;
+} g_ep[2][16]; // [0] OUT, [1] IN
+#define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr) & 0x0F]
+
+bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
+    (void)rhport;
+    assert(!EPSTATE(desc->bEndpointAddress).opened);
+    EPSTATE(desc->bEndpointAddress) = (typeof(g_ep[0][0])){.opened = true,
+                                                           .packet = (uint16_t)(desc->wMaxPacketSize & 0x7FF)};
+    return true;
+}
+bool usbd_edpt_busy(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    return EPSTATE(ep_addr).busy;
+}
+bool usbd_edpt_stalled(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    return EPSTATE(ep_addr).stalled;
+}
+bool usbd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
+    (void)rhport;
+    assert(EPSTATE(ep_addr).opened && !EPSTATE(ep_addr).busy);
+    EPSTATE(ep_addr).busy = true;
+    EPSTATE(ep_addr).buffer = buffer;
+    EPSTATE(ep_addr).length = total_bytes;
+    EPSTATE(ep_addr).xfers++;
+    return true;
+}
+void usbd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    EPSTATE(ep_addr).stalled = true;
+    EPSTATE(ep_addr).busy = true;
+}
+void usbd_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    EPSTATE(ep_addr).stalled = false;
+    EPSTATE(ep_addr).busy = false;
+}
+
 // What the stack would get or do for control transfers.
 static dcd_event_t g_forwarded[32];
 static int g_nforwarded;
@@ -944,8 +991,21 @@ static void test_ping_and_events(void) {
            MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
     assert((p[31] | (p[32] << 8)) == MIMHID_CONTROL_DATA_MAX && p[33] == MIMHID_CONTROL_RULES);
     assert(p[34] == MIMHID_MAX_ENDPOINT_NUMBER);
-    assert(p[35] == 8 && p[36] == 0x01 && p[43] == 0xEF);
+    assert(p[35] == 8 && p[MIMHID_PONG_MIN_LEN] == 0x01 && p[MIMHID_PONG_MIN_LEN + 7] == 0xEF);
+    // The limits of the generic driver (config.h), then the unique id.
+    assert(p[36] == MIMHID_MAX_INTERFACES && MIMHID_MAX_INTERFACES == 15);
+    assert((p[37] | (p[38] << 8)) == MIMHID_MAX_CONFIG_BYTES && p[39] == MIMHID_MAX_STRINGS);
+    assert((p[40] | (p[41] << 8)) == MIMHID_MAX_TRANSFER_BYTES && MIMHID_MAX_TRANSFER_BYTES == 64);
+    assert((p[42] | (p[43] << 8)) == MIMHID_EP_POOL_SLOTS && MIMHID_EP_POOL_SLOTS == 64);
+    assert(p[44] == ((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT)));
 
+    // Events about an HID interface name its interface number; TinyUSB names the instance.
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    node_begin(1, 1, sizeof(k_desc_b), 1, 8, 0, "");
+    node_data(1, 0, k_desc_b, sizeof(k_desc_b));
+    assert(commit() == 1);
     reset_io();
     tud_mount_cb();
     tud_umount_cb();
@@ -1237,7 +1297,7 @@ static void test_desc_commands(void) {
     expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0x0409, 4, 0),
                MIMHID_NAK_PARAM); // report: no language
     expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, 0), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, MIMHID_HID_ITFS, 0, 4, 0),
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, MIMHID_MAX_INTERFACES, 0, 4, 0),
                MIMHID_NAK_OVERFLOW);
     expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, MIMHID_MAX_DESC_BYTES + 1, 0),
                MIMHID_NAK_OVERFLOW);
@@ -1536,7 +1596,7 @@ static void test_commit_walk(void) {
         cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         expect_refused(commit_raw(NULL, 0, &t, rd, 1));
-        // Step 1 of the redesign: the board's stack opens HID only.
+        // A report descriptor belongs to a HID interface: another class has none to be given.
         static const uint8_t classes[] = {0x00, 0x02, 0x08, 0xFF};
         for (size_t i = 0; i < sizeof(classes); i++) {
             cfg_open(&t);
@@ -2672,11 +2732,760 @@ static void test_high_speed(void) {
 }
 #endif
 
+// ---- the generic driver: interfaces of any class, bulk and interrupt endpoints ----
+static const usbd_class_driver_t* gen_driver(void) {
+    uint8_t count = 0;
+    const usbd_class_driver_t* d = usbd_app_driver_get_cb(&count);
+    assert(count == 1 && d != NULL && d->open && d->xfer_cb && d->reset && d->control_xfer_cb);
+    return d;
+}
+
+// What the stack's SET_CONFIGURATION does (process_set_config in src/device/usbd.c): the drivers'
+// reset, then open for each interface in descriptor order, an association (skipped) first and a
+// whole group with one call; the number of bytes open returns is where the walk goes on. A HID
+// interface is opened by the stack's own HID driver, so it is stepped over here.
+static void set_config(void) {
+    const usbd_class_driver_t* d = gen_driver();
+    memset(g_ep, 0, sizeof(g_ep));
+    d->reset(0);
+    const uint8_t* cfg = tud_descriptor_configuration_cb(0);
+    const uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
+    uint16_t pos = 9;
+    while (pos < total) {
+        if (cfg[pos + 1] == TUSB_DESC_INTERFACE_ASSOCIATION) {
+            pos = (uint16_t)(pos + cfg[pos]);
+            continue;
+        }
+        assert(cfg[pos + 1] == TUSB_DESC_INTERFACE);
+        uint16_t used;
+        if (cfg[pos + 5] == TUSB_CLASS_HID) {
+            assert(d->open(0, (const tusb_desc_interface_t*)&cfg[pos], (uint16_t)(total - pos)) == 0);
+            used = 9;
+            while (pos + used < total && cfg[pos + used + 1] != TUSB_DESC_INTERFACE &&
+                   cfg[pos + used + 1] != TUSB_DESC_INTERFACE_ASSOCIATION)
+                used = (uint16_t)(used + cfg[pos + used]);
+        } else {
+            used = d->open(0, (const tusb_desc_interface_t*)&cfg[pos], (uint16_t)(total - pos));
+            assert(used >= 9 && used <= total - pos);
+        }
+        pos = (uint16_t)(pos + used);
+    }
+}
+
+// The controller finishes the transfer on an IN endpoint, or receives a packet on an OUT endpoint.
+static void complete_in(uint8_t number) {
+    const uint8_t address = (uint8_t)(0x80 | number);
+    assert(EPSTATE(address).busy);
+    EPSTATE(address).busy = false;
+    gen_driver()->xfer_cb(0, address, XFER_RESULT_SUCCESS, EPSTATE(address).length);
+}
+static void out_packet(uint8_t number, const uint8_t* d, uint16_t n) {
+    assert(EPSTATE(number).busy && n <= EPSTATE(number).length);
+    memcpy(EPSTATE(number).buffer, d, n);
+    EPSTATE(number).busy = false;
+    gen_driver()->xfer_cb(0, number, XFER_RESULT_SUCCESS, n);
+}
+// The target sets or clears the Halt feature of an endpoint (USB 2.0 9.4.1, 9.4.5): the stack
+// stalls or clears the endpoint, then tells the driver.
+static void target_halt(uint8_t address, bool set) {
+    if (set)
+        usbd_edpt_stall(0, address);
+    else
+        usbd_edpt_clear_stall(0, address);
+    tusb_control_request_t r = {0};
+    r.bmRequestType = 0x02; // host to device, standard, endpoint
+    r.bRequest = set ? TUSB_REQ_SET_FEATURE : TUSB_REQ_CLEAR_FEATURE;
+    r.wValue = TUSB_REQ_FEATURE_EDPT_HALT;
+    r.wIndex = address;
+    assert(gen_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r));
+}
+// The sum of what the events of a kind say for an endpoint (their count field), or the number of
+// them when the kind has none (-1 for "last value").
+static unsigned event_sum(uint8_t kind, uint8_t address) {
+    size_t pos = 0;
+    uint8_t p[2048];
+    uint16_t n;
+    uint8_t t;
+    unsigned sum = 0;
+    while ((t = next_out(&pos, p, &n)) != 0) {
+        if (t != MIMHID_T_EVENT || p[0] != kind || p[1] != address)
+            continue;
+        sum += kind == MIMHID_EV_EP_HALT ? 1u : (unsigned)(p[2] | (p[3] << 8));
+    }
+    return sum;
+}
+static unsigned out_frames(uint8_t number, const uint8_t* want, uint16_t want_len) {
+    size_t pos = 0;
+    uint8_t p[2048];
+    uint16_t n;
+    uint8_t t;
+    unsigned found = 0;
+    while ((t = next_out(&pos, p, &n)) != 0) {
+        if (t == (uint8_t)(MIMHID_T_EP_OUT_BASE | number)) {
+            assert(n == want_len && memcmp(p, want, n) == 0);
+            found++;
+        }
+    }
+    return found;
+}
+
+static void cfg_association(tcfg_t* c, uint8_t first, uint8_t count, uint8_t cls) {
+    const uint8_t d[8] = {8, TUSB_DESC_INTERFACE_ASSOCIATION, first, count, cls, 0, 0, 0};
+    memcpy(c->b + c->n, d, 8);
+    c->n += 8;
+}
+static void cfg_class_descriptor(tcfg_t* c, uint8_t type, uint8_t length) {
+    assert(length >= 2);
+    c->b[c->n] = length;
+    c->b[c->n + 1] = type;
+    memset(&c->b[c->n + 2], 0x5A, (size_t)length - 2);
+    c->n += length;
+}
+
+// Stages a device and the configuration, and the report descriptor of the HID interface `hid`
+// (-1: none). Returns 1 or the first refusal.
+static int stage_cfg(tcfg_t* c, int hid, uint16_t rd_len) {
+    int r = desc_reset();
+    if (r != 1)
+        return r;
+    uint8_t d[18];
+    make_device(d);
+    if ((r = send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18)) != 1)
+        return r;
+    if ((r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c->b, c->n)) != 1)
+        return r;
+    if (hid >= 0) {
+        uint8_t rd[300];
+        for (size_t k = 0; k < sizeof(rd); k++)
+            rd[k] = (uint8_t)k;
+        r = send_blob(MIMHID_DESC_HID_REPORT, (uint8_t)hid, 0, rd, rd_len);
+    }
+    return r;
+}
+
+// Interface 0: vendor class, bulk IN 1, bulk OUT 1, bulk IN 3, with a class descriptor of its own;
+// interface 1: HID, interrupt IN 2. Every build has the endpoint numbers 1 to 3.
+static void vendor_config(tcfg_t* c) {
+    cfg_open(c);
+    cfg_interface(c, 0, 0, 3, 0xFF);
+    cfg_class_descriptor(c, 0x24, 5);
+    cfg_endpoint(c, 0x81, TUSB_XFER_BULK, 64, 0);
+    cfg_endpoint(c, 0x01, TUSB_XFER_BULK, 64, 0);
+    cfg_endpoint(c, 0x83, TUSB_XFER_BULK, 64, 0);
+    cfg_hid_interface(c, 1, 2, sizeof(k_desc_a));
+    cfg_close(c);
+}
+
+static void vendor_commit(uint8_t depth1, uint8_t policy1, uint8_t depth3, uint8_t policy3) {
+    tcfg_t c;
+    vendor_config(&c);
+    assert(stage_cfg(&c, 1, sizeof(k_desc_a)) == 1);
+    assert(ep_config(0x81, depth1, policy1) == 1);
+    assert(ep_config(0x83, depth3, policy3) == 1);
+    assert(commit_staged() == 1);
+    set_config();
+    reset_io();
+}
+
+static void start_loss_counting(void) {
+    const uint8_t on[3] = {1, 0, 0};
+    assert(command(MIMHID_T_LOSS_CONFIG, on, sizeof(on)) == 1);
+}
+
+static void test_generic(void) {
+    static const uint8_t A[4] = {0xA0, 1, 2, 3}, B[4] = {0xB0, 1, 2, 3}, C[4] = {0xC0, 1, 2, 3},
+                         D[4] = {0xD0, 1, 2, 3}, E[4] = {0xE0, 1, 2, 3}, F[4] = {0xF0, 1, 2, 3};
+
+    // A configuration of any class is committed; the mapping of interfaces, HID instances and
+    // endpoints is the walk's, and the generic driver takes the vendor interface in one open call
+    // whose size is the interface and its endpoints (the HID interface is not its business).
+    {
+        tcfg_t c;
+        vendor_config(&c);
+        assert(stage_cfg(&c, 1, sizeof(k_desc_a)) == 1);
+        // every IN endpoint of the generic driver needs its EP_CONFIG; the HID endpoint does not
+        expect_nak(commit_staged(), MIMHID_NAK_STATE);
+        assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(commit_staged(), MIMHID_NAK_STATE); // 0x83 still has none
+        assert(ep_config(0x83, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        assert(commit_staged() == 1);
+        assert(mimhid_active_interfaces() == 2 && mimhid_active_hid_instances() == 1);
+        assert(mimhid_active_interface_instance(0) == 0xFF && mimhid_active_interface_instance(1) == 0);
+        assert(mimhid_active_instance_interface(0) == 1 && mimhid_active_instance_interface(1) == 0xFF);
+        assert(mimhid_active_endpoint_instance(2) == 0 && mimhid_active_endpoint_instance(1) == 0xFF);
+        assert(mimhid_active_instance_endpoint(0) == 0x82);
+        const mimhid_ep_info_t* e = mimhid_active_endpoint(0x81);
+        assert(e && e->kind == MIMHID_EP_GENERIC && e->type == TUSB_XFER_BULK && e->packet_size == 64 &&
+               e->interface == 0);
+        e = mimhid_active_endpoint(0x01);
+        assert(e && e->kind == MIMHID_EP_GENERIC);
+        e = mimhid_active_endpoint(0x82);
+        assert(e && e->kind == MIMHID_EP_HID && e->type == TUSB_XFER_INTERRUPT && e->interface == 1);
+        assert(mimhid_active_endpoint(0x02) == NULL && mimhid_active_endpoint(0x84) == NULL);
+        assert(mimhid_active_generic_span(0) == 9 + 5 + 3 * 7 && mimhid_active_generic_span(1) == 0);
+        // the open call
+        const uint8_t* cfg = mimhid_active_config_bytes();
+        memset(g_ep, 0, sizeof(g_ep));
+        assert(gen_driver()->open(0, (const tusb_desc_interface_t*)&cfg[9], 100) == 9 + 5 + 3 * 7);
+        assert(EPSTATE(0x81).opened && EPSTATE(0x01).opened && EPSTATE(0x83).opened &&
+               !EPSTATE(0x82).opened);
+        assert(EPSTATE(0x01).busy && EPSTATE(0x01).xfers == 1 && EPSTATE(0x01).length == 64);
+        // the HID interface (class 0x03) is left to the HID driver, an unknown one to nobody
+        assert(gen_driver()->open(0, (const tusb_desc_interface_t*)&cfg[9 + 35], 100) == 0);
+        // too little room for the interface and its endpoints
+        memset(g_ep, 0, sizeof(g_ep));
+        assert(gen_driver()->open(0, (const tusb_desc_interface_t*)&cfg[9], 20) == 0);
+    }
+
+    // HID events name the interface, not TinyUSB's instance: instance 0 is interface 1.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        tud_hid_set_protocol_cb(0, 1);
+        size_t pos = 0;
+        uint8_t p[64];
+        uint16_t n;
+        assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_PROTOCOL && p[1] == 1 &&
+               p[2] == 1);
+        // a Feature report belongs to a HID interface
+        const uint8_t f[1] = {7};
+        assert(feature(1, 0, f, 1) == 1);
+        expect_nak(feature(0, 0, f, 1), MIMHID_NAK_STATE);
+    }
+
+    // DROP_NEWEST: depth 2 waiting, and one on the bus. Frames go to the controller in order, one
+    // at a time.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        start_loss_counting();
+        reset_io();
+        ep_in(1, A, 4);
+        pump();
+        assert(EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 1 && EPSTATE(0x81).length == 4 &&
+               memcmp(EPSTATE(0x81).buffer, A, 4) == 0);
+        ep_in(1, B, 4);
+        ep_in(1, C, 4);
+        ep_in(1, D, 4); // the third that waits: dropped
+        pump();
+        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 1);
+        assert(EPSTATE(0x81).xfers == 1); // one at a time
+        complete_in(1);
+        assert(EPSTATE(0x81).xfers == 2 && memcmp(EPSTATE(0x81).buffer, B, 4) == 0);
+        complete_in(1);
+        assert(EPSTATE(0x81).xfers == 3 && memcmp(EPSTATE(0x81).buffer, C, 4) == 0);
+        complete_in(1);
+        assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 3);
+        // the other endpoint is not affected
+        ep_in(3, F, 4);
+        pump();
+        assert(EPSTATE(0x83).busy && memcmp(EPSTATE(0x83).buffer, F, 4) == 0);
+    }
+
+    // DROP_OLDEST: the oldest that is not on the bus goes.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_OLDEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        start_loss_counting();
+        reset_io();
+        ep_in(1, A, 4);
+        pump(); // on the bus
+        ep_in(1, B, 4);
+        ep_in(1, C, 4);
+        ep_in(1, D, 4);
+        ep_in(1, E, 4);
+        ep_in(1, F, 4); // the ring is full: this one is dropped when it arrives
+        pump();         // and the board drops B and C: two waiting are left
+        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 3);
+        assert(memcmp(EPSTATE(0x81).buffer, A, 4) == 0); // what is on the bus stays untouched
+        complete_in(1);
+        assert(memcmp(EPSTATE(0x81).buffer, D, 4) == 0);
+        complete_in(1);
+        assert(memcmp(EPSTATE(0x81).buffer, E, 4) == 0);
+        complete_in(1);
+        assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 3);
+    }
+
+    // DROP_OLDEST with a target that does not take the transfer on the bus: however many
+    // transfers arrive and are dropped behind it, the bytes on the bus stay what they were.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_OLDEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        reset_io();
+        ep_in(1, A, 4);
+        pump(); // on the bus
+        for (int round = 0; round < 8; round++) {
+            uint8_t later[4] = {(uint8_t)(0xE0 + round), 1, 2, 3};
+            ep_in(1, later, 4);
+            pump();
+            assert(EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 1 && EPSTATE(0x81).length == 4 &&
+                   memcmp(EPSTATE(0x81).buffer, A, 4) == 0);
+        }
+        // The newest two are what waits (rounds 6 and 7).
+        complete_in(1);
+        assert(EPSTATE(0x81).length == 4 && EPSTATE(0x81).buffer[0] == 0xE6);
+        complete_in(1);
+        assert(EPSTATE(0x81).length == 4 && EPSTATE(0x81).buffer[0] == 0xE7);
+        complete_in(1);
+        assert(!EPSTATE(0x81).busy);
+    }
+
+    // WAIT: nothing is dropped that the host may send (it counts), and the board reports every
+    // transfer that completed.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        reset_io();
+        ep_in(1, A, 4);
+        pump(); // A is on the bus
+        ep_in(1, B, 4);
+        ep_in(1, C, 4);
+        pump();
+        complete_in(1);
+        complete_in(1);
+        pump();
+        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 2);
+        complete_in(1);
+        reset_io();
+        pump();
+        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 1);
+        // an endpoint that does not wait reports no completions
+        reset_io();
+        ep_in(3, A, 4);
+        pump();
+        complete_in(3);
+        pump();
+        assert(event_sum(MIMHID_EV_EP_DONE, 0x83) == 0);
+    }
+
+    // A zero-length transfer is a zero-length packet (USB 2.0 5.8.3); a full-size one is one
+    // transfer; a frame longer than the largest transfer is not accepted; on a HID endpoint an
+    // empty frame is dropped.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        reset_io();
+        ep_in(1, NULL, 0);
+        pump();
+        assert(EPSTATE(0x81).busy && EPSTATE(0x81).length == 0 && EPSTATE(0x81).xfers == 1);
+        complete_in(1);
+        uint8_t big[MIMHID_MAX_TRANSFER_BYTES];
+        for (size_t i = 0; i < sizeof(big); i++)
+            big[i] = (uint8_t)(i * 3);
+        ep_in(1, big, sizeof(big));
+        pump();
+        assert(EPSTATE(0x81).length == sizeof(big) && memcmp(EPSTATE(0x81).buffer, big, sizeof(big)) == 0);
+        complete_in(1);
+        uint8_t over[MIMHID_MAX_TRANSFER_BYTES + 1] = {0};
+        ep_in(1, over, sizeof(over));
+        pump();
+        assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 2);
+        g_nsent = 0;
+        ep_in(2, NULL, 0);
+        pump();
+        assert(g_nsent == 0);
+        // an IN endpoint that is not the generic driver's, or does not exist, drops its frames
+        ep_in(5, A, 4);
+        pump();
+        assert(EPSTATE(0x85).xfers == 0 && g_nsent == 0);
+    }
+
+    // OUT: a packet goes to the host as it came and the endpoint is armed again after it.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        assert(EPSTATE(0x01).busy && EPSTATE(0x01).xfers == 1);
+        const uint8_t pkt[5] = {9, 8, 7, 6, 5};
+        out_packet(1, pkt, sizeof(pkt));
+        assert(out_frames(1, pkt, sizeof(pkt)) == 1);
+        assert(EPSTATE(0x01).busy && EPSTATE(0x01).xfers == 2);
+        out_packet(1, pkt, 0); // a zero-length packet comes through too
+        assert(EPSTATE(0x01).xfers == 3);
+    }
+
+    // The Halt feature: set by the board (EP_STALL) or by the target (USB 2.0 9.4.1, 9.4.5).
+    {
+        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        start_loss_counting();
+        reset_io();
+        ep_in(1, A, 4);
+        pump();
+        ep_in(1, B, 4);
+        pump(); // A on the bus, B waits
+        const uint8_t st[2] = {0x81, 1}, cl[2] = {0x81, 0};
+        assert(command(MIMHID_T_EP_STALL, st, 2) == 1);
+        assert(EPSTATE(0x81).stalled);
+        ep_in(1, C, 4);
+        pump(); // queued while stalled, not started
+        assert(EPSTATE(0x81).xfers == 1);
+        assert(command(MIMHID_T_EP_STALL, cl, 2) == 1);
+        assert(!EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 2 &&
+               memcmp(EPSTATE(0x81).buffer, C, 4) == 0); // what waited at the stall is gone
+        complete_in(1);
+        // the target halts the endpoint while a transfer is on the bus
+        ep_in(1, D, 4);
+        pump();
+        assert(EPSTATE(0x81).busy && memcmp(EPSTATE(0x81).buffer, D, 4) == 0);
+        ep_in(1, E, 4);
+        pump();
+        reset_io();
+        target_halt(0x81, true);
+        pump();
+        assert(event_sum(MIMHID_EV_EP_HALT, 0x81) == 1);
+        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 1); // D was on the bus
+        assert(EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 3);
+        reset_io();
+        target_halt(0x81, false);
+        pump();
+        assert(event_sum(MIMHID_EV_EP_HALT, 0x81) == 1);
+        assert(!EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 4 &&
+               memcmp(EPSTATE(0x81).buffer, E, 4) == 0); // what waited goes on
+        // the same on an OUT endpoint: not armed while halted, armed again when cleared
+        const int armed = EPSTATE(0x01).xfers;
+        target_halt(0x01, true);
+        assert(EPSTATE(0x01).stalled);
+        target_halt(0x01, false);
+        assert(EPSTATE(0x01).busy && EPSTATE(0x01).xfers == armed + 1);
+        // the stack's other requests to an endpoint are not the driver's
+        tusb_control_request_t r = {0};
+        r.bmRequestType = 0x82;
+        r.bRequest = TUSB_REQ_GET_STATUS;
+        r.wIndex = 0x81;
+        assert(!gen_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r));
+        // and an endpoint that is not its own
+        r.bmRequestType = 0x02;
+        r.bRequest = TUSB_REQ_SET_FEATURE;
+        r.wValue = TUSB_REQ_FEATURE_EDPT_HALT;
+        r.wIndex = 0x82;
+        assert(!gen_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r));
+    }
+
+    // EP_FLUSH and the refusals of EP_STALL / EP_FLUSH.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        reset_io();
+        ep_in(1, A, 4);
+        pump();
+        ep_in(1, B, 4);
+        ep_in(1, C, 4);
+        pump();
+        const uint8_t fl[1] = {0x81};
+        assert(command(MIMHID_T_EP_FLUSH, fl, 1) == 1);
+        complete_in(1); // the one on the bus goes on; nothing follows
+        assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 1);
+        reset_io();
+        pump();
+        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 0); // a flushed transfer is not counted
+        const uint8_t out1[1] = {0x01}, hid[2] = {0x82, 1}, none[2] = {0x84, 1}, bad[2] = {0x81, 2};
+        expect_nak(command(MIMHID_T_EP_FLUSH, out1, 1), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMHID_T_EP_STALL, hid, 2), MIMHID_NAK_STATE);
+        expect_nak(command(MIMHID_T_EP_STALL, none, 2), MIMHID_NAK_STATE);
+        expect_nak(command(MIMHID_T_EP_STALL, bad, 2), MIMHID_NAK_PARAM);
+        const uint8_t zero[1] = {0x00}, dirbit[1] = {0x91};
+        expect_nak(command(MIMHID_T_EP_FLUSH, zero, 1), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMHID_T_EP_FLUSH, dirbit, 1), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMHID_T_EP_FLUSH, hid, 2), MIMHID_NAK_PARAM); // the length
+        // RESET drops what waits on every endpoint
+        ep_in(1, A, 4);
+        pump();
+        complete_in(1);
+        ep_in(1, A, 4);
+        ep_in(1, B, 4);
+        pump();
+        assert(command(MIMHID_T_RESET, NULL, 0) == 1);
+        const int xfers = EPSTATE(0x81).xfers;
+        complete_in(1);
+        assert(EPSTATE(0x81).xfers == xfers && !EPSTATE(0x81).busy);
+    }
+
+    // EP_CONFIG of a generic endpoint: any of the three policies; deeper than the pool is
+    // OVERFLOW; after a COMMIT a change takes effect at once if the queue cut at COMMIT holds it,
+    // before the COMMIT it only stages.
+    {
+        tcfg_t c;
+        vendor_config(&c);
+        assert(stage_cfg(&c, 1, sizeof(k_desc_a)) == 1);
+        assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_OLDEST) == 1);
+        assert(ep_config(0x81, 4, MIMHID_EP_FULL_WAIT) == 1);
+        expect_nak(ep_config(0x81, MIMHID_EP_POOL_SLOTS, MIMHID_EP_FULL_DROP_NEWEST),
+                   MIMHID_NAK_OVERFLOW);
+        expect_nak(ep_config(0x81, MIMHID_EP_POOL_SLOTS / 2, MIMHID_EP_FULL_DROP_OLDEST),
+                   MIMHID_NAK_OVERFLOW);
+        expect_nak(ep_config(0x01, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_UNSUPPORTED); // OUT
+        expect_nak(ep_config(0x82, 4, MIMHID_EP_FULL_WAIT), MIMHID_NAK_UNSUPPORTED);          // HID
+        // together the queues must fit the pool: 0x81 takes depth + 1 slots, 0x83 takes 2 * depth + 1
+        const int d1 = MIMHID_EP_POOL_SLOTS - 9;
+        assert(ep_config(0x81, (uint8_t)d1, MIMHID_EP_FULL_DROP_NEWEST) == 1); // d1 + 1 slots
+        assert(ep_config(0x83, 5, MIMHID_EP_FULL_DROP_OLDEST) == 1);          // 11 slots
+        expect_nak(commit_staged(), MIMHID_NAK_OVERFLOW);
+        assert(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_OLDEST) == 1); // 9 slots
+        assert(ep_config(0x81, (uint8_t)d1, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        // 0x81: d1 + 1 = pool - 8 slots; 0x83: 9: together pool + 1: still too many
+        expect_nak(commit_staged(), MIMHID_NAK_OVERFLOW);
+        assert(ep_config(0x81, (uint8_t)(d1 - 1), MIMHID_EP_FULL_DROP_NEWEST) == 1); // exactly the pool
+        assert(commit_staged() == 1);
+        set_config();
+        // live: 0x83 holds 9 slots, so DROP_NEWEST of depth 8 fits and depth 9 does not
+        assert(ep_config(0x83, 8, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(ep_config(0x83, 9, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_OVERFLOW);
+        // staging a new configuration does not change a running queue
+        assert(desc_reset() == 1);
+        expect_nak(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE);
+    }
+
+    // A failed COMMIT leaves the queues and endpoints of the active configuration as they were.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        reset_io();
+        ep_in(1, A, 4);
+        pump();
+        tcfg_t c;
+        vendor_config(&c);
+        assert(stage_cfg(&c, 1, sizeof(k_desc_a)) == 1);
+        expect_nak(commit_staged(), MIMHID_NAK_STATE); // no EP_CONFIG
+        assert(EPSTATE(0x81).busy && memcmp(EPSTATE(0x81).buffer, A, 4) == 0);
+        ep_in(1, B, 4);
+        pump();
+        complete_in(1);
+        assert(memcmp(EPSTATE(0x81).buffer, B, 4) == 0);
+    }
+
+    // A bus reset or a new configuration closes the endpoints: what waited is dropped and the
+    // endpoints are opened again by set_config.
+    {
+        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        ep_in(1, A, 4);
+        ep_in(1, B, 4);
+        pump();
+        gen_driver()->reset(0);
+        memset(g_ep, 0, sizeof(g_ep));
+        ep_in(1, C, 4);
+        pump();
+        assert(EPSTATE(0x81).xfers == 0); // not open: nothing starts
+        set_config(); // the configuration starts again: C, queued while closed, is dropped as well
+        pump();
+        assert(EPSTATE(0x81).xfers == 0 && !EPSTATE(0x81).busy);
+        ep_in(1, D, 4);
+        pump();
+        assert(EPSTATE(0x81).xfers == 1 && memcmp(EPSTATE(0x81).buffer, D, 4) == 0);
+    }
+
+    // The walk: what the generic driver does not take is refused.
+    {
+        tcfg_t c;
+        const uint16_t rd[1] = {sizeof(k_desc_a)};
+        (void)rd;
+        // a bulk endpoint of a packet size no controller has
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 48, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_nak(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // no walk
+        expect_refused(commit_staged());
+        // isochronous and control endpoints
+        for (uint8_t type = TUSB_XFER_CONTROL; type <= TUSB_XFER_ISOCHRONOUS; type = (uint8_t)(type + 1)) {
+            if (type == TUSB_XFER_BULK)
+                continue;
+            cfg_open(&c);
+            cfg_interface(&c, 0, 0, 1, 0xFF);
+            cfg_endpoint(&c, 0x81, type, 64, 1);
+            cfg_close(&c);
+            if (type == TUSB_XFER_INTERRUPT)
+                continue;
+            assert(stage_cfg(&c, -1, 0) == 1);
+            expect_refused(commit_staged());
+        }
+        // an interrupt endpoint of a generic interface needs its bInterval
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_INTERRUPT, 8, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // the same address twice, in one interface or two
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 2, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // an endpoint number the controller does not have
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, (uint8_t)(0x80 | (MIMHID_MAX_ENDPOINT_NUMBER + 1)), TUSB_XFER_BULK, 64, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // fewer endpoints than the interface announced
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 2, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // a report descriptor for an interface that is not HID
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, 0, 8) == 1);
+        expect_refused(commit_staged());
+        // an interface with no endpoint at all is a valid interface (USB 2.0 9.6.5)
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        assert(commit_staged() == 1);
+        // a HID interface still needs its HID descriptor and one IN endpoint
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0x03);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&c);
+        assert(stage_cfg(&c, 0, 8) == 1);
+        expect_refused(commit_staged());
+        // a bulk endpoint on a HID interface
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0x03);
+        cfg_hid(&c, sizeof(k_desc_a));
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, 0, sizeof(k_desc_a)) == 1);
+        expect_refused(commit_staged());
+        // an association with nothing after it, with the wrong first interface, and around HID
+        cfg_open(&c);
+        cfg_association(&c, 0, 2, 0xFF);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        cfg_open(&c);
+        cfg_association(&c, 1, 1, 0xFF);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        cfg_open(&c);
+        cfg_association(&c, 0, 2, 0xFF);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        cfg_hid_interface(&c, 1, 1, sizeof(k_desc_a));
+        cfg_close(&c);
+        assert(stage_cfg(&c, 1, sizeof(k_desc_a)) == 1);
+        expect_refused(commit_staged());
+        // a class descriptor shorter than 2 bytes, or running past the blob
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        c.b[c.n++] = 1;
+        c.b[c.n++] = 0x24;
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 0, 0xFF);
+        c.b[c.n++] = 9;
+        c.b[c.n++] = 0x24;
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // too many interfaces of any class
+        cfg_open(&c);
+        for (uint8_t i = 0; i <= MIMHID_MAX_INTERFACES; i++)
+            cfg_interface(&c, i, 0, 0, 0xFF);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+        // MIMHID_MAX_INTERFACES interfaces of any class are a valid configuration
+        cfg_open(&c);
+        for (uint8_t i = 0; i < MIMHID_MAX_INTERFACES; i++)
+            cfg_interface(&c, i, 0, 0, 0xFF);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        assert(commit_staged() == 1);
+        assert(mimhid_active_interfaces() == MIMHID_MAX_INTERFACES && mimhid_active_hid_instances() == 0);
+    }
+
+#if MIMHID_MAX_ENDPOINT_NUMBER >= 5
+    // A function of two interfaces behind an association (a CDC-ACM shape: a control interface
+    // with an interrupt IN endpoint and class descriptors, a data interface with two bulk
+    // endpoints), then a HID interface: the stack calls open once for the group, which takes all
+    // of it.
+    {
+        tcfg_t c;
+        cfg_open(&c);
+        cfg_association(&c, 0, 2, 0x02);
+        cfg_interface(&c, 0, 0, 1, 0x02);
+        cfg_class_descriptor(&c, 0x24, 5);
+        cfg_class_descriptor(&c, 0x24, 4);
+        cfg_endpoint(&c, 0x83, TUSB_XFER_INTERRUPT, 8, 16);
+        cfg_interface(&c, 1, 0, 2, 0x0A);
+        cfg_endpoint(&c, 0x84, TUSB_XFER_BULK, 64, 0);
+        cfg_endpoint(&c, 0x02, TUSB_XFER_BULK, 64, 0);
+        cfg_hid_interface(&c, 2, 5, sizeof(k_desc_a));
+        cfg_close(&c);
+        assert(stage_cfg(&c, 2, sizeof(k_desc_a)) == 1);
+        assert(ep_config(0x83, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        assert(ep_config(0x84, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        assert(commit_staged() == 1);
+        // from the first interface descriptor (the association descriptor is stepped over by the stack)
+        const uint16_t group = 9 + 5 + 4 + 7 + 9 + 7 + 7;
+        assert(mimhid_active_generic_span(0) == group);
+        assert(mimhid_active_generic_span(1) == 9 + 7 + 7); // the second one of the group on its own
+        set_config();
+        assert(EPSTATE(0x83).opened && EPSTATE(0x84).opened && EPSTATE(0x02).opened &&
+               !EPSTATE(0x85).opened);
+        assert(EPSTATE(0x02).busy); // the OUT endpoint of the group is armed
+        reset_io();
+        ep_in(3, A, 4);
+        ep_in(4, B, 4);
+        pump();
+        assert(EPSTATE(0x83).busy && EPSTATE(0x84).busy);
+        assert(mimhid_active_interface_instance(2) == 0 && mimhid_active_instance_interface(0) == 2);
+    }
+#endif
+}
+
+#if TUD_OPT_HIGH_SPEED
+// The packet sizes of USB 2.0 5.8.3 for a generic bulk endpoint at high speed: 512 only; and the
+// interrupt interval of 9.6.6 is an exponent, 1 to 16.
+static void test_generic_hs(void) {
+    tcfg_t c;
+    static const uint16_t sizes[] = {8, 64, 256, 513, 1024};
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, sizes[i], 0);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+    }
+    cfg_open(&c);
+    cfg_interface(&c, 0, 0, 2, 0xFF);
+    cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 512, 0);
+    cfg_endpoint(&c, 0x02, TUSB_XFER_INTERRUPT, 1024, 16);
+    cfg_close(&c);
+    assert(stage_cfg(&c, -1, 0) == 1);
+    assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(commit_staged() == 1);
+    static const uint8_t bad[] = {0, 17};
+    for (size_t i = 0; i < sizeof(bad); i++) {
+        cfg_open(&c);
+        cfg_interface(&c, 0, 0, 1, 0xFF);
+        cfg_endpoint(&c, 0x81, TUSB_XFER_INTERRUPT, 8, bad[i]);
+        cfg_close(&c);
+        assert(stage_cfg(&c, -1, 0) == 1);
+        expect_refused(commit_staged());
+    }
+    // a slot holds the largest transfer, which is the largest packet: a 1024-byte frame is taken
+    set_config();
+    uint8_t big[1024];
+    memset(big, 0x77, sizeof(big));
+    reset_io();
+    ep_in(1, big, sizeof(big));
+    pump();
+    assert(EPSTATE(0x81).busy && EPSTATE(0x81).length == 1024);
+}
+#endif
+
 int main(void) {
     printf("firmware core, %d HID interfaces\n", MIMHID_HID_ITFS);
     mimhid_core_init();
 #if TUD_OPT_HIGH_SPEED
     test_high_speed();
+    test_generic_hs();
     printf("firmware core (high speed) OK\n");
     return 0;
 #endif
@@ -2702,6 +3511,7 @@ int main(void) {
     test_control();
     test_ep0();
     test_nothing_is_filled_in();
+    test_generic();
     printf("firmware core OK\n");
     return 0;
 }

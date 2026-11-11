@@ -65,7 +65,7 @@ static int mimhid_example_run(const char* name, mimhid_profile_kind expected_kin
     printf("\nTo send this profile through a real board:\n");
     printf("  1. mimhid_discover()           then mimhid_discovery_get() to pick a board\n");
     printf("  2. mimhid_device_open()        USB identity and serial link, both given\n");
-    printf("  3. mimhid_node_open()          adds this Spec as a Node on an interface\n");
+    printf("  3. mimhid_node_open_profile()          adds this Spec as a Node on an interface\n");
     printf("     (every call that waits takes its timeout as an argument; none has a default)\n");
     printf("  4. mimhid_device_wait_ready()  the target has enumerated the board\n");
     step = 5U;

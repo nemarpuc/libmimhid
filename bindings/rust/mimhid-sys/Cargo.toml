@@ -1,6 +1,6 @@
 [package]
 name = "mimhid-sys"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "Literal Rust FFI declarations for the libmimhid C ABI"
 license = "MIT"

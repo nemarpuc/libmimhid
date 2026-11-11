@@ -26,8 +26,8 @@ MIMHID_CONTROL_MAX_TIMEOUT_MS = 5000
 MIMHID_HOST_MAX_REPORT_BYTES = 1024
 MIMHID_LOSS_MAX_INTERVAL_MS = 60000
 MIMHID_VERSION_MAJOR = 0
-MIMHID_VERSION_MINOR = 2
-MIMHID_VERSION_PATCH = 1
+MIMHID_VERSION_MINOR = 3
+MIMHID_VERSION_PATCH = 0
 MIMHID_OK = 0
 MIMHID_ERR_PARAM = 1
 MIMHID_ERR_UNSET_FIELD = 2
@@ -92,7 +92,9 @@ MIMHID_EVENT_SET_PROTOCOL = 7
 MIMHID_EVENT_SET_IDLE = 8
 MIMHID_EVENT_CONTROL_SETUP = 9
 MIMHID_EVENT_CONTROL_DATA = 10
-MIMHID_EVENT_REPORT_LOST = 11
+MIMHID_EVENT_TRANSFER_LOST = 11
+MIMHID_EVENT_ENDPOINT_DATA = 12
+MIMHID_EVENT_ENDPOINT_HALT = 13
 MIMHID_CONTROL_ACTION_LEAVE = 1
 MIMHID_CONTROL_ACTION_ANSWER = 2
 MIMHID_CONTROL_ACTION_STALL = 3
@@ -101,6 +103,11 @@ MIMHID_CONTROL_FLAG_HELD = 1
 MIMHID_CONTROL_FLAG_TOO_LONG = 2
 MIMHID_CONTROL_FLAG_FIXED = 4
 MIMHID_CONTROL_FLAG_LOST = 8
+MIMHID_TRANSFER_BULK = 2
+MIMHID_TRANSFER_INTERRUPT = 3
+MIMHID_FULL_DROP_NEWEST = 1
+MIMHID_FULL_DROP_OLDEST = 2
+MIMHID_FULL_WAIT = 3
 
 
 class Node(c.Structure):
@@ -152,6 +159,8 @@ class Event(c.Structure):
         ("length", c.c_size_t),
         ("control_token", c.c_uint32),
         ("control_flags", c.c_uint32),
+        ("endpoint_address", c.c_uint32),
+        ("interface_number", c.c_uint32),
     ]
 
 EventSink = c.CFUNCTYPE(None, c.c_void_p, c.POINTER(Event))
@@ -193,6 +202,13 @@ class BoardLimits(c.Structure):
         ("max_control_data_bytes", c.c_uint32),
         ("max_control_rules", c.c_uint32),
         ("max_endpoint_number", c.c_uint32),
+        ("max_interfaces_any", c.c_uint32),
+        ("max_hid_interfaces", c.c_uint32),
+        ("max_config_descriptor_bytes", c.c_uint32),
+        ("max_strings", c.c_uint32),
+        ("max_transfer_bytes", c.c_uint32),
+        ("endpoint_queue_slots", c.c_uint32),
+        ("transfer_types", c.c_uint32),
     ]
 
 
@@ -282,11 +298,22 @@ class CommitTimeouts(c.Structure):
     ]
 
 
+class EndpointPolicy(c.Structure):
+    _fields_ = [
+        ("on_full", c.c_uint8),
+        ("depth", c.c_uint8),
+    ]
+
+
 class UsbEndpoint(c.Structure):
     _fields_ = [
         ("address", c.c_uint8),
-        ("poll_interval_ms", c.c_uint8),
+        ("transfer_type", c.c_uint8),
+        ("interval", c.c_uint8),
+        ("reserved8", c.c_uint8),
         ("max_packet_size", c.c_uint16),
+        ("reserved16", c.c_uint16),
+        ("policy", EndpointPolicy),
     ]
 
 
@@ -296,10 +323,11 @@ class UsbInterface(c.Structure):
         ("class_code", c.c_uint8),
         ("subclass", c.c_uint8),
         ("protocol", c.c_uint8),
-        ("bcd_hid", c.c_uint16),
-        ("country_code", c.c_uint8),
-        ("reserved8", c.c_uint8),
         ("name", c.c_char_p),
+        ("class_descriptors", c.POINTER(c.c_uint8)),
+        ("class_descriptors_length", c.c_size_t),
+        ("endpoints", c.POINTER(UsbEndpoint)),
+        ("endpoint_count", c.c_size_t),
     ]
 
 
@@ -307,7 +335,24 @@ class NodeConfig(c.Structure):
     _fields_ = [
         ("struct_size", c.c_uint32),
         ("reserved", c.c_uint32),
-        ("iface", UsbInterface),
+        ("interfaces", c.POINTER(UsbInterface)),
+        ("interface_count", c.c_size_t),
+        ("association", c.POINTER(c.c_uint8)),
+        ("association_length", c.c_size_t),
+    ]
+
+
+class HidNodeConfig(c.Structure):
+    _fields_ = [
+        ("struct_size", c.c_uint32),
+        ("reserved", c.c_uint32),
+        ("interface_number", c.c_uint8),
+        ("subclass", c.c_uint8),
+        ("protocol", c.c_uint8),
+        ("country_code", c.c_uint8),
+        ("bcd_hid", c.c_uint16),
+        ("reserved16", c.c_uint16),
+        ("name", c.c_char_p),
         ("ep_in", UsbEndpoint),
         ("ep_out", UsbEndpoint),
     ]
@@ -645,9 +690,11 @@ ABI_STRUCTS = {
     "mimhid_transport_options": TransportOptions,
     "mimhid_device_config": DeviceConfig,
     "mimhid_commit_timeouts": CommitTimeouts,
+    "mimhid_endpoint_policy": EndpointPolicy,
     "mimhid_usb_endpoint": UsbEndpoint,
     "mimhid_usb_interface": UsbInterface,
     "mimhid_node_config": NodeConfig,
+    "mimhid_hid_node_config": HidNodeConfig,
     "mimhid_physical_properties": PhysicalProperties,
     "mimhid_integer_field": IntegerField,
     "mimhid_report_id_option": ReportId,
@@ -708,6 +755,8 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_device_set_control_routing", [DeviceP, c.c_uint32, c.POINTER(ControlRule), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimhid_device_control_reply", [DeviceP, c.c_uint32, c.c_int32, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimhid_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
+    declare("mimhid_device_add_string", [DeviceP, c.c_char_p, c.POINTER(c.c_uint8)], c.c_int32)
+    declare("mimhid_device_remove_string", [DeviceP, c.c_uint8], c.c_int32)
     declare("mimhid_spec_create_keyboard", [c.POINTER(KeyboardOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimhid_spec_create_mouse", [c.POINTER(MouseOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimhid_spec_create_toggle", [c.POINTER(ToggleOptions), c.POINTER(SpecP)], c.c_int32)
@@ -721,12 +770,17 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_spec_release", [SpecP], None)
     declare("mimhid_spec_descriptor", [SpecP, c.POINTER(c.POINTER(c.c_uint8)), c.POINTER(c.c_size_t)], c.c_int32)
     declare("mimhid_spec_manifest", [SpecP, c.POINTER(CapabilityManifest)], c.c_int32)
-    declare("mimhid_node_open", [DeviceP, SpecP, c.POINTER(NodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
-    declare("mimhid_node_open_raw", [DeviceP, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(NodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
+    declare("mimhid_node_open", [DeviceP, c.POINTER(NodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
+    declare("mimhid_node_open_profile", [DeviceP, SpecP, c.POINTER(HidNodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
+    declare("mimhid_node_open_raw", [DeviceP, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(HidNodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
     declare("mimhid_node_close", [NodeP, c.POINTER(CommitTimeouts), c.c_uint32], c.c_int32)
     declare("mimhid_node_id", [NodeP], c.c_uint16)
     declare("mimhid_node_set_feature_response", [NodeP, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
-    declare("mimhid_node_set_queue_depth", [NodeP, c.c_uint32, c.c_uint32], c.c_int32)
+    declare("mimhid_node_endpoint_set_policy", [NodeP, c.c_uint8, c.POINTER(EndpointPolicy), c.c_uint32], c.c_int32)
+    declare("mimhid_node_endpoint_write", [NodeP, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_node_endpoint_stall", [NodeP, c.c_uint8, c.c_uint32], c.c_int32)
+    declare("mimhid_node_endpoint_clear_stall", [NodeP, c.c_uint8, c.c_uint32], c.c_int32)
+    declare("mimhid_node_endpoint_flush", [NodeP, c.c_uint8, c.c_uint32], c.c_int32)
     declare("mimhid_node_manifest", [NodeP, c.POINTER(CapabilityManifest)], c.c_int32)
     declare("mimhid_node_submit", [NodeP, c.c_uint32], c.c_int32)
     declare("mimhid_node_submit_blocking", [NodeP, c.c_uint32], c.c_int32)
@@ -773,9 +827,11 @@ __all__ += [
     "TransportOptions",
     "DeviceConfig",
     "CommitTimeouts",
+    "EndpointPolicy",
     "UsbEndpoint",
     "UsbInterface",
     "NodeConfig",
+    "HidNodeConfig",
     "PhysicalProperties",
     "IntegerField",
     "ReportId",

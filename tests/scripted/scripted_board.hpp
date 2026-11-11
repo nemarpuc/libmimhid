@@ -66,6 +66,12 @@ struct Pong {
     std::uint16_t max_control_data_bytes{256};
     std::uint8_t max_control_rules{8};
     std::uint8_t max_endpoint_number{7};
+    std::uint8_t max_interfaces_any{15};
+    std::uint16_t max_config_descriptor_bytes{1024};
+    std::uint8_t max_strings{24};
+    std::uint16_t max_transfer_bytes{64};
+    std::uint16_t endpoint_queue_slots{64};
+    std::uint8_t transfer_types{0x0C}; // bulk and interrupt
     std::vector<std::uint8_t> unique_id{1, 2, 3, 4, 5, 6, 7, 8};
     // When set, sent as the whole PONG payload instead of the fields above.
     std::optional<std::vector<std::uint8_t>> raw;

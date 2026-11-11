@@ -50,7 +50,8 @@ void MIMHID_CALL on_event(void*, const mimhid_event* event) {
         std::lock_guard<std::mutex> lock(g_event_mutex);
         g_events.push_back({event->kind, event->node_id, event->report_id, event->value,
                             std::vector<std::uint8_t>(event->data, event->data + event->length),
-                            event->control_token, event->control_flags});
+                            event->control_token, event->control_flags, event->endpoint_address,
+                            event->interface_number});
     }
     if (event->kind == MIMHID_EVENT_CONTROL_SETUP &&
         (event->control_flags & MIMHID_CONTROL_FLAG_HELD) && g_sink_reply.enabled.load()) {
@@ -195,12 +196,12 @@ mimhid_spec* raw_spec_io() {
 }
 
 mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
-                       const mimhid_node_config* options) {
-    mimhid_node_config defaults{};
+                       const mimhid_hid_node_config* options) {
+    mimhid_hid_node_config defaults{};
     test_fill_node_config(&defaults, 0);
     mimhid_node* node = nullptr;
     const mimhid_result r =
-        mimhid_node_open(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
+        mimhid_node_open_profile(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
     if (r != MIMHID_OK) {
         std::fprintf(stderr, "node_open: %s (%s)\n", mimhid_result_name(r),
                      mimhid_last_error()->reason);

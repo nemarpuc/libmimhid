@@ -114,9 +114,35 @@ device_set_control_routing(mimhid_device* device, uint32_t report_all,
                                                              uint32_t control_timeout_ms) noexcept {
     return mimhid_node_set_feature_response(node, report_id, data, length, control_timeout_ms);
 }
-[[nodiscard]] inline mimhid_result node_set_queue_depth(mimhid_node* node, uint32_t depth,
-                                                        uint32_t control_timeout_ms) noexcept {
-    return mimhid_node_set_queue_depth(node, depth, control_timeout_ms);
+[[nodiscard]] inline mimhid_result node_endpoint_set_policy(
+    mimhid_node* node, uint8_t address, const mimhid_endpoint_policy* policy,
+    uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_endpoint_set_policy(node, address, policy, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_endpoint_write(mimhid_node* node, uint8_t address,
+                                                       const uint8_t* data, size_t length,
+                                                       uint32_t timeout_ms) noexcept {
+    return mimhid_node_endpoint_write(node, address, data, length, timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_endpoint_stall(mimhid_node* node, uint8_t address,
+                                                       uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_endpoint_stall(node, address, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_endpoint_clear_stall(
+    mimhid_node* node, uint8_t address, uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_endpoint_clear_stall(node, address, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_endpoint_flush(mimhid_node* node, uint8_t address,
+                                                       uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_endpoint_flush(node, address, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_add_string(mimhid_device* device, const char* utf8,
+                                                     uint8_t* out_index) noexcept {
+    return mimhid_device_add_string(device, utf8, out_index);
+}
+[[nodiscard]] inline mimhid_result device_remove_string(mimhid_device* device,
+                                                        uint8_t index) noexcept {
+    return mimhid_device_remove_string(device, index);
 }
 [[nodiscard]] inline mimhid_result device_close(mimhid_device* device, uint32_t control_timeout_ms,
                                                 uint32_t drain_timeout_ms) noexcept {
@@ -172,15 +198,21 @@ inline void spec_release(mimhid_spec* spec) noexcept { mimhid_spec_release(spec)
                                                  mimhid_capability_manifest* manifest) noexcept {
     return mimhid_spec_manifest(spec, manifest);
 }
-[[nodiscard]] inline mimhid_result node_open(mimhid_device* device, mimhid_spec* spec,
+[[nodiscard]] inline mimhid_result node_open(mimhid_device* device,
                                              const mimhid_node_config* config,
                                              const mimhid_commit_timeouts* timeouts,
                                              mimhid_node** out_node) noexcept {
-    return mimhid_node_open(device, spec, config, timeouts, out_node);
+    return mimhid_node_open(device, config, timeouts, out_node);
+}
+[[nodiscard]] inline mimhid_result node_open_profile(mimhid_device* device, mimhid_spec* spec,
+                                                     const mimhid_hid_node_config* config,
+                                                     const mimhid_commit_timeouts* timeouts,
+                                                     mimhid_node** out_node) noexcept {
+    return mimhid_node_open_profile(device, spec, config, timeouts, out_node);
 }
 [[nodiscard]] inline mimhid_result node_open_raw(mimhid_device* device, const uint8_t* descriptor,
                                                  size_t descriptor_length,
-                                                 const mimhid_node_config* config,
+                                                 const mimhid_hid_node_config* config,
                                                  const mimhid_commit_timeouts* timeouts,
                                                  mimhid_node** out_node) noexcept {
     return mimhid_node_open_raw(device, descriptor, descriptor_length, config, timeouts, out_node);
@@ -288,6 +320,11 @@ digitizer_update(mimhid_node* node, const mimhid_digitizer_sample* sample) noexc
 [[nodiscard]] inline mimhid_node_config node_config() noexcept {
     mimhid_node_config value;
     mimhid_node_config_init(&value);
+    return value;
+}
+[[nodiscard]] inline mimhid_hid_node_config hid_node_config() noexcept {
+    mimhid_hid_node_config value;
+    mimhid_hid_node_config_init(&value);
     return value;
 }
 [[nodiscard]] inline mimhid_board_limits board_limits() noexcept {

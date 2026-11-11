@@ -99,8 +99,19 @@ void Link::handle_frame(const Frame& frame) {
             handler_(ev);
         break;
     }
-    default:
+    default: {
+        // A packet of the target on an OUT endpoint, as it came; not acknowledged.
+        if (frame.type > MIMHID_T_EP_OUT_BASE && frame.type <= MIMHID_T_EP_OUT_LAST) {
+            BoardEvent ev;
+            ev.kind = frame.type;
+            ev.length = frame.length;
+            if (ev.length > 0)
+                std::memcpy(ev.data.data(), frame.payload.data(), ev.length);
+            if (handler_)
+                handler_(ev);
+        }
         break;
+    }
     }
 }
 

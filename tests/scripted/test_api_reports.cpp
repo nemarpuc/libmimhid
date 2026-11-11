@@ -28,8 +28,8 @@ Opened open_keyboard(Board& board) {
     if (o.device == nullptr)
         return o;
     o.spec = keyboard_spec();
-    const mimhid_node_config config = node_config();
-    MIMHID_CHECK(mimhid_node_open(o.device, o.spec, &config, &kCommit, &o.node) == MIMHID_OK);
+    const mimhid_hid_node_config config = node_config();
+    MIMHID_CHECK(mimhid_node_open_profile(o.device, o.spec, &config, &kCommit, &o.node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_wait_ready(o.device, 1000) == MIMHID_OK);
     return o;
 }
@@ -134,8 +134,8 @@ void test_link_lost() {
     MIMHID_CHECK(mimhid_device_set_loss_reporting(o.device, 0, 0, kControlMs) ==
                  MIMHID_ERR_NO_DEVICE);
     mimhid_node* other = nullptr;
-    const mimhid_node_config config = node_config(1);
-    MIMHID_CHECK(mimhid_node_open(o.device, o.spec, &config, &kCommit, &other) ==
+    const mimhid_hid_node_config config = node_config(1);
+    MIMHID_CHECK(mimhid_node_open_profile(o.device, o.spec, &config, &kCommit, &other) ==
                  MIMHID_ERR_NO_DEVICE);
     const std::uint8_t descriptor[2] = {0x05, 0x01};
     MIMHID_CHECK(mimhid_node_open_raw(o.device, descriptor, sizeof(descriptor), &config, &kCommit,
@@ -157,9 +157,9 @@ void test_scan_time() {
     mimhid_touchscreen_options options = mimhid_test::touchscreen_options();
     mimhid_spec* spec = nullptr;
     MIMHID_CHECK(mimhid_spec_create_touchscreen(&options, &spec) == MIMHID_OK);
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     mimhid_spec_release(spec);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 1000) == MIMHID_OK);
     board.clear();

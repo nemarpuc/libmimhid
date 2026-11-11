@@ -234,6 +234,12 @@ std::vector<std::uint8_t> Board::pong_payload() {
     p.push_back(pong_.max_control_rules);
     p.push_back(pong_.max_endpoint_number);
     p.push_back(static_cast<std::uint8_t>(pong_.unique_id.size()));
+    p.push_back(pong_.max_interfaces_any);
+    put_u16(&p, pong_.max_config_descriptor_bytes);
+    p.push_back(pong_.max_strings);
+    put_u16(&p, pong_.max_transfer_bytes);
+    put_u16(&p, pong_.endpoint_queue_slots);
+    p.push_back(pong_.transfer_types);
     p.insert(p.end(), pong_.unique_id.begin(), pong_.unique_id.end());
     return p;
 }

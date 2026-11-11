@@ -618,9 +618,72 @@ mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
     out_limits->max_frame_payload = device->board.max_frame_payload;
     out_limits->max_control_data_bytes = device->board.max_control_data_bytes;
     out_limits->max_control_rules = device->board.max_control_rules;
+    out_limits->max_interfaces_any = device->board.max_interfaces_any;
+    out_limits->max_hid_interfaces = device->board.max_interfaces;
+    out_limits->max_config_descriptor_bytes = device->board.max_config_descriptor_bytes;
+    out_limits->max_strings = device->board.max_strings;
+    out_limits->max_transfer_bytes = device->board.max_transfer_bytes;
+    out_limits->endpoint_queue_slots = device->board.endpoint_queue_slots;
+    out_limits->transfer_types = device->board.transfer_types;
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.limits")
+
+// ---- strings -----------------------------------------------------------------------------
+
+mimhid_result MIMHID_CALL mimhid_device_add_string(mimhid_device* device, const char* utf8,
+                                                   uint8_t* out_index) try {
+    mimhid::detail::clear_error();
+    if (out_index == nullptr || utf8 == nullptr || device == nullptr ||
+        device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device.add_string",
+                  "A live Device, text and an output pointer are required.");
+        return MIMHID_ERR_PARAM;
+    }
+    *out_index = 0U;
+    if (!mimhid::detail::valid_usb_string(utf8)) {
+        set_error(MIMHID_ERR_PARAM, "device.add_string",
+                  "The text must be UTF-8 without control characters, at most 126 UTF-16 code "
+                  "units.");
+        return MIMHID_ERR_PARAM;
+    }
+    // The indices from 5 up; the names of interfaces take theirs at the commit from what is left
+    // over, so this one is the lowest not given yet. The board's max_strings counts the four of
+    // the Device too.
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    std::uint32_t index = 5U;
+    while (index <= 255U && device->user_strings.count(static_cast<std::uint8_t>(index)) != 0U)
+        ++index;
+    if (index > 255U || device->user_strings.size() + 4U >= device->board.max_strings) {
+        set_error(MIMHID_ERR_OVERFLOW, "device.add_string",
+                  "The board's string descriptors (max_strings) or the index space are used up.",
+                  0, 0, 0, 0, device->board.max_strings, 0);
+        return MIMHID_ERR_OVERFLOW;
+    }
+    device->user_strings[static_cast<std::uint8_t>(index)] = utf8;
+    device->dirty = true;
+    *out_index = static_cast<std::uint8_t>(index);
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("device.add_string")
+
+mimhid_result MIMHID_CALL mimhid_device_remove_string(mimhid_device* device,
+                                                      const uint8_t index) try {
+    mimhid::detail::clear_error();
+    if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device.remove_string", "A live Device is required.");
+        return MIMHID_ERR_PARAM;
+    }
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    if (device->user_strings.erase(index) == 0U) {
+        set_error(MIMHID_ERR_PARAM, "device.remove_string",
+                  "The index was not given by mimhid_device_add_string.");
+        return MIMHID_ERR_PARAM;
+    }
+    device->dirty = true;
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("device.remove_string")
 
 // ---- control transfers of the target ---------------------------------------------------
 

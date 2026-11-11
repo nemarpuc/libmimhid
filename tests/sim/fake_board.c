@@ -37,6 +37,7 @@ static pthread_t g_thread;
 static volatile bool g_run;
 static pthread_mutex_t g_tx_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static unsigned g_out_head, g_out_tail;
 static volatile uint32_t g_board_baud = MIMHID_BOOT_BAUD;
 static volatile uint32_t g_adapter_limit = 0;
 static volatile uint32_t g_board_max = 3000000u; // what the fake UART makes
@@ -144,6 +145,7 @@ bool tud_suspended(void) { return g_suspended; }
 bool tud_disconnect(void) {
     pthread_mutex_lock(&g_lock);
     g_mounted = false;
+    g_out_tail = g_out_head; // what the target had not sent is gone with the connection
     pthread_mutex_unlock(&g_lock);
     return true;
 }
@@ -176,6 +178,141 @@ bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
     return true;
+}
+
+// ---- the endpoints of the generic driver: the controller and the target's side of them ----
+// The calls of the stack's device layer the driver makes (src/device/usbd.c), with the state they
+// keep: usbd_edpt_stall sets both stalled and busy, usbd_edpt_clear_stall clears both, and
+// usbd_edpt_xfer refuses an endpoint that is busy. All of it runs on the board thread.
+static struct {
+    bool opened, busy, stalled;
+    uint8_t* buffer;
+    uint16_t length;
+} g_ep[2][16]; // [0] OUT, [1] IN
+#define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr) & 0x0F]
+
+bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
+    (void)rhport;
+    if (EPSTATE(desc->bEndpointAddress).opened)
+        return false;
+    EPSTATE(desc->bEndpointAddress).opened = true;
+    return true;
+}
+bool usbd_edpt_busy(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    return EPSTATE(ep_addr).busy;
+}
+bool usbd_edpt_stalled(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    return EPSTATE(ep_addr).stalled;
+}
+bool usbd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
+    (void)rhport;
+    if (!EPSTATE(ep_addr).opened || EPSTATE(ep_addr).busy)
+        return false;
+    EPSTATE(ep_addr).busy = true;
+    EPSTATE(ep_addr).buffer = buffer;
+    EPSTATE(ep_addr).length = total_bytes;
+    return true;
+}
+void usbd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    EPSTATE(ep_addr).stalled = true;
+    EPSTATE(ep_addr).busy = true;
+}
+void usbd_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    EPSTATE(ep_addr).stalled = false;
+    EPSTATE(ep_addr).busy = false;
+}
+
+static const usbd_class_driver_t* generic_driver(void) {
+    uint8_t count = 0;
+    return usbd_app_driver_get_cb(&count);
+}
+
+// What the stack's SET_CONFIGURATION does (process_set_config in src/device/usbd.c): the drivers'
+// reset, then open for each interface in descriptor order (an association first, skipped; a whole
+// group with one call); what open returns is where the walk goes on. A HID interface is the stack's
+// own HID driver's, so it is stepped over (the board's driver refuses it with 0).
+static void sim_set_config(void) {
+    const usbd_class_driver_t* d = generic_driver();
+    memset(g_ep, 0, sizeof(g_ep));
+    d->reset(0);
+    const uint8_t* cfg = tud_descriptor_configuration_cb(0);
+    const uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
+    uint16_t pos = 9;
+    while (pos < total) {
+        if (cfg[pos + 1] == TUSB_DESC_INTERFACE_ASSOCIATION) {
+            pos = (uint16_t)(pos + cfg[pos]);
+            continue;
+        }
+        uint16_t used;
+        if (cfg[pos + 5] == TUSB_CLASS_HID) {
+            used = 9;
+            while (pos + used < total && cfg[pos + used + 1] != TUSB_DESC_INTERFACE &&
+                   cfg[pos + used + 1] != TUSB_DESC_INTERFACE_ASSOCIATION)
+                used = (uint16_t)(used + cfg[pos + used]);
+        } else {
+            used = d->open(0, (const tusb_desc_interface_t*)&cfg[pos], (uint16_t)(total - pos));
+            if (used < 9)
+                return;
+        }
+        pos = (uint16_t)(pos + used);
+    }
+}
+
+// The transfers the target read from IN endpoints (a zero-length one has length 0).
+static fake_transfer_t g_xfers[1024];
+static unsigned g_xfer_head, g_xfer_tail;
+// Packets the target wants to send on OUT endpoints; one waits until its endpoint is armed.
+static struct {
+    uint8_t address;
+    uint16_t length;
+    uint8_t data[1024];
+} g_out_pending[64];
+static unsigned g_poll_budget = 64;
+
+// The controller: with the target polling, every IN endpoint that holds a transfer completes it,
+// and every OUT endpoint that is armed takes the packet waiting for it.
+static void endpoints_poll(void) {
+    if (!g_mounted || g_hold_reports)
+        return;
+    const usbd_class_driver_t* d = generic_driver();
+    for (unsigned round = 0; round < g_poll_budget; round++) {
+        bool any = false;
+        for (uint8_t n = 1; n < 16; n++) {
+            const uint8_t address = (uint8_t)(0x80 | n);
+            if (EPSTATE(address).opened && EPSTATE(address).busy && !EPSTATE(address).stalled) {
+                any = true;
+                pthread_mutex_lock(&g_lock);
+                fake_transfer_t* t = &g_xfers[g_xfer_head % 1024];
+                t->address = address;
+                t->length = EPSTATE(address).length;
+                memcpy(t->data, EPSTATE(address).buffer, t->length);
+                g_xfer_head++;
+                pthread_cond_broadcast(&g_cond);
+                pthread_mutex_unlock(&g_lock);
+                EPSTATE(address).busy = false;
+                d->xfer_cb(0, address, XFER_RESULT_SUCCESS, t->length);
+            }
+        }
+        for (unsigned i = g_out_tail; i != g_out_head; i++) {
+            const uint8_t address = g_out_pending[i % 64].address;
+            if (!EPSTATE(address).opened || !EPSTATE(address).busy || EPSTATE(address).stalled)
+                break; // the target retries the packet: NAK until the endpoint is armed
+            if (i != g_out_tail)
+                break;
+            any = true;
+            const uint16_t n = g_out_pending[i % 64].length;
+            memcpy(EPSTATE(address).buffer, g_out_pending[i % 64].data, n);
+            EPSTATE(address).busy = false;
+            g_out_tail++;
+            d->xfer_cb(0, address, XFER_RESULT_SUCCESS, n);
+        }
+        if (!any)
+            break;
+    }
 }
 
 // ---- control transfers: the stack's side of them ----
@@ -263,12 +400,12 @@ typedef struct {
     size_t length;
 } action_t;
 
-static action_t g_actions[16];
+static action_t g_actions[256];
 static unsigned g_action_head, g_action_tail;
 
 static void post(action_t act) {
     pthread_mutex_lock(&g_lock);
-    g_actions[g_action_head++ % 16] = act;
+    g_actions[g_action_head++ % 256] = act;
     pthread_mutex_unlock(&g_lock);
 }
 
@@ -279,7 +416,7 @@ static void run_actions(void) {
             pthread_mutex_unlock(&g_lock);
             return;
         }
-        action_t act = g_actions[g_action_tail++ % 16];
+        action_t act = g_actions[g_action_tail++ % 256];
         pthread_mutex_unlock(&g_lock);
         switch (act.kind) {
         case 1:
@@ -311,6 +448,29 @@ static void run_actions(void) {
             __wrap_dcd_event_handler(&e, true);
             break;
         }
+        case 7: { // a packet on an OUT endpoint
+            if (g_out_head - g_out_tail < 64) {
+                g_out_pending[g_out_head % 64].address = act.a;
+                g_out_pending[g_out_head % 64].length = (uint16_t)act.length;
+                memcpy(g_out_pending[g_out_head % 64].data, act.data, act.length);
+                g_out_head++;
+            }
+            break;
+        }
+        case 8: { // the target sets (b = 1) or clears (b = 0) the Halt feature of an endpoint
+            if (act.b)
+                usbd_edpt_stall(0, act.a);
+            else
+                usbd_edpt_clear_stall(0, act.a);
+            tusb_control_request_t r;
+            memset(&r, 0, sizeof(r));
+            r.bmRequestType = 0x02; // host to device, standard, endpoint
+            r.bRequest = act.b ? TUSB_REQ_SET_FEATURE : TUSB_REQ_CLEAR_FEATURE;
+            r.wValue = TUSB_REQ_FEATURE_EDPT_HALT;
+            r.wIndex = act.a;
+            generic_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r);
+            break;
+        }
         default:
             break;
         }
@@ -325,6 +485,7 @@ static void* board_main(void* arg) {
         mimhid_rx_poll();
         mimhid_usb_poll();
         run_actions();
+        endpoints_poll();
         pthread_mutex_lock(&g_lock);
         bool mount = g_connect_pending && (int32_t)(hal_millis() - g_connect_at) >= 0;
         if (mount) {
@@ -332,8 +493,10 @@ static void* board_main(void* arg) {
             g_mounted = true;
         }
         pthread_mutex_unlock(&g_lock);
-        if (mount)
+        if (mount) {
+            sim_set_config();
             tud_mount_cb();
+        }
         struct timespec ts = {0, 100000};
         nanosleep(&ts, NULL);
     }
@@ -514,3 +677,54 @@ void fake_board_set_adapter_limit(uint32_t baud) { g_adapter_limit = baud; }
 void fake_board_inject_errors(uint8_t bits) {
     __atomic_fetch_or(&g_errors, bits, __ATOMIC_ACQ_REL);
 }
+
+// ---- the generic endpoints, as the tests drive them ----
+int fake_board_wait_transfer(uint8_t address, fake_transfer_t* out, uint32_t timeout_ms) {
+    struct timespec until;
+    clock_gettime(CLOCK_REALTIME, &until);
+    until.tv_sec += timeout_ms / 1000;
+    until.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (until.tv_nsec >= 1000000000L) {
+        until.tv_sec++;
+        until.tv_nsec -= 1000000000L;
+    }
+    pthread_mutex_lock(&g_lock);
+    for (;;) {
+        for (unsigned i = g_xfer_tail; i != g_xfer_head; i++) {
+            if (address == 0 || g_xfers[i % 1024].address == address) {
+                *out = g_xfers[i % 1024];
+                // Remove it: later ones move up.
+                for (unsigned k = i; k + 1 != g_xfer_head; k++)
+                    g_xfers[k % 1024] = g_xfers[(k + 1) % 1024];
+                g_xfer_head--;
+                pthread_mutex_unlock(&g_lock);
+                return 1;
+            }
+        }
+        if (pthread_cond_timedwait(&g_cond, &g_lock, &until) != 0)
+            break;
+    }
+    pthread_mutex_unlock(&g_lock);
+    return 0;
+}
+
+void fake_board_clear_transfers(void) {
+    pthread_mutex_lock(&g_lock);
+    g_xfer_tail = g_xfer_head;
+    pthread_mutex_unlock(&g_lock);
+}
+
+void fake_board_target_out(uint8_t address, const uint8_t* data, size_t length) {
+    action_t a = {7, address, 0, 0, {0}, length > sizeof(a.data) ? sizeof(a.data) : length};
+    if (a.length)
+        memcpy(a.data, data, a.length);
+    post(a);
+}
+
+void fake_board_target_halt(uint8_t address, int set) {
+    action_t a = {8, address, (uint8_t)(set ? 1 : 0), 0, {0}, 0};
+    post(a);
+}
+
+int fake_board_endpoint_stalled(uint8_t address) { return EPSTATE(address).stalled; }
+int fake_board_endpoint_busy(uint8_t address) { return EPSTATE(address).busy; }

@@ -55,8 +55,10 @@ bool FrameParser::next(Frame* out) noexcept {
                   (static_cast<std::size_t>(len_high) << 7);
             header = 4U;
         }
+        // 0xC0 itself is endpoint 0, which has no data frame (mimhid_proto.h).
         const bool board_type = type == MIMHID_T_PONG || type == MIMHID_T_ACK ||
-                                type == MIMHID_T_NAK || type == MIMHID_T_EVENT;
+                                type == MIMHID_T_NAK || type == MIMHID_T_EVENT ||
+                                (type > MIMHID_T_EP_OUT_BASE && type <= MIMHID_T_EP_OUT_LAST);
         if (!board_type) {
             tail_ = (tail_ + 1U) & kMask;
             continue;
@@ -136,8 +138,14 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->max_control_data_bytes = static_cast<std::uint16_t>(p[31] | (p[32] << 8));
     out->max_control_rules = p[33];
     out->max_endpoint_number = p[34];
+    out->max_interfaces_any = p[36];
+    out->max_config_descriptor_bytes = static_cast<std::uint16_t>(p[37] | (p[38] << 8));
+    out->max_strings = p[39];
+    out->max_transfer_bytes = static_cast<std::uint16_t>(p[40] | (p[41] << 8));
+    out->endpoint_queue_slots = static_cast<std::uint16_t>(p[42] | (p[43] << 8));
+    out->transfer_types = p[44];
     out->unique_id_length = id_length;
-    std::memcpy(out->unique_id.data(), &p[36], id_length);
+    std::memcpy(out->unique_id.data(), &p[MIMHID_PONG_MIN_LEN], id_length);
     return true;
 }
 

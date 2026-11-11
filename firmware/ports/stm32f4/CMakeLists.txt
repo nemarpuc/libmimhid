@@ -35,6 +35,7 @@ target_sources(mimhid_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common/control.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/ep0.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/usb_descriptors.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../common/generic.c
 )
 target_include_directories(mimhid_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common

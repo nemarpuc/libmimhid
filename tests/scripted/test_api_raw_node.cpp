@@ -24,8 +24,8 @@ void test_open_raw_sends_the_descriptor() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    mimhid_node_config config = node_config();
-    config.iface.name = "raw interface";
+    mimhid_hid_node_config config = node_config();
+    config.name = "raw interface";
     mimhid_node* node = nullptr;
     board.clear();
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &config, &kCommit,
@@ -67,7 +67,7 @@ void test_open_raw_arguments() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &config, &kCommit,
                                       nullptr) == MIMHID_ERR_PARAM);
@@ -81,7 +81,7 @@ void test_open_raw_arguments() {
                                       &node) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &config, nullptr,
                                       &node) == MIMHID_ERR_PARAM);
-    mimhid_node_config unset = config;
+    mimhid_hid_node_config unset = config;
     unset.ep_in.max_packet_size = 0;
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &unset, &kCommit,
                                       &node) == MIMHID_ERR_UNSET_FIELD);
@@ -103,11 +103,11 @@ void test_open_raw_arguments() {
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &config, &kCommit,
                                       &node) == MIMHID_OK);
     mimhid_node* second = nullptr;
-    const mimhid_node_config other = node_config(1);
+    const mimhid_hid_node_config other = node_config(1);
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &other, &kCommit,
                                       &second) == MIMHID_ERR_OVERFLOW);
     mimhid_spec* spec = keyboard_spec();
-    MIMHID_CHECK(mimhid_node_open(device, spec, &other, &kCommit, &second) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &other, &kCommit, &second) == MIMHID_ERR_OVERFLOW);
     mimhid_spec_release(spec);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
@@ -119,7 +119,7 @@ void test_open_raw_in_a_batch() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
     board.clear();
@@ -151,9 +151,9 @@ void test_interface_numbers_are_real() {
     if (device == nullptr)
         return;
     mimhid_node* nodes[3] = {};
-    const mimhid_node_config c0 = node_config(0);
-    const mimhid_node_config c1 = node_config(1);
-    const mimhid_node_config c2 = node_config(2);
+    const mimhid_hid_node_config c0 = node_config(0);
+    const mimhid_hid_node_config c1 = node_config(1);
+    const mimhid_hid_node_config c2 = node_config(2);
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &c0, &kCommit,
                                       &nodes[0]) == MIMHID_OK);
     board.clear();
@@ -161,7 +161,7 @@ void test_interface_numbers_are_real() {
     MIMHID_CHECK(mimhid_node_open_raw(device, kDescriptor, sizeof(kDescriptor), &c2, &kCommit,
                                       &refused) == MIMHID_ERR_PARAM);
     const mimhid_error_detail* e = mimhid_last_error();
-    MIMHID_CHECK(refused == nullptr && std::strcmp(e->field, "node_config.iface.number") == 0 &&
+    MIMHID_CHECK(refused == nullptr && std::strcmp(e->field, "node_config.interfaces.number") == 0 &&
                  e->offset == 1U);
     // The refused Node's interface was never sent to the board (the library puts the old
     // configuration back, which is the interface 0 alone).
@@ -201,7 +201,7 @@ void test_more_than_sixteen_nodes() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    const mimhid_node_config config = node_config(0);
+    const mimhid_hid_node_config config = node_config(0);
     std::vector<mimhid_node*> nodes;
     for (std::uint8_t id = 1; id <= 20; ++id) {
         const std::vector<std::uint8_t> descriptor = descriptor_with_id(id);
@@ -231,7 +231,8 @@ void test_queue_depth_is_the_least_of_the_interface() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    const mimhid_node_config config = node_config(0);
+    mimhid_hid_node_config config = node_config(0);
+    config.ep_in.policy.depth = 15; // what the Nodes ask for until one of them sets another
     const std::vector<std::uint8_t> da = descriptor_with_id(1);
     const std::vector<std::uint8_t> db = descriptor_with_id(2);
     mimhid_node* a = nullptr;
@@ -240,6 +241,10 @@ void test_queue_depth_is_the_least_of_the_interface() {
                  MIMHID_OK);
     MIMHID_CHECK(mimhid_node_open_raw(device, db.data(), db.size(), &config, &kCommit, &b) ==
                  MIMHID_OK);
+    const auto set_depth = [](mimhid_node* node, std::uint8_t depth) {
+        const mimhid_endpoint_policy policy{MIMHID_FULL_DROP_NEWEST, depth};
+        return mimhid_node_endpoint_set_policy(node, 0x81, &policy, kControlMs);
+    };
     const auto last_ep_config = [&board]() {
         Received found;
         for (const Received& r : board.received()) {
@@ -250,16 +255,16 @@ void test_queue_depth_is_the_least_of_the_interface() {
     };
     board.clear();
     // payload: seq, endpoint address, depth, policy
-    MIMHID_CHECK(mimhid_node_set_queue_depth(a, 8, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(set_depth(a, 8) == MIMHID_OK);
     Received r = last_ep_config();
     MIMHID_CHECK(r.payload.size() == 4U && r.payload[1] == 0x81 && r.payload[2] == 8U &&
                  r.payload[3] == MIMHID_EP_FULL_DROP_NEWEST);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(b, 4, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(set_depth(b, 4) == MIMHID_OK);
     r = last_ep_config();
     MIMHID_CHECK(r.payload.size() == 4U && r.payload[2] == 4U);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(a, 2, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(set_depth(a, 2) == MIMHID_OK);
     MIMHID_CHECK(last_ep_config().payload[2] == 2U);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(a, 16, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(set_depth(a, 16) == MIMHID_OK);
     MIMHID_CHECK(last_ep_config().payload[2] == 4U); // the other Node still wants 4
 
     // A commit sends the depth again.
@@ -272,7 +277,7 @@ void test_queue_depth_is_the_least_of_the_interface() {
             return Reply::nak(MIMHID_NAK_UNSUPPORTED);
         return std::nullopt;
     });
-    MIMHID_CHECK(mimhid_node_set_queue_depth(b, 1, kControlMs) == MIMHID_ERR_UNSUPPORTED);
+    MIMHID_CHECK(set_depth(b, 1) == MIMHID_ERR_UNSUPPORTED);
     board.set_policy(nullptr);
     board.clear();
     MIMHID_CHECK(mimhid_device_commit(device, 0, &kCommit) == MIMHID_OK);

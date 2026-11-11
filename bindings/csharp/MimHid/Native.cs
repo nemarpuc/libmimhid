@@ -88,7 +88,9 @@ public enum EventKind : int
     SetIdle = 8,
     ControlSetup = 9,
     ControlData = 10,
-    ReportLost = 11,
+    TransferLost = 11,
+    EndpointData = 12,
+    EndpointHalt = 13,
 }
 
 public enum ControlAction : int { Leave = 1, Answer = 2, Stall = 3, Drop = 4 }
@@ -120,6 +122,8 @@ public struct Event
     public nuint Length;
     public uint ControlToken;
     public uint ControlFlags;
+    public uint EndpointAddress;
+    public uint InterfaceNumber;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -159,6 +163,13 @@ public struct BoardLimits
     public uint MaxControlDataBytes;
     public uint MaxControlRules;
     public uint MaxEndpointNumber;
+    public uint MaxInterfacesAny;
+    public uint MaxHidInterfaces;
+    public uint MaxConfigDescriptorBytes;
+    public uint MaxStrings;
+    public uint MaxTransferBytes;
+    public uint EndpointQueueSlots;
+    public uint TransferTypes;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -248,11 +259,22 @@ public struct CommitTimeouts
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct EndpointPolicy
+{
+    public byte OnFull;
+    public byte Depth;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct UsbEndpoint
 {
     public byte Address;
-    public byte PollIntervalMs;
+    public byte TransferType;
+    public byte Interval;
+    public byte Reserved8;
     public ushort MaxPacketSize;
+    public ushort Reserved16;
+    public EndpointPolicy Policy;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -262,10 +284,11 @@ public struct UsbInterface
     public byte ClassCode;
     public byte Subclass;
     public byte Protocol;
-    public ushort BcdHid;
-    public byte CountryCode;
-    public byte Reserved8;
     public nint Name;
+    public nint ClassDescriptors;
+    public nuint ClassDescriptorsLength;
+    public nint Endpoints;
+    public nuint EndpointCount;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -273,7 +296,24 @@ public struct NodeConfig
 {
     public uint StructSize;
     public uint Reserved;
-    public UsbInterface Iface;
+    public nint Interfaces;
+    public nuint InterfaceCount;
+    public nint Association;
+    public nuint AssociationLength;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct HidNodeConfig
+{
+    public uint StructSize;
+    public uint Reserved;
+    public byte InterfaceNumber;
+    public byte Subclass;
+    public byte Protocol;
+    public byte CountryCode;
+    public ushort BcdHid;
+    public ushort Reserved16;
+    public nint Name;
     public UsbEndpoint EpIn;
     public UsbEndpoint EpOut;
 }
@@ -616,8 +656,8 @@ public static class Native
     public const int MIMHID_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMHID_LOSS_MAX_INTERVAL_MS = 60000;
     public const uint MIMHID_VERSION_MAJOR = 0;
-    public const uint MIMHID_VERSION_MINOR = 2;
-    public const uint MIMHID_VERSION_PATCH = 1;
+    public const uint MIMHID_VERSION_MINOR = 3;
+    public const uint MIMHID_VERSION_PATCH = 0;
     public const int MIMHID_OK = 0;
     public const int MIMHID_ERR_PARAM = 1;
     public const int MIMHID_ERR_UNSET_FIELD = 2;
@@ -682,7 +722,9 @@ public static class Native
     public const int MIMHID_EVENT_SET_IDLE = 8;
     public const int MIMHID_EVENT_CONTROL_SETUP = 9;
     public const int MIMHID_EVENT_CONTROL_DATA = 10;
-    public const int MIMHID_EVENT_REPORT_LOST = 11;
+    public const int MIMHID_EVENT_TRANSFER_LOST = 11;
+    public const int MIMHID_EVENT_ENDPOINT_DATA = 12;
+    public const int MIMHID_EVENT_ENDPOINT_HALT = 13;
     public const int MIMHID_CONTROL_ACTION_LEAVE = 1;
     public const int MIMHID_CONTROL_ACTION_ANSWER = 2;
     public const int MIMHID_CONTROL_ACTION_STALL = 3;
@@ -691,6 +733,11 @@ public static class Native
     public const int MIMHID_CONTROL_FLAG_TOO_LONG = 2;
     public const int MIMHID_CONTROL_FLAG_FIXED = 4;
     public const int MIMHID_CONTROL_FLAG_LOST = 8;
+    public const int MIMHID_TRANSFER_BULK = 2;
+    public const int MIMHID_TRANSFER_INTERRUPT = 3;
+    public const int MIMHID_FULL_DROP_NEWEST = 1;
+    public const int MIMHID_FULL_DROP_OLDEST = 2;
+    public const int MIMHID_FULL_WAIT = 3;
 
     public static readonly IReadOnlyDictionary<string, Type> AbiStructs =
         new Dictionary<string, Type>
@@ -706,9 +753,11 @@ public static class Native
             ["mimhid_transport_options"] = typeof(TransportOptions),
             ["mimhid_device_config"] = typeof(DeviceConfig),
             ["mimhid_commit_timeouts"] = typeof(CommitTimeouts),
+            ["mimhid_endpoint_policy"] = typeof(EndpointPolicy),
             ["mimhid_usb_endpoint"] = typeof(UsbEndpoint),
             ["mimhid_usb_interface"] = typeof(UsbInterface),
             ["mimhid_node_config"] = typeof(NodeConfig),
+            ["mimhid_hid_node_config"] = typeof(HidNodeConfig),
             ["mimhid_physical_properties"] = typeof(PhysicalProperties),
             ["mimhid_integer_field"] = typeof(IntegerField),
             ["mimhid_report_id_option"] = typeof(ReportId),
@@ -749,8 +798,8 @@ public static class Native
             ["MIMHID_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMHID_LOSS_MAX_INTERVAL_MS"] = 60000,
             ["MIMHID_VERSION_MAJOR"] = 0,
-            ["MIMHID_VERSION_MINOR"] = 2,
-            ["MIMHID_VERSION_PATCH"] = 1,
+            ["MIMHID_VERSION_MINOR"] = 3,
+            ["MIMHID_VERSION_PATCH"] = 0,
             ["MIMHID_OK"] = 0,
             ["MIMHID_ERR_PARAM"] = 1,
             ["MIMHID_ERR_UNSET_FIELD"] = 2,
@@ -815,7 +864,9 @@ public static class Native
             ["MIMHID_EVENT_SET_IDLE"] = 8,
             ["MIMHID_EVENT_CONTROL_SETUP"] = 9,
             ["MIMHID_EVENT_CONTROL_DATA"] = 10,
-            ["MIMHID_EVENT_REPORT_LOST"] = 11,
+            ["MIMHID_EVENT_TRANSFER_LOST"] = 11,
+            ["MIMHID_EVENT_ENDPOINT_DATA"] = 12,
+            ["MIMHID_EVENT_ENDPOINT_HALT"] = 13,
             ["MIMHID_CONTROL_ACTION_LEAVE"] = 1,
             ["MIMHID_CONTROL_ACTION_ANSWER"] = 2,
             ["MIMHID_CONTROL_ACTION_STALL"] = 3,
@@ -824,6 +875,11 @@ public static class Native
             ["MIMHID_CONTROL_FLAG_TOO_LONG"] = 2,
             ["MIMHID_CONTROL_FLAG_FIXED"] = 4,
             ["MIMHID_CONTROL_FLAG_LOST"] = 8,
+            ["MIMHID_TRANSFER_BULK"] = 2,
+            ["MIMHID_TRANSFER_INTERRUPT"] = 3,
+            ["MIMHID_FULL_DROP_NEWEST"] = 1,
+            ["MIMHID_FULL_DROP_OLDEST"] = 2,
+            ["MIMHID_FULL_WAIT"] = 3,
         };
 
     [DllImport(Library, EntryPoint = "mimhid_last_error", ExactSpelling = true, CallingConvention = Call)]
@@ -896,6 +952,10 @@ public static class Native
     public static extern Result DeviceControlReply(nint device, uint token, ControlAction action, nint data, nuint length, uint sendTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_device_set_loss_reporting", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceSetLossReporting(nint device, uint enabled, uint intervalMs, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_add_string", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceAddString(nint device, nint utf8, nint index);
+    [DllImport(Library, EntryPoint = "mimhid_device_remove_string", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceRemoveString(nint device, byte index);
     [DllImport(Library, EntryPoint = "mimhid_spec_create_keyboard", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecCreateKeyboard(in KeyboardOptions options, out nint spec);
     [DllImport(Library, EntryPoint = "mimhid_spec_create_keyboard", ExactSpelling = true, CallingConvention = Call)]
@@ -943,11 +1003,15 @@ public static class Native
     [DllImport(Library, EntryPoint = "mimhid_spec_manifest", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecManifest(nint spec, nint manifest);
     [DllImport(Library, EntryPoint = "mimhid_node_open", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpen(nint device, nint spec, in NodeConfig config, in CommitTimeouts timeouts, out nint node);
+    public static extern Result NodeOpen(nint device, in NodeConfig config, in CommitTimeouts timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_open", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpen(nint device, nint spec, nint config, nint timeouts, out nint node);
+    public static extern Result NodeOpen(nint device, nint config, nint timeouts, out nint node);
+    [DllImport(Library, EntryPoint = "mimhid_node_open_profile", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeOpenProfile(nint device, nint spec, in HidNodeConfig config, in CommitTimeouts timeouts, out nint node);
+    [DllImport(Library, EntryPoint = "mimhid_node_open_profile", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeOpenProfile(nint device, nint spec, nint config, nint timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_open_raw", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpenRaw(nint device, nint descriptor, nuint descriptorLength, in NodeConfig config, in CommitTimeouts timeouts, out nint node);
+    public static extern Result NodeOpenRaw(nint device, nint descriptor, nuint descriptorLength, in HidNodeConfig config, in CommitTimeouts timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_open_raw", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeOpenRaw(nint device, nint descriptor, nuint descriptorLength, nint config, nint timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_close", ExactSpelling = true, CallingConvention = Call)]
@@ -958,8 +1022,18 @@ public static class Native
     public static extern ushort NodeId(nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_set_feature_response", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeSetFeatureResponse(nint node, byte reportId, nint data, nuint length, uint controlTimeoutMs);
-    [DllImport(Library, EntryPoint = "mimhid_node_set_queue_depth", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeSetQueueDepth(nint node, uint depth, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_set_policy", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointSetPolicy(nint node, byte address, in EndpointPolicy policy, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_set_policy", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointSetPolicy(nint node, byte address, nint policy, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_write", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointWrite(nint node, byte address, nint data, nuint length, uint timeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_stall", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointStall(nint node, byte address, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_clear_stall", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointClearStall(nint node, byte address, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_endpoint_flush", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeEndpointFlush(nint node, byte address, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_node_manifest", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeManifest(nint node, ref CapabilityManifest manifest);
     [DllImport(Library, EntryPoint = "mimhid_node_manifest", ExactSpelling = true, CallingConvention = Call)]

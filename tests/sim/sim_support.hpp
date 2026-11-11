@@ -43,6 +43,8 @@ struct EventRecord {
     std::vector<std::uint8_t> data;
     std::uint32_t token;
     std::uint32_t flags;
+    std::uint32_t endpoint_address;
+    std::uint32_t interface_number;
 };
 extern std::mutex g_event_mutex;
 extern std::vector<EventRecord> g_events;
@@ -72,7 +74,7 @@ mimhid_spec* raw_spec_no_id();
 // A raw spec with an Output and a Feature report, both under Report ID 5.
 mimhid_spec* raw_spec_io();
 mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
-                       const mimhid_node_config* options = nullptr);
+                       const mimhid_hid_node_config* options = nullptr);
 bool next_report(fake_report_t* r, int timeout_ms = 2000);
 bool all_zero_after_id(const fake_report_t& r, bool has_id);
 
@@ -102,6 +104,8 @@ void test_events_and_raw();
 void test_link_loss();
 // test_sim_control.cpp
 void test_control();
+// test_sim_generic.cpp: Nodes of any class
+void test_generic_nodes();
 #ifdef SIM_HIGH_SPEED
 // test_sim_high_speed.cpp
 void test_high_speed_rules();

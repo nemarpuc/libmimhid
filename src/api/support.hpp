@@ -8,6 +8,7 @@
  */
 
 #include "api/internal.hpp"
+#include "usb/descriptor_composer.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -109,9 +110,16 @@ bool free_node_id(mimhid_device* device, std::uint16_t* node_id);
 void publish_node(mimhid_device* device, mimhid_node* node);
 void unpublish_node(mimhid_device* device, const mimhid_node* node);
 
-// The depth the board's queue of the Node's interface gets: the least depth any live Node on the
-// interface asked for (they share the endpoint), 0 when none asked.
-std::uint8_t interface_queue_depth(mimhid_device* device, std::uint8_t iface);
+// The depth of the queue of a HID interface's IN endpoint: the least any live Node on it set.
+std::uint8_t hid_interface_depth(mimhid_device* device, std::uint8_t iface);
+
+// Zeroes the wait counts of every IN endpoint of the generic Nodes and wakes the writers.
+void reset_endpoint_counts(mimhid_device* device);
+
+// The checks of the composer on the interfaces of one Node alone (partial: no gap rule), made
+// before the Node is staged. MIMHID_OK, or the error, recorded.
+mimhid_result precheck_groups(const mimhid_device* device,
+                              std::vector<usb::ComposerGroup> groups);
 
 // A wait the caller passed to a call has no default: zero is refused.
 mimhid_result require_timeout(std::uint32_t timeout_ms, const char* field) noexcept;

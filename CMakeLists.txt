@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimhid contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimhid VERSION 0.2.1 LANGUAGES C CXX
+project(libmimhid VERSION 0.3.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimhid")
 
 set(CMAKE_C_STANDARD 11)
@@ -122,6 +122,7 @@ endif()
 
 set(MIMHID_SOURCES
     src/api/c_api_device.cpp
+    src/api/c_api_endpoint.cpp
     src/api/c_api_node.cpp
     src/api/c_api_send.cpp
     src/api/device_ops.cpp
@@ -134,6 +135,7 @@ set(MIMHID_SOURCES
     src/transport/frame.cpp
     src/transport/link.cpp
     src/usb/descriptor_composer.cpp
+    src/usb/hid_layer.cpp
     src/transport/handshaker.cpp
 )
 if(WIN32)

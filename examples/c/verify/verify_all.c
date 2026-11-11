@@ -281,25 +281,25 @@ int main(void) {
     {
         mimhid_commit_timeouts timeouts;
         example_fill_commit_timeouts(&timeouts);
-        mimhid_node_config touch_config;
+        mimhid_hid_node_config touch_config;
         example_fill_node_config(&touch_config, 0);
-        mimhid_node_config keyboard_config;
+        mimhid_hid_node_config keyboard_config;
         example_fill_node_config(&keyboard_config, 1);
-        mimhid_node_config mouse_config;
+        mimhid_hid_node_config mouse_config;
         example_fill_node_config(&mouse_config, 2);
 
         mimhid_device_batch_begin(device);
-        if ((result = mimhid_node_open(device, touch_spec, &touch_config, &timeouts,
+        if ((result = mimhid_node_open_profile(device, touch_spec, &touch_config, &timeouts,
                                        &touch_node)) != MIMHID_OK) {
             exit_code = verify_fail("touchscreen node open", result);
             goto cleanup;
         }
-        if ((result = mimhid_node_open(device, keyboard_spec, &keyboard_config, &timeouts,
+        if ((result = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
                                        &keyboard_node)) != MIMHID_OK) {
             exit_code = verify_fail("keyboard node open", result);
             goto cleanup;
         }
-        if ((result = mimhid_node_open(device, mouse_spec, &mouse_config, &timeouts,
+        if ((result = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts,
                                        &mouse_node)) != MIMHID_OK) {
             exit_code = verify_fail("mouse node open", result);
             goto cleanup;

@@ -134,6 +134,8 @@ namespace mimhid::detail {
 
 // Sends a node's pending reports until it is clean, for the close paths.
 mimhid_result send_neutral(mimhid_node* node, std::uint32_t timeout_ms) {
+    if (node->generic)
+        return MIMHID_OK; // no report state: what the target sees of it ends with the commit
     mimhid_result result = MIMHID_OK;
     if (node->transfer_inflight.load(std::memory_order_acquire) || touch_frame_in_progress(node)) {
         result = flush_node(node, timeout_ms, true);
@@ -370,6 +372,11 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
         set_error(MIMHID_ERR_PARAM, "report_send",
                   "A live Node and valid report buffer are required.");
         return MIMHID_ERR_PARAM;
+    }
+    if (node->generic) {
+        set_error(MIMHID_ERR_UNSUPPORTED, "report_send",
+                  "A Node opened with mimhid_node_open sends with mimhid_node_endpoint_write.");
+        return MIMHID_ERR_UNSUPPORTED;
     }
     if (const mimhid_result t = require_timeout(send_timeout_ms, "send_timeout_ms"); t != MIMHID_OK)
         return t;

@@ -42,6 +42,7 @@ int main() {
     test_filled_values();
     test_init_fills_nothing();
     test_shared_interfaces();
+    test_generic_nodes();
     test_link_loss();
 
     fake_board_stop();

@@ -16,7 +16,7 @@ The API has four opaque handle types:
 | `mimhid_discovery*` | `mimhid_discover` | `mimhid_discovery_destroy` | A snapshot of the `mimhid_device_info` records found by one search. Independent of any Device. |
 | `mimhid_spec*` | `mimhid_spec_create_*` | `mimhid_spec_release` | An immutable, reference-counted HID report descriptor and report layout. Independent of any Device; one Spec may be used by several Nodes and threads. |
 | `mimhid_device*` | `mimhid_device_open` | `mimhid_device_close` | One board on one serial port: the port, the reader thread, and the USB device the board presents. Closing it closes its Nodes. |
-| `mimhid_node*` | `mimhid_node_open`, `mimhid_node_open_raw` | `mimhid_node_close` or `mimhid_device_close` | One HID collection on one of the board's USB interfaces. A Node opened from a Spec holds a reference to it. After `mimhid_device_close` its Nodes are gone and their handles must not be used. |
+| `mimhid_node*` | `mimhid_node_open`, `mimhid_node_open_profile`, `mimhid_node_open_raw` | `mimhid_node_close` or `mimhid_device_close` | The interfaces one function presents to the target: any class from its interfaces, endpoints and class descriptors (`mimhid_node_open`), or one HID collection on one of the board's HID interfaces (`mimhid_node_open_profile`, `mimhid_node_open_raw`). A Node opened from a Spec holds a reference to it. After `mimhid_device_close` its Nodes are gone and their handles must not be used. |
 
 ## Rules every function follows
 
@@ -60,7 +60,7 @@ A `NAK` from the board becomes a result like this (`command_error` in
 
 Every options or output structure with `struct_size` has a static inline
 `mimhid_<type>_init` in `mimhid.h` (`mimhid_device_config_init`,
-`mimhid_commit_timeouts_init`, `mimhid_node_config_init`,
+`mimhid_commit_timeouts_init`, `mimhid_node_config_init`, `mimhid_hid_node_config_init`,
 `mimhid_board_limits_init`, `mimhid_link_counters_init`,
 `mimhid_keyboard_options_init`, `mimhid_mouse_options_init`,
 `mimhid_toggle_options_init`, `mimhid_gamepad_options_init`,
@@ -81,7 +81,8 @@ Every options or output structure with `struct_size` has a static inline
 | `mimhid_usb_device` | `bcd_usb`, `ep0_max_packet_size` (8, 16, 32 or 64; 64 on a high-speed board), `vendor_id`, `language_id` | `device_class`, `device_subclass`, `device_protocol`, `product_id`, `bcd_device`, `manufacturer`, `product`, `serial`, `serial_from_chip_id` |
 | `mimhid_usb_config` | `configuration_value` (must be 1), `bm_attributes` (bit 7 set, bits 4..0 clear) | `bmax_power` (0 to 250, in 2 mA units), `string` |
 | `mimhid_commit_timeouts` | `control_timeout_ms`, `reconnect_timeout_ms` | — |
-| `mimhid_node_config` | `iface.class_code` (must be `0x03`), `iface.bcd_hid`, `ep_in.address` (`0x81` to `0x8F`), `ep_in.poll_interval_ms`, `ep_in.max_packet_size` | `iface.number`, `iface.subclass`, `iface.protocol`, `iface.country_code`, `iface.name`, `ep_out` (all zero when there is no OUT endpoint) |
+| `mimhid_node_config` | `interfaces`, `interface_count` (at least 1); per interface: `class_code` (never 0; 0x03 is refused in this release), per endpoint `address`, `transfer_type`, `max_packet_size`, `interval` (interrupt only), and on an IN endpoint `policy.on_full` and `policy.depth` | `number` (0 is the same as unset: the numbers in use must be 0, 1, 2, ... anyway), `subclass`, `protocol`, `name`, `class_descriptors`, `association` |
+| `mimhid_hid_node_config` | `bcd_hid`, `ep_in.address` (`0x81` to `0x8F`), `ep_in.transfer_type` (`MIMHID_TRANSFER_INTERRUPT`), `ep_in.interval`, `ep_in.max_packet_size`, `ep_in.policy` (`MIMHID_FULL_DROP_NEWEST` and a depth) | `interface_number`, `subclass`, `protocol`, `country_code`, `name`, `ep_out` (all zero when there is no OUT endpoint) |
 | `mimhid_control_rule` | `timeout_ms` (1 to `MIMHID_CONTROL_MAX_TIMEOUT_MS`), `when_late` (a `MIMHID_CONTROL_ACTION_*`) | the masks and values of `bmRequestType`, `bRequest`, `wValue`, and `wIndex` |
 
 ### The close rule
@@ -125,15 +126,16 @@ USB `D+` pull-up stays off (`0 V`): the target sees no USB device.
 
 ### 2. Opening Nodes and committing
 
-`mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`,
+`mimhid_node_open`, `mimhid_node_open_profile`, `mimhid_node_open_raw`, `mimhid_node_close`,
 `mimhid_device_set_usb_identity`, `mimhid_device_batch_end`, and
 `mimhid_device_commit` commit (`commit_device` in `src/api/device_ops.cpp`):
 
 1. When Nodes are left, the library composes the USB descriptors and sends
    `DESC_RESET`, then the device descriptor, the configuration descriptor, the
    strings and the report descriptor of every interface (`DESC_BEGIN` and
-   `DESC_DATA`), a `FEATURE` frame for each Feature answer, and `EP_CONFIG`
-   when a queue depth was set. Each frame waits
+   `DESC_DATA`; report descriptors only for HID interfaces), a `FEATURE` frame
+   for each Feature answer, and an `EP_CONFIG` for every IN endpoint (its
+   policy and depth). Each frame waits
    up to `control_timeout_ms` for the board's answer and is sent up to three
    times. The board stores these frames; nothing changes on the target yet.
 2. When the board's USB device is already on the target, the library sends a
@@ -153,19 +155,29 @@ board's USB device leaves the target.
 
 ### 3. Sharing and separating USB interfaces
 
-- As many Nodes as you like (up to 65534) can be open on a Device, on at most the
-  board's `max_interfaces` interfaces (15 on the RP2040 and RP2350, 7 on the
-  nRF52840, 4 on the ESP32-S3, 3 on the STM32F4; see [LIMITS.md](LIMITS.md)).
-- `iface.number` is the `bInterfaceNumber` the target sees. The numbers in use
-  must be 0, 1, 2, ... without a gap, or the commit fails with
-  `MIMHID_ERR_PARAM` and the missing number in `mimhid_error_detail.offset`;
-  nothing is renumbered, so open the Nodes in number order (or in one batch)
-  and close the highest number first.
-- Nodes with the **same** `iface.number` share one USB HID interface: their
-  `iface`, `ep_in`, and `ep_out` settings must match, and each must have a
-  Report ID, all different.
-- Nodes on **different** interfaces need different endpoint numbers (1 to the
-  board's `max_endpoint_number`).
+- As many Nodes as you like (up to 65534) can be open on a Device, on at most
+  the board's `max_interfaces_any` interfaces of all classes together, of which
+  at most `max_hid_interfaces` are HID (15 on the RP2040 and RP2350, 7 on the
+  nRF52840, 4 on the ESP32-S3, 3 on the STM32F4 for HID; see
+  [LIMITS.md](LIMITS.md)).
+- The interface number (`mimhid_usb_interface.number`,
+  `mimhid_hid_node_config.interface_number`) is the `bInterfaceNumber` the
+  target sees. The numbers in use, over all Nodes, must be 0, 1, 2, ... without
+  a gap, or the commit fails with `MIMHID_ERR_PARAM` and the missing number in
+  `mimhid_error_detail.offset`; nothing is renumbered, so open the Nodes in
+  number order (or in one batch) and close the highest number first.
+- Profile Nodes (`mimhid_node_open_profile`, `mimhid_node_open_raw`) with the
+  **same** interface number share one USB HID interface: their interface and
+  endpoint settings must match (the queue depth excepted: the board gets the
+  least depth any of them set), and each must have a Report ID, all different.
+  The rules for sharing live in the HID layer (`src/usb/hid_layer.cpp`), not in
+  the composer and not in `mimhid_node_open`.
+- Every endpoint address is used by one endpoint on the whole device (USB 2.0
+  9.6.6; IN and OUT of one number are two addresses), with a number from 1 to
+  the board's `max_endpoint_number`.
+- The caller's strings (`mimhid_device_add_string`) keep their indices from 5
+  up; an interface's `name` takes the lowest index above 4 that nothing else
+  has, at each commit. (Step 1 gave an interface `5 + number`; that is gone.)
 
 ---
 
@@ -470,7 +482,7 @@ mimhid_result mimhid_device_set_loss_reporting(mimhid_device* device, uint32_t e
 
 - **Ownership:** Nothing.
 - **Blocking:** Waits up to control_timeout_ms for the board's answer.
-- **Synchronization:** Device domain. enabled 1 makes the board report the reports it drops because its queue is full (`MIMHID_EVENT_REPORT_LOST`), at most one event per interval_ms (0 to `MIMHID_LOSS_MAX_INTERVAL_MS`; 0 reports each time at once). enabled 0, which is how the board starts, needs interval_ms 0 and puts nothing extra on the link. The setting stays until replaced or `mimhid_device_close`.
+- **Synchronization:** Device domain. enabled 1 makes the board report the reports it drops because its queue is full (`MIMHID_EVENT_TRANSFER_LOST`, naming the endpoint), at most one event per interval_ms (0 to `MIMHID_LOSS_MAX_INTERVAL_MS`; 0 reports each time at once). enabled 0, which is how the board starts, needs interval_ms 0 and puts nothing extra on the link. The setting stays until replaced or `mimhid_device_close`.
 - **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device, enabled or interval_ms; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; a link error.
 
 ### Spec factories and inspection
@@ -623,24 +635,35 @@ mimhid_result mimhid_spec_manifest(const mimhid_spec* spec, mimhid_capability_ma
 #### `mimhid_node_open`
 
 ```c
-mimhid_result mimhid_node_open(mimhid_device* device, mimhid_spec* spec, const mimhid_node_config* config, const mimhid_commit_timeouts* timeouts, mimhid_node** out_node);
+mimhid_result mimhid_node_open(mimhid_device* device, const mimhid_node_config* config, const mimhid_commit_timeouts* timeouts, mimhid_node** out_node);
+```
+
+- **Ownership:** Copies config and everything it points to.
+- **Blocking:** Sends the configuration of every Node and commits (see [Lifecycle and USB bus behavior](#lifecycle-and-usb-bus-behavior)), waiting as timeouts says, so the target sees the board's USB device unplugged and plugged in again and every other Node is briefly away. Inside a batch it only stages the Node; timeouts is still required.
+- **Synchronization:** Device domain. Opens a Node of any class from its interfaces, endpoints, class descriptors and optional association. Nothing is read from `class_code` except that 0 is unset and 0x03 (HID) is not accepted in this release: the board's HID driver would claim such an interface, so HID is opened with `mimhid_node_open_profile`. HID control requests are answered only for profile Nodes. Checked without knowing the class: interface numbers (0, 1, 2, ... without a gap over all Nodes), every endpoint address (USB 2.0 9.6.6, unique on the device, a number the controller has), the transfer type (bulk or interrupt; the board has no others), the packet size (within `max_endpoint_bytes`; bulk 8, 16, 32 or 64 at full speed, 512 at high speed, USB 2.0 5.8.3), the interval of an interrupt endpoint (1 to 255, at high speed 1 to 16), a policy on every IN endpoint and none on an OUT endpoint, the `bLength` of each class descriptor, the association (8 bytes, type 0x0B, naming this Node's consecutive interfaces) and the totals against `mimhid_board_limits`.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, a gap in the interface numbers (`mimhid_error_detail.offset` is the missing number), a repeated endpoint address or interface number, or an association that does not match; `MIMHID_ERR_UNSET_FIELD` for a required field left zero (`class_code`, `transfer_type`, `max_packet_size`, the interval of an interrupt endpoint, the policy of an IN endpoint) or a zero timeout; `MIMHID_ERR_UNSUPPORTED` for class 0x03 or a transfer type the board does not have; `MIMHID_ERR_OVERFLOW` when a size, count or limit of the board is exceeded; the results of `mimhid_device_commit`.
+
+#### `mimhid_node_open_profile`
+
+```c
+mimhid_result mimhid_node_open_profile(mimhid_device* device, mimhid_spec* spec, const mimhid_hid_node_config* config, const mimhid_commit_timeouts* timeouts, mimhid_node** out_node);
 ```
 
 - **Ownership:** Copies config; the Node keeps a reference to spec until it closes.
-- **Blocking:** Sends the configuration of every Node and commits (see [Lifecycle and USB bus behavior](#lifecycle-and-usb-bus-behavior)), waiting as timeouts says, so the target sees the board's USB device unplugged and plugged in again and every other Node is briefly away. Inside a batch it only stages the Node; timeouts is still required. It returns once the board has answered the attach `COMMIT`, which it does right after turning its D+ pull-up on; `mimhid_device_wait_ready` waits for the target to mount the device.
-- **Synchronization:** Device domain.
-- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, Nodes sharing an interface that do not follow the rules of `mimhid_usb_interface`, or interface numbers that leave a gap (`mimhid_error_detail.offset` is the missing number; nothing is sent); `MIMHID_ERR_UNSET_FIELD` for a required field or timeout left zero; `MIMHID_ERR_OVERFLOW` when the board has no room for the Node, its interface or its descriptor, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimhid_device_commit`.
+- **Blocking:** As `mimhid_node_open`.
+- **Synchronization:** Device domain. Opens a HID Node whose report descriptor is the Spec's: interface class 0x03, the HID descriptor, one interrupt IN endpoint and at most one interrupt OUT endpoint, served by the board's HID driver. The profile calls and `mimhid_node_submit` work on it. The IN endpoint's policy is `MIMHID_FULL_DROP_NEWEST` in this release (`MIMHID_ERR_UNSUPPORTED` for the others; a later release lifts this).
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, Nodes sharing an interface that do not follow the rules, or interface numbers that leave a gap (`mimhid_error_detail.offset` is the missing number; nothing is sent); `MIMHID_ERR_UNSET_FIELD` for a required field or timeout left zero; `MIMHID_ERR_UNSUPPORTED` for a policy other than drop-newest or a transfer type other than interrupt; `MIMHID_ERR_OVERFLOW` when the board has no room for the Node, its interface or its descriptor, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimhid_device_commit`.
 
 #### `mimhid_node_open_raw`
 
 ```c
-mimhid_result mimhid_node_open_raw(mimhid_device* device, const uint8_t* descriptor, size_t descriptor_length, const mimhid_node_config* config, const mimhid_commit_timeouts* timeouts, mimhid_node** out_node);
+mimhid_result mimhid_node_open_raw(mimhid_device* device, const uint8_t* descriptor, size_t descriptor_length, const mimhid_hid_node_config* config, const mimhid_commit_timeouts* timeouts, mimhid_node** out_node);
 ```
 
 - **Ownership:** Copies descriptor and config.
 - **Blocking:** As `mimhid_node_open`. The descriptor is sent as it is, neither parsed nor checked, so the Node has no input calls: send its reports with `mimhid_report_send`.
 - **Synchronization:** Device domain.
-- **Returns:** As `mimhid_node_open`, `MIMHID_OK` through the results of `mimhid_device_commit`; `MIMHID_ERR_PARAM` also for a null or empty descriptor.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null or empty descriptor or any of the reasons of `mimhid_node_open_profile`; the other results as there.
 
 #### `mimhid_node_close`
 
@@ -675,16 +698,54 @@ mimhid_result mimhid_node_set_feature_response(mimhid_node* node, uint8_t report
 - **Synchronization:** Device domain. Sets what the board answers (the bytes after the Report ID, at most the board's max_feature_bytes; `mimhid_device_limits`) when the target reads Feature report report_id of this Node. A touch Spec with enable_contact_count_maximum_feature_declaration has its answer set already.
 - **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Node, null data with a nonzero length, or more than max_feature_bytes; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_OVERFLOW` when the board has no room; a link error.
 
-#### `mimhid_node_set_queue_depth`
+#### `mimhid_node_endpoint_set_policy`
 
 ```c
-mimhid_result mimhid_node_set_queue_depth(mimhid_node* node, uint32_t depth, uint32_t control_timeout_ms);
+mimhid_result mimhid_node_endpoint_set_policy(mimhid_node* node, uint8_t address, const mimhid_endpoint_policy* policy, uint32_t control_timeout_ms);
+```
+
+- **Ownership:** Copies policy.
+- **Blocking:** As `mimhid_node_set_feature_response`.
+- **Synchronization:** Device domain. Changes what an IN endpoint does when its queue is full (`MIMHID_FULL_DROP_NEWEST`, `_DROP_OLDEST`, `_WAIT`) and how many transfers may wait. A queue of depth d takes d + 1 slots of the board's pool (2 * d + 1 for drop-oldest); the board refuses a change its queue cannot hold (`MIMHID_ERR_OVERFLOW`) and nothing changes; a commit cuts the queues anew. On a HID Node the policy is drop-newest only, and Nodes sharing an interface share the least depth any of them set. A change resets the wait count.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Node, a null policy, an address that is not an IN endpoint of the Node or a bad on_full; `MIMHID_ERR_UNSET_FIELD` for on_full or depth 0 or a zero timeout; `MIMHID_ERR_UNSUPPORTED` for another policy on a HID Node; `MIMHID_ERR_OVERFLOW`; a link error.
+
+#### `mimhid_node_endpoint_write`
+
+```c
+mimhid_result mimhid_node_endpoint_write(mimhid_node* node, uint8_t address, const uint8_t* data, size_t length, uint32_t timeout_ms);
+```
+
+- **Ownership:** Copies data.
+- **Blocking:** With the wait policy, until the board has room or timeout_ms has passed, with no lock of the Device held, so the event sink and other calls run; otherwise only until the serial driver has the frames.
+- **Synchronization:** Device domain; writes to different endpoints may run at the same time, writes to one endpoint must not.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Node, an address that is not an IN endpoint of the Node, or null data with a nonzero length; `MIMHID_ERR_UNSUPPORTED` for a profile Node; `MIMHID_ERR_UNSET_FIELD` for a zero timeout with the wait policy; `MIMHID_ERR_TIMEOUT` when timeout_ms passed with nothing sent; `MIMHID_ERR_SHORT_TRANSFER` when it passed after some frames of a split write; `MIMHID_ERR_BUSY` when the endpoint was flushed, stalled, reconfigured or unmounted while the write waited (nothing more is sent), or the Node is staged or the board enumerates; `MIMHID_ERR_OVERFLOW` for more than 65535 frames; a link error.
+
+Sends data as one USB transfer. A length of 0 sends a zero-length packet (USB 2.0 5.8.3). A length above the board's `max_transfer_bytes` is sent as several frames, each a multiple of the endpoint's packet size except the last; the library never adds a zero-length packet (a caller whose class ends a transfer of an exact multiple of the packet size with one sends it with a second call of length 0). The wait policy counts per endpoint the frames written minus those the board reported finished (`EP_DONE`) and blocks while that equals the depth; a flush, a stall or clear, a policy change, an unmount and a commit set the count to zero and wake writers. The count never goes below zero.
+
+#### `mimhid_node_endpoint_stall`, `mimhid_node_endpoint_clear_stall`, `mimhid_node_endpoint_flush`
+
+```c
+mimhid_result mimhid_node_endpoint_stall(mimhid_node* node, uint8_t address, uint32_t control_timeout_ms);
+mimhid_result mimhid_node_endpoint_clear_stall(mimhid_node* node, uint8_t address, uint32_t control_timeout_ms);
+mimhid_result mimhid_node_endpoint_flush(mimhid_node* node, uint8_t address, uint32_t control_timeout_ms);
 ```
 
 - **Ownership:** Nothing.
-- **Blocking:** As `mimhid_node_set_feature_response`.
-- **Synchronization:** Device domain. How many of this Node's reports may wait on the board for the target to read them; a report that finds the queue full is dropped (`MIMHID_EVENT_REPORT_LOST`). With depth 1 a report is at most one poll interval late. The board keeps one queue per interface, and Nodes that share an interface share the least depth any of them set. At first the queue holds all it can: 15 reports when the board's max_report_bytes is at most 64, else 7. The depth stays with the Node across commits.
-- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Node or a depth of 0 or above 255; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_OVERFLOW` for a depth beyond the board's queue; a link error.
+- **Blocking:** A command to the board, waiting up to control_timeout_ms.
+- **Synchronization:** Device domain. Stall sets and clear removes the Halt feature of an endpoint (USB 2.0 9.4.5); stalling an IN endpoint drops what waits and what is on the bus. Flush drops what waits on an IN endpoint (a transfer the controller already has completes). Each resets the wait count of an IN endpoint.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Node or an address that is not an endpoint of the Node (flush: not an IN endpoint); `MIMHID_ERR_UNSUPPORTED` for a profile Node; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_BUSY` when the board does not run the configuration; a link error.
+
+#### `mimhid_device_add_string`, `mimhid_device_remove_string`
+
+```c
+mimhid_result mimhid_device_add_string(mimhid_device* device, const char* utf8, uint8_t* out_index);
+mimhid_result mimhid_device_remove_string(mimhid_device* device, uint8_t index);
+```
+
+- **Ownership:** Copies utf8.
+- **Blocking:** None; the next commit sends the change.
+- **Synchronization:** Device domain. Stores a string descriptor in the Device's language and returns its index (the first is 5) for the caller's own class descriptors; it stays until removed.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device, a null argument, text that is not UTF-8 without control characters of at most 126 UTF-16 code units, or (remove) an index that was not given; `MIMHID_ERR_OVERFLOW` when the board's `max_strings` or the index space is used up.
 
 #### `mimhid_node_manifest`
 

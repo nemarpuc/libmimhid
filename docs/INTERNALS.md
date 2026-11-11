@@ -20,7 +20,7 @@ How the host implementation behind `include/mimhid.h` works: which object owns w
 | `mimhid_spec` | `src/api/internal.hpp` | An atomic reference count, the descriptor bytes, the `ReportLayout`, the `DescriptorRequirements`, the report capabilities, the copied options, and the optional battery layout. |
 | `mimhid_discovery` | `src/api/internal.hpp` | A vector of `mimhid_device_info`, a snapshot. |
 | `mimhid_device` | `src/api/internal.hpp` | A copy of the config, the board's answer (`BoardInfo`), the `Link` (and with it the port and the reader thread), the copied USB strings, `slots` (the Nodes by node id, a vector that grows with the Nodes, at most 65534), and the state flags below. |
-| `mimhid_node` | `src/api/internal.hpp` | A retained Spec, the `NodeState` variant, the node id (an index into `slots`; the board does not know it) and interface number (`iface.number`, the real `bInterfaceNumber`), the Feature answers, the submitted-report bookkeeping, and the completion fields. |
+| `mimhid_node` | `src/api/internal.hpp` | A retained Spec, the `NodeState` variant, the node id (an index into `slots`; the board does not know it) and interface numbers (the real `bInterfaceNumber`s) and, for a Node of the general open, its interfaces with each endpoint's runtime (wait count and policy, guarded by the Device's `endpoint_mutex` and signalled on `endpoint_cv`), the Feature answers, the submitted-report bookkeeping, and the completion fields. |
 
 There is no Context: a Device owns its port and one reader thread, so two Devices share nothing. A Node keeps its own reference to its Spec, which is why the caller may release a Spec after `mimhid_node_open`.
 
@@ -111,7 +111,7 @@ Each decision states what the code does. A reason is given only where the reposi
 
 ### One report queue per interface on the board; a full queue drops the new report
 
-- **Decision:** Each HID interface has a single-producer single-consumer ring (`report_queue_t`, `MIMHID_QUEUE_DEPTH` slots, `head` and `tail` read and written with `__atomic_load_n` and `__atomic_store_n`). The receive side writes it and the USB side reads it; on the RP2040 and RP2350 these are core 1 and core 0. A report that finds the queue full is dropped and, once `LOSS_CONFIG` turned loss reporting on, counted in `g_lost` and reported as `EVENT TRANSFER_LOST` (the host maps the endpoint address to a Node and reports `MIMHID_EVENT_REPORT_LOST`).
+- **Decision:** Each HID interface has a single-producer single-consumer ring (`report_queue_t`, `MIMHID_QUEUE_DEPTH` slots, `head` and `tail` read and written with `__atomic_load_n` and `__atomic_store_n`). The receive side writes it and the USB side reads it; on the RP2040 and RP2350 these are core 1 and core 0. A report that finds the queue full is dropped and, once `LOSS_CONFIG` turned loss reporting on, counted in `g_lost` and reported as `EVENT TRANSFER_LOST` (the host maps the endpoint address to a Node and reports `MIMHID_EVENT_TRANSFER_LOST`).
 - **Reason:** Recorded for the depth: `core.c` says "A short queue bounds how late a report can reach the target". Commit `ab98886` ("tell the host about dropped reports") added the count. Not recorded for the queue design or for dropping the new report rather than the oldest.
 - **Rejected:** Not recorded.
 

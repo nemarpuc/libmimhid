@@ -8,6 +8,7 @@
 #include "api/support.hpp"
 #include "transport/link.hpp"
 #include "usb/descriptor_composer.hpp"
+#include "usb/hid_layer.hpp"
 
 #include <algorithm>
 #include <bitset>
@@ -390,17 +391,6 @@ void unpublish_node(mimhid_device* device, const mimhid_node* node) {
         device->slots[node->node_id] = nullptr;
 }
 
-std::uint8_t interface_queue_depth(mimhid_device* device, const std::uint8_t iface) {
-    std::lock_guard<std::mutex> lock(device->nodes_mutex);
-    std::uint8_t depth = 0U;
-    for (const mimhid_node* node : device->slots) {
-        if (node == nullptr || node->closed || node->iface != iface || node->queue_depth == 0U)
-            continue;
-        depth = depth == 0U ? node->queue_depth : std::min(depth, node->queue_depth);
-    }
-    return depth;
-}
-
 // A wait the caller passed to a call has no default: zero is refused.
 mimhid_result require_timeout(const std::uint32_t timeout_ms, const char* field) noexcept {
     if (timeout_ms == 0U) {
@@ -428,6 +418,103 @@ mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
         return r;
     waits->control = timeouts->control_timeout_ms;
     waits->reconnect = timeouts->reconnect_timeout_ms;
+    return MIMHID_OK;
+}
+
+void reset_endpoint_counts(mimhid_device* device) {
+    {
+        std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+        for (mimhid_node* node : live_nodes(device)) {
+            for (EndpointRuntime& ep : node->in_endpoints) {
+                ep.outstanding = 0U;
+                ++ep.epoch;
+            }
+        }
+    }
+    device->endpoint_cv.notify_all();
+}
+
+// What the board takes, as the composer wants it.
+usb::ComposerLimits composer_limits(const mimhid_device* device) {
+    const tr::BoardInfo& board = device->board;
+    usb::ComposerLimits lim;
+    lim.max_interfaces = board.max_interfaces_any;
+    lim.max_hid_interfaces = board.max_interfaces;
+    lim.max_endpoint_number = board.max_endpoint_number;
+    lim.max_endpoint_bytes = board.max_endpoint_bytes;
+    lim.max_config_bytes = board.max_config_descriptor_bytes;
+    lim.max_strings = board.max_strings;
+    lim.endpoint_queue_slots = board.endpoint_queue_slots;
+    lim.transfer_types = board.transfer_types;
+    lim.high_speed = board.usb_high_speed;
+    lim.has_unique_id = board.has_unique_id;
+    return lim;
+}
+
+void fill_device_strings(const mimhid_device* device, usb::ComposerInput* input) {
+    input->device = device->config.usb_device;
+    input->config = device->config.usb_config;
+    input->limits = composer_limits(device);
+    utf16_from_utf8(device->manufacturer.c_str(), &input->manufacturer);
+    utf16_from_utf8(device->product.c_str(), &input->product);
+    utf16_from_utf8(device->serial.c_str(), &input->serial);
+    utf16_from_utf8(device->configuration.c_str(), &input->configuration);
+    for (const auto& entry : device->user_strings)
+        utf16_from_utf8(entry.second.c_str(), &input->user_strings[entry.first]);
+}
+
+// The interfaces of the generic Nodes and, joined per interface, those of the HID Nodes.
+mimhid_result groups_of_nodes(const std::vector<mimhid_node*>& nodes,
+                              std::vector<usb::ComposerGroup>* groups,
+                              usb::ComposerError* error) {
+    std::vector<usb::HidNodeInput> hid;
+    for (const mimhid_node* node : nodes) {
+        if (node->generic) {
+            usb::ComposerGroup group;
+            group.node_id = public_node_id(node);
+            group.association = node->association;
+            for (const GenericInterface& itf : node->interfaces) {
+                usb::ComposerInterface made;
+                made.number = itf.number;
+                made.class_code = itf.class_code;
+                made.subclass = itf.subclass;
+                made.protocol = itf.protocol;
+                utf16_from_utf8(itf.name.c_str(), &made.name);
+                made.class_descriptors = itf.class_descriptors;
+                made.endpoints = itf.endpoints;
+                group.interfaces.push_back(std::move(made));
+            }
+            groups->push_back(std::move(group));
+        } else {
+            usb::HidNodeInput in;
+            in.config = node->config;
+            utf16_from_utf8(node->interface_string.c_str(), &in.name);
+            in.report_descriptor = &node->spec->descriptor;
+            in.has_report_ids = node->has_report_ids;
+            in.report_ids = node->report_ids;
+            in.node_id = public_node_id(node);
+            hid.push_back(std::move(in));
+        }
+    }
+    std::vector<usb::ComposerGroup> hid_groups;
+    if (const mimhid_result r = usb::compose_hid_groups(hid, &hid_groups, error); r != MIMHID_OK)
+        return r;
+    for (usb::ComposerGroup& g : hid_groups)
+        groups->push_back(std::move(g));
+    return MIMHID_OK;
+}
+
+mimhid_result precheck_groups(const mimhid_device* device, std::vector<usb::ComposerGroup> groups) {
+    usb::ComposerInput input;
+    fill_device_strings(device, &input);
+    input.groups = std::move(groups);
+    input.partial = true;
+    usb::Composed composed;
+    usb::ComposerError error;
+    if (const mimhid_result r = usb::compose_descriptors(input, &composed, &error); r != MIMHID_OK) {
+        set_error(r, error.field, error.reason, 0, 0, error.node_id, 0, error.offset, error.length);
+        return r;
+    }
     return MIMHID_OK;
 }
 
@@ -459,8 +546,10 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     }
 
     std::size_t total_descriptor = 0U;
-    for (const mimhid_node* node : nodes)
-        total_descriptor += node->spec->descriptor.size();
+    for (const mimhid_node* node : nodes) {
+        if (!node->generic)
+            total_descriptor += node->spec->descriptor.size();
+    }
     if (total_descriptor > device->board.max_descriptor_bytes) {
         set_error(MIMHID_ERR_OVERFLOW, "node.open",
                   "The report descriptors together exceed the board's descriptor memory.", 0, 0, 0,
@@ -470,33 +559,20 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     }
 
     // The host composes every descriptor; the board takes them as bytes.
-    const mimhid_usb_device& dev = device->config.usb_device;
     usb::ComposerInput input;
-    input.device = dev;
-    input.config = device->config.usb_config;
-    input.max_interfaces = device->board.max_interfaces;
-    input.board_has_unique_id = device->board.has_unique_id;
-    utf16_from_utf8(device->manufacturer.c_str(), &input.manufacturer);
-    utf16_from_utf8(device->product.c_str(), &input.product);
-    utf16_from_utf8(device->serial.c_str(), &input.serial);
-    utf16_from_utf8(device->configuration.c_str(), &input.configuration);
-    for (const mimhid_node* node : nodes) {
-        usb::ComposerNode composed_node;
-        composed_node.iface = node->config.iface;
-        composed_node.ep_in = node->config.ep_in;
-        composed_node.ep_out = node->config.ep_out;
-        utf16_from_utf8(node->interface_string.c_str(), &composed_node.interface_name);
-        composed_node.report_descriptor = &node->spec->descriptor;
-        composed_node.has_report_ids = node->has_report_ids;
-        composed_node.report_ids = node->report_ids;
-        input.nodes.push_back(std::move(composed_node));
+    fill_device_strings(device, &input);
+    usb::ComposerError composer_error;
+    if (const mimhid_result made = groups_of_nodes(nodes, &input.groups, &composer_error);
+        made != MIMHID_OK) {
+        set_error(made, composer_error.field, composer_error.reason, 0, 0, composer_error.node_id,
+                  0, composer_error.offset, composer_error.length);
+        return made;
     }
     usb::Composed composed;
-    usb::ComposerError composer_error;
     if (const mimhid_result made = usb::compose_descriptors(input, &composed, &composer_error);
         made != MIMHID_OK) {
-        set_error(made, composer_error.field, composer_error.reason, 0, 0, 0, 0,
-                  composer_error.offset, composer_error.length);
+        set_error(made, composer_error.field, composer_error.reason, 0, 0, composer_error.node_id,
+                  0, composer_error.offset, composer_error.length);
         return made;
     }
 
@@ -547,6 +623,8 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     for (const usb::ComposedInterface& itf : composed.interfaces) {
         if (r != MIMHID_OK)
             break;
+        if (!itf.hid)
+            continue;
         r = send_blob(MIMHID_DESC_HID_REPORT, itf.number, 0U, itf.report_descriptor, 0U,
                       "node.descriptor");
     }
@@ -565,22 +643,37 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
                 return r;
         }
     }
-    for (const usb::ComposedInterface& itf : composed.interfaces) {
-        const std::uint8_t depth = interface_queue_depth(device, itf.number);
-        if (depth == 0U)
-            continue;
-        const mimhid_node* first = nullptr;
-        for (const mimhid_node* node : nodes) {
-            if (node->iface == itf.number) {
-                first = node;
-                break;
+    // The policy of every IN endpoint: the generic ones from their Nodes, the HID ones (always
+    // DROP_NEWEST) from the interface, which its Nodes share the settings of.
+    for (const mimhid_node* node : nodes) {
+        if (node->generic) {
+            for (const EndpointRuntime& ep : node->in_endpoints) {
+                r = send(MIMHID_T_EP_CONFIG,
+                         {ep.address, ep.policy.depth, ep.policy.on_full}, "node.endpoint.policy",
+                         "The board did not accept the policy of an endpoint.",
+                         public_node_id(node));
+                if (r != MIMHID_OK)
+                    return r;
             }
+        } else {
+            // Nodes on one interface share its endpoint: one command, the least depth.
+            bool first_of_interface = true;
+            for (const mimhid_node* other : nodes) {
+                if (other == node)
+                    break;
+                if (!other->generic && other->iface == node->iface)
+                    first_of_interface = false;
+            }
+            if (!first_of_interface)
+                continue;
+            r = send(MIMHID_T_EP_CONFIG,
+                     {node->config.ep_in.address, hid_interface_depth(device, node->iface),
+                      node->config.ep_in.policy.on_full},
+                     "node.endpoint.policy", "The board did not accept the queue depth.",
+                     public_node_id(node));
+            if (r != MIMHID_OK)
+                return r;
         }
-        r = send(
-            MIMHID_T_EP_CONFIG, {first->config.ep_in.address, depth, MIMHID_EP_FULL_DROP_NEWEST},
-            "node.queue_depth", "The board did not accept the queue depth.", public_node_id(first));
-        if (r != MIMHID_OK)
-            return r;
     }
 
     device->link.clear_ready();
@@ -598,12 +691,59 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
         return r;
     device->configured = true;
     device->dirty = false;
+    reset_endpoint_counts(device);
     return MIMHID_OK;
+}
+
+// The public id of the live Node that owns an endpoint address, and the interface it is on; 0 when
+// none does. A HID Node owns the endpoints of its config.
+std::uint16_t node_of_endpoint(mimhid_device* device, const std::uint32_t address,
+                               std::uint32_t* interface_number) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    for (const mimhid_node* node : device->slots) {
+        if (node == nullptr || node->closed)
+            continue;
+        if (node->generic) {
+            for (const GenericInterface& itf : node->interfaces) {
+                for (const mimhid_usb_endpoint& ep : itf.endpoints) {
+                    if (ep.address == address) {
+                        *interface_number = itf.number;
+                        return public_node_id(node);
+                    }
+                }
+            }
+        } else if (node->config.ep_in.address == address ||
+                   (node->config.ep_out.address != 0U && node->config.ep_out.address == address)) {
+            *interface_number = node->iface;
+            return public_node_id(node);
+        }
+    }
+    return 0U;
 }
 
 void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept {
     const std::uint8_t* d = board.data.data();
 
+    // The wait policy's count is kept whether or not anyone listens for events.
+    if (board.kind == MIMHID_EV_EP_DONE) {
+        if (board.length < 3U)
+            return;
+        const std::uint32_t done = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
+        {
+            std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+            for (mimhid_node* node : live_nodes(device)) {
+                for (EndpointRuntime& ep : node->in_endpoints) {
+                    if (ep.address == d[0])
+                        ep.outstanding = ep.outstanding > done ? ep.outstanding - done : 0U;
+                }
+            }
+        }
+        device->endpoint_cv.notify_all();
+        return;
+    }
+    // The target left: nothing the board held for it will be reported done (a flush of its own).
+    if (board.kind == MIMHID_EV_UNMOUNTED)
+        reset_endpoint_counts(device);
     if (device->config.transport.event_sink == nullptr)
         return;
     mimhid_event event{};
@@ -672,22 +812,35 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
     case MIMHID_EV_TRANSFER_LOST: {
         if (board.length < 3U)
             return;
-        event.kind = MIMHID_EVENT_REPORT_LOST;
+        event.kind = MIMHID_EVENT_TRANSFER_LOST;
         event.value = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
-        // The board names the endpoint; the event names the first live Node that sends on it.
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        for (const mimhid_node* node : device->slots) {
-            if (node != nullptr && !node->closed && node->config.ep_in.address == d[0]) {
-                event.node_id = public_node_id(node);
-                break;
-            }
-        }
+        event.endpoint_address = d[0];
+        event.node_id = node_of_endpoint(device, d[0], &event.interface_number);
         break;
     }
+    case MIMHID_EV_EP_HALT:
+        if (board.length < 2U)
+            return;
+        event.kind = MIMHID_EVENT_ENDPOINT_HALT;
+        event.value = d[1];
+        event.endpoint_address = d[0];
+        event.node_id = node_of_endpoint(device, d[0], &event.interface_number);
+        break;
     default:
+        if (board.kind > MIMHID_T_EP_OUT_BASE && board.kind <= MIMHID_T_EP_OUT_LAST) {
+            // A packet on an OUT endpoint, as it came (a zero-length one has length 0).
+            event.kind = MIMHID_EVENT_ENDPOINT_DATA;
+            event.endpoint_address = board.kind & 0x0FU;
+            event.data = d;
+            event.length = board.length;
+            event.node_id = node_of_endpoint(device, event.endpoint_address,
+                                             &event.interface_number);
+            break;
+        }
         return;
     }
     if (iface != 0xFFU) {
+        event.interface_number = iface;
         std::lock_guard<std::mutex> lock(device->nodes_mutex);
         const mimhid_node* match = nullptr;
         if (event.kind == MIMHID_EVENT_OUTPUT_REPORT && event.length > 0U &&

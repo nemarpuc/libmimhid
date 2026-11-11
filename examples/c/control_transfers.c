@@ -70,10 +70,10 @@ int main(void) {
 
     mimhid_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimhid_node_config node_config;
+    mimhid_hid_node_config node_config;
     example_fill_node_config(&node_config, 0);
     mimhid_node* keyboard = NULL;
-    r = mimhid_node_open(device, keyboard_spec, &node_config, &timeouts, &keyboard);
+    r = mimhid_node_open_profile(device, keyboard_spec, &node_config, &timeouts, &keyboard);
     mimhid_spec_release(keyboard_spec);
     if (r != MIMHID_OK || (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);

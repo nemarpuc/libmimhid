@@ -95,7 +95,8 @@ Whether these settings apply depends on the adapter and driver; none has been me
 - The host serializes a report into a stack buffer (`c_api_send.cpp`) and parses incoming frames in a fixed-capacity ring (`FrameParser`); profile mutation calls change fixed-size state.
 - On the board, the receive side copies each report from the UART ring into its interface's single-producer single-consumer queue; the USB side takes it from there and sends it. On the RP2040 and RP2350 these run on separate cores; the other ports run both in one loop. The queues use acquire and release atomics and no lock.
 - Configuration changes (`mimhid_node_open`, `mimhid_node_close`, `mimhid_device_commit`) are not on this path: they re-enumerate the USB device, and the target enumerates it after the call has returned (`mimhid_device_wait_ready`).
-- When a queue is full the new report is dropped; an old one is not overwritten.
+- When a queue is full the new report is dropped; an old one is not overwritten (a generic IN endpoint may choose `DROP_OLDEST`, which discards on the consuming side, or `WAIT`, which makes the writer block on the host).
+- A target that floods an OUT endpoint makes the board send an `EP_OUT` frame for every packet, so the board's USB side runs no faster than the serial link carries them (a packet of n bytes takes n + 5 byte times; see [PROTOCOL.md](PROTOCOL.md#wire-time)). This is arithmetic from the frame format, not a measurement.
 
 ## Higher polling rates
 

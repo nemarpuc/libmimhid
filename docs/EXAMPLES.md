@@ -67,15 +67,17 @@ static void fill_timeouts(mimhid_commit_timeouts* commit_timeouts) {
 }
 
 /* A HID interface with bInterfaceNumber n, polled every 1 ms through IN endpoint 0x81 + n with 64-byte packets,
- * and no OUT endpoint: every field is set here, none by mimhid_node_config_init. */
-static void fill_node(mimhid_node_config* config, uint8_t n) {
-    mimhid_node_config_init(config);
-    config->iface.number = n;
-    config->iface.class_code = 0x03;
-    config->iface.bcd_hid = 0x0111;
+ * and no OUT endpoint: every field is set here, none by mimhid_hid_node_config_init. */
+static void fill_node(mimhid_hid_node_config* config, uint8_t n) {
+    mimhid_hid_node_config_init(config);
+    config->interface_number = n;
+    config->bcd_hid = 0x0111;
     config->ep_in.address = (uint8_t)(0x81 + n);
-    config->ep_in.poll_interval_ms = 1;
+    config->ep_in.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    config->ep_in.interval = 1;
     config->ep_in.max_packet_size = 64;
+    config->ep_in.policy.on_full = MIMHID_FULL_DROP_NEWEST;
+    config->ep_in.policy.depth = 7;
 }
 ```
 
@@ -90,22 +92,24 @@ static void open_two_nodes_in_batch(mimhid_device* device,
                                     const mimhid_commit_timeouts* commit_timeouts,
                                     mimhid_node** keyboard,
                                     mimhid_node** mouse) {
-    mimhid_node_config kbd_node;
-    mimhid_node_config_init(&kbd_node);
-    kbd_node.iface.number = 0;
-    kbd_node.iface.class_code = 0x03;
-    kbd_node.iface.bcd_hid = 0x0111;
+    mimhid_hid_node_config kbd_node;
+    mimhid_hid_node_config_init(&kbd_node);
+    kbd_node.interface_number = 0;
+    kbd_node.bcd_hid = 0x0111;
     kbd_node.ep_in.address = 0x81;
-    kbd_node.ep_in.poll_interval_ms = 1;
+    kbd_node.ep_in.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    kbd_node.ep_in.interval = 1;
     kbd_node.ep_in.max_packet_size = 64;
+    kbd_node.ep_in.policy.on_full = MIMHID_FULL_DROP_NEWEST;
+    kbd_node.ep_in.policy.depth = 7;
 
-    mimhid_node_config mouse_node = kbd_node;
-    mouse_node.iface.number = 1;
+    mimhid_hid_node_config mouse_node = kbd_node;
+    mouse_node.interface_number = 1;
     mouse_node.ep_in.address = 0x82;
 
     mimhid_device_batch_begin(device);
-    mimhid_node_open(device, keyboard_spec, &kbd_node, commit_timeouts, keyboard);
-    mimhid_node_open(device, mouse_spec, &mouse_node, commit_timeouts, mouse);
+    mimhid_node_open_profile(device, keyboard_spec, &kbd_node, commit_timeouts, keyboard);
+    mimhid_node_open_profile(device, mouse_spec, &mouse_node, commit_timeouts, mouse);
     mimhid_device_batch_end(device, commit_timeouts); /* one re-enumeration for both nodes */
     mimhid_device_wait_ready(device, 5000);
 }
@@ -113,7 +117,7 @@ static void open_two_nodes_in_batch(mimhid_device* device,
 
 ### Share one interface between two nodes
 
-Both need Report IDs, all different, and the same `mimhid_node_config`:
+Both need Report IDs, all different, and the same `mimhid_hid_node_config`:
 
 ```c
 #include <mimhid.h>
@@ -124,7 +128,7 @@ static void enable_distinct_report_ids(mimhid_keyboard_options* keyboard_options
     keyboard_options->report_id.value = 1;
     mouse_options->report_id.enabled = 1;
     mouse_options->report_id.value = 2;
-    /* Create the Specs, then open both with the same mimhid_node_config. */
+    /* Create the Specs, then open both with the same mimhid_hid_node_config. */
 }
 ```
 
@@ -133,18 +137,21 @@ static void enable_distinct_report_ids(mimhid_keyboard_options* keyboard_options
 ```c
 #include <mimhid.h>
 
-static void configure_interface_with_out_endpoint(mimhid_node_config* node_config) {
-    mimhid_node_config_init(node_config);
-    node_config->iface.number = 0;
-    node_config->iface.class_code = 0x03;
-    node_config->iface.bcd_hid = 0x0111;
-    node_config->iface.name = "Keys";
+static void configure_interface_with_out_endpoint(mimhid_hid_node_config* node_config) {
+    mimhid_hid_node_config_init(node_config);
+    node_config->interface_number = 0;
+    node_config->bcd_hid = 0x0111;
+    node_config->name = "Keys";
     node_config->ep_in.address = 0x81;
-    node_config->ep_in.poll_interval_ms = 4;
+    node_config->ep_in.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    node_config->ep_in.interval = 4;
     node_config->ep_in.max_packet_size = 64;
-    node_config->ep_out.address = 0x01;       /* an OUT endpoint: the target's Output reports reach event_sink */
+    node_config->ep_in.policy.on_full = MIMHID_FULL_DROP_NEWEST;
+    node_config->ep_in.policy.depth = 7;
+    node_config->ep_out.address = 0x01;
+    node_config->ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;       /* an OUT endpoint: the target's Output reports reach event_sink */
     node_config->ep_out.max_packet_size = 64;
-    node_config->ep_out.poll_interval_ms = 1;
+    node_config->ep_out.interval = 1;
 }
 ```
 
@@ -158,7 +165,7 @@ static void configure_interface_with_out_endpoint(mimhid_node_config* node_confi
 static mimhid_result send_raw_report(mimhid_device* device,
                                      const uint8_t* raw_desc,
                                      size_t raw_desc_len,
-                                     const mimhid_node_config* raw_config,
+                                     const mimhid_hid_node_config* raw_config,
                                      const mimhid_commit_timeouts* commit_timeouts,
                                      const uint8_t* report,
                                      size_t report_len) {
@@ -168,6 +175,19 @@ static mimhid_result send_raw_report(mimhid_device* device,
     if (r != MIMHID_OK) return r;
     return mimhid_report_send(raw_node, report, report_len, 500); /* Report ID included */
 }
+```
+
+### Present a vendor-class bulk device
+
+`mimhid_node_open` takes interfaces of any class but HID. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimhid_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMHID_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
+
+```c
+mimhid_usb_endpoint endpoints[2] = {
+    {0x81, MIMHID_TRANSFER_BULK, 0, 0, 64, 0, {MIMHID_FULL_WAIT, 4}},
+    {0x01, MIMHID_TRANSFER_BULK, 0, 0, 64, 0, {0, 0}}};
+/* interface_config.class_code = 0xFF; .endpoints = endpoints; .endpoint_count = 2; */
+/* mimhid_node_open(device, &node_config, &timeouts, &node);
+   mimhid_node_endpoint_write(node, 0x81, data, length, 1000); */
 ```
 
 ### Command physical connection and disconnection

@@ -22,8 +22,9 @@
  * is; it does not talk to it. Change the frame format or a layout, and the minor number goes up.
  *
  * Command frames (0x01..0x3F) start their payload with a one-byte sequence number that the
- * board echoes in its ACK or NAK. Endpoint data frames (0x41..0x4F) carry the transfer exactly
- * as the target receives it, Report ID included for HID, and are not acknowledged.
+ * board echoes in its ACK or NAK. Endpoint data frames carry a transfer exactly as the target
+ * receives or sends it (Report ID included for HID) and are not acknowledged: 0x41..0x4F to an IN
+ * endpoint (host to board), 0xC1..0xCF from an OUT endpoint (board to host).
  */
 
 #define MIMHID_SYNC 0xA5
@@ -69,6 +70,10 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_T_COUNTERS                                                                          \
     0x1D /* payload after sequence number: flags (bit 0: reset the counters after reading);        \
             the ACK carries the counters (see below) */
+#define MIMHID_T_EP_STALL                                                                          \
+    0x1E /* payload after sequence number: endpoint address, 1 stall or 0 clear the halt */
+#define MIMHID_T_EP_FLUSH                                                                          \
+    0x1F /* payload after sequence number: endpoint address; drops what waits on the board */
 #define MIMHID_T_EP_IN_BASE                                                                        \
     0x40 /* 0x40 | endpoint number: data for that IN endpoint; 0x40 itself                         \
             (endpoint 0) is refused */
@@ -79,6 +84,10 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_T_ACK 0x82   /* payload: seq, type, then the data of the command, if it has any */
 #define MIMHID_T_NAK 0x83   /* payload: seq, type, code */
 #define MIMHID_T_EVENT 0x84 /* payload: kind, ... */
+#define MIMHID_T_EP_OUT_BASE                                                                       \
+    0xC0 /* 0xC0 | endpoint number: a packet the target sent on that OUT endpoint, as it came;      \
+            0xC0 itself (endpoint 0) is never sent. Not acknowledged. */
+#define MIMHID_T_EP_OUT_LAST 0xCF
 
 /* Events. */
 #define MIMHID_EV_MOUNTED 1
@@ -94,6 +103,12 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_EV_TRANSFER_LOST                                                                    \
     11 /* data: endpoint address, count (u16 LE): transfers dropped, queue full; only after        \
           LOSS_CONFIG enabled it */
+#define MIMHID_EV_EP_DONE                                                                          \
+    12 /* data: endpoint address, transfers completed since the last such event (u16 LE); only for \
+          endpoints with the wait policy */
+#define MIMHID_EV_EP_HALT                                                                          \
+    13 /* data: endpoint address, halted (1: the target set the halt, 0: it cleared it); only for  \
+          endpoints of the generic driver */
 
 /* NAK codes. */
 #define MIMHID_NAK_PARAM 1
@@ -221,7 +236,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 /*
  * PONG payload (all single bytes unless noted; every wider value is little endian):
  *   0 fw_major  1 fw_minor  2 fw_patch  3 ready
- *   4 reserved, zero  5 max_interfaces  6 flags (bit 0: has chip unique id)
+ *   4 reserved, zero  5 max_hid_interfaces  6 flags (bit 0: has chip unique id)
  *   7 chip  8 usb speed (0 full, 1 high)
  *   9..12 baud the board is on (u32)  13..16 max_baud, the fastest rate its UART can make (u32)
  *   17..20 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
@@ -231,10 +246,17 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   answer)  33 max_control_rules
  *   34 max_endpoint_number (the highest endpoint number the controller has; an endpoint address
  *   above it is refused)
- *   35 unique id length n (0..16)  36.. the chip's unique id, n bytes
+ *   35 unique id length n (0..16)
+ *   36 max_interfaces_any (interfaces of any class the board takes, HID ones included; byte 5 is
+ *   the number of HID interfaces)  37..38 max_config_descriptor_bytes  39 max_strings (string
+ *   descriptors, the board's own included)  40..41 max_transfer_bytes (the payload of one endpoint
+ *   data frame)  42..43 endpoint_queue_slots (the slots of the pool the IN queues of the generic
+ *   driver are cut from)  44 transfer_types (bit n set: the board has endpoints of transfer type
+ *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)
+ *   45.. the chip's unique id, n bytes
  * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN 36
+#define MIMHID_PONG_MIN_LEN 45
 #define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
@@ -271,28 +293,55 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  * end of the bytes received so far.
  *
  * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR, the previous
- * configuration kept) unless it holds together: every descriptor complete, every bLength inside
- * the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only, every
- * interface a HID interface with one interrupt IN endpoint and at most one interrupt OUT
- * endpoint, endpoint numbers the controller has and no address twice, packet sizes the board
- * takes, and a report descriptor for every interface of the length its HID descriptor says
- * (docs/PROTOCOL.md has the whole list).
+ * configuration kept) unless it holds together: every descriptor complete, every bLength at least
+ * 2 and inside the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only,
+ * every interface of any class whose endpoints are interrupt or bulk (a HID interface also has
+ * its HID descriptor, one interrupt IN endpoint and at most one interrupt OUT endpoint, and a
+ * report descriptor of the length that HID descriptor says), interface association descriptors
+ * only before a group of non-HID interfaces, endpoint numbers the controller has and no address
+ * twice, packet sizes the board takes, every IN endpoint of the generic driver with an EP_CONFIG (docs/PROTOCOL.md has
+ * the whole list).
  *
  * FEATURE payload after the sequence number:
  *   0 interface number  1 report id  2.. bytes (without the report id), at most max_feature_bytes
  * EP_CONFIG payload after the sequence number:
  *   0 endpoint address  1 depth  2 policy
  *   The address is that of an IN endpoint of the staged configuration. The depth is how many
- *   transfers may wait on the board (1 up to what its queue holds); policy says what happens
- *   when that many wait. In this release the board takes MIMHID_EP_FULL_DROP_NEWEST only: a
- *   transfer that finds the queue full is dropped. The other two are defined and answered NAK
- *   UNSUPPORTED.
+ *   transfers may wait on the board, the one the controller is sending not counted (1 up to what
+ *   its queue holds); policy says what happens when that many wait: DROP_NEWEST drops the transfer
+ *   that arrives, DROP_OLDEST drops the oldest that is not being sent, WAIT is DROP_NEWEST on the
+ *   board (the host
+ *   counts and does not send more than the depth; MIMHID_EV_EP_DONE is how it learns what the
+ *   board finished). An HID endpoint takes DROP_NEWEST only in this release (NAK UNSUPPORTED).
+ *   A queue of the generic driver is cut from the board's pool of endpoint queue slots (see
+ *   docs/LIMITS.md for what each policy costs); more than the pool holds is NAK OVERFLOW. Every IN
+ *   endpoint of the generic driver needs one before COMMIT (NAK STATE otherwise).
+ * EP_STALL payload after the sequence number: 0 endpoint address  1 stall (1) or clear (0)
+ *   Stalling sets the Halt feature of the endpoint (USB 2.0 9.4.5): the endpoint answers STALL
+ *   until it is cleared, by this command or by the target. On an IN endpoint it drops what waits
+ *   and the transfer being sent. NAK STATE when the address is not an endpoint of the generic
+ *   driver in the active configuration (an HID endpoint is not).
+ * EP_FLUSH payload after the sequence number: 0 endpoint address (IN). Drops what waits on the
+ *   board for it; a transfer already given to the controller completes. NAK STATE as for
+ *   EP_STALL, NAK PARAM for an OUT endpoint (nothing waits on one).
+ *
+ * Endpoint data frames. 0x40 | n (host to board): one transfer for IN endpoint n of the active
+ * configuration. On a generic endpoint the payload is the whole transfer: at most
+ * max_transfer_bytes, and an empty payload is a zero-length packet (USB 2.0 5.8.3); a frame that
+ * is not the last of a longer transfer is a multiple of the endpoint's packet size, so the target
+ * sees one transfer. On an HID endpoint an empty payload is dropped. 0xC0 | n (board to host): a
+ * packet the target sent on OUT endpoint n, as it came. The board arms the endpoint for the next
+ * packet only after it has written that frame, so a busy link holds the target with NAKs and
+ * nothing is lost.
  *
  * EVENT payload: kind, then
  *   OUTPUT_REPORT  interface, length (two bytes), the report
  *   SET_REPORT     interface, report type, report id, the bytes the target sent (cut to what
  *                  the board holds)
  *   TRANSFER_LOST  endpoint address, count (two bytes)
+ *   EP_DONE        endpoint address, transfers completed (two bytes) since the last EP_DONE of
+ *                  that endpoint; at most one per endpoint per pass of the board's USB side
+ *   EP_HALT        endpoint address, halted (1: the target set the halt, 0: it cleared it)
  * (The interface of an event is the bInterfaceNumber of the staged configuration.)
  */
 #define MIMHID_DESC_DEVICE 1

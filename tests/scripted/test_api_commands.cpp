@@ -38,7 +38,7 @@ void test_nak_codes() {
     if (device == nullptr)
         return;
     mimhid_spec* spec = keyboard_spec();
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     for (const Case& c : cases) {
         const std::uint8_t code = c.nak;
         board.set_policy([code](const Received& r) -> std::optional<Reply> {
@@ -47,7 +47,7 @@ void test_nak_codes() {
             return std::nullopt;
         });
         mimhid_node* node = nullptr;
-        MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == c.result);
+        MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == c.result);
         MIMHID_CHECK(node == nullptr);
         const mimhid_error_detail* e = mimhid_last_error();
         MIMHID_CHECK(e->code == c.result && e->transport_status == code &&
@@ -57,7 +57,7 @@ void test_nak_codes() {
     // The refused opens left no slot taken: with the board answering again, the node opens.
     board.set_policy(nullptr);
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_node_id(node) == 1);
     mimhid_spec_release(spec);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
@@ -79,9 +79,9 @@ void test_retry_and_timeout() {
     });
     board.clear();
     mimhid_spec* spec = keyboard_spec();
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_ERR_TIMEOUT);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_ERR_TIMEOUT);
     MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_DESC_RESET);
     std::vector<Received> sent;
     for (const Received& r : board.received()) {
@@ -100,7 +100,7 @@ void test_retry_and_timeout() {
             return Reply::silent();
         return std::nullopt;
     });
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     MIMHID_CHECK(attempts->load() == 2);
     mimhid_spec_release(spec);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
@@ -153,9 +153,9 @@ void test_commit_connect_disconnect() {
     MIMHID_CHECK(mimhid_device_connect(device, &kCommit) == MIMHID_OK);
     MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 0U && board.count(MIMHID_T_COMMIT) == 0U);
     mimhid_spec* keyboard = keyboard_spec();
-    const mimhid_node_config first = node_config();
+    const mimhid_hid_node_config first = node_config();
     mimhid_node* attached = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, keyboard, &first, &kCommit, &attached) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, keyboard, &first, &kCommit, &attached) == MIMHID_OK);
     mimhid_spec_release(keyboard);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 1000) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_is_ready(device) == 1);
@@ -197,9 +197,9 @@ void test_commit_connect_disconnect() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     mimhid_spec* spec = keyboard_spec();
-    const mimhid_node_config config = node_config(1);
+    const mimhid_hid_node_config config = node_config(1);
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_keyboard_key(node, 0x04, 1) == MIMHID_ERR_BUSY); // staged only
     board.set_policy([](const Received& q) -> std::optional<Reply> {
         if (q.type == MIMHID_T_DESC_DATA)
@@ -370,9 +370,9 @@ void test_set_usb_identity() {
     if (device == nullptr)
         return;
     mimhid_spec* spec = keyboard_spec();
-    const mimhid_node_config config = node_config();
+    const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     mimhid_spec_release(spec);
     mimhid_device_config o = board_options();
     o.usb_device.product_id = 0x0002;

@@ -33,7 +33,7 @@ void queue_key_reports(mimhid_node* node, int count) {
 std::uint32_t lost_reports(std::uint16_t node_id, int timeout_ms) {
     std::uint32_t lost = 0;
     EventRecord e{};
-    while (wait_event(MIMHID_EVENT_REPORT_LOST, &e, timeout_ms)) {
+    while (wait_event(MIMHID_EVENT_TRANSFER_LOST, &e, timeout_ms)) {
         MIMHID_CHECK(e.node_id == node_id);
         lost += e.value;
     }
@@ -114,11 +114,14 @@ void test_queue_depth_and_loss() {
     }
 
     // Arguments.
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nullptr, 1, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 0, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 256, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 1, 0) == MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 255, kControlMs) == MIMHID_ERR_OVERFLOW);
+    const auto set_depth = [&](mimhid_node* node, std::uint8_t depth, std::uint32_t timeout) {
+        const mimhid_endpoint_policy policy{MIMHID_FULL_DROP_NEWEST, depth};
+        return mimhid_node_endpoint_set_policy(node, 0x81, &policy, timeout);
+    };
+    MIMHID_CHECK(set_depth(nullptr, 1, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(set_depth(nk, 0, kControlMs) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(set_depth(nk, 1, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(set_depth(nk, 255, kControlMs) == MIMHID_ERR_OVERFLOW);
     MIMHID_CHECK(mimhid_device_set_loss_reporting(nullptr, 1, 20, kControlMs) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 20, 0) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 2, 20, kControlMs) == MIMHID_ERR_PARAM);
@@ -127,7 +130,7 @@ void test_queue_depth_and_loss() {
                                                   kControlMs) == MIMHID_ERR_PARAM);
 
     // Off by default: a full queue drops silently, and nothing extra crosses the link.
-    MIMHID_CHECK(mimhid_node_set_queue_depth(nk, 2, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(set_depth(nk, 2, kControlMs) == MIMHID_OK);
     fake_board_clear_reports();
     fake_board_hold_reports(1);
     queue_key_reports(nk, 5);
@@ -202,7 +205,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
-        mimhid_node_config opt{};
+        mimhid_hid_node_config opt{};
         test_fill_node_config(&opt, static_cast<uint8_t>(i % SIM_HID_ITFS));
         nodes[i] = open_node(device, specs[i], &opt);
     }
@@ -268,10 +271,10 @@ void test_limits() {
     const unsigned limit = SIM_HID_ITFS;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
-        mimhid_node_config no{};
+        mimhid_hid_node_config no{};
         test_fill_node_config(&no, static_cast<uint8_t>(i));
         mimhid_node* node = nullptr;
-        last = mimhid_node_open(device, specs.back(), &no, &kCommit, &node);
+        last = mimhid_node_open_profile(device, specs.back(), &no, &kCommit, &node);
         if (last != MIMHID_OK)
             break;
         nodes.push_back(node);
@@ -303,10 +306,10 @@ void test_interface_numbers() {
     mimhid_node* nodes[3] = {};
     for (unsigned i : {0U, 2U, 1U, 2U}) {
         specs.push_back(raw_spec_no_id());
-        mimhid_node_config c{};
+        mimhid_hid_node_config c{};
         test_fill_node_config(&c, static_cast<uint8_t>(i));
         mimhid_node* node = nullptr;
-        const mimhid_result r = mimhid_node_open(device, specs.back(), &c, &kCommit, &node);
+        const mimhid_result r = mimhid_node_open_profile(device, specs.back(), &c, &kCommit, &node);
         if (i == 2U && nodes[1] == nullptr) {
             MIMHID_CHECK(r == MIMHID_ERR_PARAM && node == nullptr &&
                          mimhid_last_error()->offset == 1U);

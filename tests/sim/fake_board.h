@@ -30,6 +30,25 @@ void fake_board_clear_reports(void);
 /* While held, the target polls no interface, so reports wait in the board's queues. */
 void fake_board_hold_reports(int hold);
 
+// The endpoints of the board's generic driver. The target "polls" every IN endpoint while it is
+// mounted and reports are not held (fake_board_hold_reports holds these too): a transfer the board
+// has queued is read, recorded here and completed. An OUT packet waits until its endpoint is armed.
+typedef struct {
+    uint8_t address;
+    uint16_t length;
+    uint8_t data[1024];
+} fake_transfer_t;
+// The next transfer read from an IN endpoint (0: of any); returns 1, or 0 on timeout.
+int fake_board_wait_transfer(uint8_t address, fake_transfer_t* out, uint32_t timeout_ms);
+void fake_board_clear_transfers(void);
+// Things the target does on endpoints: send a packet on an OUT endpoint; set or clear the Halt
+// feature (the stack stalls the endpoint, then the driver is told).
+void fake_board_target_out(uint8_t address, const uint8_t* data, size_t length);
+void fake_board_target_halt(uint8_t address, int set);
+int fake_board_endpoint_stalled(uint8_t address);
+// 1 while the controller holds a transfer of the endpoint that the target has not read.
+int fake_board_endpoint_busy(uint8_t address);
+
 // What the target would see right now.
 int fake_board_mounted(void);
 unsigned fake_board_connects(void);

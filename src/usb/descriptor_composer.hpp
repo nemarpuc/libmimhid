@@ -4,30 +4,57 @@
 
 /*
  * Composes every USB descriptor the board presents to the target, as bytes, from the Device
- * options and the open Nodes. Pure: no I/O, no board, no clock. The board holds what this makes
- * and checks that it is a configuration it can run (docs/PROTOCOL.md); it builds nothing itself.
+ * options and the interfaces of the open Nodes. Pure: no I/O, no board, no clock. It reads no
+ * class: an interface is its numbers, its class descriptors as given and its endpoints. The board
+ * holds what this makes and checks that it is a configuration it can run (docs/PROTOCOL.md); it
+ * builds nothing itself. What only HID needs (Nodes sharing an interface, Report IDs, the HID
+ * descriptor) is made before this, in hid_layer.hpp.
  */
 
 #include "mimhid.h"
 
-#include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
 namespace mimhid::usb {
 
-// What one Node contributes: its interface and endpoint settings, its report descriptor and the
-// Report IDs that descriptor declares.
-struct ComposerNode {
-    mimhid_usb_interface iface{}; // iface.name is not read; interface_name is
-    mimhid_usb_endpoint ep_in{};
-    mimhid_usb_endpoint ep_out{};
-    std::u16string interface_name;
-    const std::vector<std::uint8_t>* report_descriptor{};
-    bool has_report_ids{};
-    std::bitset<256> report_ids;
+// One interface of a Node.
+struct ComposerInterface {
+    std::uint8_t number{};
+    std::uint8_t class_code{};
+    std::uint8_t subclass{};
+    std::uint8_t protocol{};
+    std::u16string name;                          // empty: the interface has no string
+    std::vector<std::uint8_t> class_descriptors;  // placed after the Interface descriptor as given
+    std::vector<mimhid_usb_endpoint> endpoints;
+    // HID: the report descriptor the board keeps for GET_DESCRIPTOR(report). The board's HID
+    // driver serves such an interface; every other interface is served by its generic driver.
+    bool hid{};
+    std::vector<std::uint8_t> report_descriptor;
+};
+
+// The interfaces of one Node and the association that holds them together, if it has one.
+struct ComposerGroup {
+    std::vector<ComposerInterface> interfaces;
+    std::vector<std::uint8_t> association; // empty for none
+    std::uint16_t node_id{};               // for the details of an error; 0 for none
+};
+
+// What the board takes (its PONG).
+struct ComposerLimits {
+    std::size_t max_interfaces{};          // of any class
+    std::size_t max_hid_interfaces{};
+    std::size_t max_endpoint_number{};
+    std::size_t max_endpoint_bytes{};
+    std::size_t max_config_bytes{};
+    std::size_t max_strings{};
+    std::size_t endpoint_queue_slots{};
+    std::uint32_t transfer_types{};        // bit n: transfer type n
+    bool high_speed{};
+    bool has_unique_id{};                  // the board can make the serial number string
 };
 
 struct ComposerInput {
@@ -37,10 +64,14 @@ struct ComposerInput {
     std::u16string product;
     std::u16string serial;
     std::u16string configuration;
-    // Nodes in node order: the order of their report descriptors inside a shared interface.
-    std::vector<ComposerNode> nodes;
-    std::size_t max_interfaces{}; // the board's USB HID interfaces
-    bool board_has_unique_id{}; // the board can make the serial number string (serial_from_chip_id)
+    // Strings the caller added (mimhid_device_add_string), by index (5 or more).
+    std::map<std::uint8_t, std::u16string> user_strings;
+    std::vector<ComposerGroup> groups;     // in node order
+    ComposerLimits limits;
+    // True when `groups` are the interfaces of one Node about to join others: every check that
+    // looks at that Node alone is made, and the interface numbers need not start at 0 or be free
+    // of gaps.
+    bool partial{false};
 };
 
 // A string descriptor as it is on the bus (USB 2.0 9.6.7).
@@ -53,7 +84,9 @@ struct ComposedString {
 
 struct ComposedInterface {
     std::uint8_t number{};
-    std::vector<std::uint8_t> report_descriptor; // the Nodes' descriptors, joined in node order
+    bool hid{};
+    std::vector<std::uint8_t> report_descriptor;
+    std::vector<mimhid_usb_endpoint> endpoints;
 };
 
 struct Composed {
@@ -71,14 +104,19 @@ struct ComposerError {
     const char* reason{};
     std::uint32_t offset{};
     std::uint32_t length{};
+    std::uint16_t node_id{};
 };
 
-// String indices: the Device's strings have fixed places; an interface name is 5 + its number.
+// String indices: the Device's strings have fixed places; the others come from one pool, from 5.
 constexpr std::uint8_t kStringManufacturer = 1;
 constexpr std::uint8_t kStringProduct = 2;
 constexpr std::uint8_t kStringSerial = 3;
 constexpr std::uint8_t kStringConfiguration = 4;
-constexpr std::uint8_t kStringInterfaceBase = 5;
+constexpr std::uint8_t kStringFirstFree = 5;
+
+// Slots of the board's endpoint queue pool one IN endpoint of the generic driver takes (docs/
+// LIMITS.md): depth + 1 for DROP_NEWEST and WAIT, 2 * depth + 1 for DROP_OLDEST.
+std::size_t queue_slots(std::uint8_t depth, std::uint8_t on_full) noexcept;
 
 // MIMHID_OK and `out` filled, or the first rule that is broken, in `error`.
 mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, ComposerError* error);

@@ -48,11 +48,11 @@ int main() {
 
     mimhid_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimhid_node_config node_config;
+    mimhid_hid_node_config node_config;
     example_fill_node_config(&node_config, 0);
     mimhid_node* node = nullptr;
     if (created != MIMHID_OK ||
-        mimhid::node_open(device, spec.get(), &node_config, &timeouts, &node) != MIMHID_OK ||
+        mimhid::node_open_profile(device, spec.get(), &node_config, &timeouts, &node) != MIMHID_OK ||
         mimhid::device_wait_ready(device, 5000) != MIMHID_OK) {
         std::fprintf(stderr, "setup failed: %s\n", mimhid::last_error()->reason);
         (void)mimhid::device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);

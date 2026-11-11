@@ -113,7 +113,7 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_node_close(node, nullptr, kDrainMs) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, 0) == MIMHID_ERR_UNSET_FIELD);
     mimhid_node* refused = nullptr;
-    MIMHID_CHECK(mimhid_node_open(device, raw, nullptr, &no_control, &refused) ==
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, nullptr, &no_control, &refused) ==
                  MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_node_open_raw(device, good, sizeof(good), nullptr, &no_reconnect,
                                       &refused) == MIMHID_ERR_UNSET_FIELD);

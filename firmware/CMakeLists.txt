@@ -46,6 +46,7 @@ add_executable(mimhid_firmware
     common/control.c
     common/ep0.c
     common/usb_descriptors.c
+    common/generic.c
 )
 
 target_include_directories(mimhid_firmware PRIVATE

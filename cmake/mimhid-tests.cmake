@@ -70,6 +70,7 @@ if(NOT WIN32)
         tests/scripted/test_api_events.cpp
         tests/scripted/test_api_open.cpp
         tests/scripted/test_api_raw_node.cpp
+        tests/scripted/test_api_generic.cpp
         tests/scripted/test_api_reports.cpp
         tests/scripted/test_handshaker.cpp
         tests/scripted/test_link.cpp
@@ -169,6 +170,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         tests/sim/test_sim_arguments.cpp
         tests/sim/test_sim_control.cpp
         tests/sim/test_sim_events.cpp
+        tests/sim/test_sim_generic.cpp
         tests/sim/test_sim_high_speed.cpp
         tests/sim/test_sim_line_rate.cpp
         tests/sim/test_sim_open.cpp
@@ -178,7 +180,8 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         firmware/common/core.c
         firmware/common/control.c
         firmware/common/ep0.c
-        firmware/common/usb_descriptors.c)
+        firmware/common/usb_descriptors.c
+        firmware/common/generic.c)
     foreach(itfs 15 7 3)
         add_executable(mimhid_sim_${itfs}
             ${MIMHID_SIM_SOURCES}

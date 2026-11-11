@@ -56,16 +56,16 @@ int main(void) {
     // One interface each, opened in one batch so the board enumerates once.
     mimhid_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimhid_node_config keyboard_config;
+    mimhid_hid_node_config keyboard_config;
     example_fill_node_config(&keyboard_config, 0);
-    mimhid_node_config mouse_config;
+    mimhid_hid_node_config mouse_config;
     example_fill_node_config(&mouse_config, 1);
     mimhid_node* keyboard = NULL;
     mimhid_node* mouse = NULL;
     mimhid_device_batch_begin(device);
-    if ((r = mimhid_node_open(device, keyboard_spec, &keyboard_config, &timeouts, &keyboard)) !=
+    if ((r = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts, &keyboard)) !=
             MIMHID_OK ||
-        (r = mimhid_node_open(device, mouse_spec, &mouse_config, &timeouts, &mouse)) != MIMHID_OK)
+        (r = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts, &mouse)) != MIMHID_OK)
         return fail("node_open", r);
     mimhid_spec_release(keyboard_spec); // each Node keeps its own reference
     mimhid_spec_release(mouse_spec);

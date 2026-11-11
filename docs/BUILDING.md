@@ -76,7 +76,7 @@ An installation produced with both `MIMHID_BUILD_SHARED=ON` and
 components, `shared` and `static`:
 
 ```cmake
-find_package(mimhid 0.2 CONFIG REQUIRED COMPONENTS shared)
+find_package(mimhid 0.3 CONFIG REQUIRED COMPONENTS shared)
 target_link_libraries(my_c_app PRIVATE mimhid::mimhid)
 ```
 
@@ -90,7 +90,7 @@ Available imported targets:
 | `mimhid::cpp_static` | `static` | Header-only C++20 interface target linked against `mimhid::mimhid_static` |
 
 While the major version is `0`, `mimhid-config-version.cmake` uses
-`SameMinorVersion` compatibility: a `find_package(mimhid 0.2)` request is
+`SameMinorVersion` compatibility: a `find_package(mimhid 0.3)` request is
 satisfied by `0.2.x` installations only.
 
 ### `pkg-config`

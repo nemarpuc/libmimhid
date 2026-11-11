@@ -44,22 +44,22 @@ void test_high_speed_rules() {
     std::strncpy(port.port_name, g_slave.c_str(), sizeof(port.port_name) - 1);
 
     mimhid_spec* spec = keyboard_spec(1);
-    mimhid_node_config nc{};
+    mimhid_hid_node_config nc{};
     mimhid_node* node = nullptr;
     for (const std::uint8_t interval : {0, 17, 255}) {
         test_fill_node_config(&nc, 0);
-        nc.ep_in.poll_interval_ms = interval;
-        MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) ==
+        nc.ep_in.interval = interval;
+        MIMHID_CHECK(mimhid_node_open_profile(device, spec, &nc, &kCommit, &node) ==
                      (interval == 0 ? MIMHID_ERR_UNSET_FIELD : MIMHID_ERR_PARAM));
     }
     test_fill_node_config(&nc, 0);
-    nc.ep_in.poll_interval_ms = 1;
+    nc.ep_in.interval = 1;
     nc.ep_out.address = 0x01;
     nc.ep_out.max_packet_size = 8;
-    nc.ep_out.poll_interval_ms = 17;
-    MIMHID_CHECK(mimhid_node_open(device, spec, &nc, &kCommit, &node) == MIMHID_ERR_PARAM);
+    nc.ep_out.interval = 17; nc.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &nc, &kCommit, &node) == MIMHID_ERR_PARAM);
     test_fill_node_config(&nc, 0);
-    nc.ep_in.poll_interval_ms = 16;
+    nc.ep_in.interval = 16;
     nc.ep_in.max_packet_size = 1024; // the packet of a high-speed interrupt endpoint (5.7.3)
     node = open_node(device, spec, &nc);
     MIMHID_CHECK(node != nullptr);

@@ -8,8 +8,8 @@
 
 // Firmware version reported in the Pong frame; keep in step with the library version.
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_MINOR 3
+#define FW_VERSION_PATCH 0
 
 // What the chip's USB controller has. Every port states these in its build, on the compiler
 // command line, and the build stops when one is missing: nothing is guessed from the chip family

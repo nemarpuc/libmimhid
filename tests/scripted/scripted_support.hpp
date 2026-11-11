@@ -47,8 +47,8 @@ inline mimhid_spec* keyboard_spec() {
     return spec;
 }
 
-inline mimhid_node_config node_config(std::uint8_t interface_number = 0) {
-    mimhid_node_config c{};
+inline mimhid_hid_node_config node_config(std::uint8_t interface_number = 0) {
+    mimhid_hid_node_config c{};
     test_fill_node_config(&c, interface_number);
     return c;
 }
@@ -65,3 +65,4 @@ void test_api_commands();
 void test_api_reports();
 void test_api_events();
 void test_api_raw_node();
+void test_api_generic();

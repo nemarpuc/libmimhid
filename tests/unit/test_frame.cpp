@@ -146,8 +146,17 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[33] = 8; // max_control_rules
     payload[34] = 6; // max_endpoint_number
     payload[35] = 2; // unique id length
-    payload[36] = 0xAB;
-    payload[37] = 0xCD;
+    payload[36] = 12;   // max_interfaces_any
+    payload[37] = 0x00; // max_config_descriptor_bytes 1024
+    payload[38] = 0x04;
+    payload[39] = 24;   // max_strings
+    payload[40] = 0x40; // max_transfer_bytes 576
+    payload[41] = 0x02;
+    payload[42] = 32;   // endpoint_queue_slots
+    payload[43] = 0;
+    payload[44] = 0x0C; // transfer types: bulk and interrupt
+    payload[MIMHID_PONG_MIN_LEN] = 0xAB;
+    payload[MIMHID_PONG_MIN_LEN + 1] = 0xCD;
     const std::vector<Frame> frames = parse(frame_bytes(MIMHID_T_PONG, payload));
     MIMHID_CHECK(frames.size() == 1U);
     if (frames.size() == 1U) {
@@ -155,7 +164,10 @@ void test_pong_of_this_version_decodes_every_field() {
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
                      info.max_interfaces == 15U && info.has_unique_id && info.chip == 2U &&
                      info.baud == 3000000U && info.max_control_rules == 8U &&
-                     info.max_endpoint_number == 6U && info.unique_id_length == 2U &&
+                     info.max_endpoint_number == 6U && info.max_interfaces_any == 12U &&
+                     info.max_config_descriptor_bytes == 1024U && info.max_strings == 24U &&
+                     info.max_transfer_bytes == 576U && info.endpoint_queue_slots == 32U &&
+                     info.transfer_types == 0x0CU && info.unique_id_length == 2U &&
                      info.unique_id[0] == 0xABU && info.unique_id[1] == 0xCDU);
         // One byte short of the fixed part is refused.
         const std::vector<Frame> shorter = parse(frame_bytes(

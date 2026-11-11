@@ -106,6 +106,8 @@ void log_message(const mimhid_device* device, const mimhid_log_level level,
 const char* frame_type_name(const std::int32_t frame_type) noexcept {
     if (frame_type >= MIMHID_T_EP_IN_BASE && frame_type <= MIMHID_T_EP_IN_LAST)
         return "EP_IN";
+    if (frame_type >= MIMHID_T_EP_OUT_BASE && frame_type <= MIMHID_T_EP_OUT_LAST)
+        return "EP_OUT";
     switch (frame_type) {
     case MIMHID_T_PING:
         return "PING";
@@ -137,6 +139,10 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
         return "PROBE";
     case MIMHID_T_COUNTERS:
         return "COUNTERS";
+    case MIMHID_T_EP_STALL:
+        return "EP_STALL";
+    case MIMHID_T_EP_FLUSH:
+        return "EP_FLUSH";
     case MIMHID_T_PONG:
         return "PONG";
     case MIMHID_T_ACK:

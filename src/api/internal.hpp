@@ -19,6 +19,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <variant>
@@ -230,6 +231,31 @@ mimhid_result link_available(const struct mimhid_node* node, const char* field) 
 
 } // namespace mimhid::detail
 
+namespace mimhid::detail {
+
+// One interface of a Node opened with mimhid_node_open, copied from the caller's configuration.
+struct GenericInterface {
+    std::uint8_t number{};
+    std::uint8_t class_code{};
+    std::uint8_t subclass{};
+    std::uint8_t protocol{};
+    std::string name;
+    std::vector<std::uint8_t> class_descriptors;
+    std::vector<mimhid_usb_endpoint> endpoints;
+};
+
+// What the library knows of an IN endpoint of such a Node while it is open. The counters are
+// guarded by the Device's endpoint_mutex.
+struct EndpointRuntime {
+    std::uint8_t address{};
+    std::uint16_t max_packet_size{};
+    mimhid_endpoint_policy policy{};
+    std::uint32_t outstanding{}; // frames written minus frames the board reported finished
+    std::uint64_t epoch{};       // counts the resets of `outstanding`, which wake writers
+};
+
+} // namespace mimhid::detail
+
 struct mimhid_spec {
     std::atomic<std::uint32_t> references{1U};
     mimhid_profile_kind kind{};
@@ -258,6 +284,13 @@ struct mimhid_device {
     std::string product;
     std::string serial;
     std::string configuration;
+    // Strings the caller added (mimhid_device_add_string), by index, in UTF-8.
+    std::map<std::uint8_t, std::string> user_strings;
+
+    // The wait policy's counts (EndpointRuntime) and the writers that wait on them. A writer holds
+    // the mutex only to look at a count, never while it waits for the board or writes.
+    std::mutex endpoint_mutex;
+    std::condition_variable endpoint_cv;
 
     // Nodes by node id (the index). A closed Node leaves a null entry that the next Node takes.
     // Event delivery reads this from the reader thread.
@@ -278,16 +311,22 @@ struct mimhid_node {
     mimhid_device* device{};
     mimhid_spec* spec{};
     mimhid::detail::NodeState state;
-    mimhid_node_config config{};
+    // A Node opened with mimhid_node_open (generic) has no Spec: its interfaces are in `interfaces`
+    // and `config` is not used. A profile Node (mimhid_node_open_profile, _raw) has a Spec and
+    // `config`, and the board's HID driver serves it.
+    bool generic{false};
+    std::vector<mimhid::detail::GenericInterface> interfaces;
+    std::vector<std::uint8_t> association;
+    std::vector<mimhid::detail::EndpointRuntime> in_endpoints; // generic Nodes only
+    mimhid_hid_node_config config{};
     std::string interface_string;
     std::uint16_t node_id{};
-    std::uint8_t iface{}; // iface.number: the bInterfaceNumber the Node has on the bus
+    std::uint8_t iface{}; // config.interface_number: the bInterfaceNumber the Node has on the bus
     struct FeatureEntry {
         std::uint8_t report_id{};
         std::vector<std::uint8_t> data;
     };
     std::vector<FeatureEntry> features; // answers to the target's Feature report reads
-    std::uint8_t queue_depth{0};        // mimhid_node_set_queue_depth, 0 when never set
     bool has_report_ids{false};         // the descriptor uses Report IDs
     std::bitset<256> report_ids;        // every Report ID the descriptor declares
     std::int64_t submitted_dx{};

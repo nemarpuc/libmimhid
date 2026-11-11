@@ -56,7 +56,14 @@ void test_node_arguments() {
                  std::strcmp(mimhid_last_error()->field, "node") == 0);
     const std::uint8_t data[1] = {0};
     MIMHID_CHECK(refused(mimhid_node_set_feature_response(nullptr, 0, data, 1, 100)));
-    MIMHID_CHECK(refused(mimhid_node_set_queue_depth(nullptr, 1, 100)));
+    const mimhid_endpoint_policy policy{MIMHID_FULL_DROP_NEWEST, 1};
+    MIMHID_CHECK(refused(mimhid_node_endpoint_set_policy(nullptr, 0x81, &policy, 100)));
+    MIMHID_CHECK(refused(mimhid_node_endpoint_write(nullptr, 0x81, data, 1, 100)));
+    MIMHID_CHECK(refused(mimhid_node_endpoint_stall(nullptr, 0x81, 100)));
+    MIMHID_CHECK(refused(mimhid_node_endpoint_clear_stall(nullptr, 0x81, 100)));
+    MIMHID_CHECK(refused(mimhid_node_endpoint_flush(nullptr, 0x81, 100)));
+    MIMHID_CHECK(refused(mimhid_device_add_string(nullptr, "x", nullptr)));
+    MIMHID_CHECK(refused(mimhid_device_remove_string(nullptr, 5)));
     mimhid_capability_manifest manifest{};
     manifest.struct_size = sizeof(manifest);
     MIMHID_CHECK(refused(mimhid_node_manifest(nullptr, &manifest)));

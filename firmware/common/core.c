@@ -3,6 +3,7 @@
 #include "core.h"
 #include "config.h"
 #include "control.h"
+#include "generic.h"
 #include "hal.h"
 #include "tusb.h"
 #include <string.h>
@@ -149,6 +150,12 @@ void mimhid_send_event(uint8_t kind, const uint8_t* data, uint16_t len) {
     send_frame(MIMHID_T_EVENT, g_event, (uint16_t)(1 + len));
 }
 
+// USB side only (it uses the long-frame buffer): a packet the target sent on an OUT endpoint, to
+// the host, as it came (see MIMHID_T_EP_OUT_BASE in mimhid_proto.h).
+void mimhid_send_ep_out(uint8_t number, const uint8_t* data, uint16_t length) {
+    send_frame((uint8_t)(MIMHID_T_EP_OUT_BASE | (number & 0x0F)), data, length);
+}
+
 static void send_ack(uint8_t seq, uint8_t type) {
     const uint8_t p[2] = {seq, type};
     send_frame(MIMHID_T_ACK, p, 2);
@@ -283,7 +290,7 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DESC_RESET && type <= MIMHID_T_COUNTERS);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DESC_RESET && type <= MIMHID_T_EP_FLUSH);
 }
 
 static void set_baud(uint32_t baud) {
@@ -379,7 +386,16 @@ static void send_pong(void) {
     p[33] = MIMHID_CONTROL_RULES;
     p[34] = MIMHID_MAX_ENDPOINT_NUMBER;
     p[35] = g_unique_id_len;
-    memcpy(&p[36], g_unique_id, g_unique_id_len);
+    p[36] = MIMHID_MAX_INTERFACES;
+    p[37] = (uint8_t)(MIMHID_MAX_CONFIG_BYTES & 0xFF);
+    p[38] = (uint8_t)(MIMHID_MAX_CONFIG_BYTES >> 8);
+    p[39] = MIMHID_MAX_STRINGS;
+    p[40] = (uint8_t)(MIMHID_MAX_TRANSFER_BYTES & 0xFF);
+    p[41] = (uint8_t)(MIMHID_MAX_TRANSFER_BYTES >> 8);
+    p[42] = (uint8_t)(MIMHID_EP_POOL_SLOTS & 0xFF);
+    p[43] = (uint8_t)(MIMHID_EP_POOL_SLOTS >> 8);
+    p[44] = (uint8_t)((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT));
+    memcpy(&p[MIMHID_PONG_MIN_LEN], g_unique_id, g_unique_id_len);
     send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
 
@@ -428,7 +444,7 @@ static bool rx_step(void) {
         return true;
     }
     if (is_report
-            ? (len == 0 || len > MIMHID_MAX_REPORT_BYTES)
+            ? len > MIMHID_MAX_TRANSFER_BYTES // 0 is a zero-length packet (generic endpoints only)
             : (type == MIMHID_T_PING ? len != 0 : (len < 1 || len > MIMHID_MAX_FRAME_PAYLOAD))) {
         g_rd = (read_idx + 1) & RX_MASK;
         return true;
@@ -444,21 +460,33 @@ static bool rx_step(void) {
         crc = mimhid_crc16_update(crc, len_high);
     const uint32_t body = read_idx + header;
     if (is_report) {
-        // The HID instance whose IN endpoint this is; a frame for any other endpoint is dropped.
-        uint8_t iface = mimhid_active_endpoint_instance((uint8_t)(type & 0x0F));
-        report_queue_t* q = (iface < MIMHID_HID_ITFS) ? &g_queue[iface] : NULL;
+        // The driver that owns this IN endpoint in the active configuration: TinyUSB's HID driver
+        // (a report queue of its own), the generic driver (generic.c), or none, in which case the
+        // frame is dropped. A HID report has at least one byte (HID 1.11 8.1: a report has a
+        // length); a zero-length transfer exists only on the generic driver.
+        const uint8_t number = (uint8_t)(type & 0x0F);
+        const mimhid_ep_info_t* info = mimhid_active_endpoint((uint8_t)(0x80u | number));
+        const uint8_t kind = info != NULL ? info->kind : (uint8_t)MIMHID_EP_NONE;
+        uint8_t iface = 0xFF;
+        report_queue_t* q = NULL;
         uint32_t h = 0;
         uint32_t next_h = 0;
         uint8_t* dst = NULL;
-        if (q != NULL) {
-            h = q->head;
-            next_h = (h + 1) & MIMHID_QUEUE_MASK;
-            const uint32_t waiting =
-                (h - __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE)) & MIMHID_QUEUE_MASK;
-            const uint8_t depth = __atomic_load_n(&g_depth[iface], __ATOMIC_RELAXED);
-            if (waiting < (depth ? depth : MIMHID_QUEUE_MASK)) {
-                dst = q->items[h].data;
+        if (kind == MIMHID_EP_HID && len != 0) {
+            iface = mimhid_active_endpoint_instance(number);
+            q = (iface < MIMHID_HID_ITFS) ? &g_queue[iface] : NULL;
+            if (q != NULL) {
+                h = q->head;
+                next_h = (h + 1) & MIMHID_QUEUE_MASK;
+                const uint32_t waiting =
+                    (h - __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE)) & MIMHID_QUEUE_MASK;
+                const uint8_t depth = __atomic_load_n(&g_depth[iface], __ATOMIC_RELAXED);
+                if (waiting < (depth ? depth : MIMHID_QUEUE_MASK) && len <= MIMHID_MAX_REPORT_BYTES) {
+                    dst = q->items[h].data;
+                }
             }
+        } else if (kind == MIMHID_EP_GENERIC) {
+            dst = mimhid_generic_in_reserve(number);
         }
         for (uint16_t i = 0; i < len; i++) {
             uint8_t b = g_rx[(body + i) & RX_MASK];
@@ -468,11 +496,16 @@ static bool rx_step(void) {
         }
         if (!crc_matches(crc, body + len)) {
             count(CNT_BAD_CRC);
+            if (kind == MIMHID_EP_GENERIC)
+                mimhid_generic_in_discard();
             g_rd = (read_idx + 1) & RX_MASK;
             return true;
         }
         g_baud_pending = false;
-        if (dst != NULL) {
+        if (kind == MIMHID_EP_GENERIC) {
+            if (dst != NULL)
+                mimhid_generic_in_commit(len);
+        } else if (dst != NULL) {
             q->items[h].len = len;
             __atomic_store_n(&q->head, next_h, __ATOMIC_RELEASE);
         } else if (q != NULL && __atomic_load_n(&g_lost_on, __ATOMIC_ACQUIRE)) {
@@ -566,6 +599,11 @@ void mimhid_rx_poll(void) {
 // USB side: configuration commands
 // -------------------------------------------------------------
 static mimhid_config_t g_staged;
+// True from DESC_RESET until the next COMMIT that applies a configuration (and again after a
+// detach): the staged configuration is being built and is not the active one, so an EP_CONFIG
+// only stages. Otherwise the staged configuration is the active one and an EP_CONFIG of a generic
+// endpoint also takes effect at once. (HID endpoints always take effect at once, as in 0.2.)
+static bool g_staged_fresh = true;
 
 static void cmd_desc_reset(const command_t* c) {
     const uint8_t seq = c->data[0];
@@ -574,6 +612,7 @@ static void cmd_desc_reset(const command_t* c) {
         return;
     }
     memset(&g_staged, 0, sizeof(g_staged));
+    g_staged_fresh = true;
     cmd_answer(seq, c->type, 0);
 }
 
@@ -617,7 +656,7 @@ static bool find_desc(uint8_t kind, uint8_t index, uint16_t language, desc_ref_t
         return true;
     }
     case MIMHID_DESC_HID_REPORT:
-        if (index >= MIMHID_HID_ITFS || language != 0 || !g_staged.report[index].d.used)
+        if (index >= MIMHID_MAX_INTERFACES || language != 0 || !g_staged.report[index].d.used)
             return false;
         ref->d = &g_staged.report[index].d;
         ref->bytes = &g_staged.report_pool[g_staged.report[index].off];
@@ -717,7 +756,7 @@ static void cmd_desc_begin(const command_t* c) {
             cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
             return;
         }
-        if (index >= MIMHID_HID_ITFS ||
+        if (index >= MIMHID_MAX_INTERFACES ||
             (uint32_t)g_staged.report_used + total > sizeof(g_staged.report_pool)) {
             cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
             return;
@@ -751,7 +790,8 @@ static void cmd_desc_data(const command_t* c) {
         return;
     }
     // The board's own strings have all their bytes already.
-    if (p[0] == MIMHID_DESC_STRING && find_string(p[1], get_u16(&p[2]))->from_id) {
+    const mimhid_string_t* str = p[0] == MIMHID_DESC_STRING ? find_string(p[1], get_u16(&p[2])) : NULL;
+    if (str != NULL && str->from_id) {
         cmd_answer(seq, c->type, MIMHID_NAK_STATE);
         return;
     }
@@ -777,7 +817,8 @@ static void cmd_feature(const command_t* c) {
         return;
     }
     mimhid_layout_t layout;
-    if (!staged_layout(&layout) || p[0] >= layout.count) {
+    // A Feature report belongs to a HID interface (HID 1.11 7.2.1).
+    if (!staged_layout(&layout) || p[0] >= layout.count || layout.itf_inst[p[0]] == 0xFF) {
         cmd_answer(seq, c->type, MIMHID_NAK_STATE);
         return;
     }
@@ -823,30 +864,72 @@ static void cmd_ep_config(const command_t* c) {
         return;
     }
     const uint8_t address = c->data[1], depth = c->data[2], policy = c->data[3];
-    // USB 2.0 9.6.6: bits 6..4 of an endpoint address are zero and its number is not 0. The board
-    // queues IN transfers only.
-    if ((address & 0x70) != 0 || (address & 0x0F) == 0 || depth == 0 ||
-        policy < MIMHID_EP_FULL_DROP_NEWEST || policy > MIMHID_EP_FULL_WAIT) {
+    const uint8_t number = address & 0x0F;
+    // USB 2.0 9.6.6: bits 6..4 of an endpoint address are zero and its number is not 0.
+    if ((address & 0x70) != 0 || number == 0 || depth == 0 || policy < MIMHID_EP_FULL_DROP_NEWEST ||
+        policy > MIMHID_EP_FULL_WAIT) {
         cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
         return;
     }
-    if ((address & 0x80) == 0 || policy != MIMHID_EP_FULL_DROP_NEWEST) {
+    if ((address & 0x80) == 0) { // the board queues IN transfers only
         cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
         return;
     }
     mimhid_layout_t layout;
-    if (!staged_layout(&layout) || layout.ep_inst[address & 0x0F] == 0xFF) {
+    if (!staged_layout(&layout) || layout.ep[1][number].kind == MIMHID_EP_NONE) {
         cmd_answer(seq, c->type, MIMHID_NAK_STATE);
         return;
     }
-    if (depth > MIMHID_QUEUE_MASK) {
+    if (layout.ep[1][number].kind == MIMHID_EP_HID) {
+        // A HID endpoint is served by TinyUSB's HID driver, whose queue drops the newest.
+        if (policy != MIMHID_EP_FULL_DROP_NEWEST) {
+            cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
+            return;
+        }
+        if (depth > MIMHID_QUEUE_MASK) {
+            cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
+            return;
+        }
+        g_staged.ep[number].depth = depth;
+        g_staged.ep[number].policy = policy;
+        apply_depths(); // takes effect without a COMMIT on an active endpoint
+        cmd_answer(seq, c->type, 0);
+        return;
+    }
+    // The generic driver: a queue that cannot be cut from the pool at all is refused here, and one
+    // that is too big together with the others at COMMIT.
+    if (mimhid_generic_slots(depth, policy) > MIMHID_EP_POOL_SLOTS) {
         cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
         return;
     }
-    g_staged.ep[address & 0x0F].depth = depth;
-    g_staged.ep[address & 0x0F].policy = policy;
-    apply_depths(); // takes effect without a COMMIT on an active endpoint
+    if (!g_staged_fresh) {
+        const uint8_t code = mimhid_generic_set_policy(address, depth, policy);
+        if (code) {
+            cmd_answer(seq, c->type, code);
+            return;
+        }
+    }
+    g_staged.ep[number].depth = depth;
+    g_staged.ep[number].policy = policy;
     cmd_answer(seq, c->type, 0);
+}
+
+static void cmd_ep_stall(const command_t* c) {
+    const uint8_t seq = c->data[0];
+    if (c->len != 3 || c->data[2] > 1 || (c->data[1] & 0x70) != 0 || (c->data[1] & 0x0F) == 0) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+    cmd_answer(seq, c->type, mimhid_generic_stall(c->data[1], c->data[2] == 1));
+}
+
+static void cmd_ep_flush(const command_t* c) {
+    const uint8_t seq = c->data[0];
+    if (c->len != 2 || (c->data[1] & 0x70) != 0 || (c->data[1] & 0x0F) == 0) {
+        cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        return;
+    }
+    cmd_answer(seq, c->type, mimhid_generic_flush(c->data[1]));
 }
 
 // True while the board's D+ pull-up is meant to be on: from a COMMIT that applied a configuration
@@ -865,7 +948,21 @@ static void cmd_commit(const command_t* c) {
         mimhid_control_clear();
         mimhid_clear_config();
         apply_depths();
+        static const mimhid_layout_t none; // no endpoints: every queue of the pool is released
+        mimhid_generic_apply(&g_staged, &none);
+        g_staged_fresh = true;
         cmd_answer(seq, c->type, 0);
+        return;
+    }
+    // Everything that can refuse is checked before anything changes: the walk, then the pool.
+    mimhid_layout_t layout;
+    if (!staged_layout(&layout)) {
+        cmd_answer(seq, c->type, MIMHID_NAK_DESCRIPTOR);
+        return;
+    }
+    uint8_t code = 0;
+    if (!mimhid_generic_plan(&g_staged, &layout, &code)) {
+        cmd_answer(seq, c->type, code);
         return;
     }
     if (!mimhid_apply_config(&g_staged)) {
@@ -876,6 +973,8 @@ static void cmd_commit(const command_t* c) {
     for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++)
         __atomic_store_n(&g_lost[i], 0u, __ATOMIC_RELAXED);
     apply_depths();
+    mimhid_generic_apply(&g_staged, &layout);
+    g_staged_fresh = false;
     mimhid_control_clear();
     g_attached = true;
     tud_connect();
@@ -914,6 +1013,12 @@ static void run_command(const command_t* c) {
     case MIMHID_T_EP_CONFIG:
         cmd_ep_config(c);
         break;
+    case MIMHID_T_EP_STALL:
+        cmd_ep_stall(c);
+        break;
+    case MIMHID_T_EP_FLUSH:
+        cmd_ep_flush(c);
+        break;
     case MIMHID_T_CONTROL_CONFIG: {
         const uint8_t code = mimhid_control_config(&c->data[1], (uint16_t)(c->len - 1));
         if (code)
@@ -930,13 +1035,16 @@ static void run_command(const command_t* c) {
         __atomic_store_n(&g_lost_on, false, __ATOMIC_RELEASE);
         for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++)
             __atomic_store_n(&g_lost[i], 0u, __ATOMIC_RELAXED);
+        mimhid_generic_loss_set(false);
         g_lost_interval_ms = (uint16_t)(c->data[2] | (c->data[3] << 8));
         g_lost_sent_ms = hal_millis() - g_lost_interval_ms;
         __atomic_store_n(&g_lost_on, c->data[1] == 1, __ATOMIC_RELEASE);
+        mimhid_generic_loss_set(c->data[1] == 1);
         cmd_answer(seq, c->type, 0);
         break;
     case MIMHID_T_RESET:
         queue_flush_all();
+        mimhid_generic_drop_all();
         cmd_answer(seq, c->type, 0);
         break;
     case MIMHID_T_REMOTE_WAKEUP:
@@ -958,6 +1066,7 @@ void mimhid_core_init(void) {
     g_max_baud = hal_uart_max_baud();
     if (g_max_baud < MIMHID_BOOT_BAUD)
         g_max_baud = MIMHID_BOOT_BAUD; // the boot rate is always there
+    mimhid_clear_config(); // the descriptors of a board with nothing committed
     tusb_init();
     g_attached = false;
     tud_disconnect();
@@ -974,7 +1083,7 @@ void mimhid_usb_poll(void) {
     mimhid_control_poll();
 
     // Each queue is serviced independently; the start index rotates for fairness.
-    const uint8_t count = mimhid_active_interfaces();
+    const uint8_t count = mimhid_active_hid_instances();
     for (uint8_t n = 0; n < count; n++) {
         uint8_t iface = (uint8_t)((g_rr + n) % count);
         if (!tud_hid_n_ready(iface))
@@ -987,6 +1096,7 @@ void mimhid_usb_poll(void) {
     }
     if (count)
         g_rr = (uint8_t)((g_rr + 1) % count);
+    mimhid_generic_poll();
 
     // A full queue drops the newest report; a host that asked is told how many.
     if (g_lost_on && (int32_t)(hal_millis() - g_lost_sent_ms) >= (int32_t)g_lost_interval_ms) {
@@ -996,6 +1106,16 @@ void mimhid_usb_poll(void) {
             const uint32_t n = __atomic_exchange_n(&g_lost[i], 0u, __ATOMIC_RELAXED);
             const uint16_t sat = n > 0xFFFFu ? 0xFFFFu : (uint16_t)n;
             const uint8_t ev[3] = {mimhid_active_instance_endpoint(i), (uint8_t)(sat & 0xFF),
+                                   (uint8_t)(sat >> 8)};
+            mimhid_send_event(MIMHID_EV_TRANSFER_LOST, ev, sizeof(ev));
+            g_lost_sent_ms = hal_millis();
+        }
+        for (uint8_t number = 1; number < 16; number++) {
+            const uint32_t n = mimhid_generic_loss_take(number);
+            if (n == 0)
+                continue;
+            const uint16_t sat = n > 0xFFFFu ? 0xFFFFu : (uint16_t)n;
+            const uint8_t ev[3] = {(uint8_t)(0x80u | number), (uint8_t)(sat & 0xFF),
                                    (uint8_t)(sat >> 8)};
             mimhid_send_event(MIMHID_EV_TRANSFER_LOST, ev, sizeof(ev));
             g_lost_sent_ms = hal_millis();
@@ -1072,15 +1192,17 @@ static uint8_t g_set_report[3 + MIMHID_HID_BUFSIZE];
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type,
                            uint8_t const* buffer, uint16_t bufsize) {
     const uint16_t n = bufsize > MIMHID_HID_BUFSIZE ? (uint16_t)MIMHID_HID_BUFSIZE : bufsize;
+    // TinyUSB names a HID driver instance; the host knows interface numbers.
+    const uint8_t itf_number = mimhid_active_instance_interface(itf);
     if (report_type == HID_REPORT_TYPE_OUTPUT && report_id == 0) {
-        g_set_report[0] = itf;
+        g_set_report[0] = itf_number;
         g_set_report[1] = (uint8_t)(n & 0xFF);
         g_set_report[2] = (uint8_t)(n >> 8);
         if (n && buffer)
             memcpy(&g_set_report[3], buffer, n);
         mimhid_send_event(MIMHID_EV_OUTPUT_REPORT, g_set_report, (uint16_t)(3 + n));
     } else {
-        g_set_report[0] = itf;
+        g_set_report[0] = itf_number;
         g_set_report[1] = (uint8_t)report_type;
         g_set_report[2] = report_id;
         if (n && buffer)
@@ -1090,12 +1212,12 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
 }
 
 void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol) {
-    const uint8_t ev[2] = {instance, protocol};
+    const uint8_t ev[2] = {mimhid_active_instance_interface(instance), protocol};
     mimhid_send_event(MIMHID_EV_SET_PROTOCOL, ev, 2);
 }
 
 bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate) {
-    const uint8_t ev[2] = {instance, idle_rate};
+    const uint8_t ev[2] = {mimhid_active_instance_interface(instance), idle_rate};
     mimhid_send_event(MIMHID_EV_SET_IDLE, ev, 2);
     return true;
 }

@@ -17,7 +17,7 @@ struct BoardInfo {
     bool ready{};
     bool compatible{}; // firmware major.minor equal to the library's; false: only version and ready
                        // are set
-    std::uint8_t max_interfaces{};
+    std::uint8_t max_interfaces{}; // HID interfaces
     std::uint16_t max_report_bytes{};
     std::uint16_t max_descriptor_bytes{};
     std::uint16_t max_feature_bytes{};
@@ -26,6 +26,12 @@ struct BoardInfo {
     std::uint16_t max_frame_payload{};
     std::uint16_t max_control_data_bytes{};
     std::uint8_t max_control_rules{};
+    std::uint8_t max_interfaces_any{};        // interfaces of every class
+    std::uint16_t max_config_descriptor_bytes{};
+    std::uint8_t max_strings{};
+    std::uint16_t max_transfer_bytes{};       // one frame to an endpoint of the generic driver
+    std::uint16_t endpoint_queue_slots{};
+    std::uint8_t transfer_types{};            // bit n: transfer type n
     bool has_unique_id{};
     std::uint8_t chip{};
     bool usb_high_speed{};

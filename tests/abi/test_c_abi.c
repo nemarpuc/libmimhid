@@ -32,15 +32,23 @@ _Static_assert(offsetof(mimhid_device_info, baud_rate) == 140, "device_info.baud
 _Static_assert(offsetof(mimhid_device_info, unique_id) == 155, "device_info.unique_id");
 _Static_assert(offsetof(mimhid_device_info, version_major) == 128, "device_info.version_major");
 
-_Static_assert(sizeof(mimhid_usb_endpoint) == 4, "usb_endpoint layout");
+_Static_assert(sizeof(mimhid_usb_endpoint) == 10, "usb_endpoint layout");
 _Static_assert(offsetof(mimhid_usb_endpoint, address) == 0, "usb_endpoint.address");
-_Static_assert(offsetof(mimhid_usb_endpoint, poll_interval_ms) == 1,
-               "usb_endpoint.poll_interval_ms");
-_Static_assert(offsetof(mimhid_usb_endpoint, max_packet_size) == 2, "usb_endpoint.max_packet_size");
+_Static_assert(offsetof(mimhid_usb_endpoint, transfer_type) == 1, "usb_endpoint.transfer_type");
+_Static_assert(offsetof(mimhid_usb_endpoint, interval) == 2, "usb_endpoint.interval");
+_Static_assert(offsetof(mimhid_usb_endpoint, max_packet_size) == 4, "usb_endpoint.max_packet_size");
+_Static_assert(offsetof(mimhid_usb_endpoint, policy) == 8, "usb_endpoint.policy");
+_Static_assert(sizeof(mimhid_endpoint_policy) == 2, "endpoint_policy layout");
 
+_Static_assert(sizeof(mimhid_usb_interface) == 48, "usb_interface layout");
 _Static_assert(offsetof(mimhid_usb_interface, number) == 0, "usb_interface.number");
 _Static_assert(offsetof(mimhid_usb_interface, class_code) == 1, "usb_interface.class_code");
-_Static_assert(offsetof(mimhid_usb_interface, bcd_hid) == 4, "usb_interface.bcd_hid");
+_Static_assert(offsetof(mimhid_usb_interface, name) == 8, "usb_interface.name");
+_Static_assert(offsetof(mimhid_usb_interface, endpoints) == 32, "usb_interface.endpoints");
+
+_Static_assert(sizeof(mimhid_hid_node_config) == 48, "hid_node_config layout");
+_Static_assert(offsetof(mimhid_hid_node_config, bcd_hid) == 12, "hid_node_config.bcd_hid");
+_Static_assert(offsetof(mimhid_hid_node_config, ep_in) == 24, "hid_node_config.ep_in");
 
 _Static_assert(offsetof(mimhid_usb_config, configuration_value) == 0,
                "usb_config.configuration_value");
@@ -53,6 +61,7 @@ _Static_assert(offsetof(mimhid_usb_device, product_id) == 8, "usb_device.product
 _Static_assert(offsetof(mimhid_usb_device, bcd_device) == 10, "usb_device.bcd_device");
 
 _Static_assert(offsetof(mimhid_node_config, struct_size) == 0, "node_config.struct_size");
+_Static_assert(sizeof(mimhid_node_config) == 40, "node_config layout");
 _Static_assert(offsetof(mimhid_device_config, struct_size) == 0, "device_config.struct_size");
 _Static_assert(offsetof(mimhid_commit_timeouts, struct_size) == 0, "commit_timeouts.struct_size");
 _Static_assert(offsetof(mimhid_commit_timeouts, reserved) == 4, "commit_timeouts.reserved");
