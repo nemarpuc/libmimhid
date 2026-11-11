@@ -80,6 +80,16 @@ static volatile uint32_t g_gen;
 
 static volatile bool g_loss_on;
 
+// Ring arithmetic without a division: the Cortex-M0+ of the RP2040 has no divide instruction, and
+// these run for every frame. Both arguments are below n (a drop count may add up to n - 1).
+static inline uint16_t ring_distance(uint16_t head, uint16_t tail, uint16_t n) {
+    return (uint16_t)(head >= tail ? head - tail : head + n - tail);
+}
+static inline uint16_t ring_add(uint16_t index, uint16_t count, uint16_t n) {
+    const uint32_t sum = (uint32_t)index + count;
+    return (uint16_t)(sum >= n ? sum - n : sum);
+}
+
 static uint16_t slots_of(uint8_t depth, uint8_t policy) {
     if (depth == 0)
         return 0;
@@ -118,7 +128,10 @@ bool mimhid_generic_plan(const mimhid_config_t* cfg, const mimhid_layout_t* layo
 }
 
 void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* layout) {
-    __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_RELEASE); // odd: being cut
+    // Odd: being cut. The store and the fence are sequentially consistent, so the receive side on
+    // the other core cannot see a queue change before it can see the odd generation.
+    __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_SEQ_CST);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     uint16_t next = 0;
     for (uint8_t number = 1; number < 16; number++) {
         in_t* q = &g_in[number];
@@ -130,7 +143,7 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
         q->lost = 0;
         q->tail = 0;
         q->n = 0;
-        q->geom = 0;
+        __atomic_store_n(&q->geom, 0u, __ATOMIC_RELEASE);
         if (in->kind == MIMHID_EP_GENERIC) {
             const uint16_t n = slots_of(cfg->ep[number].depth, cfg->ep[number].policy);
             q->base = next;
@@ -138,7 +151,7 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
             q->depth = cfg->ep[number].depth;
             q->policy = cfg->ep[number].policy;
             next = (uint16_t)(next + n);
-            q->geom = ((uint32_t)n << 16) | q->base;
+            __atomic_store_n(&q->geom, ((uint32_t)n << 16) | q->base, __ATOMIC_RELEASE);
         }
         if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
             out_t* o = &g_out[number];
@@ -148,7 +161,7 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
             o->packet = layout->ep[0][number].packet_size;
         }
     }
-    __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_RELEASE); // even: cut
+    __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_SEQ_CST); // even: cut
 }
 
 // ---- live changes ----
@@ -302,11 +315,14 @@ uint8_t* mimhid_generic_in_reserve(uint8_t number) {
     // the reads of this queue: its geometry would then be the new one and `head` still the old
     // ring's, which can point outside the new ring. The generation is read again: when it has not
     // changed, the geometry, the head and the tail all belong to the same cut (COMMIT makes the
-    // generation odd before it touches them), so the slot is inside this queue's ring and inside
-    // the pool. A frame that straddles a cut is dropped. One load and one compare per frame.
-    if (__atomic_load_n(&g_gen, __ATOMIC_ACQUIRE) != gen)
+    // generation odd before it touches them). A frame that straddles a cut is dropped.
+    //
+    // That nothing is written outside the pool does not rest on this ordering argument alone: the
+    // geometry is one word, so `n` and the base always belong together and base + n is inside the
+    // pool, and a head or a tail that is not below `n` is refused.
+    if (__atomic_load_n(&g_gen, __ATOMIC_SEQ_CST) != gen || head >= n || tail >= n)
         return NULL;
-    const uint16_t waiting = (uint16_t)((head + n - tail) % n);
+    const uint16_t waiting = ring_distance(head, tail, n);
     const uint8_t policy = __atomic_load_n(&q->policy, __ATOMIC_RELAXED);
     // Most that may be queued: `depth`, or for DROP_OLDEST everything the ring holds, which the USB
     // side cuts back to `depth` when it next looks (see the top of this file).
@@ -333,7 +349,7 @@ void mimhid_generic_in_commit(uint16_t length) {
     if (__atomic_load_n(&g_gen, __ATOMIC_ACQUIRE) != g_rx.gen)
         return; // the pool was cut again while the frame was read: it belongs to no queue now
     g_pool[g_rx.slot].len = length;
-    __atomic_store_n(&q->head, (uint16_t)((g_rx.head + 1u) % g_rx.n), __ATOMIC_RELEASE);
+    __atomic_store_n(&q->head, ring_add(g_rx.head, 1u, g_rx.n), __ATOMIC_RELEASE);
 }
 
 void mimhid_generic_in_discard(void) { g_rx.q = NULL; }
@@ -357,12 +373,12 @@ static void in_service(uint8_t number) {
         return;
     const uint16_t n = q->n;
     uint16_t tail = q->tail;
-    uint16_t waiting = (uint16_t)((__atomic_load_n(&q->head, __ATOMIC_ACQUIRE) + n - tail) % n);
+    uint16_t waiting = ring_distance(__atomic_load_n(&q->head, __ATOMIC_ACQUIRE), tail, n);
     const uint8_t depth = __atomic_load_n(&q->depth, __ATOMIC_RELAXED);
     if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMHID_EP_FULL_DROP_OLDEST &&
         waiting > depth) {
         const uint16_t drop = (uint16_t)(waiting - depth);
-        tail = (uint16_t)((tail + drop) % n);
+        tail = ring_add(tail, drop, n);
         __atomic_store_n(&q->tail, tail, __ATOMIC_RELEASE);
         lost_add(q, drop);
         waiting = depth;
@@ -380,7 +396,7 @@ static void in_service(uint8_t number) {
     const uint16_t len = slot->len;
     memcpy(g_bus[number].data, slot->data, len);
     q->inflight = true;
-    __atomic_store_n(&q->tail, (uint16_t)((tail + 1u) % n), __ATOMIC_RELEASE);
+    __atomic_store_n(&q->tail, ring_add(tail, 1u, n), __ATOMIC_RELEASE);
     if (!usbd_edpt_xfer(0, address, g_bus[number].data, len)) {
         q->inflight = false; // the transfer is lost
         lost_add(q, 1u);
