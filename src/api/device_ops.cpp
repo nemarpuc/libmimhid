@@ -1124,14 +1124,17 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     }
     start_rule_updater(device);
     device->link.clear_ready();
-    if (device->configured) {
-        r = command_error(device->link.disconnect(control), "device.commit",
-                          "The board did not disconnect in time.", MIMHID_T_COMMIT);
-        if (r != MIMHID_OK)
-            return r;
-        if (reconnect_delay_ms > 0U)
-            std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_delay_ms));
-    }
+    // The board leaves the bus before every configuration, the first one of this Device too: a
+    // program that ended without closing its Device (or closed it with keep_attached) leaves the
+    // board on the target's bus, and a configuration sent to a board that is attached changes its
+    // descriptors under a device the target has already enumerated. The target would never see
+    // the new device, and the board would never report it mounted.
+    r = command_error(device->link.disconnect(control), "device.commit",
+                      "The board did not disconnect in time.", MIMHID_T_COMMIT);
+    if (r != MIMHID_OK)
+        return r;
+    if (reconnect_delay_ms > 0U)
+        std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_delay_ms));
     r = command_error(device->link.connect(waits.reconnect), "device.commit",
                       "The board did not connect or enumerate in time.", MIMHID_T_COMMIT);
     if (r != MIMHID_OK)

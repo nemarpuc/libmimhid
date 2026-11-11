@@ -119,6 +119,11 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 static bool g_mounted, g_suspended, g_connect_pending;
+// The pull-up on D+: a target enumerates a device when the pull-up appears, and only then. A
+// board that is already on the bus and is told to connect again changes nothing the target can
+// see, so no new enumeration follows (a real board showed this: a configuration sent to a board
+// a crashed program had left attached was never mounted).
+static bool g_pulled_up;
 static unsigned g_connects;
 static unsigned g_mount_delay_ms = 5;
 static uint32_t g_connect_at;
@@ -138,6 +143,8 @@ bool tud_suspended(void) { return g_suspended; }
 bool tud_disconnect(void) {
     pthread_mutex_lock(&g_lock);
     g_mounted = false;
+    g_pulled_up = false;
+    g_connect_pending = false;
     g_out_tail = g_out_head; // what the target had not sent is gone with the connection
     pthread_mutex_unlock(&g_lock);
     return true;
@@ -146,8 +153,11 @@ bool tud_disconnect(void) {
 bool tud_connect(void) {
     pthread_mutex_lock(&g_lock);
     g_connects++;
-    g_connect_pending = true;
-    g_connect_at = hal_millis() + g_mount_delay_ms;
+    if (!g_pulled_up) {
+        g_pulled_up = true;
+        g_connect_pending = true;
+        g_connect_at = hal_millis() + g_mount_delay_ms;
+    }
     pthread_mutex_unlock(&g_lock);
     return true;
 }

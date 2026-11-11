@@ -9,6 +9,15 @@ change of the minor number may change the API, the ABI or the wire protocol.
 **Version 0.3.0, not released and not hardware-verified.** The wire protocol and the C ABI change: a
 0.2.1 board and this library do not talk to each other.
 
+### A board a program left attached
+
+- **The board leaves the bus before every configuration, the first of a Device too.** A program that
+  ended without closing its Device (or closed it with `keep_attached`) leaves the board on the
+  target's bus. The next program's first configuration used to reach a board that was attached:
+  its descriptors changed under a device the target had already enumerated, the target never saw
+  the new device, and `mimhid_device_wait_ready` timed out. Found on a Raspberry Pi Pico; the
+  simulated board now enumerates only when the pull-up appears, as a real one does.
+
 ### Entering the bootloader
 
 - **`mimhid_device_enter_bootloader`** (`BOOTLOADER`, `0x20`): the board takes its USB device off the

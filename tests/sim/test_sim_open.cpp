@@ -287,6 +287,15 @@ void test_keep_attached_and_discovery() {
         mimhid_device_info info{};
         MIMHID_CHECK(mimhid_device_board_info(again, &info) == MIMHID_OK &&
                      info.max_interfaces == 15);
+        // The board is still on the target's bus, as a program that ended without closing its
+        // Device leaves it. The first configuration of the new Device takes it off the bus first,
+        // so the target enumerates the new device and the board reports it mounted.
+        MIMHID_CHECK(fake_board_mounted() == 1);
+        mimhid_spec* next = raw_spec_no_id();
+        mimhid_node* opened = open_node(again, next);
+        MIMHID_CHECK(opened != nullptr);
+        MIMHID_CHECK(mimhid_device_wait_ready(again, 2000) == MIMHID_OK);
+        mimhid_spec_release(next);
         MIMHID_CHECK(mimhid_device_close(again, kControlMs, kDrainMs) == MIMHID_OK);
     }
 }
@@ -302,7 +311,6 @@ void test_filled_values() {
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
-
     static const std::uint16_t usages[1] = {0xCD};
     static const mimhid_usage_semantic semantics[1] = {MIMHID_USAGE_ONE_SHOT};
     static const char* const types[1] = {"EV_KEY"};
@@ -349,7 +357,7 @@ void test_filled_values() {
         if (node == nullptr)
             continue;
         MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
-        // The strings go to the board with the first configuration.
+        // The strings this Device was opened with reach the board with its configuration.
         char text[64];
         MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) > 0 &&
                      std::strcmp(text, "libmimhid") == 0);
