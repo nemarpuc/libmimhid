@@ -423,8 +423,14 @@ mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
 
 void reset_endpoint_counts(mimhid_device* device) {
     {
+        // nodes_mutex is held for the whole walk, and taken before endpoint_mutex: the reader
+        // thread calls this, and a Node is deleted only after unpublish_node took nodes_mutex, so
+        // no Node walked here can go away under it.
+        std::lock_guard<std::mutex> nodes(device->nodes_mutex);
         std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-        for (mimhid_node* node : live_nodes(device)) {
+        for (mimhid_node* node : device->slots) {
+            if (node == nullptr || node->closed)
+                continue;
             for (EndpointRuntime& ep : node->in_endpoints) {
                 ep.outstanding = 0U;
                 ++ep.epoch;
@@ -730,8 +736,12 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
             return;
         const std::uint32_t done = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
         {
+            // As reset_endpoint_counts: nodes_mutex for the whole walk, then endpoint_mutex.
+            std::lock_guard<std::mutex> nodes(device->nodes_mutex);
             std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-            for (mimhid_node* node : live_nodes(device)) {
+            for (mimhid_node* node : device->slots) {
+                if (node == nullptr || node->closed)
+                    continue;
                 for (EndpointRuntime& ep : node->in_endpoints) {
                     if (ep.address == d[0])
                         ep.outstanding = ep.outstanding > done ? ep.outstanding - done : 0U;
