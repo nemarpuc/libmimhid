@@ -300,11 +300,11 @@ uint8_t* mimhid_generic_in_reserve(uint8_t number) {
     const uint16_t tail = __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE);
     // A COMMIT on the USB side may have cut the pool again between the read of the generation and
     // the reads of this queue: its geometry would then be the new one and `head` still the old
-    // ring's, which can point outside the new ring. The generation is read again, and a frame that
-    // straddles a cut is dropped; the indices are checked as well, so nothing is ever written
-    // outside the ring whatever the two sides did.
-    if (__atomic_load_n(&g_gen, __ATOMIC_ACQUIRE) != gen || head >= n || tail >= n ||
-        (geom & 0xFFFFu) + n > MIMHID_EP_POOL_SLOTS)
+    // ring's, which can point outside the new ring. The generation is read again: when it has not
+    // changed, the geometry, the head and the tail all belong to the same cut (COMMIT makes the
+    // generation odd before it touches them), so the slot is inside this queue's ring and inside
+    // the pool. A frame that straddles a cut is dropped. One load and one compare per frame.
+    if (__atomic_load_n(&g_gen, __ATOMIC_ACQUIRE) != gen)
         return NULL;
     const uint16_t waiting = (uint16_t)((head + n - tail) % n);
     const uint8_t policy = __atomic_load_n(&q->policy, __ATOMIC_RELAXED);
