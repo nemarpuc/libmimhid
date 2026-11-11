@@ -749,6 +749,7 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_device_connect", [DeviceP, c.POINTER(CommitTimeouts)], c.c_int32)
     declare("mimhid_device_disconnect", [DeviceP, c.c_uint32], c.c_int32)
     declare("mimhid_device_remote_wakeup", [DeviceP, c.c_uint32], c.c_int32)
+    declare("mimhid_device_enter_bootloader", [DeviceP, c.c_uint32], c.c_int32)
     declare("mimhid_device_board_info", [DeviceP, c.POINTER(DeviceInfo)], c.c_int32)
     declare("mimhid_device_limits", [DeviceP, c.POINTER(BoardLimits)], c.c_int32)
     declare("mimhid_device_link_counters", [DeviceP, c.c_uint32, c.c_uint32, c.POINTER(LinkCounters)], c.c_int32)

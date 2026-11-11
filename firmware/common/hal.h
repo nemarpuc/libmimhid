@@ -52,6 +52,14 @@ size_t hal_unique_id(uint8_t* out, size_t max);
 // The chip, as MIMHID_CHIP_* names it.
 uint8_t hal_chip(void);
 
+// True when hal_enter_bootloader does something on this chip.
+bool hal_has_bootloader(void);
+
+// Waits until queued output has left, then restarts the chip into its own bootloader (on the
+// RP2040 and RP2350 the USB mass-storage bootloader in ROM). Does not return when
+// hal_has_bootloader is true; does nothing otherwise.
+void hal_enter_bootloader(void);
+
 // Disarms EP0 IN and OUT without stalling, leaving EP0 to NAK incoming tokens indefinitely.
 void hal_control_silent_drop(void);
 

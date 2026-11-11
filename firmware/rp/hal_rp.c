@@ -9,6 +9,7 @@
 #include "hardware/clocks.h"
 #include "bsp/board.h"
 #include "pico/unique_id.h"
+#include "pico/bootrom.h"
 #include "hardware/structs/usb.h"
 #include "hardware/structs/usb_dpram.h"
 #include "hal.h"
@@ -193,6 +194,15 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     size_t n = sizeof(id.id) < max ? sizeof(id.id) : max;
     for (size_t i = 0; i < n; i++) out[i] = id.id[i];
     return n;
+}
+
+bool hal_has_bootloader(void) { return true; }
+
+// The bootloader in ROM (RP2040 datasheet 2.8, RP2350 datasheet 5.5): reset_usb_boot restarts the
+// chip as the RPI-RP2 mass-storage device, with no activity LED and both of its interfaces.
+void hal_enter_bootloader(void) {
+    uart_tx_wait_blocking(UART_ID);
+    reset_usb_boot(0, 0);
 }
 
 void hal_control_silent_drop(void) {

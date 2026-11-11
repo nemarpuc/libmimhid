@@ -78,6 +78,10 @@ device_batch_end(mimhid_device* device, const mimhid_commit_timeouts* timeouts) 
                                                         uint32_t control_timeout_ms) noexcept {
     return mimhid_device_remote_wakeup(device, control_timeout_ms);
 }
+[[nodiscard]] inline mimhid_result device_enter_bootloader(mimhid_device* device,
+                                                           uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_enter_bootloader(device, control_timeout_ms);
+}
 [[nodiscard]] inline mimhid_result device_board_info(const mimhid_device* device,
                                                      mimhid_device_info* out_info) noexcept {
     return mimhid_device_board_info(device, out_info);

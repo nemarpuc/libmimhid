@@ -184,6 +184,10 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     return n;
 }
 
+// This port has no bootloader the firmware enters.
+bool hal_has_bootloader(void) { return false; }
+void hal_enter_bootloader(void) {}
+
 void hal_control_silent_drop(void) {}
 
 // TinyUSB raises USBPULLUP on every USB_EVT_READY (a cable plugged in, or the target powering up),

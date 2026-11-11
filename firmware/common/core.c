@@ -290,7 +290,7 @@ static void rx_fill(void) {
 }
 
 static bool known_command(uint8_t type) {
-    return type == MIMHID_T_PING || (type >= MIMHID_T_DESC_RESET && type <= MIMHID_T_EP_FLUSH);
+    return type == MIMHID_T_PING || (type >= MIMHID_T_DESC_RESET && type <= MIMHID_T_BOOTLOADER);
 }
 
 static void set_baud(uint32_t baud) {
@@ -1053,6 +1053,18 @@ static void run_command(const command_t* c) {
             cmd_answer(seq, c->type, 0);
         } else {
             cmd_answer(seq, c->type, MIMHID_NAK_STATE);
+        }
+        break;
+    case MIMHID_T_BOOTLOADER:
+        if (c->len != 1 + 4 || memcmp(&c->data[1], MIMHID_BOOTLOADER_KEY, 4) != 0) {
+            cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+        } else if (!hal_has_bootloader()) {
+            cmd_answer(seq, c->type, MIMHID_NAK_UNSUPPORTED);
+        } else {
+            // The target sees the device leave, the host gets its answer, and the chip restarts.
+            tud_disconnect();
+            cmd_answer(seq, c->type, 0);
+            hal_enter_bootloader();
         }
         break;
     default:

@@ -550,6 +550,25 @@ mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
 }
 MIMHID_C_RESULT_CATCH("device.remote_wakeup")
 
+mimhid_result MIMHID_CALL mimhid_device_enter_bootloader(mimhid_device* device,
+                                                         const uint32_t control_timeout_ms) try {
+    mimhid::detail::clear_error();
+    if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
+    static const std::uint8_t key[4] = {'B', 'O', 'O', 'T'};
+    // Sent once: a board that restarted cannot answer a second frame.
+    const tr::CommandResult result =
+        device->link.command(MIMHID_T_BOOTLOADER, key, sizeof(key), control_timeout_ms, 1);
+    return command_error(result, "device.enter_bootloader",
+                         "The board refused to enter its bootloader.", MIMHID_T_BOOTLOADER);
+}
+MIMHID_C_RESULT_CATCH("device.enter_bootloader")
+
 mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_device* device,
                                                    mimhid_device_info* out_info) try {
     mimhid::detail::clear_error();

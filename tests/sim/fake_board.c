@@ -71,6 +71,8 @@ bool hal_uart_has_break(void) { return true; }
 uint8_t hal_uart_errors(void) { return __atomic_exchange_n(&g_errors, 0, __ATOMIC_ACQ_REL); }
 void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
 uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
+bool hal_has_bootloader(void) { return false; }
+void hal_enter_bootloader(void) {}
 void hal_control_silent_drop(void) {}
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;

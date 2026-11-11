@@ -649,6 +649,7 @@ extern "C" {
     pub fn mimhid_device_connect(device: *mut mimhid_device, timeouts: *const mimhid_commit_timeouts) -> mimhid_result;
     pub fn mimhid_device_disconnect(device: *mut mimhid_device, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_remote_wakeup(device: *mut mimhid_device, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_enter_bootloader(device: *mut mimhid_device, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_board_info(device: *const mimhid_device, out_info: *mut mimhid_device_info) -> mimhid_result;
     pub fn mimhid_device_limits(device: *const mimhid_device, out_limits: *mut mimhid_board_limits) -> mimhid_result;
     pub fn mimhid_device_link_counters(device: *mut mimhid_device, reset: u32, control_timeout_ms: u32, out_counters: *mut mimhid_link_counters) -> mimhid_result;

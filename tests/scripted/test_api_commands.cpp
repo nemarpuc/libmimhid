@@ -296,6 +296,35 @@ void test_link_counters() {
 }
 
 // Remote wakeup is one command; the board refuses it while the target has not suspended.
+void test_enter_bootloader() {
+    Board board;
+    if (!board.start())
+        return;
+    mimhid_device* device = open_on(board, board_options());
+    if (device == nullptr)
+        return;
+    MIMHID_CHECK(mimhid_device_enter_bootloader(device, 0) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_enter_bootloader(nullptr, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(board.count(MIMHID_T_BOOTLOADER) == 0U);
+    board.set_policy([](const Received& q) -> std::optional<Reply> {
+        if (q.type == MIMHID_T_BOOTLOADER)
+            return Reply::nak(MIMHID_NAK_UNSUPPORTED);
+        return std::nullopt;
+    });
+    MIMHID_CHECK(mimhid_device_enter_bootloader(device, kControlMs) == MIMHID_ERR_UNSUPPORTED);
+    board.set_policy(nullptr);
+    MIMHID_CHECK(mimhid_device_enter_bootloader(device, kControlMs) == MIMHID_OK);
+    // The frame carries the key after its sequence number.
+    bool keyed = false;
+    for (const Received& q : board.received()) {
+        if (q.type == MIMHID_T_BOOTLOADER)
+            keyed = q.payload.size() == 5U && q.payload[1] == 'B' && q.payload[2] == 'O' &&
+                    q.payload[3] == 'O' && q.payload[4] == 'T';
+    }
+    MIMHID_CHECK(keyed);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+}
+
 void test_remote_wakeup() {
     Board board;
     if (!board.start())
@@ -449,6 +478,7 @@ void test_api_commands() {
     test_wait_ready_timeout();
     test_link_counters();
     test_remote_wakeup();
+    test_enter_bootloader();
     test_control_routing();
     test_set_usb_identity();
     test_device_arguments();

@@ -37,6 +37,7 @@ void test_device_arguments() {
     MIMHID_CHECK(refused(mimhid_device_connect(nullptr, &timeouts)));
     MIMHID_CHECK(refused(mimhid_device_disconnect(nullptr, 100)));
     MIMHID_CHECK(refused(mimhid_device_remote_wakeup(nullptr, 100)));
+    MIMHID_CHECK(refused(mimhid_device_enter_bootloader(nullptr, 100)));
     mimhid_device_info info{};
     mimhid_board_limits limits{};
     mimhid_link_counters counters{};

@@ -417,6 +417,17 @@ mimhid_result mimhid_device_remote_wakeup(mimhid_device* device, uint32_t contro
 - **Synchronization:** Device domain. Wakes a target that suspended the board's USB device; the target must have enabled remote wakeup (usb_config.bm_attributes bit 5 and `MIMHID_EVENT_SUSPEND` with value 1).
 - **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_BUSY` when the device is not suspended; a link error.
 
+#### `mimhid_device_enter_bootloader`
+
+```c
+mimhid_result mimhid_device_enter_bootloader(mimhid_device* device, uint32_t control_timeout_ms);
+```
+
+- **Ownership:** Nothing.
+- **Blocking:** Waits up to control_timeout_ms for the board's answer.
+- **Synchronization:** Device domain. Restarts the board into its chip's own bootloader, where new firmware is written (on the RP2040 and RP2350 the board then appears on the target-facing USB port as the RPI-RP2 drive). The board first takes its USB device off the target. After `MIMHID_OK` the board no longer answers: the Device is good only for `mimhid_device_close`, which reports the board as gone.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_UNSUPPORTED` on a board whose chip has no bootloader the firmware can enter; a link error.
+
 #### `mimhid_device_board_info`
 
 ```c

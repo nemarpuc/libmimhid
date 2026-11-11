@@ -43,6 +43,7 @@ An `EP_IN` payload is at most the board's `max_report_bytes`. Other payloads are
 | `0x1D` | `COUNTERS` | Flags byte (bit 0: reset counters after reading). Handled on the receive side; `ACK` carries five `u16` LE counters (`probes_good`, `bad_crc`, `framing`, `uart_overrun`, `ring_overrun`). |
 | `0x1E` | `EP_STALL` | Endpoint address, then `1` to stall or `0` to clear the Halt feature (USB 2.0 9.4.5): the endpoint answers STALL until it is cleared by this command or by the target; stalling an IN endpoint drops what waits and the transfer being sent. `NAK_STATE` when the address is not an endpoint of the generic driver in the active configuration (a HID endpoint included), `NAK_PARAM` for a bad flag. |
 | `0x1F` | `EP_FLUSH` | IN endpoint address: drops what waits on the board; a transfer the controller already has completes. `NAK_STATE` as for `EP_STALL`, `NAK_PARAM` for an OUT endpoint. |
+| `0x20` | `BOOTLOADER` | The four bytes `BOOT`. The board takes its USB device off the target, acknowledges, and restarts into the chip's own bootloader, where new firmware is written (the RP2040 and RP2350; the other ports answer `NAK_UNSUPPORTED`). `NAK_PARAM` for another payload. |
 
 Field layouts of `DESC_BEGIN`, `DESC_DATA`, `FEATURE`, `EP_CONFIG`, `EP_STALL` and `EP_FLUSH` are documented in [`proto/mimhid_proto.h`](../proto/mimhid_proto.h).
 

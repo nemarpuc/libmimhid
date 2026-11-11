@@ -74,6 +74,12 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
     0x1E /* payload after sequence number: endpoint address, 1 stall or 0 clear the halt */
 #define MIMHID_T_EP_FLUSH                                                                          \
     0x1F /* payload after sequence number: endpoint address; drops what waits on the board */
+#define MIMHID_T_BOOTLOADER                                                                        \
+    0x20 /* payload after sequence number: the four bytes MIMHID_BOOTLOADER_KEY. The board takes  \
+            its USB device off the target, acknowledges, and restarts into the chip's own         \
+            bootloader, where new firmware can be written; NAK_UNSUPPORTED on a chip that has     \
+            none the firmware can enter, NAK_PARAM for another payload */
+#define MIMHID_BOOTLOADER_KEY "BOOT"
 #define MIMHID_T_EP_IN_BASE                                                                        \
     0x40 /* 0x40 | endpoint number: data for that IN endpoint; 0x40 itself                         \
             (endpoint 0) is refused */

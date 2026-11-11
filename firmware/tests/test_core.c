@@ -85,6 +85,10 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     memcpy(out, id, n);
     return n;
 }
+static bool g_has_bootloader = true;
+static int g_bootloader_entered;
+bool hal_has_bootloader(void) { return g_has_bootloader; }
+void hal_enter_bootloader(void) { g_bootloader_entered++; }
 void hal_control_silent_drop(void) {}
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
@@ -1033,6 +1037,20 @@ static void test_ping_and_events(void) {
     g_suspended = true;
     assert(command(MIMHID_T_REMOTE_WAKEUP, NULL, 0) == 1 && g_wakeups == 1);
     g_suspended = false;
+
+    // BOOTLOADER: only with its key, only on a chip that has one; the answer leaves first.
+    {
+        const uint8_t key[4] = {'B', 'O', 'O', 'T'};
+        const uint8_t wrong[4] = {'B', 'O', 'O', 'S'};
+        assert(command(MIMHID_T_BOOTLOADER, wrong, 4) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+        assert(command(MIMHID_T_BOOTLOADER, key, 3) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+        assert(g_bootloader_entered == 0);
+        g_has_bootloader = false;
+        assert(command(MIMHID_T_BOOTLOADER, key, 4) == 0 && g_nak_code == MIMHID_NAK_UNSUPPORTED);
+        assert(g_bootloader_entered == 0);
+        g_has_bootloader = true;
+        assert(command(MIMHID_T_BOOTLOADER, key, 4) == 1 && g_bootloader_entered == 1);
+    }
 }
 
 static int set_baud_cmd(uint32_t baud) {

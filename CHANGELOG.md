@@ -9,6 +9,12 @@ change of the minor number may change the API, the ABI or the wire protocol.
 **Version 0.3.0, not released and not hardware-verified.** The wire protocol and the C ABI change: a
 0.2.1 board and this library do not talk to each other.
 
+### Entering the bootloader
+
+- **`mimhid_device_enter_bootloader`** (`BOOTLOADER`, `0x20`): the board takes its USB device off the
+  target and restarts into the chip's own bootloader, so new firmware can be written without the
+  BOOTSEL button. RP2040 and RP2350; the other ports answer `MIMHID_ERR_UNSUPPORTED`.
+
 ### Step 2: generic USB interfaces
 
 - **`mimhid_node_open` takes interfaces of any class but HID** (`mimhid_node_config`: interfaces, bulk

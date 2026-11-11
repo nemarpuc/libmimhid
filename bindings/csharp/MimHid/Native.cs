@@ -932,6 +932,8 @@ public static class Native
     public static extern Result DeviceDisconnect(nint device, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_device_remote_wakeup", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceRemoteWakeup(nint device, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_enter_bootloader", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEnterBootloader(nint device, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_device_board_info", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceBoardInfo(nint device, ref DeviceInfo info);
     [DllImport(Library, EntryPoint = "mimhid_device_board_info", ExactSpelling = true, CallingConvention = Call)]

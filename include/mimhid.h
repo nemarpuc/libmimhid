@@ -1144,6 +1144,20 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* dev
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
                                                                  uint32_t control_timeout_ms);
 
+/* mimhid_device_enter_bootloader
+ * Ownership: Nothing.
+ * Blocking: Waits up to control_timeout_ms for the board's answer.
+ * Synchronization: Device domain.
+ * Restarts the board into its chip's own bootloader, where new firmware is written (on the
+ * RP2040 and RP2350 the board then appears on the target-facing USB port as the RPI-RP2 drive).
+ * The board first takes its USB device off the target. After MIMHID_OK the board no longer
+ * answers: the Device is good only for mimhid_device_close, which reports the board as gone.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device; MIMHID_ERR_UNSET_FIELD for a zero
+ * timeout; MIMHID_ERR_UNSUPPORTED on a board whose chip has no bootloader the firmware can enter;
+ * a link error. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_enter_bootloader(mimhid_device* device,
+                                                                    uint32_t control_timeout_ms);
+
 /* mimhid_device_board_info
  * Ownership: Fills the caller's out_info.
  * Blocking: None; a copy of what the board reported at open.

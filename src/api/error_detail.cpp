@@ -143,6 +143,8 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
         return "EP_STALL";
     case MIMHID_T_EP_FLUSH:
         return "EP_FLUSH";
+    case MIMHID_T_BOOTLOADER:
+        return "BOOTLOADER";
     case MIMHID_T_PONG:
         return "PONG";
     case MIMHID_T_ACK:
