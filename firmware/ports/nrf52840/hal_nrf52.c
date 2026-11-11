@@ -184,9 +184,26 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     return n;
 }
 
-// This port has no bootloader the firmware enters.
+// The nRF52840 has no bootloader in ROM. A board may carry one in flash (the nRF52840 Dongle's
+// Open Bootloader, the Adafruit nRF52 bootloader, ...), which the master boot record starts
+// before the firmware and which looks at the retained register GPREGRET to decide whether to stay
+// (nRF52840 Product Specification, POWER: GPREGRET is kept through a system reset). The value it
+// looks for is the bootloader's own, so the build states it (MIMHID_NRF_BOOTLOADER_GPREGRET) and
+// nothing is assumed: without it, or on a chip whose UICR names no bootloader (NRFFW[0], the
+// address the MBR starts, is erased), the command is refused.
+#ifdef MIMHID_NRF_BOOTLOADER_GPREGRET
+bool hal_has_bootloader(void) { return NRF_UICR->NRFFW[0] != 0xFFFFFFFFu; }
+
+void hal_enter_bootloader(void) {
+    if (!hal_has_bootloader()) return;
+    // hal_uart_write returns only once its bytes have left, so the answer is out.
+    NRF_POWER->GPREGRET = (uint32_t)(MIMHID_NRF_BOOTLOADER_GPREGRET);
+    NVIC_SystemReset();
+}
+#else
 bool hal_has_bootloader(void) { return false; }
 void hal_enter_bootloader(void) {}
+#endif
 
 void hal_control_silent_drop(void) {}
 

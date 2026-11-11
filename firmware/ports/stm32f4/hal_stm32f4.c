@@ -50,7 +50,43 @@ static void set_rate(divider_t d) {
     USART2->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | (d.over8 ? USART_CR1_OVER8 : 0u);
 }
 
+// The bootloader ST programs into system memory (AN2606: it starts at 0x1FFF0000 on the STM32F4
+// lines this port builds for, and offers USB DFU on the OTG_FS pins and the USARTs). It expects
+// the chip as a reset leaves it, so it is not jumped to from the running firmware: the request is
+// left in a backup register, which a reset does not clear (RM0383 5.1.2, the backup domain), the
+// chip is reset, and hal_init finds the request before it has set anything up.
+#define SYSTEM_MEMORY     0x1FFF0000u
+#define BOOTLOADER_MAGIC  0x4D494D42u // "MIMB"
+
+static void backup_domain_open(void) {
+    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+    (void)RCC->APB1ENR; // the clock is running before the next access
+    PWR->CR |= PWR_CR_DBP; // write access to the backup registers
+}
+
+static void enter_bootloader_if_asked(void) {
+    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+    (void)RCC->APB1ENR;
+    if (RTC->BKP0R != BOOTLOADER_MAGIC) return;
+    PWR->CR |= PWR_CR_DBP;
+    RTC->BKP0R = 0; // once: the next reset starts the firmware again
+    const uint32_t* vectors = (const uint32_t*)SYSTEM_MEMORY;
+    __set_MSP(vectors[0]);
+    ((void (*)(void))vectors[1])();
+    for (;;) {}
+}
+
+bool hal_has_bootloader(void) { return true; }
+
+void hal_enter_bootloader(void) {
+    while ((USART2->SR & USART_SR_TC) == 0) {} // the answer has left
+    backup_domain_open();
+    RTC->BKP0R = BOOTLOADER_MAGIC;
+    NVIC_SystemReset();
+}
+
 void hal_init(void) {
+    enter_bootloader_if_asked();
     board_init();
 
     __HAL_RCC_DMA1_CLK_ENABLE();
@@ -156,9 +192,5 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     for (size_t i = 0; i < n; i++) out[i] = uid[i];
     return n;
 }
-
-// This port has no bootloader the firmware enters.
-bool hal_has_bootloader(void) { return false; }
-void hal_enter_bootloader(void) {}
 
 void hal_control_silent_drop(void) {}

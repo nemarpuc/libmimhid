@@ -40,6 +40,14 @@ set(MIMHID_DEFS
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
     CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED)
 
+# A board that carries a bootloader in flash: the value that bootloader looks for in GPREGRET to
+# stay in it after a reset (0x57 for the UF2 mode of the Adafruit nRF52 bootloader, for example).
+# With it the BOOTLOADER command works; without it the board answers that it has none. The value
+# is the bootloader's own, so it is never assumed.
+if(DEFINED MIMHID_NRF_BOOTLOADER_GPREGRET)
+    list(APPEND MIMHID_DEFS MIMHID_NRF_BOOTLOADER_GPREGRET=${MIMHID_NRF_BOOTLOADER_GPREGRET})
+endif()
+
 family_configure_device_example(mimhid_firmware_nrf52840 noos)
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
 target_link_options(mimhid_firmware_nrf52840 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall -Wl,--wrap=dcd_edpt_xfer -Wl,--wrap=tusb_hal_nrf_power_event)

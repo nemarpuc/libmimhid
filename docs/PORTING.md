@@ -48,6 +48,8 @@ A port implements the twelve functions declared in `firmware/common/hal.h`:
 | `hal_uart_write(data, len)` | Blocking send; callable from both the receive and USB contexts. |
 | `hal_millis()` | Milliseconds since boot. |
 | `hal_unique_id(out, max)` | Copy the chip's unique id and return its length, or 0 when there is none. Used for `serial_from_chip_id`. |
+| `hal_has_bootloader()` | True when `hal_enter_bootloader` does something on this chip; the `BOOTLOADER` command is refused (`NAK_UNSUPPORTED`) when it is false. |
+| `hal_enter_bootloader()` | Wait until queued output has left, then restart the chip into its own bootloader, and do not return. A chip whose bootloader wants the state a reset leaves (the STM32F4's system memory) leaves a mark a reset keeps, resets, and jumps from `hal_init` before anything is set up. Do nothing when the chip has no bootloader. |
 | `hal_control_silent_drop()` | Disarm endpoint 0 IN and OUT without a STALL, so that it NAKs until the target gives up. `control.c` calls it for `MIMHID_CONTROL_ACTION_DROP`, and in place of the endpoint 0 stall the stack makes after a dropped transfer. Only the RP2040/RP2350 port implements it; the other ports have an empty function. |
 
 The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the RP2040 and RP2350 port, `firmware/rp/main.c`, does this).

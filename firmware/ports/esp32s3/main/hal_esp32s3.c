@@ -8,6 +8,8 @@
 #include "esp_private/usb_phy.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
+#include "esp_system.h"
+#include "soc/rtc_cntl_reg.h"
 #include "hal.h"
 
 // The wiring is the board's: the build states the two pins (no pin is assumed).
@@ -123,8 +125,16 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
     return n;
 }
 
-// This port has no bootloader the firmware enters.
-bool hal_has_bootloader(void) { return false; }
-void hal_enter_bootloader(void) {}
+// The download mode of the ROM (ESP32-S3 Technical Reference Manual, "Chip Boot Control"): with
+// RTC_CNTL_FORCE_DOWNLOAD_BOOT set in RTC_CNTL_OPTION1_REG, the ROM stays in download mode after
+// the next reset instead of starting the firmware, as it does when GPIO0 is held low, and takes
+// new firmware over UART0 or the chip's USB port. The bit is cleared by the reset after that.
+bool hal_has_bootloader(void) { return true; }
+
+void hal_enter_bootloader(void) {
+    uart_wait_tx_done(UART_PORT, pdMS_TO_TICKS(100)); // the answer has left
+    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+    esp_restart();
+}
 
 void hal_control_silent_drop(void) {}

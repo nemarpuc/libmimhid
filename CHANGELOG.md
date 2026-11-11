@@ -22,7 +22,11 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 - **`mimhid_device_enter_bootloader`** (`BOOTLOADER`, `0x20`): the board takes its USB device off the
   target and restarts into the chip's own bootloader, so new firmware can be written without the
-  BOOTSEL button. RP2040 and RP2350; the other ports answer `MIMHID_ERR_UNSUPPORTED`.
+  BOOTSEL button. Run on a Raspberry Pi Pico (RP2040). The other ports have it too and were built
+  but not run: the STM32F4 resets into its system memory bootloader, the ESP32-S3 into the ROM's
+  download mode (written, not built: no ESP-IDF here), and the nRF52840 into the bootloader its
+  board carries in flash, when the build states the value that bootloader looks for
+  (`MIMHID_NRF_BOOTLOADER_GPREGRET`); without one the board answers `MIMHID_ERR_UNSUPPORTED`.
 
 ### Step 3a: no HID driver on the board
 
