@@ -43,7 +43,7 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
                  board.version_minor == MIMHID_VERSION_MINOR &&
                  board.version_patch == MIMHID_VERSION_PATCH);
-    MIMHID_CHECK(board.max_interfaces == SIM_HID_ITFS && board.max_nodes == MIMHID_MAX_NODES);
+    MIMHID_CHECK(board.max_interfaces == SIM_HID_ITFS);
     MIMHID_CHECK(board.max_report_bytes == 64);
     MIMHID_CHECK(board.max_endpoint_number == SIM_HID_ITFS);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);

@@ -457,20 +457,9 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
         }
     }
 
-    // Lowest free node id the board can hold.
-    std::uint8_t node_id = 0xFFU;
-    {
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        const std::size_t limit = std::min<std::size_t>(device->board.max_nodes, MIMHID_MAX_NODES);
-        for (std::size_t i = 0U; i < limit; ++i) {
-            if (device->slots[i] == nullptr) {
-                node_id = static_cast<std::uint8_t>(i);
-                break;
-            }
-        }
-    }
-    if (node_id == 0xFFU) {
-        set_error(MIMHID_ERR_OVERFLOW, "node.open", "The board holds no more nodes.");
+    std::uint16_t node_id = 0U;
+    if (!mimhid::detail::free_node_id(device, &node_id)) {
+        set_error(MIMHID_ERR_OVERFLOW, "node.open", "The Device holds no more Nodes.");
         return MIMHID_ERR_OVERFLOW;
     }
 
@@ -485,6 +474,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     node->interface_string = effective.iface.name != nullptr ? effective.iface.name : "";
     node->config.iface.name = nullptr;
     node->node_id = node_id;
+    node->iface = effective.iface.number;
     collect_report_ids(spec->descriptor, &node->report_ids, &node->has_report_ids);
     if (const mimhid_result initialized = initialize_node_state(node.get());
         initialized != MIMHID_OK)
@@ -505,10 +495,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
 
     mimhid::detail::retain_spec(spec);
     mimhid_node* published = node.get();
-    {
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        device->slots[node_id] = published;
-    }
+    mimhid::detail::publish_node(device, published);
     device->dirty = true;
     if (device->batch_open) {
         published->staged_only = true;
@@ -518,10 +505,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, mimhid_spec* s
     const mimhid_result committed = commit_device(device, 0U, waits);
     if (committed != MIMHID_OK) {
         // The board's active configuration is unchanged or unknown; drop this node again.
-        {
-            std::lock_guard<std::mutex> lock(device->nodes_mutex);
-            device->slots[node_id] = nullptr;
-        }
+        mimhid::detail::unpublish_node(device, published);
         mimhid::detail::release_spec(spec);
         node->spec = nullptr;
         if (device->configured) {
@@ -586,19 +570,9 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     spec->kind = MIMHID_PROFILE_RAW;
     spec->descriptor.assign(descriptor, descriptor + descriptor_length);
 
-    std::uint8_t node_id = 0xFFU;
-    {
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        const std::size_t limit = std::min<std::size_t>(device->board.max_nodes, MIMHID_MAX_NODES);
-        for (std::size_t i = 0U; i < limit; ++i) {
-            if (device->slots[i] == nullptr) {
-                node_id = static_cast<std::uint8_t>(i);
-                break;
-            }
-        }
-    }
-    if (node_id == 0xFFU) {
-        set_error(MIMHID_ERR_OVERFLOW, "node.open_raw", "The board holds no more nodes.");
+    std::uint16_t node_id = 0U;
+    if (!mimhid::detail::free_node_id(device, &node_id)) {
+        set_error(MIMHID_ERR_OVERFLOW, "node.open_raw", "The Device holds no more Nodes.");
         return MIMHID_ERR_OVERFLOW;
     }
 
@@ -613,6 +587,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     node->interface_string = effective.iface.name != nullptr ? effective.iface.name : "";
     node->config.iface.name = nullptr;
     node->node_id = node_id;
+    node->iface = effective.iface.number;
     collect_report_ids(node->spec->descriptor, &node->report_ids, &node->has_report_ids);
     if (const mimhid_result initialized = initialize_node_state(node.get());
         initialized != MIMHID_OK) {
@@ -622,10 +597,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     }
 
     mimhid_node* published = node.get();
-    {
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        device->slots[node_id] = published;
-    }
+    mimhid::detail::publish_node(device, published);
     device->dirty = true;
     if (device->batch_open) {
         published->staged_only = true;
@@ -634,10 +606,7 @@ mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint
     }
     const mimhid_result committed = commit_device(device, 0U, waits);
     if (committed != MIMHID_OK) {
-        {
-            std::lock_guard<std::mutex> lock(device->nodes_mutex);
-            device->slots[node_id] = nullptr;
-        }
+        mimhid::detail::unpublish_node(device, published);
         mimhid::detail::release_spec(node->spec);
         node->spec = nullptr;
         if (device->configured) {
@@ -680,7 +649,7 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(
     if (!device->configured || device->batch_open || node->staged_only)
         return MIMHID_OK; // sent with the next commit
     std::vector<std::uint8_t> payload;
-    payload.push_back(node->node_id);
+    payload.push_back(node->iface); // the interface number; the answer belongs to the interface
     payload.push_back(report_id);
     payload.insert(payload.end(), entry->data.begin(), entry->data.end());
     return command_error(device->link.command(MIMHID_T_FEATURE, payload.data(), payload.size(),
@@ -707,12 +676,15 @@ mimhid_result MIMHID_CALL mimhid_node_set_queue_depth(mimhid_node* node, const u
     node->queue_depth = static_cast<std::uint8_t>(depth);
     if (!device->configured || device->batch_open || node->staged_only)
         return MIMHID_OK; // sent with the next commit
-    const std::uint8_t payload[2] = {node->node_id, node->queue_depth};
+    // The Nodes of an interface share its endpoint, so the least depth asked for applies.
+    const std::uint8_t payload[3] = {node->config.ep_in.address,
+                                     mimhid::detail::interface_queue_depth(device, node->iface),
+                                     MIMHID_EP_FULL_DROP_NEWEST};
     const mimhid_result result =
-        command_error(device->link.command(MIMHID_T_QUEUE_DEPTH, payload, sizeof(payload),
+        command_error(device->link.command(MIMHID_T_EP_CONFIG, payload, sizeof(payload),
                                            control_timeout_ms, kCommandAttempts),
                       "node.queue_depth", "The board did not accept the queue depth.",
-                      MIMHID_T_QUEUE_DEPTH, public_node_id(node));
+                      MIMHID_T_EP_CONFIG, public_node_id(node));
     if (result != MIMHID_OK)
         node->queue_depth = previous; // the board keeps the depth it had
     return result;
@@ -760,10 +732,7 @@ mimhid_result MIMHID_CALL mimhid_node_close(mimhid_node* node,
     // From here the Node goes whatever fails; the first failure is what the caller hears about.
     const mimhid_result neutral = send_neutral(node, drain_timeout_ms);
     const mimhid_error_detail neutral_detail = *mimhid_last_error();
-    {
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        device->slots[node->node_id] = nullptr;
-    }
+    mimhid::detail::unpublish_node(device, node);
     device->dirty = true;
     mimhid_result committed = MIMHID_OK;
     if (!device->batch_open && !node->staged_only)

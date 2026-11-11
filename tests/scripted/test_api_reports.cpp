@@ -46,11 +46,11 @@ void test_report_send() {
     const std::uint8_t bytes[3] = {0xAA, 0xBB, 0xCC};
     MIMHID_CHECK(mimhid_report_send(o.node, bytes, sizeof(bytes), kSendMs) == MIMHID_OK);
     Received r;
-    MIMHID_CHECK(board.take(MIMHID_T_REPORT_BASE, &r) && r.payload.size() == 3U &&
+    MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.size() == 3U &&
                  r.payload[0] == 0xAA && r.payload[2] == 0xCC);
     // An empty report is a report too.
     MIMHID_CHECK(mimhid_report_send(o.node, nullptr, 0, kSendMs) == MIMHID_OK);
-    MIMHID_CHECK(board.take(MIMHID_T_REPORT_BASE, &r) && r.payload.empty());
+    MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.empty());
 
     std::array<std::uint8_t, 65> long_report{};
     MIMHID_CHECK(mimhid_report_send(o.node, long_report.data(), long_report.size(), kSendMs) ==
@@ -69,7 +69,7 @@ void test_report_send() {
     MIMHID_CHECK(mimhid_node_submit(o.node, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_node_submit_blocking(o.node, kSendMs) == MIMHID_OK);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    MIMHID_CHECK(board.count(MIMHID_T_REPORT_BASE) == 0U);
+    MIMHID_CHECK(board.count((MIMHID_T_EP_IN_BASE | 1)) == 0U);
     mimhid_spec_release(o.spec);
     MIMHID_CHECK(mimhid_device_close(o.device, kControlMs, kDrainMs) == MIMHID_OK);
 }
@@ -170,8 +170,8 @@ void test_scan_time() {
     MIMHID_CHECK(mimhid_node_submit_blocking(node, 1000) == MIMHID_OK);
     Received first;
     Received second;
-    MIMHID_CHECK(board.take(MIMHID_T_REPORT_BASE, &first) &&
-                 board.take(MIMHID_T_REPORT_BASE, &second));
+    MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &first) &&
+                 board.take((MIMHID_T_EP_IN_BASE | 1), &second));
     MIMHID_CHECK(first.payload.size() == second.payload.size() && first.payload != second.payload);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }

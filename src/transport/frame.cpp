@@ -121,7 +121,6 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length)
         return false;
     out->compatible = true;
-    out->max_nodes = p[4];
     out->max_interfaces = p[5];
     out->has_unique_id = (p[6] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
     out->chip = p[7];

@@ -6,6 +6,44 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+**The wire protocol and the C ABI change; the version numbers have not been chosen yet** (a 0.2.1
+board and this library do not talk to each other until they do). Not hardware-verified.
+
+### Changed
+
+- **The host composes every USB descriptor and sends it to the board as bytes.** New frames
+  `DESC_RESET` (`0x10`), `DESC_BEGIN` (`0x11`) and `DESC_DATA` (`0x12`) carry the device, configuration,
+  string and HID report descriptors; they replace `DEVICE_CONFIG`, `NODE_BEGIN` and `NODE_DATA`.
+  `src/usb/descriptor_composer.cpp` makes the descriptors, byte for byte what the firmware used to
+  build. The firmware builds no descriptor: at `COMMIT` it walks the staged configuration once and
+  refuses (`NAK_DESCRIPTOR`, the previous configuration kept) one that does not hold together
+  ([docs/PROTOCOL.md](docs/PROTOCOL.md#the-commit-walk)). `mimhid_device_limits` still reports the room
+  for report descriptors; the room for the configuration descriptor and the strings is
+  `MIMHID_MAX_CONFIG_BYTES`, `MIMHID_MAX_STRINGS` and `MIMHID_MAX_STRING_BYTES` (`docs/LIMITS.md`).
+- **Data frames name endpoints.** `EP_IN` frames (`0x41`..`0x4F`, formerly `REPORT_BASE`) carry the IN
+  endpoint number, not a node id; `0x40` is refused. `FEATURE` names the interface number.
+  `QUEUE_DEPTH` became `EP_CONFIG` (endpoint address, depth, policy; only
+  `MIMHID_EP_FULL_DROP_NEWEST` is taken). The event `REPORT_LOST` (board to host) became
+  `TRANSFER_LOST`, which names the endpoint address; `MIMHID_EVENT_REPORT_LOST` is unchanged for
+  programs. `PONG` byte 4 is reserved, zero.
+- **`iface.number` is the real `bInterfaceNumber`.** The numbers in use must be 0, 1, 2, ... without a
+  gap; otherwise the commit fails with `MIMHID_ERR_PARAM` before anything is sent, with the missing
+  number in `mimhid_error_detail.offset`. Before, the board renumbered the interfaces densely, so a
+  gap closed and the number the target saw differed from `iface.number`. Open Nodes in number order
+  (or in one batch) and close the highest number first.
+- **The 16-Node limit is gone.** A Device holds up to 65534 Nodes within the board's interface and
+  descriptor limits; `mimhid_node_id` is unchanged.
+- **`mimhid_device_info.max_nodes` is removed** (the ABI layout changed; the bindings and the golden
+  file are regenerated).
+- **`MIMHID_NODE_DATA_CHUNK` is now `MIMHID_DESC_DATA_CHUNK`**, and `MIMHID_DEVFLAG_SERIAL_FROM_ID` is
+  `MIMHID_DESC_F_SERIAL_FROM_ID` on a string.
+
+### Added
+
+- Tests: the composer against the descriptors captured from the previous firmware builder, the
+  firmware's commit walk (every refusal), a repeated `DESC_DATA`, a serial number made from the chip
+  id, a gap in the interface numbers, more than 16 Nodes, and the least queue depth of an interface.
+
 ## [0.2.1] - 2026-11-10
 
 **Not hardware-verified.** The wire protocol and the C ABI are those of 0.2.0 (a 0.2.0 board and this library

@@ -185,15 +185,16 @@ CommandResult Link::disconnect(std::uint32_t timeout_ms) {
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-IoStatus Link::send_report(std::uint8_t node, const std::uint8_t* report, std::size_t length,
-                           std::uint32_t stall_ms, std::int32_t* os_error) {
+IoStatus Link::send_report(std::uint8_t endpoint_address, const std::uint8_t* report,
+                           std::size_t length, std::uint32_t stall_ms, std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;
     if (length > MIMHID_PROTO_MAX_PAYLOAD)
         return IoStatus::error;
     std::uint8_t frame[6 + MIMHID_PROTO_MAX_PAYLOAD];
-    const std::size_t n = encode_frame(
-        static_cast<std::uint8_t>(MIMHID_T_REPORT_BASE | (node & 0x0F)), report, length, frame);
+    const std::size_t n =
+        encode_frame(static_cast<std::uint8_t>(MIMHID_T_EP_IN_BASE | (endpoint_address & 0x0F)),
+                     report, length, frame);
     std::lock_guard<std::mutex> tx(tx_mutex_);
     return port_.write_all(frame, n, stall_ms, os_error);
 }

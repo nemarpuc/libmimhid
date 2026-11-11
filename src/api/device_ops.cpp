@@ -7,14 +7,13 @@
 
 #include "api/support.hpp"
 #include "transport/link.hpp"
+#include "usb/descriptor_composer.hpp"
 
 #include <algorithm>
 #include <bitset>
 #include <chrono>
 #include <cstring>
 #include <limits>
-#include <map>
-#include <set>
 #include <string>
 #include <thread>
 #include <utility>
@@ -50,107 +49,9 @@ bool required_product_policies_nonzero(const mimhid_transport_options& options) 
            linux_hid.usages != 0U && linux_hid.report_data_bits != 0U;
 }
 
-bool same_endpoint(const mimhid_usb_endpoint& a, const mimhid_usb_endpoint& b) noexcept {
-    return a.address == b.address && a.poll_interval_ms == b.poll_interval_ms &&
-           a.max_packet_size == b.max_packet_size;
-}
-
-bool same_interface_settings(const mimhid_node& a, const mimhid_node& b) {
-    const mimhid_usb_interface& x = a.config.iface;
-    const mimhid_usb_interface& y = b.config.iface;
-    return x.class_code == y.class_code && x.subclass == y.subclass && x.protocol == y.protocol &&
-           x.bcd_hid == y.bcd_hid && x.country_code == y.country_code &&
-           a.interface_string == b.interface_string &&
-           same_endpoint(a.config.ep_in, b.config.ep_in) &&
-           same_endpoint(a.config.ep_out, b.config.ep_out);
-}
-
-// Gives every live node a USB interface based on its explicit iface.number.
-// Unique iface.number values are mapped densely to 0..N-1 to maintain USB 2.0 compliance.
-mimhid_result assign_interfaces(mimhid_device* device, const std::vector<mimhid_node*>& nodes) {
-    const std::size_t limit = device->board.max_interfaces;
-    std::set<std::uint32_t> unique_ifaces;
-    for (const mimhid_node* node : nodes) {
-        unique_ifaces.insert(node->config.iface.number);
-    }
-    if (unique_ifaces.size() > limit) {
-        set_error(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
-                  "Number of distinct interfaces exceeds the board's maximum interfaces.");
-        return MIMHID_ERR_OVERFLOW;
-    }
-    std::map<std::uint32_t, std::uint8_t> dense_map;
-    std::uint8_t dense_idx = 0;
-    for (std::uint32_t iface_num : unique_ifaces) {
-        dense_map[iface_num] = dense_idx++;
-    }
-    for (mimhid_node* node : nodes) {
-        node->iface = dense_map[node->config.iface.number];
-    }
-
-    // USB HID 1.11 Sec 5.6: If multiple nodes share an interface, all must have distinct Report
-    // IDs.
-    for (std::uint32_t iface_num : unique_ifaces) {
-        std::vector<mimhid_node*> iface_nodes;
-        for (mimhid_node* node : nodes) {
-            if (node->config.iface.number == iface_num)
-                iface_nodes.push_back(node);
-        }
-        if (iface_nodes.size() > 1U) {
-            std::bitset<256> combined_ids;
-            for (const mimhid_node* node : iface_nodes) {
-                if (!node->has_report_ids || node->report_ids.none()) {
-                    set_error(MIMHID_ERR_PARAM, "node.report_id",
-                              "Multiple nodes sharing an interface must all declare Report IDs.");
-                    return MIMHID_ERR_PARAM;
-                }
-                if ((combined_ids & node->report_ids).any()) {
-                    set_error(MIMHID_ERR_PARAM, "node.report_id",
-                              "Duplicate Report ID assigned on the same interface.");
-                    return MIMHID_ERR_PARAM;
-                }
-                combined_ids |= node->report_ids;
-            }
-        }
-    }
-
-    // The board describes a shared interface from its first Node, so the others must agree with
-    // it; and two interfaces with one endpoint address would make the configuration invalid.
-    std::map<std::uint32_t, const mimhid_node*> first_of;
-    for (const mimhid_node* node : nodes) {
-        const auto [it, inserted] = first_of.emplace(node->config.iface.number, node);
-        if (!inserted && !same_interface_settings(*it->second, *node)) {
-            set_error(MIMHID_ERR_PARAM, "node_config.iface",
-                      "Nodes sharing an interface must have the same interface and endpoint "
-                      "settings.");
-            return MIMHID_ERR_PARAM;
-        }
-    }
-    std::set<std::uint8_t> endpoints;
-    for (const auto& [number, node] : first_of) {
-        if (!endpoints.insert(node->config.ep_in.address).second ||
-            (node->config.ep_out.address != 0U &&
-             !endpoints.insert(node->config.ep_out.address).second)) {
-            set_error(MIMHID_ERR_PARAM, "node_config.ep_in.address",
-                      "Two interfaces use the same endpoint address.", 0, 0, 0, 0, 0, number);
-            return MIMHID_ERR_PARAM;
-        }
-    }
-    return MIMHID_OK;
-}
-
 void put_u16(std::vector<std::uint8_t>* out, std::uint32_t value) {
     out->push_back(static_cast<std::uint8_t>(value & 0xFFU));
     out->push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
-}
-
-// A string on the wire: the number of UTF-16 code units, then the units, little endian. The text
-// was checked by valid_usb_string, so the conversion cannot fail.
-void put_string(std::vector<std::uint8_t>* out, const std::string& text) {
-    std::u16string units;
-    mimhid::detail::utf16_from_utf8(text.c_str(), &units);
-    out->push_back(static_cast<std::uint8_t>(units.size()));
-    for (const char16_t unit : units)
-        put_u16(out, unit);
 }
 
 struct ReconfigGuard {
@@ -462,6 +363,44 @@ std::vector<mimhid_node*> live_nodes(mimhid_device* device) {
     return nodes;
 }
 
+bool free_node_id(mimhid_device* device, std::uint16_t* node_id) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    for (std::size_t i = 0U; i < device->slots.size(); ++i) {
+        if (device->slots[i] == nullptr) {
+            *node_id = static_cast<std::uint16_t>(i);
+            return true;
+        }
+    }
+    if (device->slots.size() >= kMaximumNodes)
+        return false;
+    *node_id = static_cast<std::uint16_t>(device->slots.size());
+    return true;
+}
+
+void publish_node(mimhid_device* device, mimhid_node* node) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    if (device->slots.size() <= node->node_id)
+        device->slots.resize(static_cast<std::size_t>(node->node_id) + 1U, nullptr);
+    device->slots[node->node_id] = node;
+}
+
+void unpublish_node(mimhid_device* device, const mimhid_node* node) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    if (node->node_id < device->slots.size() && device->slots[node->node_id] == node)
+        device->slots[node->node_id] = nullptr;
+}
+
+std::uint8_t interface_queue_depth(mimhid_device* device, const std::uint8_t iface) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    std::uint8_t depth = 0U;
+    for (const mimhid_node* node : device->slots) {
+        if (node == nullptr || node->closed || node->iface != iface || node->queue_depth == 0U)
+            continue;
+        depth = depth == 0U ? node->queue_depth : std::min(depth, node->queue_depth);
+    }
+    return depth;
+}
+
 // A wait the caller passed to a call has no default: zero is refused.
 mimhid_result require_timeout(const std::uint32_t timeout_ms, const char* field) noexcept {
     if (timeout_ms == 0U) {
@@ -530,102 +469,118 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
         return MIMHID_ERR_OVERFLOW;
     }
 
-    if (const mimhid_result assigned = assign_interfaces(device, nodes); assigned != MIMHID_OK)
-        return assigned;
-
+    // The host composes every descriptor; the board takes them as bytes.
     const mimhid_usb_device& dev = device->config.usb_device;
-    const mimhid_usb_config& cfg = device->config.usb_config;
-    std::vector<std::uint8_t> payload;
-    put_u16(&payload, dev.vendor_id);
-    put_u16(&payload, dev.product_id);
-    put_u16(&payload, dev.bcd_device);
-    payload.push_back(dev.device_class);
-    payload.push_back(dev.device_subclass);
-    payload.push_back(dev.device_protocol);
-    put_u16(&payload, dev.language_id);
-    put_u16(&payload, dev.bcd_usb);
-    payload.push_back(dev.ep0_max_packet_size);
-    payload.push_back(cfg.configuration_value);
-    payload.push_back(cfg.bm_attributes);
-    payload.push_back(cfg.bmax_power);
-    std::uint8_t flags = 0U;
-    if (dev.serial_from_chip_id == 1U)
-        flags |= MIMHID_DEVFLAG_SERIAL_FROM_ID;
-    payload.push_back(flags);
-    put_string(&payload, device->manufacturer);
-    put_string(&payload, device->product);
-    put_string(&payload, device->serial);
-    put_string(&payload, device->configuration);
-    mimhid_result r =
-        command_error(device->link.command(MIMHID_T_DEVICE_CONFIG, payload.data(), payload.size(),
-                                           control, kCommandAttempts),
-                      "device.config", "The board did not accept the device configuration.",
-                      MIMHID_T_DEVICE_CONFIG);
+    usb::ComposerInput input;
+    input.device = dev;
+    input.config = device->config.usb_config;
+    input.max_interfaces = device->board.max_interfaces;
+    input.board_has_unique_id = device->board.has_unique_id;
+    utf16_from_utf8(device->manufacturer.c_str(), &input.manufacturer);
+    utf16_from_utf8(device->product.c_str(), &input.product);
+    utf16_from_utf8(device->serial.c_str(), &input.serial);
+    utf16_from_utf8(device->configuration.c_str(), &input.configuration);
+    for (const mimhid_node* node : nodes) {
+        usb::ComposerNode composed_node;
+        composed_node.iface = node->config.iface;
+        composed_node.ep_in = node->config.ep_in;
+        composed_node.ep_out = node->config.ep_out;
+        utf16_from_utf8(node->interface_string.c_str(), &composed_node.interface_name);
+        composed_node.report_descriptor = &node->spec->descriptor;
+        composed_node.has_report_ids = node->has_report_ids;
+        composed_node.report_ids = node->report_ids;
+        input.nodes.push_back(std::move(composed_node));
+    }
+    usb::Composed composed;
+    usb::ComposerError composer_error;
+    if (const mimhid_result made = usb::compose_descriptors(input, &composed, &composer_error);
+        made != MIMHID_OK) {
+        set_error(made, composer_error.field, composer_error.reason, 0, 0, 0, 0,
+                  composer_error.offset, composer_error.length);
+        return made;
+    }
+
+    const auto send = [&](std::uint8_t type, const std::vector<std::uint8_t>& payload,
+                          const char* field, const char* reason, std::uint16_t node_id) {
+        return command_error(
+            device->link.command(type, payload.data(), payload.size(), control, kCommandAttempts),
+            field, reason, type, node_id);
+    };
+    // One descriptor: DESC_BEGIN with its length, then its bytes in chunks.
+    const auto send_blob = [&](std::uint8_t kind, std::uint8_t index, std::uint16_t language,
+                               const std::vector<std::uint8_t>& bytes, std::uint8_t flags,
+                               const char* field) {
+        std::vector<std::uint8_t> begin{kind, index};
+        put_u16(&begin, language);
+        put_u16(&begin, static_cast<std::uint32_t>(bytes.size()));
+        begin.push_back(flags);
+        mimhid_result result =
+            send(MIMHID_T_DESC_BEGIN, begin, field, "The board did not accept a descriptor.", 0U);
+        for (std::size_t offset = 0U; result == MIMHID_OK && offset < bytes.size();
+             offset += MIMHID_DESC_DATA_CHUNK) {
+            const std::size_t chunk =
+                std::min<std::size_t>(MIMHID_DESC_DATA_CHUNK, bytes.size() - offset);
+            std::vector<std::uint8_t> data{kind, index};
+            put_u16(&data, language);
+            put_u16(&data, static_cast<std::uint32_t>(offset));
+            data.insert(data.end(), bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+                        bytes.begin() + static_cast<std::ptrdiff_t>(offset + chunk));
+            result = send(MIMHID_T_DESC_DATA, data, field,
+                          "The board did not accept the bytes of a descriptor.", 0U);
+        }
+        return result;
+    };
+
+    mimhid_result r = send(MIMHID_T_DESC_RESET, {}, "device.config",
+                           "The board did not start a new configuration.", 0U);
+    if (r == MIMHID_OK)
+        r = send_blob(MIMHID_DESC_DEVICE, 0U, 0U, composed.device, 0U, "device.config");
+    if (r == MIMHID_OK)
+        r = send_blob(MIMHID_DESC_CONFIGURATION, 0U, 0U, composed.configuration, 0U,
+                      "device.config");
+    for (const usb::ComposedString& text : composed.strings) {
+        if (r != MIMHID_OK)
+            break;
+        r = send_blob(MIMHID_DESC_STRING, text.index, text.language, text.descriptor,
+                      text.from_chip_id ? MIMHID_DESC_F_SERIAL_FROM_ID : 0U, "device.strings");
+    }
+    for (const usb::ComposedInterface& itf : composed.interfaces) {
+        if (r != MIMHID_OK)
+            break;
+        r = send_blob(MIMHID_DESC_HID_REPORT, itf.number, 0U, itf.report_descriptor, 0U,
+                      "node.descriptor");
+    }
     if (r != MIMHID_OK)
         return r;
 
-    for (mimhid_node* node : nodes) {
-        const std::vector<std::uint8_t>& desc = node->spec->descriptor;
-        payload.clear();
-        payload.push_back(node->node_id);
-        payload.push_back(node->iface);
-        put_u16(&payload, static_cast<std::uint32_t>(desc.size()));
-        payload.push_back(node->config.iface.class_code);
-        payload.push_back(node->config.iface.subclass);
-        payload.push_back(node->config.iface.protocol);
-        put_u16(&payload, node->config.iface.bcd_hid);
-        payload.push_back(static_cast<std::uint8_t>(node->config.iface.country_code));
-        payload.push_back(node->config.ep_in.address);
-        put_u16(&payload, node->config.ep_in.max_packet_size);
-        payload.push_back(static_cast<std::uint8_t>(node->config.ep_in.poll_interval_ms));
-        payload.push_back(node->config.ep_out.address);
-        put_u16(&payload, node->config.ep_out.max_packet_size);
-        payload.push_back(static_cast<std::uint8_t>(node->config.ep_out.poll_interval_ms));
-        payload.push_back(0U); // idle rate
-        payload.push_back(0U); // flags
-        put_string(&payload, node->interface_string);
-        r = command_error(device->link.command(MIMHID_T_NODE_BEGIN, payload.data(), payload.size(),
-                                               control, kCommandAttempts),
-                          "node.config", "The board refused the node's interface settings.",
-                          MIMHID_T_NODE_BEGIN, public_node_id(node));
+    // What a Node answers a Feature read with, by its interface number, and the depth of the queue
+    // of each interface's IN endpoint (Nodes sharing an interface share it: the least depth).
+    for (const mimhid_node* node : nodes) {
+        for (const mimhid_node::FeatureEntry& feature : node->features) {
+            std::vector<std::uint8_t> payload{node->iface, feature.report_id};
+            payload.insert(payload.end(), feature.data.begin(), feature.data.end());
+            r = send(MIMHID_T_FEATURE, payload, "node.feature",
+                     "The board did not accept a Feature report answer.", public_node_id(node));
+            if (r != MIMHID_OK)
+                return r;
+        }
+    }
+    for (const usb::ComposedInterface& itf : composed.interfaces) {
+        const std::uint8_t depth = interface_queue_depth(device, itf.number);
+        if (depth == 0U)
+            continue;
+        const mimhid_node* first = nullptr;
+        for (const mimhid_node* node : nodes) {
+            if (node->iface == itf.number) {
+                first = node;
+                break;
+            }
+        }
+        r = send(
+            MIMHID_T_EP_CONFIG, {first->config.ep_in.address, depth, MIMHID_EP_FULL_DROP_NEWEST},
+            "node.queue_depth", "The board did not accept the queue depth.", public_node_id(first));
         if (r != MIMHID_OK)
             return r;
-        for (std::size_t offset = 0U; offset < desc.size(); offset += MIMHID_NODE_DATA_CHUNK) {
-            const std::size_t chunk =
-                std::min<std::size_t>(MIMHID_NODE_DATA_CHUNK, desc.size() - offset);
-            payload.clear();
-            payload.push_back(node->node_id);
-            put_u16(&payload, static_cast<std::uint32_t>(offset));
-            payload.insert(payload.end(), desc.begin() + static_cast<std::ptrdiff_t>(offset),
-                           desc.begin() + static_cast<std::ptrdiff_t>(offset + chunk));
-            r = command_error(device->link.command(MIMHID_T_NODE_DATA, payload.data(),
-                                                   payload.size(), control, kCommandAttempts),
-                              "node.descriptor", "The board did not accept the report descriptor.",
-                              MIMHID_T_NODE_DATA, public_node_id(node));
-            if (r != MIMHID_OK)
-                return r;
-        }
-        for (const mimhid_node::FeatureEntry& feature : node->features) {
-            payload.clear();
-            payload.push_back(node->node_id);
-            payload.push_back(feature.report_id);
-            payload.insert(payload.end(), feature.data.begin(), feature.data.end());
-            r = command_error(device->link.command(MIMHID_T_FEATURE, payload.data(), payload.size(),
-                                                   control, kCommandAttempts),
-                              "node.feature", "The board did not accept a Feature report answer.",
-                              MIMHID_T_FEATURE, public_node_id(node));
-            if (r != MIMHID_OK)
-                return r;
-        }
-        if (node->queue_depth != 0U) {
-            const std::uint8_t depth[2] = {node->node_id, node->queue_depth};
-            r = command_error(device->link.command(MIMHID_T_QUEUE_DEPTH, depth, sizeof(depth),
-                                                   control, kCommandAttempts),
-                              "node.queue_depth", "The board did not accept the queue depth.",
-                              MIMHID_T_QUEUE_DEPTH, public_node_id(node));
-            if (r != MIMHID_OK)
-                return r;
-        }
     }
 
     device->link.clear_ready();
@@ -714,13 +669,21 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         event.data = d + 1;
         event.length = board.length - 1U;
         break;
-    case MIMHID_EV_REPORT_LOST:
+    case MIMHID_EV_TRANSFER_LOST: {
         if (board.length < 3U)
             return;
-        iface = d[0];
         event.kind = MIMHID_EVENT_REPORT_LOST;
         event.value = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
+        // The board names the endpoint; the event names the first live Node that sends on it.
+        std::lock_guard<std::mutex> lock(device->nodes_mutex);
+        for (const mimhid_node* node : device->slots) {
+            if (node != nullptr && !node->closed && node->config.ep_in.address == d[0]) {
+                event.node_id = public_node_id(node);
+                break;
+            }
+        }
         break;
+    }
     default:
         return;
     }
@@ -774,7 +737,6 @@ mimhid_device_info describe_board(const std::string& port, const std::string& de
     info.version_patch = board.version[2];
     info.is_ready = board.ready ? 1U : 0U;
     info.firmware_compatible = board.compatible ? 1U : 0U;
-    info.max_nodes = board.max_nodes;
     info.max_interfaces = board.max_interfaces;
     info.max_report_bytes =
         static_cast<std::uint8_t>(std::min<std::uint16_t>(board.max_report_bytes, 255U));

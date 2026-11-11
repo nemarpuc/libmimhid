@@ -41,7 +41,9 @@ The board takes the speed it runs at from its chip: the Pico, the Pico 2, the nR
 
 | Item | Limit | Notes |
 |---|---|---|
-| Nodes | 16 (`MIMHID_MAX_NODES`) | the wire format: a report frame names its node in the low four bits of its type, `0x40 | id`. The board's own number is in its PONG (`max_nodes`) |
+| Nodes | 65534 | the board does not know Nodes: a data frame names its IN endpoint number in the low four bits of its type (`0x40 | number`, endpoints 1 to 15), so the Nodes of an interface share one endpoint. The host numbers its Nodes in 16 bits (`mimhid_node_id` is the number plus one); the board's interface and descriptor limits are what holds a Device to fewer in practice |
+| Configuration descriptor | `MIMHID_MAX_CONFIG_BYTES`: 9 + 32 per HID interface (`MIMHID_HID_ITFS`), 489 bytes with 15 interfaces | the configuration descriptor and, for each interface, its interface descriptor (9 bytes, USB 2.0 9.6.5), HID descriptor (9, HID 1.11 6.2.1) and two endpoint descriptors (7 each, 9.6.6): the most a configuration of HID interfaces needs. `DESC_BEGIN` of a longer one is refused with `NAK_OVERFLOW` (`MIMHID_ERR_OVERFLOW` on the host) |
+| String descriptors | `MIMHID_MAX_STRINGS` strings (4 + `MIMHID_HID_ITFS`), `MIMHID_MAX_STRING_BYTES` together (`MIMHID_MAX_STRINGS` times the longest string, 254 bytes: USB 2.0 9.6.7) | manufacturer, product, serial number, configuration, and one per interface; the table holds them by index and language, so a second language takes places too. A string that does not fit is refused with `NAK_OVERFLOW` |
 | All report descriptors together | `max_descriptor_bytes`, 2048 by default | `MIMHID_MAX_DESC_BYTES` at firmware build time. One report descriptor may be up to 65535 bytes by HID 1.11 6.2.1 (`wDescriptorLength` is two bytes); the RAM of the board is what holds it to 2048 |
 | Feature answers | 8 per configuration, `max_feature_bytes` each (1024 by default) | `MIMHID_MAX_FEATURES`, `MIMHID_FEATURE_MAX`. A Feature report travels on the control pipe, so it may be longer than an endpoint packet |
 | Strings | UTF-16 code units, none zero | the host converts from UTF-8 and the board stores and sends the units as they are |
@@ -81,7 +83,7 @@ The first column is what the target sees without a rule. A request in the table 
 
 The speed the target sees is the speed of the link, which the host measures from the signalling and not from `bcd_usb`; a board on a USB 3 port is a full-speed device on its USB 2 pair (the port takes it), and no value of `bcd_usb` changes that.
 
-Each Node names its interface with `iface.number`. The board numbers its interfaces 0, 1, 2, ... in the order of those labels, so a gap in the labels is closed and the interface number the target sees can differ from the label. Nodes with the same number share the interface, and must then all have Report IDs, all different, and the same interface and endpoint settings; Nodes on different interfaces need different endpoint addresses (`MIMHID_ERR_PARAM` otherwise). `mimhid_node_open` and `mimhid_node_open_raw` return `MIMHID_ERR_OVERFLOW` when the board's interface or descriptor limits are exceeded.
+Each Node names its interface with `iface.number`, which is the `bInterfaceNumber` the target sees (USB 2.0 9.6.5): the numbers in use at a commit are 0, 1, 2, ... without a gap, and a gap is `MIMHID_ERR_PARAM` with the missing number in `mimhid_error_detail.offset` (nothing is renumbered). Nodes with the same number share the interface, and must then all have Report IDs, all different, and the same interface and endpoint settings; Nodes on different interfaces need different endpoint addresses (`MIMHID_ERR_PARAM` otherwise). `mimhid_node_open` and `mimhid_node_open_raw` return `MIMHID_ERR_OVERFLOW` when the board's interface or descriptor limits are exceeded.
 
 ## Host library
 

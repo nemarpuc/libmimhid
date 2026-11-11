@@ -42,7 +42,7 @@ void test_nak_codes() {
     for (const Case& c : cases) {
         const std::uint8_t code = c.nak;
         board.set_policy([code](const Received& r) -> std::optional<Reply> {
-            if (r.type == MIMHID_T_NODE_BEGIN)
+            if (r.type == MIMHID_T_DESC_BEGIN)
                 return Reply::nak(code);
             return std::nullopt;
         });
@@ -51,8 +51,8 @@ void test_nak_codes() {
         MIMHID_CHECK(node == nullptr);
         const mimhid_error_detail* e = mimhid_last_error();
         MIMHID_CHECK(e->code == c.result && e->transport_status == code &&
-                     e->frame_type == MIMHID_T_NODE_BEGIN && e->node_id == 1);
-        MIMHID_CHECK(std::strcmp(mimhid_frame_type_name(MIMHID_T_NODE_BEGIN), "NODE_BEGIN") == 0);
+                     e->frame_type == MIMHID_T_DESC_BEGIN && e->node_id == 0);
+        MIMHID_CHECK(std::strcmp(mimhid_frame_type_name(MIMHID_T_DESC_BEGIN), "DESC_BEGIN") == 0);
     }
     // The refused opens left no slot taken: with the board answering again, the node opens.
     board.set_policy(nullptr);
@@ -73,7 +73,7 @@ void test_retry_and_timeout() {
     if (device == nullptr)
         return;
     board.set_policy([](const Received& r) -> std::optional<Reply> {
-        if (r.type == MIMHID_T_DEVICE_CONFIG)
+        if (r.type == MIMHID_T_DESC_RESET)
             return Reply::silent();
         return std::nullopt;
     });
@@ -82,10 +82,10 @@ void test_retry_and_timeout() {
     const mimhid_node_config config = node_config();
     mimhid_node* node = nullptr;
     MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_ERR_TIMEOUT);
-    MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_DEVICE_CONFIG);
+    MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_DESC_RESET);
     std::vector<Received> sent;
     for (const Received& r : board.received()) {
-        if (r.type == MIMHID_T_DEVICE_CONFIG)
+        if (r.type == MIMHID_T_DESC_RESET)
             sent.push_back(r);
     }
     MIMHID_CHECK(sent.size() == 3U);
@@ -96,7 +96,7 @@ void test_retry_and_timeout() {
     // The board answers only the second attempt: that answer counts.
     auto attempts = std::make_shared<std::atomic<int>>(0);
     board.set_policy([attempts](const Received& r) -> std::optional<Reply> {
-        if (r.type == MIMHID_T_DEVICE_CONFIG && attempts->fetch_add(1) == 0)
+        if (r.type == MIMHID_T_DESC_RESET && attempts->fetch_add(1) == 0)
             return Reply::silent();
         return std::nullopt;
     });
@@ -151,7 +151,7 @@ void test_commit_connect_disconnect() {
     // With no node there is nothing to present: a commit sends nothing.
     board.clear();
     MIMHID_CHECK(mimhid_device_connect(device, &kCommit) == MIMHID_OK);
-    MIMHID_CHECK(board.count(MIMHID_T_DEVICE_CONFIG) == 0U && board.count(MIMHID_T_COMMIT) == 0U);
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 0U && board.count(MIMHID_T_COMMIT) == 0U);
     mimhid_spec* keyboard = keyboard_spec();
     const mimhid_node_config first = node_config();
     mimhid_node* attached = nullptr;
@@ -165,15 +165,15 @@ void test_commit_connect_disconnect() {
     Received r;
     MIMHID_CHECK(board.take(MIMHID_T_COMMIT, &r, 0) && r.payload.size() == 4U &&
                  r.payload[1] == 0U);
-    MIMHID_CHECK(board.count(MIMHID_T_DEVICE_CONFIG) == 0U);
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 0U);
     // Disconnect detaches; the next connect configures the board again.
     MIMHID_CHECK(mimhid_device_disconnect(device, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(board.take(MIMHID_T_COMMIT, &r, 0) && r.payload[1] == 1U);
     MIMHID_CHECK(mimhid_device_disconnect(device, 0) == MIMHID_ERR_UNSET_FIELD);
     board.clear();
     MIMHID_CHECK(mimhid_device_connect(device, &kCommit) == MIMHID_OK);
-    MIMHID_CHECK(board.count(MIMHID_T_DEVICE_CONFIG) == 1U &&
-                 board.count(MIMHID_T_NODE_BEGIN) == 1U);
+    // DESC_RESET, then the device, the configuration and the report descriptor of the interface.
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 1U && board.count(MIMHID_T_DESC_BEGIN) >= 3U);
     // A refused disconnect leaves the device configured.
     board.set_policy([](const Received& q) -> std::optional<Reply> {
         if (q.type == MIMHID_T_COMMIT)
@@ -202,12 +202,12 @@ void test_commit_connect_disconnect() {
     MIMHID_CHECK(mimhid_node_open(device, spec, &config, &kCommit, &node) == MIMHID_OK);
     MIMHID_CHECK(mimhid_keyboard_key(node, 0x04, 1) == MIMHID_ERR_BUSY); // staged only
     board.set_policy([](const Received& q) -> std::optional<Reply> {
-        if (q.type == MIMHID_T_NODE_DATA)
+        if (q.type == MIMHID_T_DESC_DATA)
             return Reply::nak(MIMHID_NAK_DESCRIPTOR);
         return std::nullopt;
     });
     MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_ERR_DESCRIPTOR_REJECTED);
-    MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_NODE_DATA);
+    MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_DESC_DATA);
     board.set_policy(nullptr);
     MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_ERR_BUSY);
@@ -382,8 +382,11 @@ void test_set_usb_identity() {
     MIMHID_CHECK(mimhid_device_set_usb_identity(device, &o.usb_device, &o.usb_config, &kCommit) ==
                  MIMHID_OK);
     Received r;
-    MIMHID_CHECK(board.take(MIMHID_T_DEVICE_CONFIG, &r, 0) && r.payload.size() > 5U &&
-                 r.payload[3] == 0x02 && r.payload[4] == 0x00);
+    // The first DESC_DATA is the device descriptor: seq, kind, index, language (2), offset (2),
+    // then the descriptor, whose idProduct is at bytes 10 and 11 (USB 2.0 9.6.1).
+    MIMHID_CHECK(board.take(MIMHID_T_DESC_DATA, &r, 0) && r.payload.size() == 7U + 18U &&
+                 r.payload[1] == MIMHID_DESC_DEVICE && r.payload[7 + 10] == 0x02 &&
+                 r.payload[7 + 11] == 0x00);
     MIMHID_CHECK(mimhid_device_set_usb_identity(device, nullptr, &o.usb_config, &kCommit) ==
                  MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_set_usb_identity(device, &o.usb_device, nullptr, &kCommit) ==
@@ -401,9 +404,9 @@ void test_set_usb_identity() {
     board.clear();
     MIMHID_CHECK(mimhid_device_set_usb_identity(device, &o.usb_device, &o.usb_config, &kCommit) ==
                  MIMHID_OK);
-    MIMHID_CHECK(board.count(MIMHID_T_DEVICE_CONFIG) == 0U);
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 0U);
     MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
-    MIMHID_CHECK(board.count(MIMHID_T_DEVICE_CONFIG) == 1U);
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 1U);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 

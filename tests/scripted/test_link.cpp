@@ -35,7 +35,7 @@ void test_commands_and_events() {
     board.set_policy([](const Received& q) -> std::optional<Reply> {
         if (q.type == MIMHID_T_RESET)
             return Reply::ack(std::vector<std::uint8_t>(20, 0xEE)); // more than the slot holds
-        if (q.type == MIMHID_T_QUEUE_DEPTH)
+        if (q.type == MIMHID_T_EP_CONFIG)
             return Reply::nak(MIMHID_NAK_OVERFLOW);
         if (q.type == MIMHID_T_FEATURE)
             return Reply::silent();
@@ -43,7 +43,7 @@ void test_commands_and_events() {
     });
     r = link.command(MIMHID_T_RESET, nullptr, 0, 200, 1);
     MIMHID_CHECK(r.ok() && r.data_length == 16 && r.data[15] == 0xEE);
-    r = link.command(MIMHID_T_QUEUE_DEPTH, payload, 2, 200, 1);
+    r = link.command(MIMHID_T_EP_CONFIG, payload, 2, 200, 1);
     MIMHID_CHECK(r.status == tr::CommandStatus::nak && r.nak_code == MIMHID_NAK_OVERFLOW && !r);
     r = link.command(MIMHID_T_FEATURE, payload, 2, 20, 2);
     MIMHID_CHECK(r.status == tr::CommandStatus::timeout);

@@ -273,10 +273,9 @@ typedef struct mimhid_device_info {
     uint8_t version_patch;
     uint8_t is_ready; /* 1 when the target has mounted the board's USB device */
     uint8_t
-        firmware_compatible; /* 1 when the firmware's major and minor version are this library's */
-    uint8_t max_nodes;
-    uint8_t max_interfaces;        /* USB HID interfaces the board provides */
-    uint8_t max_report_bytes;      /* at most 255 here; mimhid_device_limits has the exact figure */
+        firmware_compatible;  /* 1 when the firmware's major and minor version are this library's */
+    uint8_t max_interfaces;   /* USB HID interfaces the board provides */
+    uint8_t max_report_bytes; /* at most 255 here; mimhid_device_limits has the exact figure */
     uint16_t max_descriptor_bytes; /* room for all report descriptors together */
     uint8_t has_unique_id;         /* 1 when the chip has a serial number of its own */
     uint8_t max_endpoint_number;   /* the highest endpoint number the board's USB controller has */
@@ -418,7 +417,9 @@ typedef struct mimhid_usb_endpoint {
 
 /* The Interface descriptor and the HID descriptor. Nodes with the same number share one interface,
  * and must then all have Report IDs, all different, and the same interface and endpoint settings.
- * The numbers are only labels: the board numbers its interfaces 0, 1, 2, ... in their order. */
+ * The number is the bInterfaceNumber the target sees (USB 2.0 9.6.5): the numbers in use at a
+ * commit are 0, 1, 2, ... without a gap, otherwise the commit fails with MIMHID_ERR_PARAM and the
+ * missing number in mimhid_error_detail.offset. Nothing is renumbered. */
 typedef struct mimhid_usb_interface {
     uint8_t number;
     uint8_t class_code;   /* 0x03, HID: the board opens no other class (MIMHID_ERR_UNSUPPORTED) */
@@ -857,7 +858,7 @@ MIMHID_API const char* MIMHID_CALL mimhid_result_name(mimhid_result result);
  * Blocking: None.
  * Synchronization: Any thread.
  * Names the serial frame type of mimhid_error_detail.frame_type (docs/PROTOCOL.md).
- * Returns: The frame's name, such as "COMMIT" or "REPORT", with MIMHID_OK recorded; for a value
+ * Returns: The frame's name, such as "COMMIT" or "EP_IN", with MIMHID_OK recorded; for a value
  * that is not a frame type, "UNKNOWN" with MIMHID_ERR_PARAM recorded. */
 MIMHID_API const char* MIMHID_CALL mimhid_frame_type_name(int32_t frame_type);
 
@@ -1313,8 +1314,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_spec_manifest(const mimhid_spec* spe
  * still required. It returns once the board has enumerated; mimhid_device_wait_ready waits for the
  * target to mount the device.
  * Synchronization: Device domain.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null argument, a wrong struct_size, a bad value, or
- * Nodes sharing an interface that do not follow the rules of mimhid_usb_interface;
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null argument, a wrong struct_size, a bad value,
+ * Nodes sharing an interface that do not follow the rules of mimhid_usb_interface, or interface
+ * numbers that leave a gap (mimhid_error_detail.offset is the missing number; nothing is sent);
  * MIMHID_ERR_UNSET_FIELD for a required field or timeout left zero; MIMHID_ERR_OVERFLOW when the
  * board has no room for the Node, its interface or its descriptor, or the Spec exceeds
  * maximum_report_bytes or a linux_hid limit; the results of mimhid_device_commit. */
@@ -1344,6 +1346,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device,
  * Nodes as mimhid_node_open does; closing the last Node takes the USB device off the target.
  * Inside a batch it only stages the removal. A failed step does not stop the next one; after a
  * failed commit the target may still see the Node until a commit succeeds (mimhid_device_commit).
+ * Closing a Node whose interface number is not the highest in use would leave a gap in the numbers:
+ * the Node is gone, the commit fails with MIMHID_ERR_PARAM, and a later commit succeeds once the
+ * gap is closed (close the highest number first, or in a batch).
  * Synchronization: Device domain; not from the event sink.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for a null or closed Node, a closing Device, or a wrong
  * timeouts struct_size; MIMHID_ERR_UNSET_FIELD for a zero timeout; otherwise the first error on

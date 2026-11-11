@@ -66,7 +66,7 @@ static void fill_timeouts(mimhid_commit_timeouts* commit_timeouts) {
     commit_timeouts->reconnect_timeout_ms = RECONNECT_MS;
 }
 
-/* A HID interface labelled n, polled every 1 ms through IN endpoint 0x81 + n with 64-byte packets,
+/* A HID interface with bInterfaceNumber n, polled every 1 ms through IN endpoint 0x81 + n with 64-byte packets,
  * and no OUT endpoint: every field is set here, none by mimhid_node_config_init. */
 static void fill_node(mimhid_node_config* config, uint8_t n) {
     mimhid_node_config_init(config);

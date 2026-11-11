@@ -152,7 +152,6 @@ pub struct mimhid_device_info {
     pub version_patch: u8,
     pub is_ready: u8,
     pub firmware_compatible: u8,
-    pub max_nodes: u8,
     pub max_interfaces: u8,
     pub max_report_bytes: u8,
     pub max_descriptor_bytes: u16,

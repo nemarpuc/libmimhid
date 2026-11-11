@@ -204,7 +204,6 @@ void test_open_reports_the_board() {
     if (!board.start())
         return;
     Pong pong;
-    pong.max_nodes = 5;
     pong.max_interfaces = 3;
     pong.chip = 2;
     pong.max_report_bytes = 300;
@@ -217,7 +216,7 @@ void test_open_reports_the_board() {
     mimhid_device_info info{};
     MIMHID_CHECK(mimhid_device_board_info(device, &info) == MIMHID_OK);
     MIMHID_CHECK(std::strcmp(info.port_name, board.path()) == 0);
-    MIMHID_CHECK(info.max_nodes == 5 && info.max_interfaces == 3 && info.chip == 2);
+    MIMHID_CHECK(info.max_interfaces == 3 && info.chip == 2);
     MIMHID_CHECK(info.max_report_bytes == 255); // saturated in the u8 field
     MIMHID_CHECK(info.max_descriptor_bytes == 777 && info.has_unique_id == 1);
     MIMHID_CHECK(info.unique_id_length == 8 && info.unique_id[7] == 8);

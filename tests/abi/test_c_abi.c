@@ -150,7 +150,7 @@ static int names(void) {
     int failed = 0;
     failed |= strcmp(mimhid_frame_type_name(0x13), "COMMIT") != 0 ||
               mimhid_last_error()->code != MIMHID_OK;
-    failed |= strcmp(mimhid_frame_type_name(0x45), "REPORT") != 0;
+    failed |= strcmp(mimhid_frame_type_name(0x45), "EP_IN") != 0;
     failed |= strcmp(mimhid_frame_type_name(0x7F), "UNKNOWN") != 0 ||
               mimhid_last_error()->code != MIMHID_ERR_PARAM;
     failed |= strcmp(mimhid_result_name(MIMHID_ERR_TIMEOUT), "MIMHID_ERR_TIMEOUT") != 0;

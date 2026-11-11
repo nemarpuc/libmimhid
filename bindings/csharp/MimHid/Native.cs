@@ -132,7 +132,6 @@ public unsafe struct DeviceInfo
     public byte VersionPatch;
     public byte IsReady;
     public byte FirmwareCompatible;
-    public byte MaxNodes;
     public byte MaxInterfaces;
     public byte MaxReportBytes;
     public ushort MaxDescriptorBytes;

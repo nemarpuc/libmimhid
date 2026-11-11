@@ -104,17 +104,17 @@ void log_message(const mimhid_device* device, const mimhid_log_level level,
 }
 
 const char* frame_type_name(const std::int32_t frame_type) noexcept {
-    if (frame_type >= MIMHID_T_REPORT_BASE && frame_type <= MIMHID_T_REPORT_LAST)
-        return "REPORT";
+    if (frame_type >= MIMHID_T_EP_IN_BASE && frame_type <= MIMHID_T_EP_IN_LAST)
+        return "EP_IN";
     switch (frame_type) {
     case MIMHID_T_PING:
         return "PING";
-    case MIMHID_T_DEVICE_CONFIG:
-        return "DEVICE_CONFIG";
-    case MIMHID_T_NODE_BEGIN:
-        return "NODE_BEGIN";
-    case MIMHID_T_NODE_DATA:
-        return "NODE_DATA";
+    case MIMHID_T_DESC_RESET:
+        return "DESC_RESET";
+    case MIMHID_T_DESC_BEGIN:
+        return "DESC_BEGIN";
+    case MIMHID_T_DESC_DATA:
+        return "DESC_DATA";
     case MIMHID_T_COMMIT:
         return "COMMIT";
     case MIMHID_T_FEATURE:
@@ -131,8 +131,8 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
         return "CONTROL_REPLY";
     case MIMHID_T_LOSS_CONFIG:
         return "LOSS_CONFIG";
-    case MIMHID_T_QUEUE_DEPTH:
-        return "QUEUE_DEPTH";
+    case MIMHID_T_EP_CONFIG:
+        return "EP_CONFIG";
     case MIMHID_T_PROBE:
         return "PROBE";
     case MIMHID_T_COUNTERS:

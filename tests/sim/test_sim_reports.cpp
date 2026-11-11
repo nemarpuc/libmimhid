@@ -261,11 +261,11 @@ void test_limits() {
     if (device == nullptr)
         return;
     // Nodes without Report IDs cannot share an interface, so the board's interface count is a hard
-    // limit; the node count is another.
+    // limit.
     std::vector<mimhid_node*> nodes;
     std::vector<mimhid_spec*> specs;
     mimhid_result last = MIMHID_OK;
-    const unsigned limit = SIM_HID_ITFS < MIMHID_MAX_NODES ? SIM_HID_ITFS : MIMHID_MAX_NODES;
+    const unsigned limit = SIM_HID_ITFS;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
         mimhid_node_config no{};
@@ -280,8 +280,56 @@ void test_limits() {
     MIMHID_CHECK(fake_board_interface_count() == limit);
     // The failed open left the others working.
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
-    for (auto* node : nodes)
-        MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    // Interface numbers are real: the highest goes first, or the others would have a gap.
+    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it)
+        MIMHID_CHECK(mimhid_node_close(*it, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+    for (auto* spec : specs)
+        mimhid_spec_release(spec);
+}
+
+// Interface numbers are real: a number that leaves a gap is refused by the library before the
+// board sees it, and the board, given such a configuration anyway, refuses the commit
+// (firmware/tests covers that). Here the whole path: 0, then a gap, then the gap filled.
+void test_interface_numbers() {
+    mimhid_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    if (SIM_HID_ITFS < 3) {
+        MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
+        return;
+    }
+    std::vector<mimhid_spec*> specs;
+    mimhid_node* nodes[3] = {};
+    for (unsigned i : {0U, 2U, 1U, 2U}) {
+        specs.push_back(raw_spec_no_id());
+        mimhid_node_config c{};
+        test_fill_node_config(&c, static_cast<uint8_t>(i));
+        mimhid_node* node = nullptr;
+        const mimhid_result r = mimhid_node_open(device, specs.back(), &c, &kCommit, &node);
+        if (i == 2U && nodes[1] == nullptr) {
+            MIMHID_CHECK(r == MIMHID_ERR_PARAM && node == nullptr &&
+                         mimhid_last_error()->offset == 1U);
+        } else {
+            MIMHID_CHECK(r == MIMHID_OK);
+            nodes[i] = node;
+        }
+    }
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+    MIMHID_CHECK(fake_board_interface_count() == 3U);
+    // The target sees interface numbers 0, 1, 2 in its configuration descriptor.
+    uint16_t length = 0;
+    const uint8_t* c = fake_board_config_descriptor(&length);
+    unsigned seen = 0;
+    for (uint16_t k = 0; k + 1U < length; k = static_cast<uint16_t>(k + c[k])) {
+        if (c[k + 1] == 0x04) {
+            MIMHID_CHECK(c[k + 2] == seen);
+            ++seen;
+        }
+    }
+    MIMHID_CHECK(seen == 3U);
+    for (int i = 2; i >= 0; --i)
+        MIMHID_CHECK(mimhid_node_close(nodes[i], &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     for (auto* spec : specs)
         mimhid_spec_release(spec);

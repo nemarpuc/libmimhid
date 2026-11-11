@@ -1,24 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
 // Host-side test of the portable firmware core with a fake HAL and TinyUSB stubs.
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include "tusb.h"
-#include "device/dcd.h"
 #include "config.h"
 #include "control.h"
 #include "core.h"
-#include "ep0.h"
+#include "device/dcd.h"
 #include "device/usbd_pvt.h"
+#include "ep0.h"
 #include "hal.h"
+#include "tusb.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 uint8_t const* tud_descriptor_device_cb(void);
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index);
 uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance);
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid);
-uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen);
-void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize);
+uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type,
+                               uint8_t* buffer, uint16_t reqlen);
+void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type,
+                           uint8_t const* buffer, uint16_t bufsize);
 void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol);
 bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate);
 void tud_suspend_cb(bool remote_wakeup_en);
@@ -27,62 +30,101 @@ void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
 bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes);
 
 // ---- fake HAL ----
-static uint8_t  g_in[16384];
-static size_t   g_in_len, g_in_pos;
-static uint8_t  g_out[16384];
-static size_t   g_out_len;
+static uint8_t g_in[16384];
+static size_t g_in_len, g_in_pos;
+static uint8_t g_out[16384];
+static size_t g_out_len;
 static uint32_t g_now;
-static int      g_has_id = 1;
+static int g_has_id = 1;
 static uint32_t g_baud = MIMHID_BOOT_BAUD;
-static int      g_baud_changes;
+static int g_baud_changes;
 
 void hal_init(void) {}
 size_t hal_uart_read(uint8_t* dst, size_t max) {
     size_t n = g_in_len - g_in_pos;
-    if (n > max) n = max;
+    if (n > max)
+        n = max;
     memcpy(dst, g_in + g_in_pos, n);
     g_in_pos += n;
     return n;
 }
-void hal_uart_write(const uint8_t* d, size_t n) { memcpy(g_out + g_out_len, d, n); g_out_len += n; }
+void hal_uart_write(const uint8_t* d, size_t n) {
+    memcpy(g_out + g_out_len, d, n);
+    g_out_len += n;
+}
 static uint32_t g_now_step;
-uint32_t hal_millis(void) { g_now += g_now_step; return g_now; }
+uint32_t hal_millis(void) {
+    g_now += g_now_step;
+    return g_now;
+}
 static uint32_t g_max_rate = 12000000u;
 static uint32_t g_rate_error_ppm; // the fake divider's error, applied to every rate
-static uint8_t  g_errors;         // HAL_UART_ERR_* bits the next hal_uart_errors returns
+static uint8_t g_errors;          // HAL_UART_ERR_* bits the next hal_uart_errors returns
 uint32_t hal_uart_baud_actual(uint32_t baud) {
-    if (baud == 0 || baud > g_max_rate) return 0;
+    if (baud == 0 || baud > g_max_rate)
+        return 0;
     return (uint32_t)((uint64_t)baud * (1000000u + g_rate_error_ppm) / 1000000u);
 }
 uint32_t hal_uart_max_baud(void) { return g_max_rate; }
 bool hal_uart_has_break(void) { return true; }
-uint8_t hal_uart_errors(void) { uint8_t e = g_errors; g_errors = 0; return e; }
-void hal_uart_set_baud(uint32_t baud) { g_baud = baud; g_baud_changes++; }
+uint8_t hal_uart_errors(void) {
+    uint8_t e = g_errors;
+    g_errors = 0;
+    return e;
+}
+void hal_uart_set_baud(uint32_t baud) {
+    g_baud = baud;
+    g_baud_changes++;
+}
 uint8_t hal_chip(void) { return MIMHID_CHIP_RP2040; }
 size_t hal_unique_id(uint8_t* out, size_t max) {
-    if (!g_has_id) return 0;
+    if (!g_has_id)
+        return 0;
     static const uint8_t id[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};
     size_t n = max < sizeof(id) ? max : sizeof(id);
     memcpy(out, id, n);
     return n;
 }
 void hal_control_silent_drop(void) {}
-void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) { (void)rhport; (void)ep_addr; }
+void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    (void)ep_addr;
+}
 
 // ---- TinyUSB stubs ----
 static bool g_mounted = true, g_suspended;
-static int  g_disconnects, g_connects, g_wakeups;
-static struct { uint8_t iface; uint16_t len; uint8_t data[1024]; } g_sent[64];
-static int  g_nsent;
-static bool g_busy[8];
+static int g_disconnects, g_connects, g_wakeups;
+static struct {
+    uint8_t iface;
+    uint16_t len;
+    uint8_t data[1024];
+} g_sent[64];
+static int g_nsent;
+static bool g_busy[16];
 
-bool tusb_rhport_init(uint8_t rhport, const tusb_rhport_init_t* init) { (void)rhport; (void)init; return true; }
-void tud_task_ext(uint32_t timeout_ms, bool in_isr) { (void)timeout_ms; (void)in_isr; }
+bool tusb_rhport_init(uint8_t rhport, const tusb_rhport_init_t* init) {
+    (void)rhport;
+    (void)init;
+    return true;
+}
+void tud_task_ext(uint32_t timeout_ms, bool in_isr) {
+    (void)timeout_ms;
+    (void)in_isr;
+}
 bool tud_mounted(void) { return g_mounted; }
 bool tud_suspended(void) { return g_suspended; }
-bool tud_disconnect(void) { g_disconnects++; return true; }
-bool tud_connect(void) { g_connects++; return true; }
-bool tud_remote_wakeup(void) { g_wakeups++; return true; }
+bool tud_disconnect(void) {
+    g_disconnects++;
+    return true;
+}
+bool tud_connect(void) {
+    g_connects++;
+    return true;
+}
+bool tud_remote_wakeup(void) {
+    g_wakeups++;
+    return true;
+}
 bool tud_hid_n_ready(uint8_t itf) { return !g_busy[itf]; }
 bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
     assert(rid == 0); // reports carry their own Report ID
@@ -111,7 +153,8 @@ void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
 }
 void dcd_int_disable(uint8_t rhport) { (void)rhport; }
 void dcd_int_enable(uint8_t rhport) { (void)rhport; }
-bool tud_control_xfer(uint8_t rhport, tusb_control_request_t const* request, void* buffer, uint16_t len) {
+bool tud_control_xfer(uint8_t rhport, tusb_control_request_t const* request, void* buffer,
+                      uint16_t len) {
     (void)rhport;
     g_xfer.kind = 1;
     g_xfer.w_length = request->wLength;
@@ -157,7 +200,10 @@ static uint32_t u32at(const uint8_t* p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 static void put32(uint8_t* p, uint32_t v) {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
 }
 
 static uint8_t g_seq;
@@ -176,7 +222,10 @@ static void put_frame(uint8_t type, const uint8_t* p, size_t n) {
         crc = mimhid_crc16_update(crc, low);
         crc = mimhid_crc16_update(crc, high);
     }
-    for (size_t i = 0; i < n; i++) { g_in[g_in_len++] = p[i]; crc = mimhid_crc16_update(crc, p[i]); }
+    for (size_t i = 0; i < n; i++) {
+        g_in[g_in_len++] = p[i];
+        crc = mimhid_crc16_update(crc, p[i]);
+    }
     g_in[g_in_len++] = (uint8_t)(crc & 0xFF);
     g_in[g_in_len++] = (uint8_t)(crc >> 8);
 }
@@ -184,7 +233,8 @@ static void put_frame(uint8_t type, const uint8_t* p, size_t n) {
 static void put_cmd(uint8_t type, const uint8_t* p, size_t n) {
     uint8_t buf[2048];
     buf[0] = ++g_seq;
-    memcpy(buf + 1, p, n);
+    if (n != 0)
+        memcpy(buf + 1, p, n);
     put_frame(type, buf, n + 1);
 }
 
@@ -204,7 +254,8 @@ static void pump(void) {
 
 // Reads the next board frame at *pos; returns its type, or 0 when none is left.
 static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
-    if (*pos + 5 > g_out_len) return 0;
+    if (*pos + 5 > g_out_len)
+        return 0;
     assert(g_out[*pos] == MIMHID_SYNC);
     uint8_t t = g_out[*pos + 1];
     uint8_t low = g_out[*pos + 2], high = 0;
@@ -218,8 +269,12 @@ static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
     assert(*pos + header + n + 2 <= g_out_len);
     uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, t);
     crc = mimhid_crc16_update(crc, low);
-    if (header == 4) crc = mimhid_crc16_update(crc, high);
-    for (uint16_t i = 0; i < n; i++) { payload[i] = g_out[*pos + header + i]; crc = mimhid_crc16_update(crc, payload[i]); }
+    if (header == 4)
+        crc = mimhid_crc16_update(crc, high);
+    for (uint16_t i = 0; i < n; i++) {
+        payload[i] = g_out[*pos + header + i];
+        crc = mimhid_crc16_update(crc, payload[i]);
+    }
     assert(g_out[*pos + header + n] == (uint8_t)(crc & 0xFF));
     assert(g_out[*pos + header + n + 1] == (uint8_t)(crc >> 8));
     *pos += header + n + 2u;
@@ -235,8 +290,8 @@ static int lost_reported(void) {
     uint8_t t;
     int lost = 0;
     while ((t = next_out(&pos, p, &n)) != 0) {
-        if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_REPORT_LOST) {
-            assert(n == 4 && p[1] == 0);
+        if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_TRANSFER_LOST) {
+            assert(n == 4 && p[1] == 0x81); // the IN endpoint of interface 0
             lost += p[2] | (p[3] << 8);
         }
     }
@@ -257,7 +312,8 @@ static int result_of(uint8_t type) {
         if ((t == MIMHID_T_ACK || t == MIMHID_T_NAK) && p[1] == type) {
             assert(p[0] == g_seq);
             result = t == MIMHID_T_ACK;
-            if (t == MIMHID_T_NAK) g_nak_code = p[2];
+            if (t == MIMHID_T_NAK)
+                g_nak_code = p[2];
             if (t == MIMHID_T_ACK) {
                 g_ack_data_len = (uint16_t)(n - 2);
                 memcpy(g_ack_data, &p[2], g_ack_data_len);
@@ -269,6 +325,8 @@ static int result_of(uint8_t type) {
 
 static int command(uint8_t type, const uint8_t* p, size_t n) {
     g_out_len = 0;
+    if (g_in_pos == g_in_len)
+        g_in_pos = g_in_len = 0; // the input is all consumed: start over
     put_cmd(type, p, n);
     pump();
     return result_of(type);
@@ -281,122 +339,367 @@ static uint8_t g_config_value = 1;
 static uint8_t g_bm_attributes = 0xA0;
 static uint8_t g_device_class = 0xEF;
 static uint8_t g_device_subclass = 0x02;
-// Endpoint addresses NODE_BEGIN carries instead of the ones it derives from the interface; -1: none.
+// Endpoint addresses a node carries instead of the ones derived from its interface; -1: none.
 static int g_force_in = -1;
 static int g_force_out = -1;
 
-// A string on the wire: a count of UTF-16 code units, then the units, little endian.
-static size_t put_units(uint8_t* p, size_t n, const uint16_t* units, size_t count) {
-    p[n++] = (uint8_t)count;
-    for (size_t i = 0; i < count; i++) {
-        p[n++] = (uint8_t)(units[i] & 0xFF);
-        p[n++] = (uint8_t)(units[i] >> 8);
-    }
-    return n;
+// ---- what the host library does: compose the descriptors and send them as bytes ----
+// The tests describe a device the way the old wire did (a device, nodes with interface settings and
+// report descriptors); this model turns that into the DESC_* commands the host library sends.
+#define T_NODES 16
+#define T_SERIAL_FROM_ID 0x01 // device flag of the model: the serial string is the board's
+
+typedef struct {
+    bool used;
+    uint8_t iface, cls, subclass, protocol;
+    uint8_t in_addr, out_addr, poll, poll_out;
+    uint16_t in_size, out_size;
+    uint16_t desc_len, desc_recv;
+    uint8_t rd[300];
+    uint16_t name[MIMHID_STRING_MAX + 2];
+    size_t name_len;
+} tnode_t;
+
+static tnode_t g_tn[T_NODES];
+static uint8_t g_dev_flags;
+static uint16_t g_dev_string[4]
+                            [MIMHID_STRING_MAX + 2]; // manufacturer, product, serial, configuration
+static size_t g_dev_string_len[4];
+
+static void put_u16(uint8_t* p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)(v >> 8);
 }
 
-static size_t put_ascii(uint8_t* p, size_t n, const char* text) {
-    uint16_t units[MIMHID_STRING_MAX];
+static void set_units(uint16_t* dst, size_t* len, const uint16_t* units, size_t count) {
+    assert(count <= MIMHID_STRING_MAX + 1);
+    memcpy(dst, units, count * sizeof(uint16_t));
+    *len = count;
+}
+
+static void set_ascii(uint16_t* dst, size_t* len, const char* text) {
     size_t count = strlen(text);
-    if (count > MIMHID_STRING_MAX) count = MIMHID_STRING_MAX;
-    for (size_t i = 0; i < count; i++) units[i] = (uint8_t)text[i];
-    return put_units(p, n, units, count);
+    assert(count <= MIMHID_STRING_MAX);
+    for (size_t i = 0; i < count; i++)
+        dst[i] = (uint8_t)text[i];
+    *len = count;
 }
 
-static int device_config_units(uint8_t flags, const char* serial, const uint16_t* maker,
-                               size_t maker_count) {
-    uint8_t p[512];
-    size_t n = 0;
-    p[n++] = 0x34; p[n++] = 0x12;          // vid
-    p[n++] = 0x78; p[n++] = 0x56;          // pid
-    p[n++] = 0x00; p[n++] = 0x02;          // bcd
-    p[n++] = g_device_class; p[n++] = g_device_subclass; p[n++] = 0x01;
-    p[n++] = (uint8_t)(g_language & 0xFF); p[n++] = (uint8_t)(g_language >> 8); // language
-    p[n++] = (uint8_t)(g_bcd_usb & 0xFF); p[n++] = (uint8_t)(g_bcd_usb >> 8);   // bcdUSB
-    p[n++] = g_ep0_size;                   // ep0_max_packet_size
-    p[n++] = g_config_value;               // configuration_value
-    p[n++] = g_bm_attributes;              // bm_attributes (0x80 | 0x20 remote wakeup)
-    p[n++] = 50;                           // bmax_power (100 mA)
-    p[n++] = flags;                        // flags
-    const char* strs[4] = {"Maker", "Product", serial, "Config"};
-    for (int i = 0; i < 4; i++) {
-        n = (i == 0 && maker != NULL) ? put_units(p, n, maker, maker_count) : put_ascii(p, n, strs[i]);
+static int desc_reset(void) { return command(MIMHID_T_DESC_RESET, NULL, 0); }
+
+static int desc_begin_raw(uint8_t kind, uint8_t index, uint16_t language, uint16_t total,
+                          uint8_t flags) {
+    uint8_t p[7] = {kind,
+                    index,
+                    (uint8_t)(language & 0xFF),
+                    (uint8_t)(language >> 8),
+                    (uint8_t)(total & 0xFF),
+                    (uint8_t)(total >> 8),
+                    flags};
+    return command(MIMHID_T_DESC_BEGIN, p, sizeof(p));
+}
+
+static int desc_data_raw(uint8_t kind, uint8_t index, uint16_t language, uint16_t off,
+                         const uint8_t* d, size_t len) {
+    uint8_t p[6 + MIMHID_DESC_DATA_CHUNK];
+    assert(len <= MIMHID_DESC_DATA_CHUNK);
+    p[0] = kind;
+    p[1] = index;
+    put_u16(&p[2], language);
+    put_u16(&p[4], off);
+    memcpy(p + 6, d, len);
+    return command(MIMHID_T_DESC_DATA, p, 6 + len);
+}
+
+// Announces a descriptor and sends `have` of its `total` bytes in chunks. Returns 1, or the first
+// answer that was not an ACK (0 with the code in g_nak_code, -1 for silence).
+static int send_blob_partial(uint8_t kind, uint8_t index, uint16_t language, const uint8_t* d,
+                             size_t total, size_t have, uint8_t flags) {
+    int r = desc_begin_raw(kind, index, language, (uint16_t)total, flags);
+    if (r != 1)
+        return r;
+    for (size_t off = 0; off < have; off += MIMHID_DESC_DATA_CHUNK) {
+        size_t n = have - off < MIMHID_DESC_DATA_CHUNK ? have - off : MIMHID_DESC_DATA_CHUNK;
+        r = desc_data_raw(kind, index, language, (uint16_t)off, d + off, n);
+        if (r != 1)
+            return r;
     }
-    return command(MIMHID_T_DEVICE_CONFIG, p, n);
+    return 1;
 }
 
-static int device_config(uint8_t flags, const char* serial) {
-    return device_config_units(flags, serial, NULL, 0);
+static int send_blob(uint8_t kind, uint8_t index, uint16_t language, const uint8_t* d,
+                     size_t total) {
+    return send_blob_partial(kind, index, language, d, total, total, 0);
 }
 
-static const uint8_t k_desc_a[] = {  // a small valid keyboard-like descriptor
-    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00,
-    0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0xC0};
-static const uint8_t k_desc_b[] = {  // mouse-like
-    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02, 0x09, 0x30, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08,
-    0x95, 0x01, 0x81, 0x06, 0xC0};
-
-static int node_begin_full(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
-                           uint16_t ep_out, uint8_t cls, uint8_t subclass, uint8_t protocol,
-                           const char* str) {
-    uint8_t p[24 + 1 + 2 * MIMHID_STRING_MAX];
-    size_t n = 0;
-    p[n++] = id; p[n++] = iface;
-    p[n++] = (uint8_t)(desc_len & 0xFF); p[n++] = (uint8_t)(desc_len >> 8);
-    p[n++] = cls;                          // interface_class
-    p[n++] = subclass;                     // interface_subclass
-    p[n++] = protocol;                     // interface_protocol
-    p[n++] = 0x11; p[n++] = 0x01;          // bcdHID 1.11
-    p[n++] = 0;                            // country
-    p[n++] = g_force_in >= 0 ? (uint8_t)g_force_in : (uint8_t)(0x81 + iface); // ep_in_addr
-    p[n++] = (uint8_t)(ep & 0xFF); p[n++] = (uint8_t)(ep >> 8); // ep_size
-    p[n++] = poll;                         // poll_interval
-    p[n++] = g_force_out >= 0 ? (uint8_t)g_force_out : ep_out ? (uint8_t)(0x01 + iface) : 0; // ep_out_addr
-    p[n++] = (uint8_t)(ep_out & 0xFF); p[n++] = (uint8_t)(ep_out >> 8); // ep_out_size
-    p[n++] = ep_out ? poll : 0;            // poll_interval_out
-    p[n++] = 0;                            // idle_rate
-    p[n++] = 0;                            // flags
-    n = put_ascii(p, n, str);
-    return command(MIMHID_T_NODE_BEGIN, p, n);
+// A string descriptor as it is on the bus (USB 2.0 9.6.7).
+static size_t string_descriptor(uint8_t* out, const uint16_t* units, size_t count) {
+    out[0] = (uint8_t)(2 + 2 * count);
+    out[1] = 3;
+    for (size_t i = 0; i < count; i++)
+        put_u16(&out[2 + 2 * i], units[i]);
+    return 2 + 2 * count;
 }
 
-static int node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
-                          uint16_t ep_out, uint8_t boot, const char* str) {
-    return node_begin_full(id, iface, desc_len, poll, ep, ep_out, 0x03, boot ? 1 : 0, boot, str);
+static int send_string(uint8_t index, const uint16_t* units, size_t count) {
+    uint8_t b[2 + 2 * (MIMHID_STRING_MAX + 2)];
+    assert(count <= MIMHID_STRING_MAX + 1);
+    return send_blob(MIMHID_DESC_STRING, index, g_language, b, string_descriptor(b, units, count));
 }
 
-static int node_begin(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep, uint8_t boot,
-                      const char* str) {
-    return node_begin_out(id, iface, desc_len, poll, ep, 0, boot, str);
+// The report descriptor of an interface: the nodes of it in node order, back to back. `total` is
+// what the nodes announced, the return value is what they actually have.
+static size_t joined_report_descriptor(uint8_t iface, uint8_t* out, size_t* total) {
+    size_t have = 0;
+    *total = 0;
+    for (int id = 0; id < T_NODES; id++) {
+        if (!g_tn[id].used || g_tn[id].iface != iface)
+            continue;
+        memcpy(out + have, g_tn[id].rd, g_tn[id].desc_recv);
+        have += g_tn[id].desc_recv;
+        *total += g_tn[id].desc_len;
+    }
+    return have;
 }
 
-static int node_data(uint8_t id, uint16_t off, const uint8_t* d, size_t len) {
-    uint8_t p[256];
-    p[0] = id; p[1] = (uint8_t)(off & 0xFF); p[2] = (uint8_t)(off >> 8);
-    memcpy(p + 3, d, len);
-    return command(MIMHID_T_NODE_DATA, p, len + 3);
+// Sends everything the host library sends before a COMMIT, except the Feature answers and the
+// endpoint settings: DESC_RESET, the device and configuration descriptors, the strings and the
+// report descriptors. Returns 1, or the first answer that was not an ACK.
+static int stage(void) {
+    int r = desc_reset();
+    if (r != 1)
+        return r;
+
+    // The strings take the places the host library gives them: 1 manufacturer, 2 product, 3
+    // serial, 4 configuration, 5 + interface number for an interface.
+    const bool serial_from_id = (g_dev_flags & T_SERIAL_FROM_ID) != 0 && g_dev_string_len[2] == 0;
+    const uint8_t serial_index = (g_dev_string_len[2] != 0 || serial_from_id) ? 3 : 0;
+    uint8_t dev[18] = {18, TUSB_DESC_DEVICE};
+    put_u16(&dev[2], g_bcd_usb);
+    dev[4] = g_device_class;
+    dev[5] = g_device_subclass;
+    dev[6] = 0x01;
+    dev[7] = g_ep0_size;
+    put_u16(&dev[8], 0x1234);
+    put_u16(&dev[10], 0x5678);
+    put_u16(&dev[12], 0x0200);
+    dev[14] = g_dev_string_len[0] ? 1 : 0;
+    dev[15] = g_dev_string_len[1] ? 2 : 0;
+    dev[16] = serial_index;
+    dev[17] = 1;
+    if ((r = send_blob(MIMHID_DESC_DEVICE, 0, 0, dev, sizeof(dev))) != 1)
+        return r;
+
+    // The interfaces in the order of their numbers; an interface takes its settings from its first
+    // node.
+    uint8_t cfg[MIMHID_MAX_CONFIG_BYTES + 64];
+    size_t pos = 9;
+    uint8_t seen[T_NODES];
+    size_t nseen = 0;
+    for (int n = 0; n < 256; n++) {
+        for (int id = 0; id < T_NODES; id++) {
+            if (!g_tn[id].used || g_tn[id].iface != n)
+                continue;
+            seen[nseen++] = (uint8_t)n;
+            break;
+        }
+    }
+    for (size_t k = 0; k < nseen; k++) {
+        const tnode_t* t = NULL;
+        for (int id = 0; id < T_NODES && t == NULL; id++)
+            if (g_tn[id].used && g_tn[id].iface == seen[k])
+                t = &g_tn[id];
+        size_t total = 0;
+        uint8_t rd[T_NODES * 300];
+        joined_report_descriptor(seen[k], rd, &total);
+        const bool has_out = t->out_addr != 0 || t->out_size != 0;
+        const uint8_t itf[] = {9,
+                               TUSB_DESC_INTERFACE,
+                               seen[k],
+                               0,
+                               (uint8_t)(has_out ? 2 : 1),
+                               t->cls,
+                               t->subclass,
+                               t->protocol,
+                               (uint8_t)(t->name_len ? 5 + seen[k] : 0)};
+        memcpy(cfg + pos, itf, sizeof(itf));
+        pos += sizeof(itf);
+        uint8_t hid[9] = {9, HID_DESC_TYPE_HID, 0x11, 0x01, 0, 1, HID_DESC_TYPE_REPORT};
+        put_u16(&hid[7], (uint16_t)total);
+        memcpy(cfg + pos, hid, sizeof(hid));
+        pos += sizeof(hid);
+        uint8_t ep[7] = {7, TUSB_DESC_ENDPOINT, t->in_addr, TUSB_XFER_INTERRUPT};
+        put_u16(&ep[4], t->in_size);
+        ep[6] = t->poll;
+        memcpy(cfg + pos, ep, sizeof(ep));
+        pos += sizeof(ep);
+        if (has_out) {
+            uint8_t eo[7] = {7, TUSB_DESC_ENDPOINT, t->out_addr, TUSB_XFER_INTERRUPT};
+            put_u16(&eo[4], t->out_size);
+            eo[6] = t->poll_out;
+            memcpy(cfg + pos, eo, sizeof(eo));
+            pos += sizeof(eo);
+        }
+    }
+    const uint8_t head[9] = {9,
+                             TUSB_DESC_CONFIGURATION,
+                             0,
+                             0,
+                             (uint8_t)nseen,
+                             g_config_value,
+                             (uint8_t)(g_dev_string_len[3] ? 4 : 0),
+                             g_bm_attributes,
+                             50};
+    memcpy(cfg, head, sizeof(head));
+    put_u16(&cfg[2], (uint16_t)pos);
+    if ((r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, cfg, pos)) != 1)
+        return r;
+
+    for (int i = 0; i < 4; i++) {
+        if (i == 2 && serial_from_id) {
+            if ((r = send_blob_partial(MIMHID_DESC_STRING, 3, g_language, NULL, 0, 0,
+                                       MIMHID_DESC_F_SERIAL_FROM_ID)) != 1)
+                return r;
+        } else if (g_dev_string_len[i]) {
+            if ((r = send_string((uint8_t)(i + 1), g_dev_string[i], g_dev_string_len[i])) != 1)
+                return r;
+        }
+    }
+    for (size_t k = 0; k < nseen; k++) {
+        for (int id = 0; id < T_NODES; id++) {
+            if (g_tn[id].used && g_tn[id].iface == seen[k]) {
+                if (g_tn[id].name_len && (r = send_string((uint8_t)(5 + seen[k]), g_tn[id].name,
+                                                          g_tn[id].name_len)) != 1)
+                    return r;
+                break;
+            }
+        }
+        size_t total = 0;
+        uint8_t rd[T_NODES * 300];
+        const size_t have = joined_report_descriptor(seen[k], rd, &total);
+        if ((r = send_blob_partial(MIMHID_DESC_HID_REPORT, seen[k], 0, rd, total, have, 0)) != 1)
+            return r;
+    }
+    return 1;
 }
+
+static int commit_staged(void) { return command(MIMHID_T_COMMIT, NULL, 0); }
 
 static int commit(void) {
-    return command(MIMHID_T_COMMIT, NULL, 0);
+    int r = stage();
+    return r != 1 ? r : commit_staged();
 }
 
-static void report(uint8_t node, const uint8_t* d, size_t n) {
-    put_frame((uint8_t)(MIMHID_T_REPORT_BASE | node), d, n);
+static int ep_config(uint8_t address, uint8_t depth, uint8_t policy) {
+    const uint8_t p[3] = {address, depth, policy};
+    return command(MIMHID_T_EP_CONFIG, p, sizeof(p));
 }
 
-static void expect_nak(int r, int code) {
-    assert(r == 0);
-    assert(g_nak_code == code);
+static int feature(uint8_t iface, uint8_t report_id, const uint8_t* d, size_t n) {
+    uint8_t p[2 + MIMHID_FEATURE_MAX + 1];
+    assert(n <= MIMHID_FEATURE_MAX + 1);
+    p[0] = iface;
+    p[1] = report_id;
+    memcpy(p + 2, d, n);
+    return command(MIMHID_T_FEATURE, p, 2 + n);
 }
+
+// Starts a new device: the strings are "Maker", "Product", the given serial and "Config", and no
+// node is left. Nothing is sent until stage() or commit().
+static void device_config_units(uint8_t flags, const char* serial, const uint16_t* maker,
+                                size_t maker_count) {
+    memset(g_tn, 0, sizeof(g_tn));
+    g_dev_flags = flags;
+    if (maker != NULL)
+        set_units(g_dev_string[0], &g_dev_string_len[0], maker, maker_count);
+    else
+        set_ascii(g_dev_string[0], &g_dev_string_len[0], "Maker");
+    set_ascii(g_dev_string[1], &g_dev_string_len[1], "Product");
+    set_ascii(g_dev_string[2], &g_dev_string_len[2], serial);
+    set_ascii(g_dev_string[3], &g_dev_string_len[3], "Config");
+}
+
+static void device_config(uint8_t flags, const char* serial) {
+    device_config_units(flags, serial, NULL, 0);
+}
+
+static const uint8_t k_desc_a[] = {// a small valid keyboard-like descriptor
+                                   0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x05,
+                                   0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
+                                   0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0xC0};
+static const uint8_t k_desc_b[] = {// mouse-like
+                                   0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02, 0x09, 0x30, 0x15,
+                                   0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06, 0xC0};
+
+// A node: its interface settings. The report descriptor follows with node_data(). The endpoints
+// are the interface's own (0x81 + interface number for IN, 0x01 + interface number for OUT)
+// unless g_force_in / g_force_out say otherwise.
+static void node_begin_full(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
+                            uint16_t ep_out, uint8_t cls, uint8_t subclass, uint8_t protocol,
+                            const char* str) {
+    assert(id < T_NODES && desc_len <= sizeof(g_tn[0].rd));
+    tnode_t* t = &g_tn[id];
+    memset(t, 0, sizeof(*t));
+    t->used = true;
+    t->iface = iface;
+    t->cls = cls;
+    t->subclass = subclass;
+    t->protocol = protocol;
+    t->in_addr = g_force_in >= 0 ? (uint8_t)g_force_in : (uint8_t)(0x81 + iface);
+    t->in_size = ep;
+    t->poll = poll;
+    t->out_addr = g_force_out >= 0 ? (uint8_t)g_force_out : ep_out ? (uint8_t)(0x01 + iface) : 0;
+    t->out_size = ep_out;
+    t->poll_out = ep_out ? poll : 0;
+    t->desc_len = desc_len;
+    set_ascii(t->name, &t->name_len, str);
+}
+
+static void node_begin_out(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
+                           uint16_t ep_out, uint8_t boot, const char* str) {
+    node_begin_full(id, iface, desc_len, poll, ep, ep_out, 0x03, boot ? 1 : 0, boot, str);
+}
+
+static void node_begin(uint8_t id, uint8_t iface, uint16_t desc_len, uint8_t poll, uint16_t ep,
+                       uint8_t boot, const char* str) {
+    node_begin_out(id, iface, desc_len, poll, ep, 0, boot, str);
+}
+
+// The report descriptor of a node, or the part of it from `off` on.
+static void node_data(uint8_t id, uint16_t off, const uint8_t* d, size_t len) {
+    tnode_t* t = &g_tn[id];
+    assert(t->used && off == t->desc_recv && off + len <= t->desc_len);
+    memcpy(t->rd + off, d, len);
+    t->desc_recv = (uint16_t)(off + len);
+}
+
+// One node on interface 0 with a complete descriptor, the base of most refusal tests.
+static void base_node(void) {
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+}
+
+// Data for an IN endpoint, by endpoint number.
+static void ep_in(uint8_t number, const uint8_t* d, size_t n) {
+    put_frame((uint8_t)(MIMHID_T_EP_IN_BASE | number), d, n);
+}
+
+static void expect_nak_at(int r, int code, int line) {
+    if (r != 0 || g_nak_code != code) {
+        fprintf(stderr, "line %d: expected NAK %d, got result %d, code %d\n", line, code, r,
+                g_nak_code);
+        abort();
+    }
+}
+#define expect_nak(r, code) expect_nak_at((r), (code), __LINE__)
 
 static void test_descriptors_basic(void) {
     // device with two nodes, each on its own interface
-    assert(device_config(0, "SN-1") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    assert(node_begin(1, 1, sizeof(k_desc_b), 1, 64, 0, "") == 1);
-    assert(node_data(1, 0, k_desc_b, sizeof(k_desc_b)) == 1);
+    device_config(0, "SN-1");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    node_begin(1, 1, sizeof(k_desc_b), 1, 64, 0, "");
+    node_data(1, 0, k_desc_b, sizeof(k_desc_b));
     g_disconnects = g_connects = 0;
     assert(commit() == 1);
     assert(g_disconnects == 0 && g_connects == 1);
@@ -411,7 +714,8 @@ static void test_descriptors_basic(void) {
     uint16_t total = (uint16_t)(c[2] | (c[3] << 8));
     assert(total == 9 + 2 * 25 && c[4] == 2 && c[6] == 4);
     assert(c[7] == (0x80 | 0x20) && c[8] == 50);
-    // interface 0: boot keyboard, string 5, bcdHID 1.11, report descriptor length, EP 0x81, 16 bytes, 4 ms
+    // interface 0: boot keyboard, string 5, bcdHID 1.11, report descriptor length, EP 0x81, 16
+    // bytes, 4 ms
     const uint8_t* i0 = c + 9;
     assert(i0[1] == 4 && i0[2] == 0 && i0[5] == 3 && i0[6] == 1 && i0[7] == 1 && i0[8] == 5);
     assert(i0[11] == 0x11 && i0[12] == 0x01 && i0[16] == (sizeof(k_desc_a) & 0xFF));
@@ -437,33 +741,42 @@ static void test_descriptors_basic(void) {
 }
 
 // Strings are UTF-16: a Japanese name and a surrogate pair reach the string descriptor unchanged;
-// a zero unit and a count above the limit are refused.
+// the longest string (254 bytes, USB 2.0 9.6.7) is held, one unit more is refused.
 static void test_strings_utf16(void) {
     static const uint16_t maker[] = {0x65E5, 0x672C, 0xD83D, 0xDE00, 'A'}; // two kanji, U+1F600, A
-    assert(device_config_units(0, "", maker, 5) == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config_units(0, "", maker, 5);
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     const uint16_t* s = tud_descriptor_string_cb(1, 0x0409);
     assert((s[0] & 0xFF) == 2 + 2 * 5);
-    for (int i = 0; i < 5; i++) assert(s[1 + i] == maker[i]);
+    for (int i = 0; i < 5; i++)
+        assert(s[1 + i] == maker[i]);
 
-    static const uint16_t with_zero[] = {'a', 0, 'b'};
-    assert(device_config_units(0, "", with_zero, 3) == 0);
-    uint16_t longest[MIMHID_STRING_MAX + 1];
-    for (size_t i = 0; i < MIMHID_STRING_MAX + 1; i++) longest[i] = 0x3042;
-    assert(device_config_units(0, "", longest, MIMHID_STRING_MAX) == 1);
-    assert(device_config_units(0, "", longest, MIMHID_STRING_MAX + 1) == 0);
+    uint16_t longest[MIMHID_STRING_MAX + 2];
+    for (size_t i = 0; i < MIMHID_STRING_MAX + 2; i++)
+        longest[i] = 0x3042;
+    device_config_units(0, "", longest, MIMHID_STRING_MAX);
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    assert(commit() == 1);
+    s = tud_descriptor_string_cb(1, 0x0409);
+    assert((s[0] & 0xFF) == MIMHID_STRING_DESC_MAX && s[MIMHID_STRING_MAX] == 0x3042);
+    // 127 units do not fit the one byte of bLength: refused when the string is announced.
+    device_config_units(0, "", longest, MIMHID_STRING_MAX + 1);
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    expect_nak(commit(), MIMHID_NAK_PARAM);
 }
 
 static void test_reports(void) {
     reset_io();
     const uint8_t a[] = {1, 0x02};
     const uint8_t b[] = {2, 0x05};
-    report(0, a, sizeof(a));
-    report(1, b, sizeof(b));
-    report(5, a, sizeof(a));              // unknown node: dropped
-    report(0, a, 0 + 0 + 2);
+    ep_in(1, a, sizeof(a));
+    ep_in(2, b, sizeof(b));
+    ep_in(6, a, sizeof(a)); // an endpoint that is none of the configuration's: dropped
+    ep_in(1, a, 0 + 0 + 2);
     pump();
     assert(g_nsent == 3);
     assert(g_sent[0].iface == 0 && g_sent[0].len == 2 && g_sent[0].data[1] == 0x02);
@@ -471,12 +784,12 @@ static void test_reports(void) {
 
     // a bad CRC is skipped and the next frame is still seen
     reset_io();
-    put_frame(MIMHID_T_REPORT_BASE, a, sizeof(a));
+    put_frame(MIMHID_T_EP_IN_BASE | 1, a, sizeof(a));
     g_in[g_in_len - 1] ^= 0xFF;
     const uint8_t junk[] = {0x00, MIMHID_SYNC, MIMHID_SYNC, 0x13, 0x7F};
     memcpy(g_in + g_in_len, junk, sizeof(junk));
     g_in_len += sizeof(junk);
-    report(1, b, sizeof(b));
+    ep_in(2, b, sizeof(b));
     pump();
     // the junk looks like a header with a long length; the idle timeout abandons it
     assert(g_nsent == 0);
@@ -487,8 +800,9 @@ static void test_reports(void) {
     // a frame split across polls is reassembled; a 64-byte report is accepted
     reset_io();
     uint8_t big[64];
-    for (int i = 0; i < 64; i++) big[i] = (uint8_t)i;
-    report(0, big, sizeof(big));
+    for (int i = 0; i < 64; i++)
+        big[i] = (uint8_t)i;
+    ep_in(1, big, sizeof(big));
     size_t full = g_in_len;
     g_in_len = 10;
     pump();
@@ -501,7 +815,7 @@ static void test_reports(void) {
     // a 65-byte report is rejected
     reset_io();
     uint8_t toolong[65] = {0};
-    report(0, toolong, sizeof(toolong));
+    ep_in(1, toolong, sizeof(toolong));
     pump();
     assert(g_nsent == 0);
 
@@ -510,7 +824,7 @@ static void test_reports(void) {
     g_busy[0] = true;
     for (int i = 0; i < 30; i++) {
         uint8_t r[2] = {1, (uint8_t)i};
-        report(0, r, 2);
+        ep_in(1, r, 2);
     }
     pump();
     assert(g_nsent == 0);
@@ -519,7 +833,8 @@ static void test_reports(void) {
     pump();
     assert(lost_reported() == 0);
     g_busy[0] = false;
-    for (int i = 0; i < 6; i++) pump();
+    for (int i = 0; i < 6; i++)
+        pump();
     assert(g_nsent == 15 && g_sent[0].data[1] == 0 && g_sent[14].data[1] == 14);
 
     // LOSS_CONFIG checks its payload: enabled is 0 or 1, and the interval is 0 while disabled
@@ -542,14 +857,14 @@ static void test_reports(void) {
     g_busy[0] = true;
     for (int i = 0; i < 20; i++) {
         uint8_t r[2] = {1, (uint8_t)i};
-        report(0, r, 2);
+        ep_in(1, r, 2);
     }
     pump();
     assert(lost_reported() == 5); // the first report after enabling goes out at once
     g_out_len = 0;
     for (int i = 0; i < 3; i++) {
         uint8_t r[2] = {1, 0};
-        report(0, r, 2);
+        ep_in(1, r, 2);
     }
     g_now += 10;
     pump();
@@ -564,7 +879,7 @@ static void test_reports(void) {
         assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
     }
     g_out_len = 0;
-    report(0, (const uint8_t[]){1, 0}, 2);
+    ep_in(1, (const uint8_t[]){1, 0}, 2);
     g_now += 100;
     pump();
     assert(lost_reported() == 0);
@@ -578,7 +893,7 @@ static void test_reports(void) {
         g_seq--;
         assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
         g_out_len = 0;
-        report(0, (const uint8_t[]){1, 0}, 2);
+        ep_in(1, (const uint8_t[]){1, 0}, 2);
         pump();
         assert(lost_reported() == 1);
         // a PING is a new host, whose numbers start anew: the same number runs the command
@@ -587,7 +902,7 @@ static void test_reports(void) {
         g_seq--;
         assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
         g_out_len = 0;
-        report(0, (const uint8_t[]){1, 0}, 2);
+        ep_in(1, (const uint8_t[]){1, 0}, 2);
         g_now += 1;
         pump();
         assert(lost_reported() == 0);
@@ -597,7 +912,7 @@ static void test_reports(void) {
     // RESET drops what is queued
     reset_io();
     g_busy[0] = true;
-    report(0, a, sizeof(a));
+    ep_in(1, a, sizeof(a));
     pump();
     uint8_t none = 0;
     (void)none;
@@ -616,15 +931,17 @@ static void test_ping_and_events(void) {
     uint8_t p[2048];
     uint16_t n;
     assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_MIN_LEN + 8);
-    assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH && p[3] == 1);
-    assert(p[4] == MIMHID_MAX_NODES && p[5] == MIMHID_HID_ITFS);
+    assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH &&
+           p[3] == 1);
+    assert(p[4] == 0 && p[5] == MIMHID_HID_ITFS);
     assert(p[6] == MIMHID_PONG_FLAG_UNIQUE_ID && p[7] == MIMHID_CHIP_RP2040 && p[8] == 0);
     assert(u32at(&p[9]) == MIMHID_BOOT_BAUD && u32at(&p[13]) == g_max_rate);
     assert(u32at(&p[17]) == MIMHID_PONG_UART_BREAK);
     assert((p[21] | (p[22] << 8)) == MIMHID_MAX_DESC_BYTES);
     assert((p[23] | (p[24] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
     assert((p[25] | (p[26] << 8)) == MIMHID_FEATURE_MAX && (p[27] | (p[28] << 8)) == 64);
-    assert((p[29] | (p[30] << 8)) == MIMHID_MAX_FRAME_PAYLOAD && MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
+    assert((p[29] | (p[30] << 8)) == MIMHID_MAX_FRAME_PAYLOAD &&
+           MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
     assert((p[31] | (p[32] << 8)) == MIMHID_CONTROL_DATA_MAX && p[33] == MIMHID_CONTROL_RULES);
     assert(p[34] == MIMHID_MAX_ENDPOINT_NUMBER);
     assert(p[35] == 8 && p[36] == 0x01 && p[43] == 0xEF);
@@ -645,8 +962,10 @@ static void test_ping_and_events(void) {
     assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_RESUME);
     assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_REPORT && p[1] == 1 &&
            p[2] == HID_REPORT_TYPE_OUTPUT && p[3] == 3 && p[4] == 0xAA && p[5] == 0xBB);
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_PROTOCOL && p[1] == 0 && p[2] == 0);
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_IDLE && p[1] == 1 && p[2] == 8);
+    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_PROTOCOL && p[1] == 0 &&
+           p[2] == 0);
+    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SET_IDLE && p[1] == 1 &&
+           p[2] == 8);
 
     // remote wakeup only while suspended
     g_suspended = false;
@@ -674,13 +993,15 @@ static void ping_pong(uint8_t* p) {
 static void test_set_baud(void) {
     reset_io();
     uint8_t p[2048];
-    // Zero, a rate above the board's maximum, and a rate the divider misses by over 2 % are refused.
+    // Zero, a rate above the board's maximum, and a rate the divider misses by over 2 % are
+    // refused.
     assert(set_baud_cmd(0) == 0 && g_nak_code == MIMHID_NAK_PARAM);
     assert(set_baud_cmd(g_max_rate + 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
     g_rate_error_ppm = 30000;
     assert(set_baud_cmd(1000000u) == 0 && g_nak_code == MIMHID_NAK_PARAM);
     // A wrong payload length is refused too.
-    assert(command(MIMHID_T_SET_BAUD, (const uint8_t*)"\1", 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(command(MIMHID_T_SET_BAUD, (const uint8_t*)"\1", 1) == 0 &&
+           g_nak_code == MIMHID_NAK_PARAM);
     assert(g_baud == MIMHID_BOOT_BAUD && g_baud_changes == 0);
 
     // The ACK carries the rate the divider makes (1.5 % off here) and goes out before the switch.
@@ -751,9 +1072,11 @@ static void test_counters_and_probe(void) {
     uint8_t reset = MIMHID_COUNTERS_F_RESET, keep = 0;
     assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1); // start from zero
     uint8_t pat[100];
-    for (unsigned i = 0; i < sizeof(pat); i++) pat[i] = MIMHID_PROBE_BYTE(i);
+    for (unsigned i = 0; i < sizeof(pat); i++)
+        pat[i] = MIMHID_PROBE_BYTE(i);
     reset_io();
-    for (int i = 0; i < 3; i++) put_frame(MIMHID_T_PROBE, pat, 100);
+    for (int i = 0; i < 3; i++)
+        put_frame(MIMHID_T_PROBE, pat, 100);
     pump();
     assert(g_out_len == 0); // a probe is not answered
     // a probe with a wrong pattern, a frame with a wrong CRC, a framing error and an overrun
@@ -764,19 +1087,22 @@ static void test_counters_and_probe(void) {
     g_errors = HAL_UART_ERR_FRAMING | HAL_UART_ERR_OVERRUN;
     pump();
     assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1 && g_ack_data_len == 10);
-    assert((g_ack_data[0] | (g_ack_data[1] << 8)) == 3);        // probes_good
-    assert((g_ack_data[2] | (g_ack_data[3] << 8)) == 2);        // bad_crc: wrong pattern + wrong CRC
-    assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 1);        // framing
-    assert((g_ack_data[6] | (g_ack_data[7] << 8)) == 1);        // uart_overrun
-    assert((g_ack_data[8] | (g_ack_data[9] << 8)) == 0);        // ring_overrun
+    assert((g_ack_data[0] | (g_ack_data[1] << 8)) == 3); // probes_good
+    assert((g_ack_data[2] | (g_ack_data[3] << 8)) == 2); // bad_crc: wrong pattern + wrong CRC
+    assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 1); // framing
+    assert((g_ack_data[6] | (g_ack_data[7] << 8)) == 1); // uart_overrun
+    assert((g_ack_data[8] | (g_ack_data[9] << 8)) == 0); // ring_overrun
     // Read without reset keeps them; read with reset returns them once more and then zeroes.
-    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1 && (g_ack_data[0] | (g_ack_data[1] << 8)) == 3);
+    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1 &&
+           (g_ack_data[0] | (g_ack_data[1] << 8)) == 3);
     assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1);
-    for (int i = 0; i < 10; i++) assert(g_ack_data[i] == 0);
+    for (int i = 0; i < 10; i++)
+        assert(g_ack_data[i] == 0);
     // The counters stop at 65535.
     for (int i = 0; i < 70000 / 1000; i++) {
         reset_io();
-        for (int k = 0; k < 1000; k++) g_errors |= 0;
+        for (int k = 0; k < 1000; k++)
+            g_errors |= 0;
         g_errors = HAL_UART_ERR_FRAMING;
         pump();
     }
@@ -786,57 +1112,80 @@ static void test_counters_and_probe(void) {
     // Two flips in the same bit position cancel in an XOR but not in a CRC.
     reset_io();
     uint8_t d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-    put_cmd(MIMHID_T_QUEUE_DEPTH, d, 2);
+    put_cmd(MIMHID_T_EP_CONFIG, d, 2);
     g_in[g_in_len - 5] ^= 0x10; // flips one byte of the payload...
     g_in[g_in_len - 4] ^= 0x10; // ...and the same bit of the next
     g_out_len = 0;
     pump();
-    assert(result_of(MIMHID_T_QUEUE_DEPTH) == -1);
+    assert(result_of(MIMHID_T_EP_CONFIG) == -1);
 }
 
 static void test_feature(void) {
     // the committed configuration still has nodes 0 and 1; stage it again with a feature report
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    const uint8_t f[] = {0, 0x07, 0x0A};     // node 0, report id 7, data 0x0A
-    assert(command(MIMHID_T_FEATURE, f, sizeof(f)) == 1);
-    const uint8_t bad[] = {3, 0x07, 0x0A};   // node 3 was never begun
-    expect_nak(command(MIMHID_T_FEATURE, bad, sizeof(bad)), MIMHID_NAK_STATE);
-    assert(commit() == 1);
+    device_config(0, "");
+    base_node();
+    const uint8_t f[] = {0x0A};
+    // a Feature answer needs the staged configuration it belongs to
+    assert(desc_reset() == 1);
+    expect_nak(feature(0, 0x07, f, sizeof(f)), MIMHID_NAK_STATE);
+    assert(stage() == 1);
+    assert(feature(0, 0x07, f, sizeof(f)) == 1); // interface 0, report id 7, data 0x0A
+    expect_nak(feature(3, 0x07, f, sizeof(f)), MIMHID_NAK_STATE); // interface 3 is not in it
+    assert(commit_staged() == 1);
     uint8_t buf[8];
-    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 && buf[0] == 0x0A);
+    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 &&
+           buf[0] == 0x0A);
     assert(tud_hid_get_report_cb(0, 8, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 0);
     assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0);
+}
 
-    // serial from the chip id when the host gives none; empty strings leave indices at zero
-    assert(device_config(MIMHID_DEVFLAG_SERIAL_FROM_ID, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+// The serial number from the chip id (the board makes the string): its hexadecimal digits, one
+// string descriptor; a chip without an id cannot make it; the board's strings take no data.
+static void test_serial_from_chip_id(void) {
+    device_config(T_SERIAL_FROM_ID, "");
+    base_node();
     assert(commit() == 1);
     const tusb_desc_device_t* d = (const tusb_desc_device_t*)tud_descriptor_device_cb();
     assert(d->iSerialNumber == 3);
     const uint16_t* s = tud_descriptor_string_cb(3, 0x0409);
-    assert((s[0] & 0xFF) == 2 + 2 * 16 && s[1] == '0' && s[2] == '1' && s[15] == 'E' && s[16] == 'F');
+    assert((s[0] & 0xFF) == 2 + 2 * 16 && s[1] == '0' && s[2] == '1' && s[15] == 'E' &&
+           s[16] == 'F');
+
+    // Announced again as it was, it is accepted again; with data it is refused; with a length it
+    // is another string.
+    assert(desc_reset() == 1);
+    assert(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID) == 1);
+    assert(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID) == 1);
+    expect_nak(desc_data_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, k_desc_a, 4), MIMHID_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, 0), MIMHID_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 4, 0x0409, 6, MIMHID_DESC_F_SERIAL_FROM_ID),
+               MIMHID_NAK_PARAM);
+
+    // no id on the chip: nothing to make the string from
+    g_has_id = 0;
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 5, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID),
+               MIMHID_NAK_UNSUPPORTED);
+    g_has_id = 1;
 }
 
-static void test_detach_begin_and_live_feature(void) {
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);    // repeated begin is acknowledged
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    const uint8_t f1[] = {0, 0x07, 0x01};
-    assert(command(MIMHID_T_FEATURE, f1, sizeof(f1)) == 1);
-    assert(commit() == 1);
+static void test_detach_and_live_feature(void) {
+    device_config(0, "");
+    base_node();
+    assert(stage() == 1);
+    const uint8_t f1[] = {0x01};
+    assert(feature(0, 0x07, f1, sizeof(f1)) == 1);
+    assert(commit_staged() == 1);
     assert(mimhid_active_interfaces() == 1);
     uint8_t buf[8];
-    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 && buf[0] == 0x01);
+    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 &&
+           buf[0] == 0x01);
 
     // A feature answer changes on the running device without a COMMIT.
     const int connects = g_connects, disconnects = g_disconnects;
-    const uint8_t f2[] = {0, 0x07, 0x02};
-    assert(command(MIMHID_T_FEATURE, f2, sizeof(f2)) == 1);
-    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 && buf[0] == 0x02);
+    const uint8_t f2[] = {0x02};
+    assert(feature(0, 0x07, f2, sizeof(f2)) == 1);
+    assert(tud_hid_get_report_cb(0, 7, HID_REPORT_TYPE_FEATURE, buf, sizeof(buf)) == 1 &&
+           buf[0] == 0x02);
     assert(g_connects == connects && g_disconnects == disconnects);
 
     // COMMIT with the detach flag leaves the bus at once and forgets the configuration.
@@ -844,81 +1193,656 @@ static void test_detach_begin_and_live_feature(void) {
     assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
     assert(g_disconnects == disconnects + 1 && g_connects == connects);
     assert(mimhid_active_interfaces() == 0);
+    // what the board presents then is the device without an interface, and no string
+    const uint8_t* c = tud_descriptor_configuration_cb(0);
+    assert((c[2] | (c[3] << 8)) == 9 && c[4] == 0);
+    assert(tud_descriptor_string_cb(0, 0) == NULL && tud_descriptor_string_cb(1, 0x0409) == NULL);
+    assert(tud_hid_descriptor_report_cb(0) == NULL);
+}
+
+static const uint8_t k_zero[64];
+
+// The staging commands: what they accept again, what they refuse, and what no longer fits.
+static void test_desc_commands(void) {
+    // DESC_RESET carries nothing but its sequence number.
+    expect_nak(command(MIMHID_T_DESC_RESET, (const uint8_t*)"\1", 1), MIMHID_NAK_PARAM);
+    assert(desc_reset() == 1);
+
+    // DESC_BEGIN: seven bytes, a known kind, and the index, language and flags the kind needs.
+    expect_nak(command(MIMHID_T_DESC_BEGIN, (const uint8_t*)"\1\0\0\0\0", 5), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(9, 0, 0, 4, 0), MIMHID_NAK_PARAM); // no such kind
+    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 1, 0, 18, 0),
+               MIMHID_NAK_PARAM); // device: index 0
+    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0x0409, 18, 0),
+               MIMHID_NAK_PARAM); // device: no language
+    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 18, 1),
+               MIMHID_NAK_PARAM); // device: no flags
+    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 0, 0), MIMHID_NAK_PARAM); // nothing to send
+    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 19, 0),
+               MIMHID_NAK_OVERFLOW); // holds 18 bytes
+    expect_nak(desc_begin_raw(MIMHID_DESC_CONFIGURATION, 0, 0, MIMHID_MAX_CONFIG_BYTES + 1, 0),
+               MIMHID_NAK_OVERFLOW);
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 0, 0x0409, 4, 0),
+               MIMHID_NAK_PARAM); // the board makes index 0
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0, 4, 0),
+               MIMHID_NAK_PARAM); // a language is given
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 3, 0),
+               MIMHID_NAK_PARAM); // an even length
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 0, 0),
+               MIMHID_NAK_PARAM); // at least 2 bytes
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, MIMHID_STRING_DESC_MAX + 2, 0),
+               MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 4, 2),
+               MIMHID_NAK_PARAM); // an unknown flag
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0x0409, 4, 0),
+               MIMHID_NAK_PARAM); // report: no language
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, 0), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, MIMHID_HID_ITFS, 0, 4, 0),
+               MIMHID_NAK_OVERFLOW);
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, MIMHID_MAX_DESC_BYTES + 1, 0),
+               MIMHID_NAK_OVERFLOW);
+
+    // A descriptor announced again as it was is acknowledged; with another length it is refused.
+    assert(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, sizeof(k_desc_a), 0) == 1);
+    assert(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, sizeof(k_desc_a), 0) == 1);
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, sizeof(k_desc_a) + 1, 0),
+               MIMHID_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, sizeof(k_desc_a), 1), MIMHID_NAK_STATE);
+
+    // DESC_DATA: only for an announced descriptor, inside its length, without a gap.
+    expect_nak(desc_data_raw(MIMHID_DESC_HID_REPORT, 1, 0, 0, k_desc_a, 4),
+               MIMHID_NAK_STATE); // not announced
+    expect_nak(desc_data_raw(MIMHID_DESC_STRING, 1, 0x0409, 0, k_desc_a, 4), MIMHID_NAK_STATE);
+    expect_nak(desc_data_raw(MIMHID_DESC_DEVICE, 0, 0, 0, k_desc_a, 4), MIMHID_NAK_STATE);
+    expect_nak(command(MIMHID_T_DESC_DATA, (const uint8_t*)"\4\0\0\0\0", 5),
+               MIMHID_NAK_PARAM); // no bytes
+    expect_nak(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 5, k_desc_a, 4),
+               MIMHID_NAK_PARAM); // a gap
+    expect_nak(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, k_zero, sizeof(k_desc_a) + 1),
+               MIMHID_NAK_PARAM);
+    assert(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, k_desc_a, 10) == 1);
+    // a repeated chunk is accepted again, and the rest completes the descriptor
+    assert(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, k_desc_a, 10) == 1);
+    assert(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10) ==
+           1);
+    assert(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10) ==
+           1);
+    expect_nak(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, sizeof(k_desc_a), k_desc_a, 1),
+               MIMHID_NAK_PARAM);
+
+    // The string store holds MIMHID_MAX_STRINGS strings of the longest length, and not one more,
+    // whatever its index or language: NAK OVERFLOW.
+    assert(desc_reset() == 1);
+    for (uint8_t i = 0; i < MIMHID_MAX_STRINGS; i++)
+        assert(desc_begin_raw(MIMHID_DESC_STRING, (uint8_t)(i + 1), 0x0409, MIMHID_STRING_DESC_MAX,
+                              0) == 1);
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, MIMHID_MAX_STRINGS + 1, 0x0409, 4, 0),
+               MIMHID_NAK_OVERFLOW);
+    // the same index in another language is another string
+    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0407, 4, 0), MIMHID_NAK_OVERFLOW);
+    assert(desc_reset() == 1);
+    // reset forgets every descriptor: data for the old one has nowhere to go
+    expect_nak(desc_data_raw(MIMHID_DESC_HID_REPORT, 0, 0, 0, k_desc_a, 4), MIMHID_NAK_STATE);
+    // all the report descriptors together fit MIMHID_MAX_DESC_BYTES, not a byte more
+    assert(desc_begin_raw(MIMHID_DESC_HID_REPORT, 0, 0, MIMHID_MAX_DESC_BYTES - 1, 0) == 1);
+    expect_nak(desc_begin_raw(MIMHID_DESC_HID_REPORT, 1, 0, 2, 0), MIMHID_NAK_OVERFLOW);
+    assert(desc_reset() == 1);
+}
+
+// ---- the walk at COMMIT: every refusal, with descriptors written byte by byte ----
+// A configuration descriptor under construction.
+typedef struct {
+    uint8_t b[MIMHID_MAX_CONFIG_BYTES + 64];
+    size_t n;
+    uint8_t interfaces;
+} tcfg_t;
+
+static void cfg_open(tcfg_t* c) {
+    c->n = 9;
+    c->interfaces = 0;
+}
+
+static void cfg_interface(tcfg_t* c, uint8_t number, uint8_t alt, uint8_t endpoints, uint8_t cls) {
+    const uint8_t d[9] = {9, TUSB_DESC_INTERFACE, number, alt, endpoints, cls, 0, 0, 0};
+    memcpy(c->b + c->n, d, 9);
+    c->n += 9;
+    c->interfaces++;
+}
+
+static void cfg_hid(tcfg_t* c, uint16_t report_length) {
+    uint8_t d[9] = {9, HID_DESC_TYPE_HID, 0x11, 0x01, 0, 1, HID_DESC_TYPE_REPORT};
+    put_u16(&d[7], report_length);
+    memcpy(c->b + c->n, d, 9);
+    c->n += 9;
+}
+
+static void cfg_endpoint(tcfg_t* c, uint8_t address, uint8_t type, uint16_t size,
+                         uint8_t interval) {
+    uint8_t d[7] = {7, TUSB_DESC_ENDPOINT, address, type};
+    put_u16(&d[4], size);
+    d[6] = interval;
+    memcpy(c->b + c->n, d, 7);
+    c->n += 7;
+}
+
+// One HID interface the board takes: its number, one IN endpoint, and the report descriptor length.
+static void cfg_hid_interface(tcfg_t* c, uint8_t number, uint8_t in_number,
+                              uint16_t report_length) {
+    cfg_interface(c, number, 0, 1, 0x03);
+    cfg_hid(c, report_length);
+    cfg_endpoint(c, (uint8_t)(0x80 | in_number), TUSB_XFER_INTERRUPT, 8, 1);
+}
+
+static void cfg_close(tcfg_t* c) {
+    const uint8_t head[9] = {9, TUSB_DESC_CONFIGURATION, 0, 0, c->interfaces, 1, 0, 0xA0, 50};
+    memcpy(c->b, head, 9);
+    put_u16(&c->b[2], (uint16_t)c->n);
+}
+
+static void make_device(uint8_t* d) {
+    const uint8_t dev[18] = {
+        18, TUSB_DESC_DEVICE, 0x00, 0x02, 0, 0, 0, 64, 0x34, 0x12, 0x78, 0x56, 0x00, 0x01, 0, 0, 0,
+        1};
+    memcpy(d, dev, 18);
+}
+
+// Stages a device, the given configuration and a report descriptor of `rd_len` bytes for each of
+// the first `reports` interfaces, and returns the answer to the COMMIT (1, or 0 with the NAK code).
+static int commit_raw(const uint8_t* dev, size_t dev_len, tcfg_t* c, const uint16_t* rd_len,
+                      int reports) {
+    assert(desc_reset() == 1);
+    uint8_t d[18];
+    make_device(d);
+    int r = send_blob(MIMHID_DESC_DEVICE, 0, 0, dev != NULL ? dev : d, dev != NULL ? dev_len : 18);
+    if (r != 1)
+        return r;
+    if ((r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c->b, c->n)) != 1)
+        return r;
+    for (int i = 0; i < reports; i++) {
+        uint8_t rd[300];
+        for (size_t k = 0; k < sizeof(rd); k++)
+            rd[k] = (uint8_t)k;
+        if ((r = send_blob(MIMHID_DESC_HID_REPORT, (uint8_t)i, 0, rd, rd_len[i])) != 1)
+            return r;
+    }
+    return commit_staged();
+}
+
+// A COMMIT of a configuration that does not hold together is refused, nothing is disconnected and
+// the active configuration is the one before.
+static void expect_refused(int r) { expect_nak(r, MIMHID_NAK_DESCRIPTOR); }
+
+static void test_commit_walk(void) {
+    // Something committed first: the refusals must leave it as it is.
+    device_config(0, "Kept");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    assert(commit() == 1);
+    const uint16_t active_itfs = mimhid_active_interfaces();
+    const int connects = g_connects, disconnects = g_disconnects;
+    uint8_t kept_cfg[64];
+    const uint16_t kept_len = (uint16_t)(tud_descriptor_configuration_cb(0)[2] |
+                                         (tud_descriptor_configuration_cb(0)[3] << 8));
+    memcpy(kept_cfg, tud_descriptor_configuration_cb(0), kept_len);
+
+    tcfg_t c;
+    const uint16_t rd[3] = {sizeof(k_desc_a), 40, 40};
+
+    // the base case holds
+    cfg_open(&c);
+    cfg_hid_interface(&c, 0, 1, rd[0]);
+    cfg_close(&c);
+    assert(commit_raw(NULL, 0, &c, rd, 1) == 1);
+
+    // the device descriptor: 18 bytes (USB 2.0 9.6.1), its own bLength and type, one configuration,
+    // a control endpoint size the controller works with, a bcdUSB
+    {
+        uint8_t d[19];
+        make_device(d);
+        d[18] = 0;
+        expect_refused(commit_raw(d, 17, &c, rd, 1)); // 17 bytes
+        make_device(d);
+        d[0] = 17;
+        expect_refused(commit_raw(d, 18, &c, rd, 1));
+        make_device(d);
+        d[1] = TUSB_DESC_CONFIGURATION;
+        expect_refused(commit_raw(d, 18, &c, rd, 1));
+        make_device(d);
+        d[17] = 2;
+        expect_refused(commit_raw(d, 18, &c, rd, 1));
+        make_device(d);
+        d[2] = d[3] = 0;
+        expect_refused(commit_raw(d, 18, &c, rd, 1));
+        static const uint8_t bad_ep0[] = {0, 7, 48, 128};
+        for (size_t i = 0; i < sizeof(bad_ep0); i++) {
+            make_device(d);
+            d[7] = bad_ep0[i];
+            expect_refused(commit_raw(d, 18, &c, rd, 1));
+        }
+        // announced longer than the 18 bytes the board holds: refused when it is announced
+        assert(desc_reset() == 1);
+        expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 19, 0), MIMHID_NAK_OVERFLOW);
+        // staged only in part
+        make_device(d);
+        assert(desc_reset() == 1);
+        assert(send_blob_partial(MIMHID_DESC_DEVICE, 0, 0, d, 18, 10, 0) == 1);
+        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+        assert(send_blob(MIMHID_DESC_HID_REPORT, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+        expect_refused(commit_staged());
+        // no device descriptor at all
+        assert(desc_reset() == 1);
+        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+        assert(send_blob(MIMHID_DESC_HID_REPORT, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+        expect_refused(commit_staged());
+    }
+
+    // the configuration descriptor: its own header, wTotalLength, one configuration, attributes
+    {
+        tcfg_t t = c;
+        t.b[0] = 8;
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[1] = TUSB_DESC_INTERFACE;
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[2]++; // wTotalLength is not the length of the blob
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[2]--;
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[4] = 2; // bNumInterfaces says two, the walk finds one
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        static const uint8_t bad_value[] = {0, 2, 255};
+        for (size_t i = 0; i < sizeof(bad_value); i++) {
+            t = c;
+            t.b[5] = bad_value[i]; // the stack maps SET_CONFIGURATION(1) to the one configuration
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        static const uint8_t bad_attr[] = {0x00, 0x20, 0x81,
+                                           0x9F}; // D7 clear, or D4..0 set (9.6.3)
+        for (size_t i = 0; i < sizeof(bad_attr); i++) {
+            t = c;
+            t.b[7] = bad_attr[i];
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        // a configuration with no interface
+        cfg_open(&t);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 0));
+        // the descriptors are cut short: a bLength below 2, and a bLength past the end of the blob
+        t = c;
+        t.b[9] = 1;
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[9] = 0;
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.b[9 + 9] = 250; // the HID descriptor claims to run past the end
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        t = c;
+        t.n -= 3;
+        put_u16(&t.b[2], (uint16_t)t.n); // the last endpoint descriptor is truncated
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        // a descriptor of a type the board does not take (here an interface association)
+        cfg_open(&t);
+        {
+            const uint8_t iad[8] = {8, 0x0B, 0, 2, 3, 0, 0, 0};
+            memcpy(t.b + t.n, iad, 8);
+            t.n += 8;
+        }
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        // a configuration too long for the board is refused when it is announced
+        assert(desc_reset() == 1);
+        expect_nak(desc_begin_raw(MIMHID_DESC_CONFIGURATION, 0, 0, MIMHID_MAX_CONFIG_BYTES + 1, 0),
+                   MIMHID_NAK_OVERFLOW);
+    }
+
+    // interface numbers: 0, 1, 2, ... in order, alternate setting 0 only, all HID
+    if (MIMHID_HID_ITFS >= 2) {
+        tcfg_t t;
+        cfg_open(&t); // 0 then 2: a gap
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_hid_interface(&t, 2, 2, rd[1]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 2));
+        cfg_open(&t); // 1 then 0: out of order
+        cfg_hid_interface(&t, 1, 1, rd[0]);
+        cfg_hid_interface(&t, 0, 2, rd[1]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 2));
+        cfg_open(&t); // 0 then 0: twice
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_hid_interface(&t, 0, 2, rd[1]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 2));
+        cfg_open(&t); // starting at 1
+        cfg_hid_interface(&t, 1, 1, rd[0]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // 0 and 1
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_hid_interface(&t, 1, 2, rd[1]);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t, rd, 2) == 1);
+    }
+    {
+        tcfg_t t;
+        cfg_open(&t); // an alternate setting
+        cfg_interface(&t, 0, 1, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        // Step 1 of the redesign: the board's stack opens HID only.
+        static const uint8_t classes[] = {0x00, 0x02, 0x08, 0xFF};
+        for (size_t i = 0; i < sizeof(classes); i++) {
+            cfg_open(&t);
+            cfg_interface(&t, 0, 0, 1, classes[i]);
+            cfg_hid(&t, rd[0]);
+            cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+            cfg_close(&t);
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        // more interfaces than the controller can open
+        cfg_open(&t);
+        for (uint8_t i = 0; i <= MIMHID_HID_ITFS; i++)
+            cfg_hid_interface(&t, i, (uint8_t)(i + 1), 4);
+        cfg_close(&t);
+        if (t.n <= MIMHID_MAX_CONFIG_BYTES) {
+            uint16_t four[MIMHID_HID_ITFS];
+            for (size_t i = 0; i < MIMHID_HID_ITFS; i++)
+                four[i] = 4;
+            // the report descriptors of the interfaces the board has; one more has no place
+            expect_refused(commit_raw(NULL, 0, &t, four, MIMHID_HID_ITFS));
+        } else {
+            assert(desc_reset() == 1);
+            expect_nak(desc_begin_raw(MIMHID_DESC_CONFIGURATION, 0, 0, (uint16_t)t.n, 0),
+                       MIMHID_NAK_OVERFLOW);
+        }
+    }
+
+    // endpoints: the HID descriptor first, one interrupt IN endpoint and at most one interrupt OUT
+    {
+        tcfg_t t;
+        cfg_open(&t); // no HID descriptor
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // an endpoint before the HID descriptor
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_hid(&t, rd[0]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // a HID descriptor twice
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // the HID descriptor announces something other than a report descriptor
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        t.b[t.n - 3] = 0x23;
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // no endpoint
+        cfg_interface(&t, 0, 0, 0, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // an OUT endpoint only
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x01, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // two IN endpoints
+        cfg_interface(&t, 0, 0, 2, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x82, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // two OUT endpoints
+        cfg_interface(&t, 0, 0, 3, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x01, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x02, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // bNumEndpoints says two, there is one
+        cfg_interface(&t, 0, 0, 2, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // bNumEndpoints says one, there are two
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x01, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        // an IN and an OUT endpoint are fine, with the same number
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 2, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x01, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t, rd, 1) == 1);
+    }
+
+    // endpoint numbers and sizes (USB 2.0 9.6.6)
+    {
+        tcfg_t t;
+        static const uint8_t bad_address[] = {0x80, 0x00, 0x90, 0xF1, 0x41, 0x71};
+        for (size_t i = 0; i < sizeof(bad_address); i++) {
+            cfg_open(&t);
+            cfg_interface(&t, 0, 0, 1, 0x03);
+            cfg_hid(&t, rd[0]);
+            cfg_endpoint(&t, bad_address[i], TUSB_XFER_INTERRUPT, 8, 1);
+            cfg_close(&t);
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        // the highest number the controller has is fine, the next one is not (when there is one)
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x80 | MIMHID_MAX_ENDPOINT_NUMBER, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t, rd, 1) == 1);
+#if MIMHID_MAX_ENDPOINT_NUMBER < 15
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x80 | (MIMHID_MAX_ENDPOINT_NUMBER + 1), TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        cfg_open(&t); // an OUT endpoint above it
+        cfg_interface(&t, 0, 0, 2, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, MIMHID_MAX_ENDPOINT_NUMBER + 1, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+#endif
+        // the same address twice: in one interface, and in two
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 2, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        if (MIMHID_HID_ITFS >= 2) {
+            cfg_open(&t);
+            cfg_hid_interface(&t, 0, 1, rd[0]);
+            cfg_hid_interface(&t, 1, 1, rd[1]);
+            cfg_close(&t);
+            expect_refused(commit_raw(NULL, 0, &t, rd, 2));
+        }
+        // not an interrupt endpoint (bulk, control, isochronous)
+        static const uint8_t bad_type[] = {TUSB_XFER_BULK, TUSB_XFER_CONTROL, TUSB_XFER_ISOCHRONOUS,
+                                           0x07};
+        for (size_t i = 0; i < sizeof(bad_type); i++) {
+            cfg_open(&t);
+            cfg_interface(&t, 0, 0, 1, 0x03);
+            cfg_hid(&t, rd[0]);
+            cfg_endpoint(&t, 0x81, bad_type[i], 8, 1);
+            cfg_close(&t);
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        // packet sizes: 1 to what the controller takes
+        static const uint16_t bad_size[] = {0, MIMHID_MAX_ENDPOINT_BYTES + 1, 0x0800 | 8};
+        for (size_t i = 0; i < sizeof(bad_size) / sizeof(bad_size[0]); i++) {
+            cfg_open(&t);
+            cfg_interface(&t, 0, 0, 1, 0x03);
+            cfg_hid(&t, rd[0]);
+            cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, bad_size[i], 1);
+            cfg_close(&t);
+            expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+        }
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 1, 1);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t, rd, 1) == 1);
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, MIMHID_MAX_ENDPOINT_BYTES,
+                     255 > 16 && !TUD_OPT_HIGH_SPEED ? 255 : 16);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t, rd, 1) == 1);
+        // bInterval 0 is no interval
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0x03);
+        cfg_hid(&t, rd[0]);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 0);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 1));
+    }
+
+    // report descriptors: one for every interface, of the length its HID descriptor says
+    {
+        tcfg_t t;
+        cfg_open(&t);
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t, rd, 0)); // none
+        const uint16_t wrong[1] = {rd[0] + 1};
+        expect_refused(commit_raw(NULL, 0, &t, wrong, 1)); // not the announced length
+        const uint16_t shorter[1] = {rd[0] - 1};
+        expect_refused(commit_raw(NULL, 0, &t, shorter, 1));
+        // announced but not all of it sent
+        assert(desc_reset() == 1);
+        uint8_t d[18];
+        make_device(d);
+        assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
+        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, t.b, t.n) == 1);
+        assert(send_blob_partial(MIMHID_DESC_HID_REPORT, 0, 0, k_desc_a, sizeof(k_desc_a),
+                                 sizeof(k_desc_a) - 1, 0) == 1);
+        expect_refused(commit_staged());
+        // one for an interface that does not exist
+        assert(desc_reset() == 1);
+        assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
+        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, t.b, t.n) == 1);
+        assert(send_blob(MIMHID_DESC_HID_REPORT, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+        assert(send_blob(MIMHID_DESC_HID_REPORT, 1, 0, k_desc_a, 4) == 1);
+        expect_refused(commit_staged());
+    }
+
+    // a string is a complete descriptor of the length it announced, of type 3
+    {
+        tcfg_t t;
+        cfg_open(&t);
+        cfg_hid_interface(&t, 0, 1, rd[0]);
+        cfg_close(&t);
+        uint8_t d[18];
+        make_device(d);
+        for (int mistake = 0; mistake < 3; mistake++) {
+            uint8_t s[6] = {6, 3, 'a', 0, 'b', 0};
+            assert(desc_reset() == 1);
+            assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
+            assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, t.b, t.n) == 1);
+            assert(send_blob(MIMHID_DESC_HID_REPORT, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+            if (mistake == 0)
+                s[0] = 8; // bLength is not the length
+            if (mistake == 1)
+                s[1] = 2;       // not a string descriptor
+            if (mistake == 2) { // only part of it
+                assert(send_blob_partial(MIMHID_DESC_STRING, 1, 0x0409, s, 6, 4, 0) == 1);
+            } else {
+                assert(send_blob(MIMHID_DESC_STRING, 1, 0x0409, s, 6) == 1);
+            }
+            expect_refused(commit_staged());
+        }
+    }
+
+    // Through all of it, what was committed first is still what the board serves, and the target
+    // saw neither a disconnect nor a connect for the refusals.
+    (void)active_itfs;
+    (void)connects;
+    (void)disconnects;
+    (void)kept_cfg;
+    (void)kept_len;
 }
 
 static void test_errors(void) {
-    // NODE_BEGIN needs a DEVICE_CONFIG first
-    uint8_t clear[1] = {0};
-    (void)clear;
-    assert(device_config(0, "x") == 1);
-    expect_nak(node_begin(MIMHID_MAX_NODES, 0, 4, 1, 8, 0, ""), MIMHID_NAK_PARAM); // node id out of range
-    expect_nak(node_begin(0, 0, 0, 1, 8, 0, ""), MIMHID_NAK_PARAM);           // empty descriptor
-    expect_nak(node_begin(0, 0, 4, 1, 65, 0, ""), MIMHID_NAK_PARAM);           // endpoint size above 64
-    expect_nak(node_begin(0, 0, 4, 1, 8, 3, ""), MIMHID_NAK_PARAM);           // bad boot protocol
-    // HID 1.11 4.2, 4.3: subclass 0 or 1, protocol 0, 1 or 2.
-    expect_nak(node_begin_full(0, 0, 4, 1, 8, 0, 0x03, 2, 0, ""), MIMHID_NAK_PARAM);
-    expect_nak(node_begin_full(0, 0, 4, 1, 8, 0, 0x03, 1, 3, ""), MIMHID_NAK_PARAM);
-    // USB 2.0 9.6.6: endpoint number 1 to 15, bits 6..4 zero, bit 7 the direction.
-    assert(device_config(0, "x") == 1);
-    static const int bad_in_list[5] = {0x80, 0x90, 0xF1, 0x01, 0x41};
-    for (size_t bad_in_i = 0; bad_in_i < 5; ++bad_in_i) {
-        const int bad_in = bad_in_list[bad_in_i];
-        g_force_in = bad_in;
-        expect_nak(node_begin(0, 0, 4, 1, 8, 0, ""), MIMHID_NAK_PARAM);
-    }
-    g_force_in = 0x80 | MIMHID_MAX_ENDPOINT_NUMBER; // the highest number the chip has
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    g_force_in = -1;
-    assert(device_config(0, "x") == 1);
-    static const int bad_out_list[4] = {0x80, 0x81, 0x10, 0x40};
-    for (size_t bad_out_i = 0; bad_out_i < 4; ++bad_out_i) {
-        const int bad_out = bad_out_list[bad_out_i];
-        g_force_out = bad_out;
-        expect_nak(node_begin_out(0, 0, 4, 1, 8, 8, 0, ""), MIMHID_NAK_PARAM);
-    }
-    g_force_out = MIMHID_MAX_ENDPOINT_NUMBER; // the highest number the chip has
-    assert(node_begin_out(0, 0, sizeof(k_desc_a), 1, 8, 8, 0, "") == 1);
-    g_force_out = -1;
-    assert(device_config(0, "x") == 1);
-    // The stack opens HID interfaces only; any other class would leave the device unconfigured.
-    expect_nak(node_begin_full(0, 0, 4, 1, 8, 0, 0x02, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
-    expect_nak(node_begin_full(0, 0, 4, 1, 8, 0, 0xFF, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
-    expect_nak(node_begin_full(0, 0, 4, 1, 8, 0, 0x00, 0, 0, ""), MIMHID_NAK_UNSUPPORTED);
-    expect_nak(node_begin(0, MIMHID_HID_ITFS, 4, 1, 8, 0, ""), MIMHID_NAK_OVERFLOW);
-    expect_nak(node_begin(0, 0, MIMHID_MAX_DESC_BYTES + 1, 1, 8, 0, ""), MIMHID_NAK_OVERFLOW);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    expect_nak(node_begin(0, 0, 4, 1, 8, 0, ""), MIMHID_NAK_STATE);           // already begun
-    expect_nak(node_data(0, 5, k_desc_a, 4), MIMHID_NAK_PARAM);               // gap in the data
-    expect_nak(node_data(0, 0, k_desc_a, sizeof(k_desc_a) + 1), MIMHID_NAK_PARAM);
-    expect_nak(node_data(4, 0, k_desc_a, 4), MIMHID_NAK_STATE);
-    // a COMMIT with an incomplete descriptor is refused and does not disconnect
+    // A COMMIT needs everything staged: nothing at all, then each part missing in turn.
     g_disconnects = 0;
-    assert(node_data(0, 0, k_desc_a, 10) == 1);
-    expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_DESCRIPTOR);
+    assert(desc_reset() == 1);
+    expect_nak(commit_staged(), MIMHID_NAK_DESCRIPTOR);
     assert(g_disconnects == 0);
-    // a repeated chunk is accepted and completes the descriptor
-    assert(node_data(0, 0, k_desc_a, 10) == 1);
-    assert(node_data(0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10) == 1);
-    // a gap in the interface indices is refused
-    assert(node_begin(1, MIMHID_HID_ITFS > 2 ? 2 : 1, sizeof(k_desc_b), 1, 8, 0, "") == 1);
-    assert(node_data(1, 0, k_desc_b, sizeof(k_desc_b)) == 1);
-    if (MIMHID_HID_ITFS > 2) {
-        expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_DESCRIPTOR);
+
+    // a report descriptor that is only partly sent is refused and does not disconnect
+    device_config(0, "x");
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, 10);
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    assert(g_disconnects == 0);
+    node_data(0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10);
+    assert(commit() == 1);
+
+    // A gap in the interface numbers is refused (the host library refuses it before the board
+    // sees it; the board refuses it too).
+    if (MIMHID_HID_ITFS >= 2) {
+        device_config(0, "");
+        node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+        node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+        node_begin(1, 2, sizeof(k_desc_b), 1, 8, 0, "");
+        node_data(1, 0, k_desc_b, sizeof(k_desc_b));
+        expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
     }
-    // a COMMIT completes immediately and synchronizes
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    assert(command(MIMHID_T_COMMIT, NULL, 0) == 1);
+
+    // Endpoint frames: type 0x40 (endpoint 0) is refused, not queued.
+    device_config(0, "");
+    base_node();
+    assert(commit() == 1);
+    reset_io();
+    const uint8_t a[] = {1, 0x02};
+    put_frame(MIMHID_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
+    pump();
+    assert(g_nsent == 0);
 }
 
 static void test_packing(void) {
     // two nodes share interface 0; reports of both reach one queue in order
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    assert(node_begin(1, 0, sizeof(k_desc_b), 1, 8, 0, "") == 1);
-    assert(node_data(1, 0, k_desc_b, sizeof(k_desc_b)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    node_begin(1, 0, sizeof(k_desc_b), 1, 8, 0, "");
+    node_data(1, 0, k_desc_b, sizeof(k_desc_b));
     assert(commit() == 1);
     assert(mimhid_active_interfaces() == 1);
     const uint8_t* rd = tud_hid_descriptor_report_cb(0);
@@ -928,33 +1852,34 @@ static void test_packing(void) {
     assert((c[2] | (c[3] << 8)) == 9 + 25 && c[9 + 16] == sizeof(k_desc_a) + sizeof(k_desc_b));
     reset_io();
     const uint8_t a[] = {1, 1}, b[] = {2, 2};
-    report(0, a, 2);
-    report(1, b, 2);
-    report(0, a, 2);
+    ep_in(1, a, 2); // both nodes are on interface 0, whose IN endpoint is 1
+    ep_in(1, b, 2);
+    ep_in(1, a, 2);
     pump();
-    assert(g_nsent == 3 && g_sent[0].data[0] == 1 && g_sent[1].data[0] == 2 && g_sent[2].data[0] == 1);
+    assert(g_nsent == 3 && g_sent[0].data[0] == 1 && g_sent[1].data[0] == 2 &&
+           g_sent[2].data[0] == 1);
     assert(g_sent[0].iface == 0 && g_sent[1].iface == 0);
 }
 
 // Packet sizes are taken as given, a Feature answer may be longer than a packet, and a frame
 // longer than 127 bytes carries a two-byte length in both directions.
 static void test_wide_values(void) {
-    assert(device_config(0, "") == 1);
-    assert(node_begin_out(0, 0, sizeof(k_desc_a), 1, 6, 5, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    expect_nak(node_begin_out(1, 1, sizeof(k_desc_b), 1, MIMHID_MAX_ENDPOINT_BYTES + 1, 0, 0, ""), MIMHID_NAK_PARAM);
-    expect_nak(node_begin_out(1, 1, sizeof(k_desc_b), 1, 8, MIMHID_MAX_ENDPOINT_BYTES + 1, 0, ""), MIMHID_NAK_PARAM);
+    device_config(0, "");
+    node_begin_out(0, 0, sizeof(k_desc_a), 1, 6, 5, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    assert(stage() == 1);
 
     uint8_t f[2 + 644];
     f[0] = 0;
     f[1] = 0x07;
-    for (size_t i = 0; i < 644; i++) f[2 + i] = (uint8_t)(i * 7 + 3);
+    for (size_t i = 0; i < 644; i++)
+        f[2 + i] = (uint8_t)(i * 7 + 3);
     assert(command(MIMHID_T_FEATURE, f, sizeof(f)) == 1);
     static uint8_t too_long[2 + MIMHID_FEATURE_MAX + 1];
     too_long[0] = 0;
     too_long[1] = 0x08;
     expect_nak(command(MIMHID_T_FEATURE, too_long, sizeof(too_long)), MIMHID_NAK_PARAM);
-    assert(commit() == 1);
+    assert(commit_staged() == 1);
 
     // The interface's IN endpoint (after the configuration and interface descriptors and the
     // HID descriptor) and its OUT endpoint.
@@ -969,18 +1894,20 @@ static void test_wide_values(void) {
     // The target writes 300 bytes: the event frame has a two-byte length.
     reset_io();
     static uint8_t written[300];
-    for (size_t i = 0; i < sizeof(written); i++) written[i] = (uint8_t)(i + 1);
+    for (size_t i = 0; i < sizeof(written); i++)
+        written[i] = (uint8_t)(i + 1);
     tud_hid_set_report_cb(0, 5, HID_REPORT_TYPE_OUTPUT, written, sizeof(written));
     size_t pos = 0;
     static uint8_t p[2048];
     uint16_t n;
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && n == 1 + 3 + 300 && p[0] == MIMHID_EV_SET_REPORT &&
-           p[1] == 0 && p[3] == 5 && memcmp(p + 4, written, 300) == 0);
+    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && n == 1 + 3 + 300 &&
+           p[0] == MIMHID_EV_SET_REPORT && p[1] == 0 && p[3] == 5 &&
+           memcmp(p + 4, written, 300) == 0);
     reset_io();
     tud_hid_set_report_cb(0, 0, HID_REPORT_TYPE_OUTPUT, written, sizeof(written));
     pos = 0;
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_OUTPUT_REPORT && p[1] == 0 &&
-           (p[2] | (p[3] << 8)) == 300 && memcmp(p + 4, written, 300) == 0);
+    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_OUTPUT_REPORT &&
+           p[1] == 0 && (p[2] | (p[3] << 8)) == 300 && memcmp(p + 4, written, 300) == 0);
 }
 
 // ---- control transfers ----
@@ -997,12 +1924,20 @@ static int control_config(uint8_t flags, const trule_t* r, int n) {
     p[k++] = flags;
     p[k++] = (uint8_t)n;
     for (int i = 0; i < n; i++) {
-        p[k++] = r[i].bm_mask; p[k++] = r[i].bm_value; p[k++] = r[i].request_mask; p[k++] = r[i].request_value;
-        p[k++] = (uint8_t)r[i].value_mask; p[k++] = (uint8_t)(r[i].value_mask >> 8);
-        p[k++] = (uint8_t)r[i].value_value; p[k++] = (uint8_t)(r[i].value_value >> 8);
-        p[k++] = (uint8_t)r[i].index_mask; p[k++] = (uint8_t)(r[i].index_mask >> 8);
-        p[k++] = (uint8_t)r[i].index_value; p[k++] = (uint8_t)(r[i].index_value >> 8);
-        p[k++] = (uint8_t)r[i].timeout_ms; p[k++] = (uint8_t)(r[i].timeout_ms >> 8);
+        p[k++] = r[i].bm_mask;
+        p[k++] = r[i].bm_value;
+        p[k++] = r[i].request_mask;
+        p[k++] = r[i].request_value;
+        p[k++] = (uint8_t)r[i].value_mask;
+        p[k++] = (uint8_t)(r[i].value_mask >> 8);
+        p[k++] = (uint8_t)r[i].value_value;
+        p[k++] = (uint8_t)(r[i].value_value >> 8);
+        p[k++] = (uint8_t)r[i].index_mask;
+        p[k++] = (uint8_t)(r[i].index_mask >> 8);
+        p[k++] = (uint8_t)r[i].index_value;
+        p[k++] = (uint8_t)(r[i].index_value >> 8);
+        p[k++] = (uint8_t)r[i].timeout_ms;
+        p[k++] = (uint8_t)(r[i].timeout_ms >> 8);
         p[k++] = r[i].action;
     }
     return command(MIMHID_T_CONTROL_CONFIG, p, k);
@@ -1014,9 +1949,16 @@ static trule_t rule_for(uint8_t bm, uint8_t request, uint16_t timeout_ms, uint8_
     return r;
 }
 
-static dcd_event_t setup_event(uint8_t bm, uint8_t request, uint16_t value, uint16_t index, uint16_t length) {
-    const uint8_t raw[8] = {bm, request, (uint8_t)value, (uint8_t)(value >> 8), (uint8_t)index,
-                            (uint8_t)(index >> 8), (uint8_t)length, (uint8_t)(length >> 8)};
+static dcd_event_t setup_event(uint8_t bm, uint8_t request, uint16_t value, uint16_t index,
+                               uint16_t length) {
+    const uint8_t raw[8] = {bm,
+                            request,
+                            (uint8_t)value,
+                            (uint8_t)(value >> 8),
+                            (uint8_t)index,
+                            (uint8_t)(index >> 8),
+                            (uint8_t)length,
+                            (uint8_t)(length >> 8)};
     dcd_event_t e;
     memset(&e, 0, sizeof(e));
     e.rhport = 0;
@@ -1050,21 +1992,24 @@ static int reply(uint8_t token, uint8_t action, const uint8_t* data, size_t n) {
     uint8_t p[2 + 1100];
     p[0] = token;
     p[1] = action;
-    if (n) memcpy(&p[2], data, n);
+    if (n)
+        memcpy(&p[2], data, n);
     return command(MIMHID_T_CONTROL_REPLY, p, 2 + n);
 }
 
 // What the board answers by itself when no rule holds a request, where the specifications fix the
-// answer: GetStatus() to an interface (USB 2.0 9.4.5) and Get_Report of an Input report (HID 1.11 7.2.1).
+// answer: GetStatus() to an interface (USB 2.0 9.4.5) and Get_Report of an Input report
+// (HID 1.11 7.2.1).
 static void test_specified_answers(void) {
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     g_mounted = true;
     reset_io();
 
-    // GetStatus() to the interface that exists: two bytes of zero, sent through the vendor callback.
+    // GetStatus() to the interface that exists: two bytes of zero, sent through the vendor
+    // callback.
     setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
     assert(g_nforwarded == 1);
     tusb_control_request_t req = g_forwarded[0].setup_received;
@@ -1084,7 +2029,8 @@ static void test_specified_answers(void) {
     setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2); // the device: TinyUSB answers
     setup(0x82, TUSB_REQ_GET_STATUS, 0, 0x81, 2); // an endpoint: TinyUSB answers
     assert(g_nforwarded == 5);
-    for (int i = 0; i < 5; i++) assert(g_forwarded[i].setup_received.bmRequestType != 0xC1);
+    for (int i = 0; i < 5; i++)
+        assert(g_forwarded[i].setup_received.bmRequestType != 0xC1);
     g_mounted = false; // address state: a Request Error
     reset_io();
     setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
@@ -1100,40 +2046,48 @@ static void test_specified_answers(void) {
     pump();
     size_t pos = 0;
     uint8_t token, flags, raw[8];
-    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMHID_CONTROL_F_HELD) && raw[0] == 0x81);
+    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMHID_CONTROL_F_HELD) &&
+           raw[0] == 0x81);
     assert(control_config(0, NULL, 0) == 1);
 
     // Get_Report of an Input report is the last report sent on the interface, and only that.
     uint8_t buf[8];
-    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // none sent yet
+    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) ==
+           0); // none sent yet
     const uint8_t a[] = {1, 0x02, 0x03};
     const uint8_t b[] = {1, 0x05, 0x06};
     reset_io();
-    report(0, a, sizeof(a));
+    ep_in(1, a, sizeof(a));
     pump();
     assert(g_nsent == 1);
-    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 && buf[0] == 0x02 && buf[1] == 0x03);
-    assert(tud_hid_get_report_cb(0, 2, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // another Report ID
-    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 3 && buf[0] == 1 && buf[2] == 0x03);
-    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, 1) == 1 && buf[0] == 0x02); // cut to wLength
-    report(0, b, sizeof(b));
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 &&
+           buf[0] == 0x02 && buf[1] == 0x03);
+    assert(tud_hid_get_report_cb(0, 2, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) ==
+           0); // another Report ID
+    assert(tud_hid_get_report_cb(0, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 3 &&
+           buf[0] == 1 && buf[2] == 0x03);
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, 1) == 1 &&
+           buf[0] == 0x02); // cut to wLength
+    ep_in(1, b, sizeof(b));
     pump();
-    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 && buf[0] == 0x05);
-    assert(tud_hid_get_report_cb(1, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0); // another interface
+    assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 2 &&
+           buf[0] == 0x05);
+    assert(tud_hid_get_report_cb(1, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) ==
+           0); // another interface
     assert(tud_hid_get_report_cb(MIMHID_HID_ITFS, 0, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0);
 
     // A new configuration forgets it.
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     assert(tud_hid_get_report_cb(0, 1, HID_REPORT_TYPE_INPUT, buf, sizeof(buf)) == 0);
 }
 
 static void test_control(void) {
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     reset_io();
 
@@ -1151,19 +2105,22 @@ static void test_control(void) {
     size_t pos = 0;
     uint8_t token, flags, raw[8], token2;
     assert(next_control_event(&pos, &token, &flags, raw) && token != 0 && flags == 0);
-    assert(raw[0] == 0x80 && raw[1] == TUSB_REQ_GET_DESCRIPTOR && raw[2] == 0x02 && raw[3] == 0x03 &&
-           raw[4] == 0x09 && raw[5] == 0x04 && raw[6] == 255 && raw[7] == 0);
-    assert(next_control_event(&pos, &token2, &flags, raw) && token2 != token && flags == MIMHID_CONTROL_F_FIXED);
+    assert(raw[0] == 0x80 && raw[1] == TUSB_REQ_GET_DESCRIPTOR && raw[2] == 0x02 &&
+           raw[3] == 0x03 && raw[4] == 0x09 && raw[5] == 0x04 && raw[6] == 255 && raw[7] == 0);
+    assert(next_control_event(&pos, &token2, &flags, raw) && token2 != token &&
+           flags == MIMHID_CONTROL_F_FIXED);
     assert(g_nforwarded == 2);
 
     // Too many for the queue: the next one carries the loss.
     reset_io();
-    for (int i = 0; i < 12; i++) setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2);
+    for (int i = 0; i < 12; i++)
+        setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2);
     assert(g_nforwarded == 12);
     pump();
     pos = 0;
     int seen = 0;
-    while (next_control_event(&pos, &token, &flags, raw)) seen++;
+    while (next_control_event(&pos, &token, &flags, raw))
+        seen++;
     assert(seen == 7); // one slot of eight is the full mark
     reset_io();
     setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2);
@@ -1249,7 +2206,8 @@ static void test_control(void) {
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
     assert(reply(token, MIMHID_CONTROL_ANSWER, NULL, 0) == 1);
-    assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0x40); // direction dropped
+    assert(g_nforwarded == 1 &&
+           g_forwarded[0].setup_received.bmRequestType == 0x40); // direction dropped
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
@@ -1350,7 +2308,8 @@ static void test_control(void) {
     }
     g_now += 1000;
     pump();
-    assert(g_nforwarded == 1 && g_forwarded[0].event_id == DCD_EVENT_BUS_RESET); // nothing else went through
+    assert(g_nforwarded == 1 &&
+           g_forwarded[0].event_id == DCD_EVENT_BUS_RESET); // nothing else went through
 
     reset_io();
     setup(0x80, TUSB_REQ_GET_DESCRIPTOR, 0x0100, 0, 18);
@@ -1477,42 +2436,15 @@ static void ep0_begin(uint8_t bm, uint16_t length) {
 
 static void test_ep0(void) {
     uint8_t buf[64];
-    for (int i = 0; i < 64; i++) buf[i] = (uint8_t)i;
+    for (int i = 0; i < 64; i++)
+        buf[i] = (uint8_t)i;
     reset_io();
-
-    // USB 2.0 9.6.3: bmAttributes bits 4..0 are reserved. 9.6.1: a subclass needs a class.
-    g_bm_attributes = 0x81;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_bm_attributes = 0x9F;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_bm_attributes = 0xA0;
-    g_device_class = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM); // subclass 2 under class 0
-    g_device_subclass = 0;
-    assert(device_config(0, "") == 1);
-    g_device_class = 0xEF;
-    g_device_subclass = 0x02;
-
-    // The stack maps SET_CONFIGURATION(n) to the n-th configuration; the board has one.
-    g_config_value = 2;
-    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
-    g_config_value = 255;
-    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
-    g_config_value = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_UNSUPPORTED);
-    g_config_value = 1;
-
-    // The board refuses a size USB does not have.
-    g_ep0_size = 48;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_ep0_size = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
 
     // The size comes with the descriptor: 8, and the device descriptor reads 8.
     g_ep0_size = 8;
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     assert(tud_descriptor_device_cb()[7] == 8);
 
@@ -1607,9 +2539,9 @@ static void test_ep0(void) {
     // 64: everything goes through as it came.
     reset_io();
     g_ep0_size = 64;
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+    device_config(0, "");
+    node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     ep0_begin(0x80, 255);
     assert(__wrap_dcd_edpt_xfer(0, 0x80, buf, 64));
@@ -1618,92 +2550,96 @@ static void test_ep0(void) {
     assert(ep0_whole() == 64 && g_deferred == NULL);
 }
 
-// The wire format names a node in four bits, so all 16 nodes can be used, and each keeps its own
-// interface through a commit.
-static void test_sixteen_nodes(void) {
-    assert(MIMHID_MAX_NODES == 16);
-    assert(device_config(0, "") == 1);
-    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++) {
-        const uint8_t iface = (uint8_t)(id % MIMHID_HID_ITFS);
-        assert(node_begin(id, iface, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-        assert(node_data(id, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+// Every interface the controller can open is used: numbers 0..n-1, each with its own IN endpoint,
+// and each endpoint frame reaches the HID instance of its interface.
+static void test_all_interfaces(void) {
+    device_config(0, "");
+    for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
+        node_begin(i, i, sizeof(k_desc_a), 1, 8, 0, "");
+        node_data(i, 0, k_desc_a, sizeof(k_desc_a));
     }
-    expect_nak(node_begin(MIMHID_MAX_NODES, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_PARAM);
     assert(commit() == 1);
-    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++)
-        assert(mimhid_active_node_interface(id) == (uint8_t)(id % MIMHID_HID_ITFS));
-    assert(mimhid_active_node_interface(MIMHID_MAX_NODES) == 0xFF);
+    assert(mimhid_active_interfaces() == MIMHID_HID_ITFS);
+    for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++) {
+        assert(mimhid_active_interface_instance(i) == i);
+        assert(mimhid_active_endpoint_instance((uint8_t)(1 + i)) == i);
+        assert(mimhid_active_instance_endpoint(i) == (uint8_t)(0x81 + i));
+    }
+    assert(mimhid_active_interface_instance(MIMHID_HID_ITFS) == 0xFF);
+    assert(mimhid_active_endpoint_instance(1 + MIMHID_HID_ITFS) == 0xFF);
     // A detach forgets them all again.
     uint8_t detach[1] = {1};
     assert(command(MIMHID_T_COMMIT, detach, 1) == 1);
-    for (uint8_t id = 0; id < MIMHID_MAX_NODES; id++)
-        assert(mimhid_active_node_interface(id) == 0xFF);
+    assert(mimhid_active_interfaces() == 0);
+    for (uint8_t i = 0; i < MIMHID_HID_ITFS; i++)
+        assert(mimhid_active_endpoint_instance((uint8_t)(1 + i)) == 0xFF);
 }
 
-// Nothing is filled in for the host: a zero where a value is required is refused, a number the
-// controller does not have is refused, and a layout that cannot be built is refused at COMMIT.
+// EP_CONFIG: the depth of the queue of an endpoint of the staged configuration. Nothing is made
+// up: zero, a bad address and a bad policy are refused; DROP_OLDEST and WAIT are named but not
+// taken in this step; an endpoint the configuration lacks, or no configuration, is a state error.
+static void test_ep_config(void) {
+    device_config(0, "");
+    base_node();
+    assert(desc_reset() == 1);
+    expect_nak(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // nothing staged
+    assert(stage() == 1);
+    assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST) == 1); // again: the same
+    expect_nak(ep_config(0x81, 0, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x81, 4, 0), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x81, 4, 4), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_OLDEST), MIMHID_NAK_UNSUPPORTED);
+    expect_nak(ep_config(0x81, 4, MIMHID_EP_FULL_WAIT), MIMHID_NAK_UNSUPPORTED);
+    expect_nak(ep_config(0x01, 4, MIMHID_EP_FULL_DROP_NEWEST),
+               MIMHID_NAK_UNSUPPORTED); // an OUT address
+    expect_nak(ep_config(0x00, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x91, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x8F + 1, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
+    expect_nak(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // not in it
+    expect_nak(ep_config(0x81, 255, MIMHID_EP_FULL_DROP_NEWEST),
+               MIMHID_NAK_OVERFLOW); // deeper than the queue
+    assert(commit_staged() == 1);
+}
+
+// The endpoint frames of this step: type 0x40 is refused and an unknown endpoint drops the frame.
+static void test_ep_frames(void) {
+    device_config(0, "");
+    base_node();
+    assert(commit() == 1);
+    reset_io();
+    const uint8_t a[] = {1, 0x02};
+    put_frame(MIMHID_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
+    ep_in(1, a, sizeof(a));
+    ep_in(2, a, sizeof(a)); // an endpoint that is none of the configuration's
+    pump();
+    assert(g_nsent == 1 && g_sent[0].iface == 0);
+}
+
+// Nothing is filled in for the host: a zero where a value is required is refused at COMMIT.
 static void test_nothing_is_filled_in(void) {
     reset_io();
-    // DEVICE_CONFIG: LANGID, bcdUSB and the attribute bit 7 (USB 2.0 9.6.7, 9.6.1, 9.6.3).
-    g_language = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_language = 0x0409;
     g_bcd_usb = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    device_config(0, "");
+    base_node();
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
     g_bcd_usb = 0x0200;
     g_bm_attributes = 0;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_bm_attributes = 0x20; // bit 7 clear
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
-    g_bm_attributes = 0xA0;
-    assert(device_config(0, "") == 1);
-
-    // NODE_BEGIN: the IN endpoint's address, size and interval.
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, ""), MIMHID_NAK_PARAM);  // size 0
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 0, 8, 0, ""), MIMHID_NAK_PARAM);  // interval 0
-    g_force_in = 0;
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_PARAM);  // address 0
-    g_force_in = -1;
-    // The OUT endpoint is absent in full or present in full.
-    g_force_out = 0x01;
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_PARAM);  // address, no size
-    g_force_out = 0;
-    expect_nak(node_begin_out(0, 0, sizeof(k_desc_a), 1, 8, 8, 0, ""), MIMHID_NAK_PARAM); // size, no address
-    g_force_out = -1;
-
-    // An endpoint number above the controller's: refused with OVERFLOW, in either direction.
-    // (with all 15 numbers there is none above)
-#if MIMHID_MAX_ENDPOINT_NUMBER < 15
-    g_force_in = 0x80 | (MIMHID_MAX_ENDPOINT_NUMBER + 1);
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_OVERFLOW);
-    g_force_in = 0x8F;
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, ""), MIMHID_NAK_OVERFLOW);
-    g_force_in = -1;
-    g_force_out = MIMHID_MAX_ENDPOINT_NUMBER + 1;
-    expect_nak(node_begin_out(0, 0, sizeof(k_desc_a), 1, 8, 8, 0, ""), MIMHID_NAK_OVERFLOW);
-    g_force_out = -1;
-#endif
-    g_force_out = MIMHID_MAX_ENDPOINT_NUMBER; // the highest number is fine for OUT too
-    assert(node_begin_out(0, 0, sizeof(k_desc_a), 1, 8, 8, 0, "") == 1);
-    g_force_out = -1;
-
-    // COMMIT: nodes of one interface that disagree, and one endpoint number used twice.
-    assert(device_config(0, "") == 1);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-    assert(node_begin(1, 0, sizeof(k_desc_b), 1, 16, 0, "") == 1); // same interface, another size
-    assert(node_data(1, 0, k_desc_b, sizeof(k_desc_b)) == 1);
     expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
-    if (MIMHID_HID_ITFS > 1) {
-        assert(device_config(0, "") == 1);
-        assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-        assert(node_data(0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
-        g_force_in = 0x81; // the same IN endpoint as interface 0
-        assert(node_begin(1, 1, sizeof(k_desc_b), 1, 8, 0, "") == 1);
-        g_force_in = -1;
-        assert(node_data(1, 0, k_desc_b, sizeof(k_desc_b)) == 1);
-        expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
-    }
+    g_bm_attributes = 0x20; // bit 7 clear
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    g_bm_attributes = 0xA0;
+    g_config_value = 0;
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    g_config_value = 1;
+    node_begin(0, 0, sizeof(k_desc_a), 0, 8, 0, ""); // bInterval 0
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, ""); // packet size 0
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    base_node();
+    assert(commit() == 1);
 }
 
 #if TUD_OPT_HIGH_SPEED
@@ -1712,20 +2648,27 @@ static void test_nothing_is_filled_in(void) {
 static void test_high_speed(void) {
     assert(MIMHID_MAX_ENDPOINT_BYTES == 1024);
     // 9.6.1: the control endpoint of a high-speed device is 64 bytes, and only that.
-    assert(device_config(0, "") == 1);
+    device_config(0, "");
+    base_node();
     g_ep0_size = 8;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
     g_ep0_size = 32;
-    expect_nak(device_config(0, ""), MIMHID_NAK_PARAM);
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
     g_ep0_size = 64;
-    assert(device_config(0, "") == 1);
+    assert(commit() == 1);
     // 9.6.6: bInterval of an interrupt endpoint is an exponent, 1 to 16.
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 0, 8, 0, ""), MIMHID_NAK_PARAM);
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 17, 8, 0, ""), MIMHID_NAK_PARAM);
-    expect_nak(node_begin(0, 0, sizeof(k_desc_a), 255, 8, 0, ""), MIMHID_NAK_PARAM);
-    assert(node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "") == 1);
-    assert(node_begin(1, 1, sizeof(k_desc_a), 16, 1024, 0, "") == 1); // the largest endpoint packet
-    expect_nak(node_begin(2, 2, sizeof(k_desc_a), 16, 1025, 0, ""), MIMHID_NAK_PARAM);
+    static const uint8_t bad[] = {0, 17, 255};
+    for (size_t i = 0; i < sizeof(bad); i++) {
+        node_begin(0, 0, sizeof(k_desc_a), bad[i], 8, 0, "");
+        node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+        expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    }
+    node_begin(0, 0, sizeof(k_desc_a), 16, 1024, 0, ""); // the largest interval and endpoint packet
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    assert(commit() == 1);
+    node_begin(0, 0, sizeof(k_desc_a), 16, 1025, 0, "");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
 }
 #endif
 
@@ -1745,9 +2688,14 @@ int main(void) {
     test_descriptors_basic();
     test_reports();
     test_feature();
-    test_detach_begin_and_live_feature();
+    test_detach_and_live_feature();
+    test_serial_from_chip_id();
+    test_desc_commands();
+    test_commit_walk();
     test_errors();
-    test_sixteen_nodes();
+    test_all_interfaces();
+    test_ep_config();
+    test_ep_frames();
     test_packing();
     test_wide_values();
     test_specified_answers();

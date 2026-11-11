@@ -34,6 +34,7 @@ add_executable(mimhid_tests
     tests/unit/test_validator_arithmetic.cpp
     tests/unit/test_validator_encoding.cpp
     tests/unit/test_frame.cpp
+    tests/unit/test_descriptor_composer.cpp
     tests/unit/test_profiles_common.cpp
     tests/unit/test_profiles_keyboard.cpp
     tests/unit/test_profiles_mouse.cpp

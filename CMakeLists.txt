@@ -133,6 +133,7 @@ set(MIMHID_SOURCES
     src/profiles/state.cpp
     src/transport/frame.cpp
     src/transport/link.cpp
+    src/usb/descriptor_composer.cpp
     src/transport/handshaker.cpp
 )
 if(WIN32)

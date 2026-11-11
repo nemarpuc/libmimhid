@@ -166,7 +166,6 @@ class DeviceInfo(c.Structure):
         ("version_patch", c.c_uint8),
         ("is_ready", c.c_uint8),
         ("firmware_compatible", c.c_uint8),
-        ("max_nodes", c.c_uint8),
         ("max_interfaces", c.c_uint8),
         ("max_report_bytes", c.c_uint8),
         ("max_descriptor_bytes", c.c_uint16),

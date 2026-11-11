@@ -130,7 +130,6 @@ int main(void) {
     OFFSET(mimhid_device_info, version_patch);
     OFFSET(mimhid_device_info, is_ready);
     OFFSET(mimhid_device_info, firmware_compatible);
-    OFFSET(mimhid_device_info, max_nodes);
     OFFSET(mimhid_device_info, max_interfaces);
     OFFSET(mimhid_device_info, max_report_bytes);
     OFFSET(mimhid_device_info, max_descriptor_bytes);

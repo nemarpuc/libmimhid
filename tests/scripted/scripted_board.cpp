@@ -35,7 +35,7 @@ void put_u32(std::vector<std::uint8_t>* out, std::uint32_t value) {
 // Types that carry a sequence number and are answered with an ACK or NAK.
 bool is_command(std::uint8_t type) {
     return type != MIMHID_T_PING && type != MIMHID_T_PROBE && type != MIMHID_T_CONTROL_REPLY &&
-           !(type >= MIMHID_T_REPORT_BASE && type <= MIMHID_T_REPORT_LAST);
+           !(type >= MIMHID_T_EP_IN_BASE && type <= MIMHID_T_EP_IN_LAST);
 }
 
 // The library's frames (the library's own parser takes only the board's types). Complete valid
@@ -217,7 +217,7 @@ std::vector<std::uint8_t> Board::pong_payload() {
         return *pong_.raw;
     std::vector<std::uint8_t> p(pong_.version, pong_.version + 3);
     p.push_back(pong_.ready);
-    p.push_back(pong_.max_nodes);
+    p.push_back(pong_.reserved);
     p.push_back(pong_.max_interfaces);
     p.push_back(pong_.flags);
     p.push_back(pong_.chip);

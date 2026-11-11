@@ -84,7 +84,7 @@ build/examples/basic_keyboard_mouse          # Linux, macOS
 build\bin\Release\basic_keyboard_mouse.exe   # Windows (Visual Studio generator)
 ```
 
-`mimhid_discover` reports the port, the bridge description, the firmware version and limits (`max_interfaces`, `max_nodes`) the board sent in its answer, its chip and unique id, and the fastest rate the link carried without loss (`baud_rate`). Opening with `MIMHID_BAUD_FASTEST` instead measures it then (a second or two); passing the reported `baud_rate` is quicker.
+`mimhid_discover` reports the port, the bridge description, the firmware version and limits (`max_interfaces`, `max_report_bytes`, `max_descriptor_bytes`) the board sent in its answer, its chip and unique id, and the fastest rate the link carried without loss (`baud_rate`). Opening with `MIMHID_BAUD_FASTEST` instead measures it then (a second or two); passing the reported `baud_rate` is quicker.
 
 ---
 

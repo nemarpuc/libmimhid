@@ -96,6 +96,7 @@ void test_queue_depth_and_loss();
 void test_touch_feature();
 void test_batch_and_packing();
 void test_limits();
+void test_interface_numbers();
 // test_sim_events.cpp (test_link_loss closes the pseudo-terminal, so it runs last)
 void test_events_and_raw();
 void test_link_loss();

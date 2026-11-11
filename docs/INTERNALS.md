@@ -19,8 +19,8 @@ How the host implementation behind `include/mimhid.h` works: which object owns w
 | --- | --- | --- |
 | `mimhid_spec` | `src/api/internal.hpp` | An atomic reference count, the descriptor bytes, the `ReportLayout`, the `DescriptorRequirements`, the report capabilities, the copied options, and the optional battery layout. |
 | `mimhid_discovery` | `src/api/internal.hpp` | A vector of `mimhid_device_info`, a snapshot. |
-| `mimhid_device` | `src/api/internal.hpp` | A copy of the config, the board's answer (`BoardInfo`), the `Link` (and with it the port and the reader thread), the copied USB strings, `slots` (the Nodes by board node id, at most `MIMHID_MAX_NODES`), and the state flags below. |
-| `mimhid_node` | `src/api/internal.hpp` | A retained Spec, the `NodeState` variant, the node id and interface number, the Feature answers, the submitted-report bookkeeping, and the completion fields. |
+| `mimhid_device` | `src/api/internal.hpp` | A copy of the config, the board's answer (`BoardInfo`), the `Link` (and with it the port and the reader thread), the copied USB strings, `slots` (the Nodes by node id, a vector that grows with the Nodes, at most 65534), and the state flags below. |
+| `mimhid_node` | `src/api/internal.hpp` | A retained Spec, the `NodeState` variant, the node id (an index into `slots`; the board does not know it) and interface number (`iface.number`, the real `bInterfaceNumber`), the Feature answers, the submitted-report bookkeeping, and the completion fields. |
 
 There is no Context: a Device owns its port and one reader thread, so two Devices share nothing. A Node keeps its own reference to its Spec, which is why the caller may release a Spec after `mimhid_node_open`.
 
@@ -64,7 +64,7 @@ Reports are not acknowledged by the board. A failed write rolls the scan time ba
 
 1. It takes a `ReconfigGuard`, which sets `reconfiguring`, so input calls return `MIMHID_ERR_BUSY` meanwhile.
 2. With no live Node left, it sends a detach `COMMIT` (`{1, reconnect_delay_ms & 0xFF, reconnect_delay_ms >> 8}`; the firmware ignores the last two bytes) when the board is configured, sets `configured = false`, and returns.
-3. It checks the descriptors together against the board's `max_descriptor_bytes` (`MIMHID_ERR_OVERFLOW`), assigns the interface numbers (`assign_interfaces`), and sends `DEVICE_CONFIG`, then for each live Node `NODE_BEGIN`, `NODE_DATA` chunks of up to `MIMHID_NODE_DATA_CHUNK` (240) bytes, every registered `FEATURE` answer, and `QUEUE_DEPTH` when `queue_depth` is not 0. Each frame goes through `Link::command` with `kCommandAttempts` (3) and `control_timeout_ms`; the board answers a repeated sequence number again instead of running the command twice.
+3. It checks the descriptors together against the board's `max_descriptor_bytes` (`MIMHID_ERR_OVERFLOW`), composes every descriptor (`compose_descriptors` in `src/usb/descriptor_composer.cpp`, which also checks that the interface numbers are 0, 1, 2, ... without a gap, the Report IDs of Nodes that share an interface, and the endpoint addresses), and sends `DESC_RESET`, then the device descriptor, the configuration descriptor, the strings and the report descriptor of every interface (each a `DESC_BEGIN` and `DESC_DATA` chunks of up to `MIMHID_DESC_DATA_CHUNK` (240) bytes), every registered `FEATURE` answer (keyed by interface number), and an `EP_CONFIG` with `MIMHID_EP_FULL_DROP_NEWEST` for each interface whose Nodes set a `queue_depth` (the least of them). Each frame goes through `Link::command` with `kCommandAttempts` (3) and `control_timeout_ms`; the board answers a repeated sequence number again instead of running the command twice.
 4. When the board is configured, it calls `Link::disconnect` (detach `COMMIT` `{1, 0, 0}`, one attempt, `control_timeout_ms`) and, when `reconnect_delay_ms` is not 0, sleeps that long on the host.
 5. It calls `Link::connect` (attach `COMMIT` `{0, 0, 0}`, one attempt), which waits up to `reconnect_timeout_ms` for the board's `ACK`. It does not wait for `EVENT MOUNTED`; `mimhid_device_wait_ready` does.
 
@@ -111,13 +111,13 @@ Each decision states what the code does. A reason is given only where the reposi
 
 ### One report queue per interface on the board; a full queue drops the new report
 
-- **Decision:** Each HID interface has a single-producer single-consumer ring (`report_queue_t`, `MIMHID_QUEUE_DEPTH` slots, `head` and `tail` read and written with `__atomic_load_n` and `__atomic_store_n`). The receive side writes it and the USB side reads it; on the RP2040 and RP2350 these are core 1 and core 0. A report that finds the queue full is dropped and, once `LOSS_CONFIG` turned loss reporting on, counted in `g_lost` and reported as `EVENT REPORT_LOST`.
+- **Decision:** Each HID interface has a single-producer single-consumer ring (`report_queue_t`, `MIMHID_QUEUE_DEPTH` slots, `head` and `tail` read and written with `__atomic_load_n` and `__atomic_store_n`). The receive side writes it and the USB side reads it; on the RP2040 and RP2350 these are core 1 and core 0. A report that finds the queue full is dropped and, once `LOSS_CONFIG` turned loss reporting on, counted in `g_lost` and reported as `EVENT TRANSFER_LOST` (the host maps the endpoint address to a Node and reports `MIMHID_EVENT_REPORT_LOST`).
 - **Reason:** Recorded for the depth: `core.c` says "A short queue bounds how late a report can reach the target". Commit `ab98886` ("tell the host about dropped reports") added the count. Not recorded for the queue design or for dropping the new report rather than the oldest.
 - **Rejected:** Not recorded.
 
 ### Staged and active configuration on the USB side, behind a command mailbox
 
-- **Decision:** The receive side passes every command except `PING`, `SET_BAUD`, `COUNTERS`, `PROBE`, and `CONTROL_REPLY` to the USB side through `g_cmd` (four slots, three commands). The USB side (`run_command`) fills the staged configuration (`g_staged`) from `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA`, and builds the active descriptors from it on an attach `COMMIT` (`mimhid_apply_config` in `usb_descriptors.c`).
+- **Decision:** The receive side passes every command except `PING`, `SET_BAUD`, `COUNTERS`, `PROBE`, and `CONTROL_REPLY` to the USB side through `g_cmd` (four slots, three commands). The USB side (`run_command`) fills the staged configuration (`g_staged`: descriptors as bytes, from `DESC_RESET`, `DESC_BEGIN`, `DESC_DATA`), and on an attach `COMMIT` walks it and, when it holds together, copies it to the active one (`mimhid_apply_config` in `usb_descriptors.c`), which serves the TinyUSB descriptor callbacks from those bytes.
 - **Reason:** Recorded for the commands kept on the receive side: `SET_BAUD` "Runs on the receive side: the ACK has to leave at the old rate before the switch", `COUNTERS` because "the counters belong to it", and `CONTROL_REPLY` because "The USB side may be waiting in a TinyUSB callback, so the reply is taken here" (all `core.c`). Not recorded for the rest.
 - **Rejected:** Not recorded.
 

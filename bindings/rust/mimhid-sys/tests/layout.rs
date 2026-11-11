@@ -127,7 +127,6 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_device_info.version_patch".to_owned(), offset_of!(mimhid_device_info, version_patch) as i64);
     map.insert("mimhid_device_info.is_ready".to_owned(), offset_of!(mimhid_device_info, is_ready) as i64);
     map.insert("mimhid_device_info.firmware_compatible".to_owned(), offset_of!(mimhid_device_info, firmware_compatible) as i64);
-    map.insert("mimhid_device_info.max_nodes".to_owned(), offset_of!(mimhid_device_info, max_nodes) as i64);
     map.insert("mimhid_device_info.max_interfaces".to_owned(), offset_of!(mimhid_device_info, max_interfaces) as i64);
     map.insert("mimhid_device_info.max_report_bytes".to_owned(), offset_of!(mimhid_device_info, max_report_bytes) as i64);
     map.insert("mimhid_device_info.max_descriptor_bytes".to_owned(), offset_of!(mimhid_device_info, max_descriptor_bytes) as i64);

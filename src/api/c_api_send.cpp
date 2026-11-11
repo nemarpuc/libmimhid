@@ -65,8 +65,8 @@ mimhid_result write_report(mimhid_node* node, const std::uint8_t* report, std::s
                            const char* field, std::uint32_t send_timeout_ms) noexcept {
     mimhid_device* device = node->device;
     std::int32_t os_error = 0;
-    const tr::IoStatus status =
-        device->link.send_report(node->node_id, report, length, send_timeout_ms, &os_error);
+    const tr::IoStatus status = device->link.send_report(node->config.ep_in.address, report, length,
+                                                         send_timeout_ms, &os_error);
     mimhid_result result = MIMHID_OK;
     std::int32_t native = 0;
     switch (status) {
@@ -384,8 +384,8 @@ mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* r
         return MIMHID_ERR_OVERFLOW;
     }
     std::int32_t os_error = 0;
-    const tr::IoStatus status = device->link.send_report(node->node_id, report_bytes, report_length,
-                                                         send_timeout_ms, &os_error);
+    const tr::IoStatus status = device->link.send_report(node->config.ep_in.address, report_bytes,
+                                                         report_length, send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
         mimhid::detail::clear_error();

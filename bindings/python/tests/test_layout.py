@@ -27,7 +27,7 @@ def oracle() -> dict[str, int]:
 LAYOUT = {
     "mimhid_error_detail": ("ErrorDetail", ["code", "field", "reason", "transport_status", "frame_type", "node_id", "report_id", "offset", "length"]),
     "mimhid_event": ("Event", ["struct_size", "reserved", "kind", "node_id", "report_id", "value", "data", "length", "control_token", "control_flags"]),
-    "mimhid_device_info": ("DeviceInfo", ["port_name", "description", "version_major", "version_minor", "version_patch", "is_ready", "firmware_compatible", "max_nodes", "max_interfaces", "max_report_bytes", "max_descriptor_bytes", "has_unique_id", "max_endpoint_number", "baud_rate", "max_baud", "uart_flags", "chip", "usb_high_speed", "unique_id_length", "unique_id", "reserved_end"]),
+    "mimhid_device_info": ("DeviceInfo", ["port_name", "description", "version_major", "version_minor", "version_patch", "is_ready", "firmware_compatible", "max_interfaces", "max_report_bytes", "max_descriptor_bytes", "has_unique_id", "max_endpoint_number", "baud_rate", "max_baud", "uart_flags", "chip", "usb_high_speed", "unique_id_length", "unique_id", "reserved_end"]),
     "mimhid_board_limits": ("BoardLimits", ["struct_size", "reserved", "max_report_bytes", "max_feature_bytes", "max_endpoint_bytes", "max_frame_payload", "max_control_data_bytes", "max_control_rules", "max_endpoint_number"]),
     "mimhid_link_counters": ("LinkCounters", ["struct_size", "reserved", "bad_crc", "framing", "uart_overrun", "ring_overrun", "probes_good"]),
     "mimhid_usb_device": ("UsbDevice", ["bcd_usb", "device_class", "device_subclass", "device_protocol", "ep0_max_packet_size", "vendor_id", "product_id", "bcd_device", "language_id", "manufacturer", "product", "serial", "serial_from_chip_id"]),

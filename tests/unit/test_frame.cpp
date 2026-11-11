@@ -66,7 +66,7 @@ void test_other_types_are_skipped() {
     for (const std::uint8_t type :
          {std::uint8_t{MIMHID_EV_SET_REPORT}, std::uint8_t{MIMHID_EV_OUTPUT_REPORT},
           std::uint8_t{MIMHID_T_PING}, std::uint8_t{MIMHID_T_COMMIT},
-          std::uint8_t{MIMHID_T_REPORT_BASE}}) {
+          std::uint8_t{MIMHID_T_EP_IN_BASE}}) {
         const std::vector<std::uint8_t> frame = frame_bytes(type, {0x00U, 0x01U, 0x02U});
         bytes.insert(bytes.end(), frame.begin(), frame.end());
     }
@@ -136,7 +136,7 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[1] = MIMHID_VERSION_MINOR;
     payload[2] = static_cast<std::uint8_t>(MIMHID_VERSION_PATCH + 5U);
     payload[3] = 1;
-    payload[4] = 16;   // max_nodes
+    payload[4] = 0;    // reserved
     payload[5] = 15;   // max_interfaces
     payload[6] = 1;    // has a unique id
     payload[7] = 2;    // chip
@@ -153,8 +153,8 @@ void test_pong_of_this_version_decodes_every_field() {
     if (frames.size() == 1U) {
         mimhid::transport::BoardInfo info;
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
-                     info.max_nodes == 16U && info.max_interfaces == 15U && info.has_unique_id &&
-                     info.chip == 2U && info.baud == 3000000U && info.max_control_rules == 8U &&
+                     info.max_interfaces == 15U && info.has_unique_id && info.chip == 2U &&
+                     info.baud == 3000000U && info.max_control_rules == 8U &&
                      info.max_endpoint_number == 6U && info.unique_id_length == 2U &&
                      info.unique_id[0] == 0xABU && info.unique_id[1] == 0xCDU);
         // One byte short of the fixed part is refused.

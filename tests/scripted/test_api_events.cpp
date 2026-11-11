@@ -89,7 +89,7 @@ void test_event_kinds() {
     board.send_event(MIMHID_EV_SET_IDLE, {0});
     board.send_event(MIMHID_EV_CONTROL_SETUP, {1, 1, 0, 0, 0, 0, 0, 0, 0});
     board.send_event(MIMHID_EV_CONTROL_DATA, {});
-    board.send_event(MIMHID_EV_REPORT_LOST, {0, 1});
+    board.send_event(MIMHID_EV_TRANSFER_LOST, {0x81, 1});
     board.send_event(0x7E, {1, 2, 3});
     const std::uint8_t empty_event[1] = {0};
     board.send_frame(MIMHID_T_EVENT, empty_event, 0); // no kind at all
@@ -118,8 +118,12 @@ void test_event_kinds() {
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_SET_PROTOCOL && s.value == 0);
     board.send_event(MIMHID_EV_SET_IDLE, {0, 4});
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_SET_IDLE && s.value == 4);
-    board.send_event(MIMHID_EV_REPORT_LOST, {0, 0x34, 0x12});
-    MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_REPORT_LOST && s.value == 0x1234);
+    board.send_event(MIMHID_EV_TRANSFER_LOST, {0x81, 0x34, 0x12});
+    // The board names the endpoint; the event names the Node that sends on it (0 for none).
+    MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_REPORT_LOST && s.value == 0x1234 &&
+                 s.node_id == mimhid_node_id(raw));
+    board.send_event(MIMHID_EV_TRANSFER_LOST, {0x85, 0x01, 0x00});
+    MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_REPORT_LOST && s.value == 1 && s.node_id == 0);
     board.send_event(MIMHID_EV_CONTROL_SETUP, {7, 1, 0xC0, 1, 0, 0, 0, 0, 4, 0});
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_CONTROL_SETUP && s.token == 7 && s.flags == 1 &&
                  s.data.size() == 8U && s.data[0] == 0xC0);

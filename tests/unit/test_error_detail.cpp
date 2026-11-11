@@ -57,9 +57,9 @@ void test_frame_type_names() {
         const char* name;
     } names[] = {
         {MIMHID_T_PING, "PING"},
-        {MIMHID_T_DEVICE_CONFIG, "DEVICE_CONFIG"},
-        {MIMHID_T_NODE_BEGIN, "NODE_BEGIN"},
-        {MIMHID_T_NODE_DATA, "NODE_DATA"},
+        {MIMHID_T_DESC_RESET, "DESC_RESET"},
+        {MIMHID_T_DESC_BEGIN, "DESC_BEGIN"},
+        {MIMHID_T_DESC_DATA, "DESC_DATA"},
         {MIMHID_T_COMMIT, "COMMIT"},
         {MIMHID_T_FEATURE, "FEATURE"},
         {MIMHID_T_RESET, "RESET"},
@@ -68,13 +68,13 @@ void test_frame_type_names() {
         {MIMHID_T_CONTROL_CONFIG, "CONTROL_CONFIG"},
         {MIMHID_T_CONTROL_REPLY, "CONTROL_REPLY"},
         {MIMHID_T_LOSS_CONFIG, "LOSS_CONFIG"},
-        {MIMHID_T_QUEUE_DEPTH, "QUEUE_DEPTH"},
+        {MIMHID_T_EP_CONFIG, "EP_CONFIG"},
         {MIMHID_T_PONG, "PONG"},
         {MIMHID_T_ACK, "ACK"},
         {MIMHID_T_NAK, "NAK"},
         {MIMHID_T_EVENT, "EVENT"},
-        {MIMHID_T_REPORT_BASE, "REPORT"},
-        {MIMHID_T_REPORT_LAST, "REPORT"},
+        {MIMHID_T_EP_IN_BASE, "EP_IN"},
+        {MIMHID_T_EP_IN_LAST, "EP_IN"},
     };
     for (const auto& entry : names)
         MIMHID_CHECK(named(mimhid_frame_type_name(entry.type), entry.name));

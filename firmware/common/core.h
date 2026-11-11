@@ -17,7 +17,7 @@
 // must come out the same in all of them whatever they include first).
 //
 //   MIMHID_HID_ITFS             USB HID interfaces (one IN endpoint each) the controller can open
-//                               at once; the host packs nodes to fit.
+//                               at once.
 //   MIMHID_MAX_ENDPOINT_NUMBER  the highest endpoint number it has (an address is refused above it)
 //   MIMHID_MAX_ENDPOINT_BYTES   the largest endpoint packet: 64 at full speed, 1024 at high speed
 //                               (USB 2.0 5.7.3, 5.7.4 and 9.6.6)

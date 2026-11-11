@@ -129,9 +129,11 @@ USB `D+` pull-up stays off (`0 V`): the target sees no USB device.
 `mimhid_device_set_usb_identity`, `mimhid_device_batch_end`, and
 `mimhid_device_commit` commit (`commit_device` in `src/api/device_ops.cpp`):
 
-1. When Nodes are left, the library sends `DEVICE_CONFIG`, then for each Node
-   `NODE_BEGIN`, its descriptor in `NODE_DATA` chunks, a `FEATURE` frame for
-   each Feature answer, and `QUEUE_DEPTH` when a depth was set. Each frame waits
+1. When Nodes are left, the library composes the USB descriptors and sends
+   `DESC_RESET`, then the device descriptor, the configuration descriptor, the
+   strings and the report descriptor of every interface (`DESC_BEGIN` and
+   `DESC_DATA`), a `FEATURE` frame for each Feature answer, and `EP_CONFIG`
+   when a queue depth was set. Each frame waits
    up to `control_timeout_ms` for the board's answer and is sent up to three
    times. The board stores these frames; nothing changes on the target yet.
 2. When the board's USB device is already on the target, the library sends a
@@ -139,8 +141,9 @@ USB `D+` pull-up stays off (`0 V`): the target sees no USB device.
    `reconnect_delay_ms` on the host when `mimhid_device_commit` was given one
    (the other calls use 0).
 3. The library sends an attach `COMMIT` and waits up to `reconnect_timeout_ms`
-   for its answer. The board builds the USB descriptors from what it stored,
-   turns its D+ pull-up on, and answers. The call returns then: it does not
+   for its answer. The board checks what it stored (`MIMHID_ERR_DESCRIPTOR_REJECTED`
+   when it does not hold together), makes it its configuration, turns its D+
+   pull-up on, and answers. The call returns then: it does not
    wait for the target to enumerate the device. `mimhid_device_wait_ready`
    waits for that (the board's `MOUNTED` event, sent when the target selects
    the configuration).
@@ -150,9 +153,14 @@ board's USB device leaves the target.
 
 ### 3. Sharing and separating USB interfaces
 
-- Up to `MIMHID_MAX_NODES` (16) Nodes can be open on a Device, on at most the
+- As many Nodes as you like (up to 65534) can be open on a Device, on at most the
   board's `max_interfaces` interfaces (15 on the RP2040 and RP2350, 7 on the
   nRF52840, 4 on the ESP32-S3, 3 on the STM32F4; see [LIMITS.md](LIMITS.md)).
+- `iface.number` is the `bInterfaceNumber` the target sees. The numbers in use
+  must be 0, 1, 2, ... without a gap, or the commit fails with
+  `MIMHID_ERR_PARAM` and the missing number in `mimhid_error_detail.offset`;
+  nothing is renumbered, so open the Nodes in number order (or in one batch)
+  and close the highest number first.
 - Nodes with the **same** `iface.number` share one USB HID interface: their
   `iface`, `ep_in`, and `ep_out` settings must match, and each must have a
   Report ID, all different.
@@ -204,7 +212,7 @@ const char* mimhid_frame_type_name(int32_t frame_type);
 - **Ownership:** The string is static.
 - **Blocking:** None.
 - **Synchronization:** Any thread. Names the serial frame type of `mimhid_error_detail`.frame_type (docs/PROTOCOL.md).
-- **Returns:** The frame's name, such as "COMMIT" or "REPORT", with `MIMHID_OK` recorded; for a value that is not a frame type, "UNKNOWN" with `MIMHID_ERR_PARAM` recorded.
+- **Returns:** The frame's name, such as "COMMIT" or "EP_IN", with `MIMHID_OK` recorded; for a value that is not a frame type, "UNKNOWN" with `MIMHID_ERR_PARAM` recorded.
 
 #### `mimhid_version`
 
@@ -621,7 +629,7 @@ mimhid_result mimhid_node_open(mimhid_device* device, mimhid_spec* spec, const m
 - **Ownership:** Copies config; the Node keeps a reference to spec until it closes.
 - **Blocking:** Sends the configuration of every Node and commits (see [Lifecycle and USB bus behavior](#lifecycle-and-usb-bus-behavior)), waiting as timeouts says, so the target sees the board's USB device unplugged and plugged in again and every other Node is briefly away. Inside a batch it only stages the Node; timeouts is still required. It returns once the board has answered the attach `COMMIT`, which it does right after turning its D+ pull-up on; `mimhid_device_wait_ready` waits for the target to mount the device.
 - **Synchronization:** Device domain.
-- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, or Nodes sharing an interface that do not follow the rules of `mimhid_usb_interface`; `MIMHID_ERR_UNSET_FIELD` for a required field or timeout left zero; `MIMHID_ERR_OVERFLOW` when the board has no room for the Node, its interface or its descriptor, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimhid_device_commit`.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, Nodes sharing an interface that do not follow the rules of `mimhid_usb_interface`, or interface numbers that leave a gap (`mimhid_error_detail.offset` is the missing number; nothing is sent); `MIMHID_ERR_UNSET_FIELD` for a required field or timeout left zero; `MIMHID_ERR_OVERFLOW` when the board has no room for the Node, its interface or its descriptor, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimhid_device_commit`.
 
 #### `mimhid_node_open_raw`
 
@@ -641,7 +649,7 @@ mimhid_result mimhid_node_close(mimhid_node* node, const mimhid_commit_timeouts*
 ```
 
 - **Ownership:** Follows the "Closing" rule.
-- **Blocking:** Finishes a touch frame that has started and sends the neutral report (keys and buttons up, contacts lifted, axes at rest) within drain_timeout_ms, then commits the remaining Nodes as `mimhid_node_open` does; closing the last Node takes the USB device off the target. Inside a batch it only stages the removal. A failed step does not stop the next one; after a failed commit the target may still see the Node until a commit succeeds (`mimhid_device_commit`).
+- **Blocking:** Finishes a touch frame that has started and sends the neutral report (keys and buttons up, contacts lifted, axes at rest) within drain_timeout_ms, then commits the remaining Nodes as `mimhid_node_open` does; closing the last Node takes the USB device off the target. Inside a batch it only stages the removal. A failed step does not stop the next one; after a failed commit the target may still see the Node until a commit succeeds (`mimhid_device_commit`). Closing a Node whose interface number is not the highest in use would leave a gap in the numbers: the Node is gone, the commit fails with `MIMHID_ERR_PARAM`, and a later commit succeeds once the gap is closed (close the highest number first, or in a batch).
 - **Synchronization:** Device domain; not from the event sink.
 - **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for a null or closed Node, a closing Device, or a wrong timeouts struct_size; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; otherwise the first error on the way out.
 

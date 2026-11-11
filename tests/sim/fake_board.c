@@ -403,7 +403,11 @@ const uint8_t* fake_board_report_descriptor(uint8_t iface, uint16_t* length) {
 const uint8_t* fake_board_device_descriptor(void) { return tud_descriptor_device_cb(); }
 
 size_t fake_board_string(uint8_t index, char* out, size_t capacity) {
-    const uint16_t* s = tud_descriptor_string_cb(index, 0x0409);
+    // The strings are served for the language they were given in: the one string 0 lists.
+    const uint16_t* languages = tud_descriptor_string_cb(0, 0);
+    if (languages == NULL)
+        return 0;
+    const uint16_t* s = tud_descriptor_string_cb(index, languages[1]);
     if (s == NULL)
         return 0;
     const size_t units = ((s[0] & 0xFF) - 2) / 2;

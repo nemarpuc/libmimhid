@@ -55,9 +55,10 @@ static inline void example_fill_commit_timeouts(mimhid_commit_timeouts* timeouts
     timeouts->reconnect_timeout_ms = EXAMPLE_RECONNECT_TIMEOUT_MS;
 }
 
-/* A HID interface (HID 1.11, no boot protocol) labelled interface_number, polled every 1 ms
- * through IN endpoint 0x81 + interface_number with 64-byte packets, and no OUT endpoint. Two Nodes
- * with the same number share an interface: give each Node its own unless you mean that. */
+/* A HID interface (HID 1.11, no boot protocol) with bInterfaceNumber interface_number, polled every
+ * 1 ms through IN endpoint 0x81 + interface_number with 64-byte packets, and no OUT endpoint. The
+ * numbers in use must be 0, 1, 2, ... without a gap (open them in that order, or in one batch). Two
+ * Nodes with the same number share an interface: give each Node its own unless you mean that. */
 static inline void example_fill_node_config(mimhid_node_config* config, uint8_t interface_number) {
     mimhid_node_config_init(config);
     config->iface.number = interface_number;

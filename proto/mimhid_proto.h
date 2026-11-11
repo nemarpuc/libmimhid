@@ -22,8 +22,8 @@
  * is; it does not talk to it. Change the frame format or a layout, and the minor number goes up.
  *
  * Command frames (0x01..0x3F) start their payload with a one-byte sequence number that the
- * board echoes in its ACK or NAK. Report frames (0x40..0x4F) carry the report exactly as the
- * target receives it, Report ID included, and are not acknowledged.
+ * board echoes in its ACK or NAK. Endpoint data frames (0x41..0x4F) carry the transfer exactly
+ * as the target receives it, Report ID included for HID, and are not acknowledged.
  */
 
 #define MIMHID_SYNC 0xA5
@@ -41,14 +41,17 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 }
 
 /* Host to board. */
-#define MIMHID_T_PING 0x01          /* no payload, no sequence number */
-#define MIMHID_T_DEVICE_CONFIG 0x10 /* starts a new staged configuration, clearing all nodes */
-#define MIMHID_T_NODE_BEGIN 0x11
-#define MIMHID_T_NODE_DATA 0x12
+#define MIMHID_T_PING 0x01 /* no payload, no sequence number */
+#define MIMHID_T_DESC_RESET                                                                        \
+    0x10 /* no payload after the sequence number: starts a new staged configuration, forgetting    \
+            every staged descriptor, string, Feature answer and endpoint setting */
+#define MIMHID_T_DESC_BEGIN 0x11 /* announces one descriptor (see below) */
+#define MIMHID_T_DESC_DATA 0x12  /* a chunk of the announced descriptor (see below) */
 #define MIMHID_T_COMMIT                                                                            \
     0x13                      /* apply: disconnect, rebuild descriptors, reconnect, then ACK;      \
                                   payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian] */
-#define MIMHID_T_FEATURE 0x14 /* data returned for GET_REPORT of a feature report */
+#define MIMHID_T_FEATURE 0x14 /* data returned for GET_REPORT of a feature report of an interface  \
+                               */
 #define MIMHID_T_RESET 0x15   /* drop every queued report */
 #define MIMHID_T_REMOTE_WAKEUP 0x16
 #define MIMHID_T_SET_BAUD 0x17 /* payload after sequence number: the rate, u32 little endian */
@@ -57,16 +60,19 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_T_CONTROL_REPLY 0x19 /* the answer to a held control transfer */
 #define MIMHID_T_LOSS_CONFIG                                                                       \
     0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
-#define MIMHID_T_QUEUE_DEPTH                                                                       \
-    0x1B /* payload after sequence number: node, reports that may wait (1..) */
+#define MIMHID_T_EP_CONFIG                                                                         \
+    0x1B /* payload after sequence number: endpoint address, transfers that may wait (1..), policy \
+          */
 #define MIMHID_T_PROBE                                                                             \
     0x1C /* link test: a frame of a pattern both ends know (see below); no sequence number,        \
             not acknowledged */
 #define MIMHID_T_COUNTERS                                                                          \
     0x1D /* payload after sequence number: flags (bit 0: reset the counters after reading);        \
             the ACK carries the counters (see below) */
-#define MIMHID_T_REPORT_BASE 0x40 /* 0x40 | node id, node id 0..15 */
-#define MIMHID_T_REPORT_LAST 0x4F
+#define MIMHID_T_EP_IN_BASE                                                                        \
+    0x40 /* 0x40 | endpoint number: data for that IN endpoint; 0x40 itself                         \
+            (endpoint 0) is refused */
+#define MIMHID_T_EP_IN_LAST 0x4F
 
 /* Board to host. */
 #define MIMHID_T_PONG 0x81
@@ -85,9 +91,9 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_EV_OUTPUT_REPORT 8 /* data: interface, length, bytes... */
 #define MIMHID_EV_CONTROL_SETUP 9 /* data: token, flags, the 8 setup bytes */
 #define MIMHID_EV_CONTROL_DATA 10 /* data: token, the data stage of a host-to-device transfer */
-#define MIMHID_EV_REPORT_LOST                                                                      \
-    11 /* data: interface, count (u16 LE): reports dropped, queue full; only after LOSS_CONFIG     \
-          enabled it */
+#define MIMHID_EV_TRANSFER_LOST                                                                    \
+    11 /* data: endpoint address, count (u16 LE): transfers dropped, queue full; only after        \
+          LOSS_CONFIG enabled it */
 
 /* NAK codes. */
 #define MIMHID_NAK_PARAM 1
@@ -97,20 +103,22 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_NAK_UNSUPPORTED 5
 #define MIMHID_NAK_BUSY 6
 
-/* Limits that are part of the wire format. A report frame names its node in the low four bits of
- * its type (MIMHID_T_REPORT_BASE | id), so 16 nodes are addressable. */
-#define MIMHID_MAX_NODES 16
+/* Limits that are part of the wire format. An endpoint data frame names its IN endpoint in the low
+ * four bits of its type (MIMHID_T_EP_IN_BASE | endpoint number), so endpoints 1 to 15 are
+ * addressable. */
 /* The largest payload a frame may carry on any board. A board's own limit is in its PONG, and
- * is never below MIMHID_MIN_FRAME_PAYLOAD (a NODE_DATA chunk fits); the firmware also refuses to
+ * is never below MIMHID_MIN_FRAME_PAYLOAD (a DESC_DATA chunk fits); the firmware also refuses to
  * build with a limit below its longest configuration command (config.h). */
 #define MIMHID_PROTO_MAX_PAYLOAD 4096
 #define MIMHID_MIN_FRAME_PAYLOAD 255
-#define MIMHID_NODE_DATA_CHUNK 240
+#define MIMHID_DESC_DATA_CHUNK 240
 /* The largest USB string descriptor payload: USB 2.0 Spec section 9.6.7 defines bLength as 1 byte
  * (<= 255). A string descriptor has a 2-byte header (bLength, bDescriptorType) followed by UNICODE
  * UTF-16LE characters (2 bytes each). Total length is 2 + 2 * N <= 254 (even), so N <= 126
  * characters. */
 #define MIMHID_STRING_MAX 126
+/* The longest string descriptor as it is on the bus: 2 + 2 * MIMHID_STRING_MAX bytes. */
+#define MIMHID_STRING_DESC_MAX (2 + 2 * MIMHID_STRING_MAX)
 #define MIMHID_CONTROL_RULES 8 /* rules a board holds at once */
 #define MIMHID_CONTROL_RULE_LEN 15
 
@@ -200,7 +208,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  */
 #define MIMHID_COUNTER_COUNT 5
 #define MIMHID_COUNTERS_F_RESET 0x01
-#define MIMHID_PROBE_BYTE(i) ((uint8_t)((i)*7u + 3u))
+#define MIMHID_PROBE_BYTE(i) ((uint8_t)((i) * 7u + 3u))
 
 /* Chips, as the PONG names them. */
 #define MIMHID_CHIP_UNKNOWN 0
@@ -213,7 +221,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 /*
  * PONG payload (all single bytes unless noted; every wider value is little endian):
  *   0 fw_major  1 fw_minor  2 fw_patch  3 ready
- *   4 max_nodes  5 max_interfaces  6 flags (bit 0: has chip unique id)
+ *   4 reserved, zero  5 max_interfaces  6 flags (bit 0: has chip unique id)
  *   7 chip  8 usb speed (0 full, 1 high)
  *   9..12 baud the board is on (u32)  13..16 max_baud, the fastest rate its UART can make (u32)
  *   17..20 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
@@ -232,32 +240,69 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
 
 /*
- * DEVICE_CONFIG payload after the sequence number:
- *   0..1 vendor_id  2..3 product_id  4..5 bcd_device  6 device_class  7 device_subclass
- *   8 device_protocol  9..10 language_id  11..12 bcd_usb  13 ep0_max_packet_size
- *   14 configuration_value  15 bm_attributes  16 bmax_power (2 mA units)
- *   17 flags (bit 0: serial from chip id)
- *   18.. four strings, each: a count of UTF-16 code units (at most MIMHID_STRING_MAX), then that
- *        many units, little endian (USB 2.0 9.6.7); a zero unit is refused
- *        (manufacturer, product, serial, configuration)
- */
-#define MIMHID_DEVFLAG_SERIAL_FROM_ID 0x01
-
-/*
- * NODE_BEGIN payload after the sequence number:
- *   0 node id  1 interface index  2..3 report descriptor length  4 interface_class
- *   5 interface_subclass  6 interface_protocol  7..8 bcd_hid  9 country code
- *   10 ep_in_addr  11..12 ep_in_size  13 poll_interval_ms  14 ep_out_addr
- *   15..16 ep_out_size  17 poll_interval_out_ms  18 idle rate  19 flags (reserved, zero)
- *   20 interface string: a count of UTF-16 code units, then the units (little endian)
- * NODE_DATA payload after the sequence number:
- *   0 node id  1..2 offset  3.. descriptor bytes
+ * The USB descriptors travel as the bytes the target reads. The host composes them; the board
+ * checks them at COMMIT and serves them without looking inside beyond what its USB stack needs.
+ *
+ * DESC_BEGIN payload after the sequence number:
+ *   0 kind  1 index  2..3 language id (u16 LE)  4..5 total length (u16 LE)  6 flags
+ * DESC_DATA payload after the sequence number:
+ *   0 kind  1 index  2..3 language id  4..5 offset (u16 LE)  6.. bytes, at most
+ *   MIMHID_DESC_DATA_CHUNK of them
+ *
+ *   kind                      index           language  bytes
+ *   MIMHID_DESC_DEVICE        0               0         the 18-byte device descriptor
+ *   MIMHID_DESC_CONFIGURATION 0               0         the whole configuration descriptor,
+ *                                                       wTotalLength bytes
+ *   MIMHID_DESC_STRING        1..255          LANGID    the string descriptor as on the bus:
+ *                                                       bLength, 0x03, UTF-16LE (USB 2.0 9.6.7)
+ *   MIMHID_DESC_HID_REPORT    interface no.   0         the report descriptor of that HID interface
+ *
+ * String index 0 (the language list) is never sent: the board answers it with the language ids
+ * of the strings it holds. With MIMHID_DESC_F_SERIAL_FROM_ID on a string, the total length is 0 and
+ * the board makes the string from its chip id (the characters are the hexadecimal digits of the
+ * id). All other flag bits are zero.
+ *
+ * MIMHID_DESC_HID_REPORT exists only while TinyUSB's HID driver serves the report descriptors
+ * (tud_hid_descriptor_report_cb); it goes when HID moves to the board's own driver.
+ *
+ * A DESC_BEGIN repeated with the same kind, index, language, total length and flags is
+ * acknowledged again, and so is a DESC_DATA repeated with the same offset and bytes, since the
+ * host sends a frame again when it did not see the answer. A chunk may start only at or before the
+ * end of the bytes received so far.
+ *
+ * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR, the previous
+ * configuration kept) unless it holds together: every descriptor complete, every bLength inside
+ * the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only, every
+ * interface a HID interface with one interrupt IN endpoint and at most one interrupt OUT
+ * endpoint, endpoint numbers the controller has and no address twice, packet sizes the board
+ * takes, and a report descriptor for every interface of the length its HID descriptor says
+ * (docs/PROTOCOL.md has the whole list).
+ *
  * FEATURE payload after the sequence number:
- *   0 node id  1 report id  2.. bytes (without the report id), at most max_feature_bytes
+ *   0 interface number  1 report id  2.. bytes (without the report id), at most max_feature_bytes
+ * EP_CONFIG payload after the sequence number:
+ *   0 endpoint address  1 depth  2 policy
+ *   The address is that of an IN endpoint of the staged configuration. The depth is how many
+ *   transfers may wait on the board (1 up to what its queue holds); policy says what happens
+ *   when that many wait. In this release the board takes MIMHID_EP_FULL_DROP_NEWEST only: a
+ *   transfer that finds the queue full is dropped. The other two are defined and answered NAK
+ *   UNSUPPORTED.
+ *
  * EVENT payload: kind, then
  *   OUTPUT_REPORT  interface, length (two bytes), the report
  *   SET_REPORT     interface, report type, report id, the bytes the target sent (cut to what
  *                  the board holds)
+ *   TRANSFER_LOST  endpoint address, count (two bytes)
+ * (The interface of an event is the bInterfaceNumber of the staged configuration.)
  */
+#define MIMHID_DESC_DEVICE 1
+#define MIMHID_DESC_CONFIGURATION 2
+#define MIMHID_DESC_STRING 3
+#define MIMHID_DESC_HID_REPORT 4
+#define MIMHID_DESC_F_SERIAL_FROM_ID 0x01
+
+#define MIMHID_EP_FULL_DROP_NEWEST 1
+#define MIMHID_EP_FULL_DROP_OLDEST 2
+#define MIMHID_EP_FULL_WAIT 3
 
 #endif /* MIMHID_PROTO_H */

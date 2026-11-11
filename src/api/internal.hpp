@@ -259,9 +259,10 @@ struct mimhid_device {
     std::string serial;
     std::string configuration;
 
-    // Nodes by board node id. Event delivery reads this from the reader thread.
+    // Nodes by node id (the index). A closed Node leaves a null entry that the next Node takes.
+    // Event delivery reads this from the reader thread.
     std::mutex nodes_mutex;
-    std::array<struct mimhid_node*, MIMHID_MAX_NODES> slots{};
+    std::vector<struct mimhid_node*> slots;
 
     bool batch_open{false};
     bool configured{false};                  // the board holds a committed configuration
@@ -279,8 +280,8 @@ struct mimhid_node {
     mimhid::detail::NodeState state;
     mimhid_node_config config{};
     std::string interface_string;
-    std::uint8_t node_id{};
-    std::uint8_t iface{};
+    std::uint16_t node_id{};
+    std::uint8_t iface{}; // iface.number: the bInterfaceNumber the Node has on the bus
     struct FeatureEntry {
         std::uint8_t report_id{};
         std::vector<std::uint8_t> data;

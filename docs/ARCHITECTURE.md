@@ -40,11 +40,12 @@ The host builds every report. The firmware does not know what a keyboard or a to
 ## Host
 
 - `Spec` is immutable and reference counted; `Node` holds the mutable state (pressed keys, contact slots, pending motion) and the USB interface settings.
-- `mimhid_node_open` and `mimhid_node_open_raw` put nodes onto explicit interface numbers (`iface.number` in `mimhid_node_config`).
+- `mimhid_node_open` and `mimhid_node_open_raw` put nodes onto explicit interface numbers (`iface.number` in `mimhid_node_config`), which are the `bInterfaceNumber` the target sees: a commit needs the numbers in use to be 0, 1, 2, ... without a gap.
+- `src/usb/descriptor_composer.cpp` composes the device, configuration, string and report descriptors from the Device options and the open Nodes. It is pure (no I/O) and is tested byte for byte.
 - Applying a configuration (`mimhid_node_open`, `mimhid_node_open_raw`, `mimhid_node_close`, `mimhid_device_batch_end`, `mimhid_device_commit`, `mimhid_device_set_usb_identity`, and `mimhid_device_connect` on a Device that has not been configured) runs `commit_device` (`src/api/device_ops.cpp`):
-  - When nodes are left, the host sends `DEVICE_CONFIG`, every live node's `NODE_BEGIN` and `NODE_DATA`, its registered `FEATURE` answers, and `QUEUE_DEPTH` when one was set. Each frame waits up to `control_timeout_ms` and is sent up to three times.
+  - When nodes are left, the host composes the descriptors and sends `DESC_RESET`, the device, configuration, string and report descriptors (`DESC_BEGIN` and `DESC_DATA`), the registered `FEATURE` answers, and `EP_CONFIG` when a queue depth was set. Each frame waits up to `control_timeout_ms` and is sent up to three times.
   - If the board is already on the target's bus, the host sends a detach `COMMIT` (`Link::disconnect`, payload `{1, 0, 0}`) and then waits `reconnect_delay_ms` (the argument of `mimhid_device_commit`; the other calls pass 0) on the host.
-  - The host sends an attach `COMMIT` (`Link::connect`, payload `{0, 0, 0}`) and waits up to `reconnect_timeout_ms` for its `ACK`, which the board sends right after building the descriptors and calling `tud_connect()`. The call returns then; `mimhid_device_wait_ready` waits for `EVENT MOUNTED`. While a commit runs, input calls return `MIMHID_ERR_BUSY`.
+  - The host sends an attach `COMMIT` (`Link::connect`, payload `{0, 0, 0}`) and waits up to `reconnect_timeout_ms` for its `ACK`, which the board sends right after walking and applying the staged configuration and calling `tud_connect()`. The call returns then; `mimhid_device_wait_ready` waits for `EVENT MOUNTED`. While a commit runs, input calls return `MIMHID_ERR_BUSY`.
   - When no node is left, the host sends only a detach `COMMIT`.
 - `mimhid_device_connect` and `mimhid_device_disconnect` turn the board's D+ pull-up on and off.
 - A reader thread parses frames from the board, completes the pending command, tracks the mounted state, and delivers events to `event_sink`.
@@ -59,8 +60,8 @@ Each node names its USB interface with `iface.number` in `mimhid_node_config`; n
 
 `firmware/common/core.c` has two halves that a port runs in one loop (`mimhid_run`) or on two cores:
 
-- **Receive side** (`mimhid_rx_poll`): reads bytes through `hal_uart_read` into a ring (`g_rx`; `RX_SIZE` is 1024, 4096 or 8192 bytes, chosen by `MIMHID_MAX_FRAME_PAYLOAD`), parses frames, and handles reports and some commands. A report goes to its interface's single-producer single-consumer queue of `MIMHID_QUEUE_DEPTH` slots (16, or 8 when a report may be longer than 64 bytes), which holds one report fewer than its slots: 15 or 7. A full queue drops the new report. `mimhid_node_set_queue_depth` makes the bound smaller. `PING`, `SET_BAUD`, `PROBE`, `COUNTERS`, and `CONTROL_REPLY` are handled here; every other command goes into a mailbox for the USB side (`g_cmd`, `cmd_push`: a ring of four slots that holds three commands).
-- **USB side** (`mimhid_usb_poll`, after `tud_task`): runs the mailbox commands (`run_command`), staging included: `DEVICE_CONFIG`, `NODE_BEGIN`, and `NODE_DATA` fill the staged configuration (`g_staged`), an attach `COMMIT` builds the descriptors from it (`mimhid_apply_config`), clears the queues, and calls `tud_connect()`, and a detach `COMMIT` calls `tud_disconnect()` and clears the active configuration. It also serves the interface queues in turn, one report per ready endpoint.
+- **Receive side** (`mimhid_rx_poll`): reads bytes through `hal_uart_read` into a ring (`g_rx`; `RX_SIZE` is 1024, 4096 or 8192 bytes, chosen by `MIMHID_MAX_FRAME_PAYLOAD`), parses frames, and handles reports and some commands. An `EP_IN` frame goes to the single-producer single-consumer queue of the interface that has its IN endpoint of `MIMHID_QUEUE_DEPTH` slots (16, or 8 when a report may be longer than 64 bytes), which holds one report fewer than its slots: 15 or 7. A full queue drops the new report. `mimhid_node_set_queue_depth` makes the bound smaller. `PING`, `SET_BAUD`, `PROBE`, `COUNTERS`, and `CONTROL_REPLY` are handled here; every other command goes into a mailbox for the USB side (`g_cmd`, `cmd_push`: a ring of four slots that holds three commands).
+- **USB side** (`mimhid_usb_poll`, after `tud_task`): runs the mailbox commands (`run_command`), staging included: `DESC_RESET`, `DESC_BEGIN`, and `DESC_DATA` fill the staged configuration (`g_staged`: the descriptors as bytes), an attach `COMMIT` walks it and makes it the active one (`mimhid_apply_config`, which refuses what does not hold together: see [PROTOCOL.md](PROTOCOL.md#the-commit-walk)), clears the queues, and calls `tud_connect()`, and a detach `COMMIT` calls `tud_disconnect()` and clears the active configuration. It also serves the interface queues in turn, one report per ready endpoint.
 
 `firmware/common/control.c` and `firmware/common/ep0.c` sit between the USB controller driver and TinyUSB. `control.c` wraps `dcd_event_handler` (`-Wl,--wrap=dcd_event_handler`) to see the 8-byte setup packet of every control transfer, reports it to the host when asked, and holds a request that matches a rule until the host replies or the rule's timeout runs out (see [PROTOCOL.md](PROTOCOL.md#control-transfers)). `ep0.c` wraps `dcd_edpt_xfer` and `dcd_edpt_stall` so that with a `usb_device.ep0_max_packet_size` of 8, 16, or 32 bytes, transfers on endpoint 0 are split into packets of that size instead of TinyUSB's compile-time `CFG_TUD_ENDPOINT0_SIZE` (64).
 
@@ -76,7 +77,7 @@ sequenceDiagram
     participant Board as MCU Board (Firmware)
     participant Target as Target USB Host
 
-    Host->>Board: DEVICE_CONFIG, NODE_BEGIN, NODE_DATA, [FEATURE], [QUEUE_DEPTH]
+    Host->>Board: DESC_RESET, DESC_BEGIN, DESC_DATA, [FEATURE], [EP_CONFIG]
     Board-->>Host: ACK (each frame)
     opt Already on the target's bus
         Host->>Board: COMMIT (detach = 1)
@@ -114,7 +115,7 @@ Each decision states what the code does. A reason is given only where the reposi
 
 ### Descriptors and USB identity come from the host
 
-- **Decision:** The host builds every HID report descriptor and sends it, with the USB identity, strings, interfaces, and endpoints, over the serial link (`DEVICE_CONFIG`, `NODE_BEGIN`, `NODE_DATA`, `COMMIT`). The firmware holds no HID profile.
+- **Decision:** The host composes every USB descriptor (device, configuration, strings, and every HID report descriptor) and sends the bytes over the serial link (`DESC_RESET`, `DESC_BEGIN`, `DESC_DATA`, `COMMIT`); data frames name endpoints. The firmware holds no HID profile and builds no descriptor; it checks the configuration once at `COMMIT` (what its USB stack and controller can run) and serves the bytes unchanged. Until a later release moves HID off TinyUSB's HID driver, the configuration may hold HID interfaces only.
 - **Reason:** Not recorded beyond the README's statement of the result: "One firmware image per MCU serves any USB identity, interface layout, and report descriptor sent at runtime."
 - **Rejected:** Not recorded.
 

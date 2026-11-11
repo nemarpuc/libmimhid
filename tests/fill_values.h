@@ -42,7 +42,7 @@ static inline void test_fill_commit_timeouts(mimhid_commit_timeouts* timeouts) {
     timeouts->reconnect_timeout_ms = 3000U;
 }
 
-/* A HID interface labelled interface_number, polled every 1 ms through IN endpoint
+/* A HID interface with bInterfaceNumber interface_number, polled every 1 ms through IN endpoint
  * 0x81 + interface_number with 64-byte packets, and no OUT endpoint. */
 static inline void test_fill_node_config(mimhid_node_config* config, uint8_t interface_number) {
     mimhid_node_config_init(config);

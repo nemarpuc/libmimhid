@@ -17,7 +17,6 @@ struct BoardInfo {
     bool ready{};
     bool compatible{}; // firmware major.minor equal to the library's; false: only version and ready
                        // are set
-    std::uint8_t max_nodes{};
     std::uint8_t max_interfaces{};
     std::uint16_t max_report_bytes{};
     std::uint16_t max_descriptor_bytes{};

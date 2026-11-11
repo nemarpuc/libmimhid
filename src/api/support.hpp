@@ -100,6 +100,19 @@ mimhid_result command_error(const tr::CommandResult& result, const char* field, 
 
 std::vector<mimhid_node*> live_nodes(mimhid_device* device);
 
+// The most Nodes a Device holds: the node id plus one is the public id, and it is 16 bits.
+constexpr std::size_t kMaximumNodes = 65534U;
+
+// The lowest free node id, or false when the Device holds kMaximumNodes Nodes.
+bool free_node_id(mimhid_device* device, std::uint16_t* node_id);
+// Puts a Node in its slot (growing the table) and takes it out again.
+void publish_node(mimhid_device* device, mimhid_node* node);
+void unpublish_node(mimhid_device* device, const mimhid_node* node);
+
+// The depth the board's queue of the Node's interface gets: the least depth any live Node on the
+// interface asked for (they share the endpoint), 0 when none asked.
+std::uint8_t interface_queue_depth(mimhid_device* device, std::uint8_t iface);
+
 // A wait the caller passed to a call has no default: zero is refused.
 mimhid_result require_timeout(std::uint32_t timeout_ms, const char* field) noexcept;
 

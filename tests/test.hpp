@@ -26,6 +26,7 @@ void test_validator_parser_state();
 void test_validator_arithmetic();
 void test_validator_encoding();
 void test_frame();
+void test_descriptor_composer();
 void test_profiles_common();
 void test_profiles_keyboard();
 void test_profiles_mouse();

@@ -34,6 +34,7 @@ int main() {
     test_touch_feature();
     test_batch_and_packing();
     test_limits();
+    test_interface_numbers();
     test_events_and_raw();
     test_chip_serial_and_boot();
     test_keep_attached_and_discovery();

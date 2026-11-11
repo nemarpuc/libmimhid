@@ -51,7 +51,7 @@ using Policy = std::function<std::optional<Reply>(const Received&)>;
 struct Pong {
     std::uint8_t version[3]{MIMHID_VERSION_MAJOR, MIMHID_VERSION_MINOR, MIMHID_VERSION_PATCH};
     std::uint8_t ready{1};
-    std::uint8_t max_nodes{8};
+    std::uint8_t reserved{0}; // byte 4 of the PONG: reserved, zero
     std::uint8_t max_interfaces{7};
     std::uint8_t flags{0x01}; // MIMHID_PONG_FLAG_UNIQUE_ID
     std::uint8_t chip{0};

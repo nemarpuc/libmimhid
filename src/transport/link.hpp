@@ -77,8 +77,8 @@ class Link final {
                                 std::int32_t* os_error);
 
     // Sends a report frame for a node; it is not acknowledged.
-    IoStatus send_report(std::uint8_t node, const std::uint8_t* report, std::size_t length,
-                         std::uint32_t stall_ms, std::int32_t* os_error);
+    IoStatus send_report(std::uint8_t endpoint_address, const std::uint8_t* report,
+                         std::size_t length, std::uint32_t stall_ms, std::int32_t* os_error);
 
     [[nodiscard]] bool ready() const noexcept { return ready_.load(std::memory_order_acquire); }
     void clear_ready() noexcept { ready_.store(false, std::memory_order_release); }
