@@ -1592,19 +1592,36 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_write(mimhid_device*
                                                                   size_t length,
                                                                   uint32_t timeout_ms);
 
-/* mimhid_device_endpoint_stall, mimhid_device_endpoint_clear_stall, mimhid_device_endpoint_flush
+/* mimhid_device_endpoint_stall
  * Ownership: Nothing.
  * Blocking: A command to the board, waiting up to control_timeout_ms.
  * Synchronization: Device domain.
- * As mimhid_node_endpoint_stall, _clear_stall and _flush for an endpoint of a Device given as
- * bytes (flush: an IN endpoint).
- * Returns: As the Node calls, with the address checked against the descriptors; MIMHID_ERR_PARAM
- * when none are set. */
+ * As mimhid_node_endpoint_stall for an endpoint of a Device given as bytes.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or an address that is not an endpoint
+ * of the descriptors (none set included); MIMHID_ERR_UNSET_FIELD for a zero timeout;
+ * MIMHID_ERR_BUSY when the board does not run the configuration; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_stall(mimhid_device* device,
                                                                   uint8_t address,
                                                                   uint32_t control_timeout_ms);
+
+/* mimhid_device_endpoint_clear_stall
+ * Ownership: Nothing.
+ * Blocking: A command to the board, waiting up to control_timeout_ms.
+ * Synchronization: Device domain.
+ * As mimhid_node_endpoint_clear_stall for an endpoint of a Device given as bytes.
+ * Returns: MIMHID_OK; the errors of mimhid_device_endpoint_stall: MIMHID_ERR_PARAM,
+ * MIMHID_ERR_UNSET_FIELD, MIMHID_ERR_BUSY or a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_clear_stall(
     mimhid_device* device, uint8_t address, uint32_t control_timeout_ms);
+
+/* mimhid_device_endpoint_flush
+ * Ownership: Nothing.
+ * Blocking: A command to the board, waiting up to control_timeout_ms.
+ * Synchronization: Device domain.
+ * As mimhid_node_endpoint_flush for an IN endpoint of a Device given as bytes.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or an address that is not an IN
+ * endpoint of the descriptors (none set included); MIMHID_ERR_UNSET_FIELD for a zero timeout;
+ * MIMHID_ERR_BUSY when the board does not run the configuration; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_flush(mimhid_device* device,
                                                                   uint8_t address,
                                                                   uint32_t control_timeout_ms);
