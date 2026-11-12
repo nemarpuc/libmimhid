@@ -877,8 +877,8 @@ mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(const uint8_t interface_num
 }
 MIMUSB_C_RESULT_CATCH("hid_descriptor_rule")
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const uint16_t bcd_cdc, const uint8_t control_interface,
     const uint8_t call_management_capabilities, const uint8_t acm_capabilities,
     mimusb_cdc_acm_descriptors* out) try {
