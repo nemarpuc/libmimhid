@@ -84,6 +84,11 @@ mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const Composer
                       "transfer_type is required: MIMHID_TRANSFER_BULK or "
                       "MIMHID_TRANSFER_INTERRUPT.",
                       ep.address, 0, node_id);
+    if (ep.transfer_type == MIMHID_TRANSFER_ISOCHRONOUS)
+        return refuse(MIMHID_ERR_UNSUPPORTED, "node_config.interfaces.endpoints.transfer_type",
+                      "A Node has no isochronous endpoints: they come with alternate settings, "
+                      "which only a Device given as bytes (mimhid_device_set_descriptors) has.",
+                      ep.address, ep.transfer_type, node_id);
     if (ep.transfer_type > 3U)
         return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.transfer_type",
                       "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.", ep.address,

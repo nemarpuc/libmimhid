@@ -34,6 +34,28 @@
 #ifndef MIMHID_MAX_ENDPOINT_BYTES
 #error MIMHID_MAX_ENDPOINT_BYTES must be defined by the build of the port (see core.h)
 #endif
+// Two more that a port may state, and that default to nothing:
+//
+//   MIMHID_ISO_BYTES            the largest isochronous packet the port takes: 1023 at full speed,
+//                               1024 at high speed (USB 2.0 5.6.3, 9.6.6). 0 or not stated: the
+//                               port has no isochronous endpoints (the PONG says so).
+//                               A port states it only when the TinyUSB device driver it runs has
+//                               dcd_edpt_iso_alloc and dcd_edpt_iso_activate (TUP_DCD_EDPT_ISO_ALLOC);
+//                               the RP2040 and RP2350 do (src/portable/raspberrypi/rp2040/dcd_rp2040.c).
+//   MIMHID_EP_BUFFER_BYTES      the packet memory the controller shares between its endpoints, when it
+//                               must be told how much of it a configuration needs (the RP2040's
+//                               DPRAM: 3712 bytes, of which its driver asserts that one is left, and
+//                               it takes 64-byte units: a bulk endpoint double buffered, an
+//                               interrupt or isochronous one single). 0 or not stated: not checked.
+#ifndef MIMHID_ISO_BYTES
+#define MIMHID_ISO_BYTES 0
+#endif
+#ifndef MIMHID_EP_BUFFER_BYTES
+#define MIMHID_EP_BUFFER_BYTES 0
+#endif
+#if MIMHID_ISO_BYTES != 0 && (MIMHID_ISO_BYTES < 64 || MIMHID_ISO_BYTES > 1024)
+#error MIMHID_ISO_BYTES is 0 (none) or 64 to 1024
+#endif
 #if MIMHID_MAX_ENDPOINT_NUMBER < 1 || MIMHID_MAX_ENDPOINT_NUMBER > 15
 #error MIMHID_MAX_ENDPOINT_NUMBER is 1 to 15
 #endif

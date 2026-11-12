@@ -175,6 +175,8 @@ static struct {
     bool opened, busy, stalled;
     uint8_t* buffer;
     uint16_t length;
+    uint16_t iso_buffer; // bytes usbd_edpt_iso_alloc gave: 0 for an endpoint that has none
+    uint16_t packet;     // wMaxPacketSize of the descriptor the endpoint was opened or activated with
 } g_ep[2][16]; // [0] OUT, [1] IN
 #define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr)&0x0F]
 
@@ -183,7 +185,38 @@ bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
     if (EPSTATE(desc->bEndpointAddress).opened)
         return false;
     EPSTATE(desc->bEndpointAddress).opened = true;
+    EPSTATE(desc->bEndpointAddress).packet = tu_edpt_packet_size(desc);
     return true;
+}
+// The isochronous calls of the stack (usbd_edpt_iso_alloc and usbd_edpt_iso_activate in
+// src/device/usbd.c, with the RP2040 controller driver under them): the buffer is given once, for
+// the largest packet, and activating an endpoint again starts it over (the stack clears its busy
+// and stalled flags). usbd_edpt_close does nothing on such a controller.
+bool usbd_edpt_iso_alloc(uint8_t rhport, uint8_t ep_addr, uint16_t largest_packet_size) {
+    (void)rhport;
+    if (EPSTATE(ep_addr).iso_buffer != 0 || largest_packet_size == 0)
+        return false;
+    EPSTATE(ep_addr).iso_buffer = largest_packet_size;
+    return true;
+}
+bool usbd_edpt_iso_activate(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
+    (void)rhport;
+    const uint16_t size = tu_edpt_packet_size(desc);
+    if (EPSTATE(desc->bEndpointAddress).iso_buffer == 0 ||
+        size > EPSTATE(desc->bEndpointAddress).iso_buffer)
+        return false;
+    EPSTATE(desc->bEndpointAddress).opened = true;
+    EPSTATE(desc->bEndpointAddress).busy = false;
+    EPSTATE(desc->bEndpointAddress).stalled = false;
+    EPSTATE(desc->bEndpointAddress).packet = size;
+    return true;
+}
+// Stalls of endpoint 0, which the stack's own failure path makes with this call.
+static bool g_ep0_stalled;
+void dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    if ((ep_addr & 0x0F) == 0)
+        g_ep0_stalled = true;
 }
 bool usbd_edpt_busy(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
@@ -433,6 +466,34 @@ static void run_actions(void) {
                 memcpy(g_out_pending[g_out_head % 64].data, act.data, act.length);
                 g_out_head++;
             }
+            break;
+        }
+        case 9: { // the target's SET_INTERFACE (a = interface, b = setting) or, with c = 1, GET_INTERFACE
+            tusb_control_request_t r;
+            memset(&r, 0, sizeof(r));
+            r.bmRequestType = act.c ? 0x81 : 0x01; // standard, to an interface
+            r.bRequest = act.c ? TUSB_REQ_GET_INTERFACE : TUSB_REQ_SET_INTERFACE;
+            r.wValue = act.b;
+            r.wIndex = act.a;
+            r.wLength = act.c ? 1 : 0;
+            memset(&g_xfer, 0, sizeof(g_xfer));
+            g_ep0_stalled = false;
+            const bool taken = generic_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r);
+            fake_control_result_t res;
+            memset(&res, 0, sizeof(res));
+            memcpy(res.setup, &r, 8);
+            if (g_ep0_stalled) {
+                res.outcome = FAKE_CONTROL_STALLED;
+            } else if (!taken) {
+                res.outcome = FAKE_CONTROL_LEFT;
+            } else if (g_xfer.kind == 1) {
+                res.outcome = FAKE_CONTROL_ANSWERED;
+                res.length = g_xfer.length;
+                memcpy(res.data, g_xfer.buffer, g_xfer.length);
+            } else {
+                res.outcome = FAKE_CONTROL_ACKED;
+            }
+            control_result(&res);
             break;
         }
         case 8: { // the target sets (b = 1) or clears (b = 0) the Halt feature of an endpoint
@@ -751,6 +812,22 @@ void fake_board_target_out(uint8_t address, const uint8_t* data, size_t length) 
     if (a.length)
         memcpy(a.data, data, a.length);
     post(a);
+}
+
+// The target's SET_INTERFACE and GET_INTERFACE; the outcome is read with fake_board_wait_control
+// (ACKED, STALLED for a setting the interface does not have, ANSWERED with the setting).
+void fake_board_target_set_interface(uint8_t interface_number, uint8_t setting) {
+    action_t a = {9, interface_number, setting, 0, {0}, 0};
+    post(a);
+}
+void fake_board_target_get_interface(uint8_t interface_number) {
+    action_t a = {9, interface_number, 0, 1, {0}, 0};
+    post(a);
+}
+// The packet size the controller has the endpoint at (the descriptor it was opened or activated
+// with), or 0 while it is not open.
+unsigned fake_board_endpoint_packet(uint8_t address) {
+    return EPSTATE(address).opened ? EPSTATE(address).packet : 0U;
 }
 
 void fake_board_target_halt(uint8_t address, int set) {

@@ -456,6 +456,7 @@ usb::ComposerLimits composer_limits(const mimhid_device* device) {
     lim.max_bos_bytes = board.max_bos_bytes;
     lim.max_strings = board.max_strings;
     lim.endpoint_queue_slots = board.endpoint_queue_slots;
+    lim.max_transfer_bytes = board.max_transfer_bytes;
     lim.transfer_types = board.transfer_types;
     lim.high_speed = board.usb_high_speed;
     lim.has_unique_id = board.has_unique_id;
@@ -1416,6 +1417,28 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         event.endpoint_address = d[0];
         event.node_id = node_of_endpoint(device, d[0], &event.interface_number);
         break;
+    case MIMHID_EV_SET_INTERFACE: {
+        if (board.length < 2U)
+            return;
+        // The board switched the interface's isochronous endpoints and dropped what waited for
+        // the ones that stopped: the writers that wait on those endpoints start counting again.
+        {
+            std::lock_guard<std::mutex> nodes(device->nodes_mutex);
+            std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+            for (EndpointRuntime& ep : device->bytes.in_endpoints) {
+                const auto found = device->bytes.interface_of.find(ep.address);
+                if (found != device->bytes.interface_of.end() && found->second == d[0]) {
+                    ep.outstanding = 0U;
+                    ++ep.epoch;
+                }
+            }
+        }
+        device->endpoint_cv.notify_all();
+        event.kind = MIMHID_EVENT_INTERFACE_ALTERNATE;
+        event.interface_number = d[0];
+        event.value = d[1];
+        break;
+    }
     default:
         if (board.kind > MIMHID_T_EP_OUT_BASE && board.kind <= MIMHID_T_EP_OUT_LAST) {
             // A packet on an OUT endpoint, as it came (a zero-length one has length 0). On the OUT

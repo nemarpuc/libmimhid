@@ -8,6 +8,11 @@
 #include "device/usbd_pvt.h"
 #include <string.h>
 
+// The controller driver's stall (src/device/dcd.h; not included here, as control.c does not: some
+// TinyUSB versions declare dcd_int_handler twice in it). The stack stalls endpoint 0 with it when a
+// control request fails, and set_interface does the same for a setting that is not there.
+void dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
+
 // ---------------------------------------------------------------------------------------------
 // The pool of IN slots, and the queue of each IN endpoint.
 //
@@ -64,7 +69,7 @@ typedef struct {
 static in_t g_in[16];
 
 typedef struct {
-    _Alignas(4) uint8_t buf[MIMHID_MAX_ENDPOINT_BYTES];
+    _Alignas(4) uint8_t buf[MIMHID_MAX_TRANSFER_BYTES];
     uint16_t packet;
     bool generic; // an OUT endpoint of the generic driver in the active configuration
     bool open;
@@ -72,6 +77,15 @@ typedef struct {
 } out_t;
 
 static out_t g_out[MIMHID_MAX_ENDPOINT_NUMBER + 1];
+
+// What the target selected in the active configuration. Both are the USB side's, and both start
+// again at COMMIT, at a bus reset and at SET_CONFIGURATION.
+// The alternate setting of each interface (GET_INTERFACE answers it).
+static uint8_t g_alt[MIMHID_MAX_INTERFACES];
+// The endpoints the controller has been given in this configuration, bit n of [0] OUT and [1] IN:
+// a bulk or interrupt endpoint is opened once, an isochronous one gets its packet buffer once (the
+// largest of its settings), and every setting that names the address uses what was given.
+static uint16_t g_has[2];
 
 // The generation of the queues: odd while COMMIT cuts the pool again, even otherwise. The receive
 // side reads a queue's geometry and head without a lock, so a frame it began under one generation
@@ -124,6 +138,23 @@ bool mimhid_generic_plan(const mimhid_config_t* cfg, const mimhid_layout_t* layo
         *code = MIMHID_NAK_OVERFLOW;
         return false;
     }
+#if MIMHID_EP_BUFFER_BYTES != 0
+    // The controller's packet memory (core.h): a driver that finds none left stops the board.
+    uint32_t memory = 0;
+    for (uint8_t dir = 0; dir < 2; dir++) {
+        for (uint8_t number = 1; number < 16; number++) {
+            const mimhid_ep_info_t* e = &layout->ep[dir][number];
+            if (e->kind != MIMHID_EP_GENERIC)
+                continue;
+            const uint32_t unit = ((uint32_t)e->packet_size + 63u) & ~63u;
+            memory += e->type == TUSB_XFER_BULK ? 2u * unit : unit;
+        }
+    }
+    if (memory > MIMHID_EP_BUFFER_BYTES) {
+        *code = MIMHID_NAK_OVERFLOW;
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -132,6 +163,8 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
     // the other core cannot see a queue change before it can see the odd generation.
     __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_SEQ_CST);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    memset(g_alt, 0, sizeof(g_alt));
+    g_has[0] = g_has[1] = 0;
     uint16_t next = 0;
     for (uint8_t number = 1; number < 16; number++) {
         in_t* q = &g_in[number];
@@ -445,6 +478,8 @@ static void gen_init(void) {}
 
 static void gen_reset(uint8_t rhport) {
     (void)rhport;
+    memset(g_alt, 0, sizeof(g_alt));
+    g_has[0] = g_has[1] = 0;
     // A bus reset or a new configuration: the controller closes every endpoint and forgets every
     // transfer, so what waited for them is dropped, and the wait counts start again.
     for (uint8_t number = 1; number < 16; number++) {
@@ -463,47 +498,187 @@ static void gen_reset(uint8_t rhport) {
     }
 }
 
+// ---- the endpoints of a configuration, and its alternate settings ----
+//
+// A setting is the interface descriptor with its bAlternateSetting and the endpoint descriptors that
+// follow it. The walk at COMMIT (usb_descriptors.c) made sure a bulk or interrupt endpoint is the
+// same in every setting that names it, so the controller opens it once and it stays open; an
+// isochronous endpoint gets one packet buffer (the largest of its settings) and is activated, with
+// the descriptor of the setting, when that setting is selected and stopped when it is left. What
+// the target does with a setting is all the board does: it adds no data to a stream and removes
+// none that the host program sent.
+
+typedef bool (*ep_visit_t)(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt, void* ctx);
+
+// Calls `visit` for every endpoint descriptor in [p, end), with the number and setting of the
+// interface descriptor it follows; false as soon as one call says so.
+static bool scan_endpoints(const uint8_t* p, const uint8_t* end, ep_visit_t visit, void* ctx) {
+    uint8_t itf = 0xFF;
+    uint8_t alt = 0;
+    for (; p + 2 <= end && p[0] >= 2; p += p[0]) {
+        if (p[1] == TUSB_DESC_INTERFACE) {
+            itf = p[2];
+            alt = p[3];
+        } else if (p[1] == TUSB_DESC_ENDPOINT && itf != 0xFF) {
+            if (!visit((const tusb_desc_endpoint_t*)p, itf, alt, ctx))
+                return false;
+        }
+    }
+    return true;
+}
+
+static bool is_iso(const tusb_desc_endpoint_t* ep) {
+    return ep->bmAttributes.xfer == TUSB_XFER_ISOCHRONOUS;
+}
+
+// An endpoint of the setting that is now selected starts: the controller is given the descriptor
+// of an isochronous one, and the queue or the buffer of the endpoint is ready for the target.
+static bool ep_start(uint8_t rhport, const tusb_desc_endpoint_t* ep) {
+    const uint8_t address = ep->bEndpointAddress;
+    const uint8_t number = address & 0x0F;
+    if (is_iso(ep) && !usbd_edpt_iso_activate(rhport, ep))
+        return false;
+    if (address & 0x80) {
+        in_t* q = &g_in[number];
+        q->open = true;
+        q->inflight = false;
+        q->orphan = false;
+    } else if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+        out_t* o = &g_out[number];
+        o->packet = tu_edpt_packet_size(ep);
+        o->open = true;
+        o->armed = false;
+        out_arm(number);
+    }
+    return true;
+}
+
+// An isochronous endpoint of the setting that is left stops: what waited for it is dropped, and a
+// transfer on the bus is forgotten (activating the endpoint again starts over, so no completion
+// of it is awaited).
+static void ep_stop(uint8_t address) {
+    const uint8_t number = address & 0x0F;
+    if (address & 0x80) {
+        in_t* q = &g_in[number];
+        q->open = false;
+        q->inflight = false;
+        q->orphan = false;
+        q->done = 0;
+        if (q->n != 0 && producing(q))
+            __atomic_store_n(&q->tail, __atomic_load_n(&q->head, __ATOMIC_ACQUIRE),
+                             __ATOMIC_RELEASE);
+    } else if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+        g_out[number].open = false;
+        g_out[number].armed = false;
+    }
+}
+
+static bool open_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt, void* ctx) {
+    (void)itf;
+    const uint8_t rhport = *(const uint8_t*)ctx;
+    const uint8_t address = ep->bEndpointAddress;
+    const uint16_t bit = (uint16_t)(1u << (address & 0x0F));
+    uint16_t* has = &g_has[(address >> 7) & 1];
+    const bool first = (*has & bit) == 0;
+    if (first) {
+        if (is_iso(ep)) {
+            // The buffer holds the largest packet of any setting the address is in (the walk kept it).
+            const mimhid_ep_info_t* info = mimhid_active_endpoint(address);
+            if (info == NULL || !usbd_edpt_iso_alloc(rhport, address, info->packet_size))
+                return false;
+        } else if (!usbd_edpt_open(rhport, ep)) {
+            return false;
+        }
+        *has |= bit;
+    }
+    // A bulk or interrupt endpoint is in use from the start, whichever setting names it first;
+    // an isochronous one starts with setting 0, the one the target starts in.
+    if (is_iso(ep))
+        return alt != 0 || ep_start(rhport, ep);
+    return !first || ep_start(rhport, ep);
+}
+
 // process_set_config in src/device/usbd.c calls open for the first interface of every association
 // (after the association descriptor) and for every other interface; whatever it returns is the
 // number of bytes the driver took, and the stack goes on from there, binding all the endpoints in
-// them to this driver (tu_edpt_bind_driver). An association takes all its interfaces in one call.
+// them to this driver (tu_edpt_bind_driver). An association takes all its interfaces in one call,
+// and an interface takes its alternate settings (the span of the walk at COMMIT).
 static uint16_t gen_open(uint8_t rhport, tusb_desc_interface_t const* desc_itf, uint16_t max_len) {
-    (void)rhport;
     // 0 for an interface the walk at COMMIT did not find: the stack then looks no further.
     const uint16_t span = mimhid_active_generic_span(desc_itf->bInterfaceNumber);
     if (span == 0 || span > max_len)
         return 0;
     const uint8_t* p = (const uint8_t*)desc_itf;
-    const uint8_t* end = p + span;
-    for (; p < end; p += p[0]) {
-        if (p[1] != TUSB_DESC_ENDPOINT)
-            continue;
-        const tusb_desc_endpoint_t* ep = (const tusb_desc_endpoint_t*)p;
-        if (!usbd_edpt_open(rhport, ep))
-            return 0;
-        const uint8_t address = ep->bEndpointAddress;
-        const uint8_t number = address & 0x0F;
-        if (address & 0x80) {
-            g_in[number].open = true;
-            g_in[number].inflight = false;
-            g_in[number].orphan = false;
-        } else if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
-            g_out[number].open = true;
-            g_out[number].armed = false;
-            out_arm(number);
-        }
+    uint8_t port = rhport;
+    return scan_endpoints(p, p + span, open_visit, &port) ? span : 0;
+}
+
+typedef struct {
+    uint8_t rhport;
+    uint8_t itf;
+    uint8_t from; // the setting that is left
+    uint8_t to;   // the setting that is selected
+    bool ok;
+} switch_t;
+
+static bool stop_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt, void* ctx) {
+    const switch_t* sw = (const switch_t*)ctx;
+    if (itf == sw->itf && alt == sw->from && is_iso(ep))
+        ep_stop(ep->bEndpointAddress);
+    return true;
+}
+
+static bool start_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt, void* ctx) {
+    const switch_t* sw = (const switch_t*)ctx;
+    return itf != sw->itf || alt != sw->to || !is_iso(ep) || ep_start(sw->rhport, ep);
+}
+
+// SET_INTERFACE (USB 2.0 9.4.10): the settings the interface has are those of the walk. A setting
+// it does not have is a request error, answered with a stall (9.2.7).
+static bool set_interface(uint8_t rhport, tusb_control_request_t const* request) {
+    const uint8_t itf = (uint8_t)(request->wIndex & 0xFF);
+    const uint8_t alt = (uint8_t)(request->wValue & 0xFF);
+    const mimhid_layout_t* layout = mimhid_active_layout();
+    if (request->wIndex > 0xFF || request->wValue > 0xFF || itf >= layout->count ||
+        alt >= layout->itf_alts[itf]) {
+        dcd_edpt_stall(rhport, 0x00);
+        dcd_edpt_stall(rhport, 0x80);
+        return true;
     }
-    return span;
+    const uint8_t* cfg = mimhid_active_config_bytes();
+    const uint8_t* end = cfg + (uint16_t)(cfg[2] | (cfg[3] << 8));
+    switch_t sw = {.rhport = rhport, .itf = itf, .from = g_alt[itf], .to = alt, .ok = true};
+    scan_endpoints(cfg + cfg[0], end, stop_visit, &sw);
+    sw.ok = scan_endpoints(cfg + cfg[0], end, start_visit, &sw);
+    g_alt[itf] = alt;
+    if (!sw.ok) {
+        dcd_edpt_stall(rhport, 0x00);
+        dcd_edpt_stall(rhport, 0x80);
+        return true;
+    }
+    tud_control_status(rhport, request);
+    const uint8_t ev[2] = {itf, alt};
+    mimhid_send_event(MIMHID_EV_SET_INTERFACE, ev, sizeof(ev));
+    return true;
 }
 
 static bool gen_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {
-    (void)rhport;
     // The stack stalls or clears the endpoint itself and forwards the request to the endpoint's
     // driver (the TUSB_REQ_RCPT_ENDPOINT case of process_control_request in src/device/usbd.c, which
     // acknowledges the request whatever is returned). Only the halt feature (USB 2.0 9.4.1, 9.4.5)
     // of an endpoint of ours is looked at; class and vendor requests reach the program only through
     // control rules, which hold a request before the stack sees it, so there is nothing else to
     // answer.
+    if (stage == CONTROL_STAGE_SETUP && request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE &&
+        request->bmRequestType_bit.type == TUSB_REQ_TYPE_STANDARD) {
+        if (request->bRequest == TUSB_REQ_SET_INTERFACE)
+            return set_interface(rhport, request);
+        if (request->bRequest == TUSB_REQ_GET_INTERFACE) {
+            if (request->wIndex >= MIMHID_MAX_INTERFACES)
+                return false;
+            return tud_control_xfer(rhport, request, &g_alt[request->wIndex], 1);
+        }
+    }
     if (stage != CONTROL_STAGE_SETUP || request->bmRequestType_bit.recipient != TUSB_REQ_RCPT_ENDPOINT ||
         request->bmRequestType_bit.type != TUSB_REQ_TYPE_STANDARD ||
         (request->bRequest != TUSB_REQ_SET_FEATURE && request->bRequest != TUSB_REQ_CLEAR_FEATURE) ||

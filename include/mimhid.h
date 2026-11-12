@@ -239,7 +239,14 @@ enum {
     MIMHID_EVENT_ENDPOINT_DATA = 12,
     /* The target set (value 1) or cleared (value 0) the Halt feature of an endpoint of a Node
      * opened with mimhid_node_open (USB 2.0 9.4.1, 9.4.5); endpoint_address names it. */
-    MIMHID_EVENT_ENDPOINT_HALT = 13
+    MIMHID_EVENT_ENDPOINT_HALT = 13,
+    /* The target selected an alternate setting of an interface of a Device given as bytes (USB 2.0
+     * 9.4.10): interface_number is the interface and value the setting. The board has already
+     * switched the interface's isochronous endpoints: those of the setting that was left stopped
+     * (what waited for them is dropped) and those of the new one are on the bus. Whether to send
+     * on them, and what, is the program's: the board adds nothing to a stream and sends no packet
+     * of its own. Sent for a setting that was already selected as well. */
+    MIMHID_EVENT_INTERFACE_ALTERNATE = 14
 };
 
 /* mimhid_event.control_flags */
@@ -265,8 +272,8 @@ typedef struct mimhid_event {
     uint32_t control_flags;    /* MIMHID_CONTROL_FLAG_* */
     uint32_t endpoint_address; /* TRANSFER_LOST, ENDPOINT_DATA, ENDPOINT_HALT: 0x81 to 0x8F or 0x01
                                   to 0x0F; otherwise 0 */
-    uint32_t interface_number; /* ENDPOINT_DATA and the HID events: the bInterfaceNumber the event
-                                  belongs to; otherwise 0 */
+    uint32_t interface_number; /* ENDPOINT_DATA, INTERFACE_ALTERNATE and the HID events: the
+                                  bInterfaceNumber the event belongs to; otherwise 0 */
 } mimhid_event;
 
 typedef void(MIMHID_CALL* mimhid_event_sink)(void* user, const mimhid_event* event);
@@ -345,7 +352,10 @@ typedef struct mimhid_board_limits {
                                       of depth d takes d + 1 (MIMHID_FULL_DROP_NEWEST and
                                       MIMHID_FULL_WAIT) or 2 * d + 1 (MIMHID_FULL_DROP_OLDEST) */
     uint32_t transfer_types;       /* bit n set: the board has endpoints of transfer type n
-                                      (MIMHID_TRANSFER_BULK, MIMHID_TRANSFER_INTERRUPT) */
+                                      (MIMHID_TRANSFER_ISOCHRONOUS, MIMHID_TRANSFER_BULK,
+                                      MIMHID_TRANSFER_INTERRUPT). A board with isochronous
+                                      endpoints takes packets of them up to max_transfer_bytes
+                                      (1023 at full speed, 1024 at high speed at most) */
     uint32_t max_bos_bytes;        /* the largest BOS descriptor, its header included */
 } mimhid_board_limits;
 
@@ -457,8 +467,15 @@ typedef struct mimhid_commit_timeouts {
 /* ---- Node options ----------------------------------------------------------------------- */
 
 /* Transfer types of an endpoint: the values of bmAttributes bits 1..0 (USB 2.0 9.6.6). The board
- * has no control or isochronous endpoints other than endpoint 0. */
-enum { MIMHID_TRANSFER_BULK = 2, MIMHID_TRANSFER_INTERRUPT = 3 };
+ * has no control endpoints other than endpoint 0. Isochronous endpoints exist only on a board
+ * whose mimhid_board_limits.transfer_types has bit MIMHID_TRANSFER_ISOCHRONOUS, and only in a
+ * Device given as bytes (mimhid_device_set_descriptors); mimhid_node_open refuses one with
+ * MIMHID_ERR_UNSUPPORTED. */
+enum {
+    MIMHID_TRANSFER_ISOCHRONOUS = 1,
+    MIMHID_TRANSFER_BULK = 2,
+    MIMHID_TRANSFER_INTERRUPT = 3
+};
 
 /* What an IN endpoint does when `depth` transfers wait on the board for the target to read them.
  * Both fields are required on every IN endpoint (MIMHID_ERR_UNSET_FIELD when 0) and zero on an OUT
@@ -1518,7 +1535,26 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device
  * MIMHID_EVENT_ENDPOINT_DATA with node_id 0 and the interface of the endpoint in
  * interface_number; endpoint 0 is the control rules of mimhid_device_set_control_rules, whose
  * events are those of a Device, which is how a class request of such a device is answered or
- * passed on. */
+ * passed on.
+ *
+ * Such a Device may have alternate settings, and with them isochronous endpoints (a board whose
+ * mimhid_board_limits.transfer_types has MIMHID_TRANSFER_ISOCHRONOUS: audio and video classes
+ * stream on them). The library and the board do the least that is possible with them:
+ *  - SET_INTERFACE of the target switches the isochronous endpoints of the interface (those of the
+ *    setting left stop, what waited for them is dropped; those of the setting selected start, at
+ *    the packet size their descriptor gives) and arrives as MIMHID_EVENT_INTERFACE_ALTERNATE. A
+ *    bulk or interrupt endpoint is open from the configuration on, whichever setting names it.
+ *    GET_INTERFACE answers the setting selected (0 at the start).
+ *  - An isochronous IN transfer is one packet, at most the endpoint's packet size
+ *    (mimhid_device_endpoint_write refuses a longer one with MIMHID_ERR_PARAM), sent in the frame
+ *    of the bus that next asks for it. The board makes no packet, fills no gap and keeps no
+ *    rhythm: when nothing waits, that frame of the bus passes with no packet (USB 2.0 5.6), and
+ *    when the target reads slower than the program writes, the policy of the endpoint decides
+ *    what is dropped. When to write, how much, and what a missing frame means to the target is
+ *    the program's, which is why the policy and its depth are the program's to choose.
+ *  - An isochronous OUT packet is an MIMHID_EVENT_ENDPOINT_DATA event like any other.
+ * The class's own requests (audio sampling frequency, video probe and commit) are endpoint-0
+ * control rules, as for any class. */
 
 /* mimhid_device_set_descriptors
  * Ownership: Copies the bytes.
@@ -1531,8 +1567,14 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device
  * strings are not used. Checked, none of it reading a class: the device descriptor is 18 bytes of
  * type 1 with one configuration; wTotalLength of the configuration is its length; every bLength
  * is at least 2 and stays inside the bytes; the interface numbers are 0, 1, 2, ... in order and
- * only alternate setting 0 is used; every endpoint is interrupt or bulk, with an address that is
- * valid, unique and within the board's limits and a packet size mimhid_node_open would accept;
+ * alternate settings are 0, 1, 2, ... in order for each interface, with nothing between them;
+ * every endpoint is interrupt or bulk, or isochronous on a board whose transfer_types has it, with
+ * an address that is valid, unique within a setting and within the board's limits (it may come
+ * again in another setting of the same interface: a bulk or interrupt endpoint then with the same
+ * descriptor, an isochronous one with any packet size the board takes) and a packet size
+ * mimhid_node_open would accept (an isochronous one: up to max_transfer_bytes, at most 1023 at
+ * full speed and 1024 at high speed, with bInterval 1 at full speed); an endpoint descriptor is
+ * 7 bytes, or 9 in the audio-class form;
  * the totals fit mimhid_board_limits; a BOS has the header and capability lengths of
  * mimhid_device_set_bos and needs bcdUSB 0x0201 or more. Every IN endpoint needs a policy given
  * with mimhid_device_endpoint_set_policy before this call. The details name the field
@@ -1540,8 +1582,10 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null argument, a wrong struct_size,
  * a nonzero reserved or a descriptor that does not hold together; MIMHID_ERR_UNSET_FIELD for a
  * zero timeout, a bcdUSB of 0 or an IN endpoint with no policy (the details name the first);
- * MIMHID_ERR_UNSUPPORTED for an isochronous endpoint or an alternate setting; MIMHID_ERR_OVERFLOW
- * when the board's limits are exceeded; MIMHID_ERR_BUSY while a Node is open; the results of
+ * MIMHID_ERR_UNSUPPORTED for an isochronous endpoint on a board that has none (the offset is that
+ * of its bmAttributes); MIMHID_ERR_OVERFLOW when the board's limits are exceeded, a configuration
+ * of isochronous endpoints that needs more packet memory than the controller has included (the
+ * board refuses the commit); MIMHID_ERR_BUSY while a Node is open; the results of
  * mimhid_device_commit. */
 MIMHID_API mimhid_result MIMHID_CALL
 mimhid_device_set_descriptors(mimhid_device* device, const mimhid_device_descriptors* descriptors,
@@ -1583,7 +1627,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(
  * Sends data as one USB transfer on an IN endpoint of a Device given as bytes, with everything
  * mimhid_node_endpoint_write says of splitting, zero-length packets and the wait policy.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, an address that is not an IN endpoint
- * of the descriptors (none set included) or null data with a nonzero length;
+ * of the descriptors (none set included), null data with a nonzero length, or more than the
+ * endpoint's packet size (the largest of its settings) to an isochronous endpoint: such a transfer
+ * is one packet, and is not split;
  * MIMHID_ERR_UNSET_FIELD, MIMHID_ERR_TIMEOUT, MIMHID_ERR_SHORT_TRANSFER, MIMHID_ERR_OVERFLOW and a
  * link error as mimhid_node_endpoint_write; MIMHID_ERR_BUSY as there, and while the descriptors
  * are staged in a batch that has not ended. */

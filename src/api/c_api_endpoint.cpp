@@ -169,6 +169,15 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
         return MIMHID_ERR_UNSET_FIELD;
     }
 
+    // An isochronous transfer is one packet, sent in one frame of the bus (USB 2.0 5.6): the
+    // library does not split it into several, which would be several frames of the bus.
+    if (ep->isochronous && length > ep->max_packet_size) {
+        set_error(MIMHID_ERR_PARAM, "node.endpoint.write",
+                  "An isochronous transfer is one packet: at most the endpoint's packet size "
+                  "(the largest of its settings); that size is in length.",
+                  0, 0, node_id, 0, address, ep->max_packet_size);
+        return MIMHID_ERR_PARAM;
+    }
     // Frames: a multiple of the packet size each, except the last, so the target sees the
     // transfer it would have seen whole. The library adds no zero-length packet.
     const std::size_t largest = std::max<std::size_t>(device->board.max_transfer_bytes, 1U);

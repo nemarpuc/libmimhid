@@ -314,7 +314,8 @@ static void send_pong(void) {
     p[41] = (uint8_t)(MIMHID_MAX_TRANSFER_BYTES >> 8);
     p[42] = (uint8_t)(MIMHID_EP_POOL_SLOTS & 0xFF);
     p[43] = (uint8_t)(MIMHID_EP_POOL_SLOTS >> 8);
-    p[44] = (uint8_t)((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT));
+    p[44] = (uint8_t)((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT) |
+                      (MIMHID_ISO_BYTES != 0 ? (1u << TUSB_XFER_ISOCHRONOUS) : 0u));
     p[45] = (uint8_t)(MIMHID_ANSWER_BYTES & 0xFF);
     p[46] = (uint8_t)(MIMHID_ANSWER_BYTES >> 8);
     p[47] = (uint8_t)(MIMHID_MAX_BOS_BYTES & 0xFF);

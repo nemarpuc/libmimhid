@@ -152,7 +152,7 @@ void test_configuration_refused() {
     // The interface.
     config_refused(9, 8, MIMHID_ERR_PARAM, 9);         // bLength
     config_refused(11, 1, MIMHID_ERR_PARAM, 11);       // number must be 0
-    config_refused(12, 1, MIMHID_ERR_UNSUPPORTED, 12); // alternate setting
+    config_refused(12, 1, MIMHID_ERR_PARAM, 11); // an alternate setting with no setting 0 before it
     config_refused(13, 1, MIMHID_ERR_PARAM,
                    25); // one declared: the second endpoint is one too many
     config_refused(13, 3, MIMHID_ERR_PARAM, 13); // three declared, two follow (at the interface)
@@ -232,6 +232,130 @@ void test_configuration_refused() {
     }
 }
 
+// An interface with alternate settings: setting 0 with no endpoint (no bandwidth), setting 1 with
+// an isochronous IN endpoint of the audio-class 9-byte form, setting 2 with a larger packet.
+Bytes streaming_config() {
+    return {9,    2,    0,    0,    1,    1,    0,    0x80, 50,   // configuration
+            9,    4,    0,    0,    0,    0x01, 2,    0,    0,    // interface 0, setting 0
+            9,    4,    0,    1,    1,    0x01, 2,    0,    0,    // setting 1
+            9,    5,    0x81, 0x05, 0xC0, 0,    1,    0,    0,    // iso IN, 192 bytes, bInterval 1
+            9,    4,    0,    2,    1,    0x01, 2,    0,    0,    // setting 2
+            9,    5,    0x81, 0x05, 0x80, 1,    1,    0,    0};   // the same address, 384 bytes
+}
+
+ComposerLimits iso_limits(bool high_speed = false) {
+    ComposerLimits l = limits(high_speed);
+    l.transfer_types = 0x0EU; // isochronous, bulk, interrupt
+    l.max_transfer_bytes = 1023;
+    return l;
+}
+
+mimhid_result walk_iso(const Bytes& c, ComposerError* e, WalkedDescriptors* out = nullptr,
+                       bool high_speed = false) {
+    Bytes cfg = c;
+    cfg[2] = static_cast<std::uint8_t>(cfg.size());
+    const Bytes d = device_bytes();
+    WalkedDescriptors local;
+    return mimhid::usb::walk_descriptors(d.data(), d.size(), cfg.data(), cfg.size(), nullptr, 0,
+                                         iso_limits(high_speed), out != nullptr ? out : &local, e);
+}
+
+void test_alternate_settings_and_isochronous() {
+    ComposerError e;
+    WalkedDescriptors w;
+    // Accepted: one interface, three settings, the endpoint named by two of them.
+    MIMHID_CHECK(walk_iso(streaming_config(), &e, &w) == MIMHID_OK);
+    MIMHID_CHECK(w.interface_count == 1U && w.endpoints.size() == 2U);
+    MIMHID_CHECK(w.endpoints[0].address == 0x81U && w.endpoints[0].alternate_setting == 1U &&
+                 w.endpoints[0].transfer_type == MIMHID_TRANSFER_ISOCHRONOUS &&
+                 w.endpoints[0].max_packet_size == 192U && w.endpoints[0].interface_number == 0U);
+    MIMHID_CHECK(w.endpoints[1].alternate_setting == 2U && w.endpoints[1].max_packet_size == 384U);
+
+    // A board without isochronous endpoints says so, at the attributes byte.
+    {
+        Bytes c = streaming_config();
+        c[2] = static_cast<std::uint8_t>(c.size());
+        const Bytes d = device_bytes();
+        MIMHID_CHECK(mimhid::usb::walk_descriptors(d.data(), d.size(), c.data(), c.size(), nullptr,
+                                                   0, limits(), &w, &e) == MIMHID_ERR_UNSUPPORTED &&
+                     e.offset == 30U);
+    }
+    // The settings come in order, with nothing between them, after setting 0.
+    {
+        Bytes c = streaming_config();
+        c[39] = 3; // setting 2 named 3
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 39U && e.length == 2U);
+        c = streaming_config();
+        c[21] = 2; // setting 1 named 2
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 21U && e.length == 1U);
+        c = streaming_config();
+        c[20] = 1; // an alternate setting of an interface that is not the last one
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 20U);
+    }
+    // An isochronous endpoint: the bits it may carry, its size and its interval.
+    {
+        Bytes c = streaming_config();
+        c[30] = 0x45; // bits 7..6 are reserved
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 30U);
+        c = streaming_config();
+        c[31] = 0xFF;
+        c[32] = 0x03; // 1023 is the most at full speed
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_OK);
+        c[32] = 0x04; // 1024 is not
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_OVERFLOW && e.offset == 31U);
+        MIMHID_CHECK(walk_iso(c, &e, &w, true) == MIMHID_ERR_OVERFLOW); // the board's frame, 1023
+        c = streaming_config();
+        c[31] = 0;
+        c[32] = 0; // zero
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_OVERFLOW && e.offset == 31U);
+        c = streaming_config();
+        c[33] = 2; // bInterval is 1 at full speed
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 33U);
+        MIMHID_CHECK(walk_iso(c, &e, &w, true) == MIMHID_OK); // 1 to 16 (an exponent) at high speed
+        c[33] = 17;
+        MIMHID_CHECK(walk_iso(c, &e, &w, true) == MIMHID_ERR_PARAM && e.offset == 33U);
+    }
+    // An address comes again only in the same interface, as the same type; a bulk or interrupt
+    // endpoint with the same descriptor.
+    {
+        Bytes c = streaming_config();
+        c[47] = 0x82; // the endpoint of setting 2 is another one: fine
+        MIMHID_CHECK(walk_iso(c, &e, &w) == MIMHID_OK && w.endpoints.size() == 2U);
+        c = streaming_config();
+        c[48] = 0x02; // the address 0x81 comes again as a bulk endpoint: another type
+        MIMHID_CHECK(walk_iso(c, &e) != MIMHID_OK);
+    }
+    {
+        // Two bulk settings sharing an endpoint: the same descriptor is accepted, another size is not.
+        Bytes c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 0xFF, 1, 2, 0, 7, 5, 0x81, 2, 64, 0, 0,
+                   9, 4, 0, 1, 1, 0xFF, 1, 2, 0, 7, 5, 0x81, 2, 64, 0, 0};
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_OK);
+        c[36] = 32;
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM);
+        // A setting twice in one setting is the same address twice.
+        c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 2, 0xFF, 1, 2, 0,
+             7, 5, 0x81, 2, 64, 0, 0, 7, 5, 0x81, 2, 64, 0, 0};
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 27U);
+    }
+    // Another interface may not use an address a setting of the first has.
+    {
+        Bytes c = streaming_config();
+        const Bytes second = {9, 4, 1, 0, 1, 0xFF, 1, 2, 0, 7, 5, 0x81, 2, 64, 0, 0};
+        c.insert(c.end(), second.begin(), second.end());
+        c[4] = 2;
+        MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM);
+    }
+    // A bulk endpoint may carry the 9-byte form too (a MIDI streaming endpoint is one); 8 is no form.
+    {
+        Bytes c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 0x01, 3, 0, 0,
+                   9, 5, 0x01, 2, 64, 0, 0, 0, 0};
+        MIMHID_CHECK(walk_iso(c, &e, &w) == MIMHID_OK && w.endpoints.size() == 1U);
+        c[18] = 8;
+        c.resize(26);
+        MIMHID_CHECK(walk_iso(c, &e, &w) == MIMHID_ERR_PARAM && e.offset == 18U);
+    }
+}
+
 void test_bos() {
     ComposerError e;
     const Bytes c = config_bytes();
@@ -281,5 +405,6 @@ void test_descriptor_walker() {
     test_accepted();
     test_device_refused();
     test_configuration_refused();
+    test_alternate_settings_and_isochronous();
     test_bos();
 }

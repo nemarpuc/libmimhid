@@ -6,6 +6,33 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+### Added
+
+- Alternate settings and isochronous endpoints in a Device given as bytes
+  (`mimhid_device_set_descriptors`): interfaces may have settings 0, 1, 2, ... in order, an endpoint
+  may be named by several settings of its interface, and a board whose `transfer_types` has
+  `MIMHID_TRANSFER_ISOCHRONOUS` (the RP2040 and RP2350 firmware: packets up to 1023 bytes) takes
+  isochronous endpoints, which is what the audio and video classes stream on. Endpoint descriptors
+  may be 7 bytes or the 9-byte audio-class form. The target's `SET_INTERFACE` switches the
+  isochronous endpoints of the interface and is reported as `MIMHID_EVENT_INTERFACE_ALTERNATE`
+  (wire event `SET_INTERFACE`, 14); `GET_INTERFACE` answers the selected setting. The board adds
+  nothing to a stream: no padding, no pacing, no resampling.
+- `mimhid_device_endpoint_write` refuses an isochronous transfer longer than the endpoint's packet.
+- Simulated-board scenario `mimhid.sim-iso`, host walker and firmware tests for settings and
+  isochronous descriptors.
+
+### Changed
+
+- A Node still has bulk and interrupt endpoints only: an isochronous `transfer_type` in a Node is
+  `MIMHID_ERR_UNSUPPORTED` (it needs settings, which a Device given as bytes has).
+- On a board with isochronous endpoints `max_transfer_bytes` is its isochronous packet (1023, 64
+  before), so a long write to a bulk endpoint goes in frames of up to 960 bytes (a multiple of the
+  endpoint's packet size) instead of 64; the target sees the same transfer.
+- A configuration for the RP2040 and RP2350 is checked against the controller's 3712 bytes of
+  packet memory at `COMMIT` (`NAK_OVERFLOW`): the driver stopped the board when it ran out.
+- The wire protocol gains an event and the PONG's `transfer_types` a bit; the firmware version
+  number is not changed here (the release's to choose).
+
 ## [0.3.0] - 2026-11-12
 
 **Not hardware-verified as `tests/hw/README.md` defines it; what was run

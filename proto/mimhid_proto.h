@@ -122,6 +122,10 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_EV_EP_HALT                                                                          \
     13 /* data: endpoint address, halted (1: the target set the halt, 0: it cleared it); only for  \
           endpoints of the generic driver */
+#define MIMHID_EV_SET_INTERFACE                                                                    \
+    14 /* data: interface number, alternate setting. The target selected that alternate setting    \
+          of that interface (USB 2.0 9.4.10) and the board switched its endpoints to it; also sent \
+          for a setting that is already selected */
 
 /* NAK codes. */
 #define MIMHID_NAK_PARAM 1
@@ -311,7 +315,8 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   descriptors, the board's own included)  40..41 max_transfer_bytes (the payload of one endpoint
  *   data frame)  42..43 endpoint_queue_slots (the slots of the pool the IN queues of the generic
  *   driver are cut from)  44 transfer_types (bit n set: the board has endpoints of transfer type
- *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)  45..46
+ *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 1 isochronous, bit 2 bulk, bit 3 interrupt; a
+ *   board with bit 1 takes isochronous packets of up to max_transfer_bytes)  45..46
  *   max_answer_bytes (the answer memory: the capacities of every ANSWER rule together, a HID report
  *   descriptor and the answers to its Feature reads among them)
  *   47..48 max_bos_bytes (the largest BOS descriptor, wTotalLength included)
@@ -365,11 +370,15 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *
  * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR) unless it holds
  * together: every descriptor complete, every bLength at least
- * 2 and inside the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only,
- * every interface, whatever its class (the board reads no class), with endpoints that are
- * interrupt or bulk, the class descriptors between them as given, interface association
- * descriptors that name the interfaces that follow, endpoint numbers the controller has and no
- * address twice, packet sizes the board takes, every IN endpoint with an EP_CONFIG, every ANSWER
+ * 2 and inside the blob, interface numbers 0, 1, 2, ... in order, each with alternate settings
+ * 0, 1, 2, ... in order, every interface, whatever its class (the board reads no class), with
+ * endpoints that are interrupt or bulk, or isochronous when the PONG's transfer_types says the
+ * board has them (7 bytes each, or 9 for the audio-class form with bRefresh and bSynchAddress),
+ * the class descriptors between them as given, interface association descriptors that name the
+ * interfaces that follow, endpoint numbers the controller has and no address twice (an address
+ * may come again in another alternate setting of the same interface: a bulk or interrupt
+ * endpoint then with the same descriptor, an isochronous one with any packet size the board
+ * takes), packet sizes the board takes, every IN endpoint with an EP_CONFIG, every ANSWER
  * rule with its bytes and every ANSWER_LAST_SENT rule on an IN endpoint of the configuration, and a
  * BOS descriptor, if there is one, with a 5-byte header of type 0x0F (USB 3.2 9.6.2), wTotalLength
  * its own length, bNumDeviceCaps as many as it holds, each capability at least 3 bytes long, of
@@ -411,6 +420,18 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   EP_DONE        endpoint address, transfers completed (two bytes) since the last EP_DONE of
  *                  that endpoint; at most one per endpoint per pass of the board's USB side
  *   EP_HALT        endpoint address, halted (1: the target set the halt, 0: it cleared it)
+ *   SET_INTERFACE  interface number, alternate setting (the target's SET_INTERFACE, USB 2.0 9.4.10)
+ *
+ * Alternate settings. The target's SET_INTERFACE switches the isochronous endpoints of the
+ * interface: those of the setting it leaves stop, those of the setting it selects start, each with
+ * the packet size its descriptor gives. A bulk or interrupt endpoint is open for the whole
+ * configuration, whatever setting names it. Nothing is queued for an isochronous endpoint of a
+ * setting that is not selected: what waited on the one that stopped is dropped, and what the host
+ * sends while none is selected waits as it does on any IN endpoint. GET_INTERFACE answers the
+ * selected setting (0 after a bus reset or SET_CONFIGURATION). The board adds nothing to the
+ * stream: a frame of an isochronous IN endpoint is one packet (at most the endpoint's packet
+ * size) sent in the next frame of the bus that asks for it, and when nothing waits the bus frame
+ * passes with no packet (USB 2.0 5.6); what to send, and when, is the host program's.
  * (The interface of an event is the bInterfaceNumber of the staged configuration.)
  */
 #define MIMHID_DESC_DEVICE 1

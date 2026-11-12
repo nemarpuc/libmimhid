@@ -165,6 +165,25 @@ bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
                                                            .packet = (uint16_t)(desc->wMaxPacketSize & 0x7FF)};
     return true;
 }
+// The isochronous calls and the stall of endpoint 0 that the generic driver makes (the host test
+// board has none: MIMHID_ISO_BYTES is 0 here, so only the link has to resolve).
+bool usbd_edpt_iso_alloc(uint8_t rhport, uint8_t ep_addr, uint16_t largest_packet_size) {
+    (void)rhport;
+    (void)ep_addr;
+    (void)largest_packet_size;
+    return true;
+}
+bool usbd_edpt_iso_activate(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
+    (void)rhport;
+    (void)desc;
+    return true;
+}
+static int g_ep0_stalls;
+void dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
+    (void)rhport;
+    if ((ep_addr & 0x0F) == 0)
+        g_ep0_stalls++;
+}
 bool usbd_edpt_busy(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
     return EPSTATE(ep_addr).busy || ((ep_addr & 0x80) != 0 && g_busy[(ep_addr & 0x0F) - 1]);
@@ -1763,6 +1782,53 @@ static void test_commit_walk(void) {
         cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         expect_refused(commit_raw(NULL, 0, &t));
+        // Alternate settings: 0, 1, 2, ... in order after setting 0, with nothing between them. A
+        // bulk or interrupt endpoint that two settings name is the same in both.
+        cfg_open(&t);
+        cfg_interface(&t, 0, 0, 1, 0xFF);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_interface(&t, 0, 1, 1, 0xFF);
+        t.interfaces--; // a setting is not another interface
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_interface(&t, 1, 0, 0, 0xFF);
+        cfg_interface(&t, 1, 1, 1, 0xFF);
+        t.interfaces--;
+        cfg_endpoint(&t, 0x82, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_close(&t);
+        assert(commit_raw(NULL, 0, &t) == 1);
+        assert(mimhid_active_layout()->count == 2 && mimhid_active_layout()->itf_alts[0] == 2 &&
+               mimhid_active_layout()->itf_alts[1] == 2);
+        // the span of an interface takes its settings (TinyUSB opens once per interface)
+        assert(mimhid_active_generic_span(0) == 9 + 7 + 9 + 7);
+        assert(mimhid_active_generic_span(1) == 9 + 9 + 7);
+        cfg_open(&t); // setting 2 without 1
+        cfg_interface(&t, 0, 0, 0, 0xFF);
+        cfg_interface(&t, 0, 2, 0, 0xFF);
+        t.interfaces--;
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t));
+        cfg_open(&t); // the endpoint again with another size
+        cfg_interface(&t, 0, 0, 1, 0xFF);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_interface(&t, 0, 1, 1, 0xFF);
+        t.interfaces--;
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 32, 0);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t));
+        cfg_open(&t); // the address of another interface
+        cfg_interface(&t, 0, 0, 1, 0xFF);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_interface(&t, 1, 0, 1, 0xFF);
+        cfg_endpoint(&t, 0x81, TUSB_XFER_BULK, 64, 0);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t));
+        cfg_open(&t); // an isochronous endpoint on a board that has none
+        cfg_interface(&t, 0, 0, 0, 0xFF);
+        cfg_interface(&t, 0, 1, 1, 0xFF);
+        t.interfaces--;
+        cfg_endpoint(&t, 0x81, TUSB_XFER_ISOCHRONOUS, 64, 1);
+        cfg_close(&t);
+        expect_refused(commit_raw(NULL, 0, &t));
         // The board reads no class: an interface of any class, with or without class descriptors,
         // is the caller's.
         static const uint8_t classes[] = {0x00, 0x02, 0x03, 0x08, 0xFF};
@@ -3331,6 +3397,7 @@ static void test_generic(void) {
         // the open call
         const uint8_t* cfg = mimhid_active_config_bytes();
         memset(g_ep, 0, sizeof(g_ep));
+        gen_driver()->reset(0); // the stack resets its drivers before it opens them
         assert(gen_driver()->open(0, (const tusb_desc_interface_t*)&cfg[9], 100) == 9 + 5 + 3 * 7);
         assert(EPSTATE(0x81).opened && EPSTATE(0x01).opened && EPSTATE(0x83).opened &&
                !EPSTATE(0x82).opened); // the interface's own endpoints only

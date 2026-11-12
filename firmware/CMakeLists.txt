@@ -57,6 +57,12 @@ target_include_directories(mimhid_firmware PRIVATE
 target_compile_definitions(mimhid_firmware PRIVATE
     MIMHID_MAX_ENDPOINT_NUMBER=15
     MIMHID_MAX_ENDPOINT_BYTES=64
+    # Isochronous endpoints: TinyUSB's RP2040 driver has dcd_edpt_iso_alloc and dcd_edpt_iso_activate.
+    # Full speed takes 1023 bytes a frame (USB 2.0 5.6.3). The driver's packet memory is the 4 KiB
+    # DPRAM less 0x180 bytes of registers, and it asserts that one byte is left (dcd_rp2040.c,
+    # hw_endpoint_alloc): 3712 bytes, of which 64-byte units fit up to 3648.
+    MIMHID_ISO_BYTES=1023
+    MIMHID_EP_BUFFER_BYTES=3648
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
     CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
     MIMHID_UART_ID=${MIMHID_UART_ID}

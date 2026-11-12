@@ -91,6 +91,7 @@ public enum EventKind : int
     TransferLost = 11,
     EndpointData = 12,
     EndpointHalt = 13,
+    InterfaceAlternate = 14,
 }
 
 public enum ControlAction : int { Leave = 1, Answer = 2, Stall = 3, Drop = 4 }
@@ -756,6 +757,7 @@ public static class Native
     public const int MIMHID_EVENT_TRANSFER_LOST = 11;
     public const int MIMHID_EVENT_ENDPOINT_DATA = 12;
     public const int MIMHID_EVENT_ENDPOINT_HALT = 13;
+    public const int MIMHID_EVENT_INTERFACE_ALTERNATE = 14;
     public const int MIMHID_CONTROL_ACTION_LEAVE = 1;
     public const int MIMHID_CONTROL_ACTION_ANSWER = 2;
     public const int MIMHID_CONTROL_ACTION_STALL = 3;
@@ -770,6 +772,7 @@ public static class Native
     public const int MIMHID_CONTROL_FLAG_FIXED = 4;
     public const int MIMHID_CONTROL_FLAG_LOST = 8;
     public const int MIMHID_CONTROL_FLAG_ACCEPTED = 16;
+    public const int MIMHID_TRANSFER_ISOCHRONOUS = 1;
     public const int MIMHID_TRANSFER_BULK = 2;
     public const int MIMHID_TRANSFER_INTERRUPT = 3;
     public const int MIMHID_FULL_DROP_NEWEST = 1;
@@ -904,6 +907,7 @@ public static class Native
             ["MIMHID_EVENT_TRANSFER_LOST"] = 11,
             ["MIMHID_EVENT_ENDPOINT_DATA"] = 12,
             ["MIMHID_EVENT_ENDPOINT_HALT"] = 13,
+            ["MIMHID_EVENT_INTERFACE_ALTERNATE"] = 14,
             ["MIMHID_CONTROL_ACTION_LEAVE"] = 1,
             ["MIMHID_CONTROL_ACTION_ANSWER"] = 2,
             ["MIMHID_CONTROL_ACTION_STALL"] = 3,
@@ -918,6 +922,7 @@ public static class Native
             ["MIMHID_CONTROL_FLAG_FIXED"] = 4,
             ["MIMHID_CONTROL_FLAG_LOST"] = 8,
             ["MIMHID_CONTROL_FLAG_ACCEPTED"] = 16,
+            ["MIMHID_TRANSFER_ISOCHRONOUS"] = 1,
             ["MIMHID_TRANSFER_BULK"] = 2,
             ["MIMHID_TRANSFER_INTERRUPT"] = 3,
             ["MIMHID_FULL_DROP_NEWEST"] = 1,

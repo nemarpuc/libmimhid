@@ -48,7 +48,8 @@ struct ComposerLimits {
     std::size_t max_bos_bytes{};
     std::size_t max_strings{};
     std::size_t endpoint_queue_slots{};
-    std::uint32_t transfer_types{}; // bit n: transfer type n
+    std::size_t max_transfer_bytes{}; // one frame to an IN endpoint; bounds an isochronous packet
+    std::uint32_t transfer_types{};   // bit n: transfer type n
     bool high_speed{};
     bool has_unique_id{}; // the board can make the serial number string
 };

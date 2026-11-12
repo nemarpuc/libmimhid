@@ -174,6 +174,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         tests/sim/test_sim_events.cpp
         tests/sim/test_sim_generic.cpp
         tests/sim/test_sim_high_speed.cpp
+        tests/sim/test_sim_isochronous.cpp
         tests/sim/test_sim_line_rate.cpp
         tests/sim/test_sim_open.cpp
         tests/sim/test_sim_reports.cpp
@@ -203,6 +204,24 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         target_link_libraries(mimhid_sim_${itfs} PRIVATE Threads::Threads)
         add_test(NAME mimhid.sim-${itfs} COMMAND mimhid_sim_${itfs})
     endforeach()
+
+    # A full-speed board with isochronous endpoints, as the RP2040 build is (firmware/CMakeLists.txt):
+    # alternate settings, SET_INTERFACE and the isochronous endpoints of a Device given as bytes.
+    add_executable(mimhid_sim_iso
+        ${MIMHID_SIM_SOURCES}
+        $<TARGET_OBJECTS:mimhid_test_objects>)
+    target_include_directories(mimhid_sim_iso PRIVATE
+        include src proto tests tests/sim
+        firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
+    target_compile_definitions(mimhid_sim_iso PRIVATE
+        SIM_ENDPOINTS=15 SIM_ISO
+        MIMHID_MAX_ENDPOINT_NUMBER=15 MIMHID_MAX_ENDPOINT_BYTES=64 MIMHID_ISO_BYTES=1023
+        CFG_TUSB_OS=OPT_OS_NONE
+        "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
+        CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
+        CFG_TUSB_CONFIG_FILE="tusb_config.h")
+    target_link_libraries(mimhid_sim_iso PRIVATE Threads::Threads)
+    add_test(NAME mimhid.sim-iso COMMAND mimhid_sim_iso)
 
     # The rules only a high-speed board has, against the firmware core built for high speed.
     add_executable(mimhid_sim_hs

@@ -21,17 +21,18 @@ namespace mimhid::usb {
 // One endpoint descriptor found in a configuration.
 struct WalkedEndpoint {
     std::uint8_t address{};
-    std::uint8_t transfer_type{}; // bmAttributes: 2 bulk, 3 interrupt
+    std::uint8_t transfer_type{}; // bmAttributes bits 1..0: 1 isochronous, 2 bulk, 3 interrupt
     std::uint8_t interval{};
     std::uint16_t max_packet_size{};
     std::uint8_t interface_number{};
-    std::uint32_t offset{}; // of the endpoint descriptor in the configuration
+    std::uint8_t alternate_setting{}; // the setting of the interface whose descriptor it follows
+    std::uint32_t offset{};           // of the endpoint descriptor in the configuration
 };
 
 struct WalkedDescriptors {
     std::uint16_t bcd_usb{};
-    std::vector<WalkedEndpoint> endpoints; // in the order of the configuration
-    std::uint8_t interface_count{};
+    std::vector<WalkedEndpoint> endpoints; // in the order of the configuration, every setting's
+    std::uint8_t interface_count{};        // interfaces, not interface descriptors
 };
 
 // The header of a BOS descriptor and the length of each capability (USB 3.2 9.6.2): a 5-byte

@@ -249,9 +249,18 @@ mimhid_device_set_descriptors(mimhid_device* device, const mimhid_device_descrip
                           0, 0, 0, 0, ep.address, ep.offset);
                 return MIMHID_ERR_UNSET_FIELD;
             }
+            // An address that comes again in another setting is the same endpoint: one queue.
+            const auto again = std::find_if(
+                runtimes.begin(), runtimes.end(),
+                [&](const EndpointRuntime& r) { return r.address == ep.address; });
+            if (again != runtimes.end()) {
+                again->max_packet_size = std::max(again->max_packet_size, ep.max_packet_size);
+                continue;
+            }
             EndpointRuntime runtime;
             runtime.address = ep.address;
             runtime.max_packet_size = ep.max_packet_size;
+            runtime.isochronous = ep.transfer_type == MIMHID_TRANSFER_ISOCHRONOUS;
             runtime.policy = policy->second;
             runtimes.push_back(runtime);
             pool_slots += usb::queue_slots(policy->second.depth, policy->second.on_full);

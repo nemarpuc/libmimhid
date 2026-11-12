@@ -268,9 +268,15 @@ void bytes_refusals_and_batch() {
         Bytes c = config_bytes();
         c[21] = 1; // isochronous
         Given g(device_bytes(), c);
+#ifdef SIM_ISO
+        // A board with isochronous endpoints takes it, and the bInterval of this one (0) is wrong.
+        MIMHID_CHECK(mimhid_device_set_descriptors(device, g.get(), &kCommit) == MIMHID_ERR_PARAM);
+        MIMHID_CHECK(mimhid_last_error()->offset == 24U);
+#else
         MIMHID_CHECK(mimhid_device_set_descriptors(device, g.get(), &kCommit) ==
                      MIMHID_ERR_UNSUPPORTED);
         MIMHID_CHECK(mimhid_last_error()->offset == 21U);
+#endif
     }
     {
         Given g(device_bytes(0x0200), config_bytes(), bos_bytes()); // a BOS below 0x0201

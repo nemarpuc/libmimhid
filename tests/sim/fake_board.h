@@ -45,6 +45,14 @@ void fake_board_clear_transfers(void);
 // feature (the stack stalls the endpoint, then the driver is told).
 void fake_board_target_out(uint8_t address, const uint8_t* data, size_t length);
 void fake_board_target_halt(uint8_t address, int set);
+// The target's SET_INTERFACE and GET_INTERFACE (standard requests to an interface, handled by the
+// generic driver); the outcome comes with fake_board_wait_control: ACKED, STALLED for a setting the
+// interface does not have, or ANSWERED with the selected setting in data[0].
+void fake_board_target_set_interface(uint8_t interface_number, uint8_t setting);
+void fake_board_target_get_interface(uint8_t interface_number);
+// The packet size an endpoint is at on the controller (the descriptor it was opened or activated
+// with); 0 while it is not open.
+unsigned fake_board_endpoint_packet(uint8_t address);
 int fake_board_endpoint_stalled(uint8_t address);
 // 1 while the controller holds a transfer of the endpoint that the target has not read.
 int fake_board_endpoint_busy(uint8_t address);

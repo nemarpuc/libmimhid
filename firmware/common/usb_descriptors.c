@@ -52,6 +52,8 @@ typedef struct {
     bool inside;      // after an interface descriptor and before the next one
     uint8_t declared; // bNumEndpoints
     uint8_t seen;
+    uint8_t number; // bInterfaceNumber
+    uint8_t alt;    // bAlternateSetting
     uint16_t start; // offset of the interface descriptor
 } walk_itf_t;
 
@@ -62,22 +64,29 @@ typedef struct {
     bool pending;  // announced, its first interface descriptor not yet seen
 } walk_group_t;
 
-// The interface that has just ended, which began at w->start and ends at `end`, must be complete:
-// every endpoint it announced. What lies between its descriptors is the caller's: the board reads
-// no class.
+// The interface descriptor that has just ended, which began at w->start and ends at `end`, must be
+// complete: every endpoint it announced. What lies between its descriptors is the caller's: the
+// board reads no class. A descriptor of alternate setting 0 is an interface of its own; one of
+// another setting extends the span of the interface it belongs to, so that TinyUSB's open (which
+// is called once per interface, or once per association) takes the settings with it.
 static bool finish_interface(const walk_itf_t* w, uint16_t end, mimhid_layout_t* out) {
     if (w->seen != w->declared)
         return false;
-    const uint8_t n = out->count;
-    out->itf_start[n] = w->start;
-    out->itf_span[n] = (uint16_t)(end - w->start);
+    const uint8_t n = w->number;
+    if (w->alt == 0) {
+        out->itf_start[n] = w->start;
+        out->itf_alts[n] = 1;
+        out->count++;
+    } else {
+        out->itf_alts[n]++;
+    }
+    out->itf_span[n] = (uint16_t)(end - out->itf_start[n]);
     // Another interface of an association group extends the span of the group's first one: TinyUSB
     // calls the driver's open once for the group (process_set_config in usbd.c) and goes on from
     // the end of what open returns.
     const uint8_t first = out->itf_group[n];
     if (first != n)
         out->itf_span[first] = (uint16_t)(end - out->itf_start[first]);
-    out->count++;
     return true;
 }
 
@@ -119,7 +128,8 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
     walk_group_t g;
     memset(&w, 0, sizeof(w));
     memset(&g, 0, sizeof(g));
-    uint32_t addresses = 0; // bit n: OUT endpoint n, bit 16 + n: IN endpoint n
+    uint32_t addresses = 0;     // bit n: OUT endpoint n, bit 16 + n: IN endpoint n, of any setting
+    uint32_t alt_addresses = 0; // the same, of the interface descriptor being walked
     uint16_t pos = 9;
     while (pos < len) {
         const uint8_t l = cfg[pos];
@@ -150,25 +160,41 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
         }
         case TUSB_DESC_INTERFACE: {
             // 9.6.5: the interface number, then the alternate setting. The numbers are 0, 1, 2, ...
-            // in order (the host composes them so, and TinyUSB binds an association by number);
-            // alternate settings are not supported.
-            if (l != 9 || out->count >= MIMHID_MAX_INTERFACES || cfg[pos + 2] != out->count ||
-                cfg[pos + 3] != 0)
+            // in order (the host composes them so, and TinyUSB binds an association by number); the
+            // alternate settings of an interface follow its setting 0 as 1, 2, ... in order, and
+            // nothing comes between them (an association, in particular, does not).
+            if (l != 9 || out->count > MIMHID_MAX_INTERFACES)
                 return false;
-            // The group an interface belongs to is named by its first interface; the first one
-            // also spans the whole group, which finish_interface completes.
-            out->itf_group[out->count] = g.left != 0 ? g.first : out->count;
-            if (g.left != 0)
-                g.left--;
-            g.pending = false;
+            const uint8_t number = cfg[pos + 2];
+            const uint8_t alt = cfg[pos + 3];
+            if (alt == 0) {
+                if (out->count >= MIMHID_MAX_INTERFACES || number != out->count)
+                    return false;
+                // The group an interface belongs to is named by its first interface; the first one
+                // also spans the whole group, which finish_interface completes.
+                out->itf_group[number] = g.left != 0 ? g.first : number;
+                if (g.left != 0)
+                    g.left--;
+                g.pending = false;
+            } else {
+                if (out->count == 0 || number != out->count - 1 || g.pending ||
+                    alt != out->itf_alts[number] || out->itf_alts[number] == 255)
+                    return false;
+            }
             memset(&w, 0, sizeof(w));
             w.inside = true;
+            w.number = number;
+            w.alt = alt;
             w.declared = cfg[pos + 4];
             w.start = pos;
+            alt_addresses = 0;
             break;
         }
         case TUSB_DESC_ENDPOINT: {
-            if (!w.inside || l != 7 || ++w.seen > w.declared)
+            // 7 bytes, or 9 with the bRefresh and bSynchAddress of an audio-class endpoint (USB
+            // Device Class Definition for Audio Devices 1.0, 4.6.1.1 and 4.6.2.1; the board reads no
+            // class, and the two bytes are served as given).
+            if (!w.inside || (l != 7 && l != 9) || ++w.seen > w.declared)
                 return false;
             const uint8_t address = cfg[pos + 2];
             const uint8_t number = address & 0x0F;
@@ -180,42 +206,81 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
             // controller has endpoints up to MIMHID_MAX_ENDPOINT_NUMBER.
             if ((address & 0x70) != 0 || number == 0 || number > MIMHID_MAX_ENDPOINT_NUMBER)
                 return false;
-            // Interrupt or bulk, and nothing else in bmAttributes (9.6.6: bits 5..2 are for
-            // isochronous endpoints, 7..6 are reserved).
-            if (attributes != TUSB_XFER_INTERRUPT && attributes != TUSB_XFER_BULK)
+            // The transfer type is bits 1..0 of bmAttributes. Interrupt and bulk carry nothing else
+            // there (9.6.6: bits 5..2 are for isochronous endpoints, 7..6 are reserved); an
+            // isochronous one carries its synchronization and usage type in bits 5..2.
+            const uint8_t xfer = attributes & 0x03;
+            const bool iso = xfer == TUSB_XFER_ISOCHRONOUS;
+            if (iso ? (MIMHID_ISO_BYTES == 0 || (attributes & 0xC0) != 0)
+                    : (attributes != TUSB_XFER_INTERRUPT && attributes != TUSB_XFER_BULK))
                 return false;
-            // A packet of 1 to the largest the controller takes. Bulk packet sizes are 8, 16, 32
-            // or 64 at full speed and 512 at high speed (USB 2.0 5.8.3).
-            if (size == 0 || size > MIMHID_MAX_ENDPOINT_BYTES)
-                return false;
-            if (attributes == TUSB_XFER_BULK) {
+            if (iso) {
+                // 5.6.3, 9.6.6: 1 to the largest the controller takes, and bInterval 1 at full
+                // speed (an exponent of 1 to 16 at high speed). Packet sizes that name more than one
+                // transaction per microframe (bits 12..11) are above MIMHID_ISO_BYTES.
+                if (size == 0 || size > MIMHID_ISO_BYTES)
+                    return false;
 #if TUD_OPT_HIGH_SPEED
-                if (size != 512)
+                if (interval == 0 || interval > 16)
                     return false;
 #else
-                if (size != 8 && size != 16 && size != 32 && size != 64)
+                if (interval != 1)
                     return false;
 #endif
-            }
-            // bInterval of an interrupt endpoint: 1 to 255 frames at full speed, an exponent 1 to
-            // 16 at high speed (9.6.6). A bulk endpoint's is not a polling interval.
-            if (attributes == TUSB_XFER_INTERRUPT) {
-                if (interval == 0)
+            } else {
+                // A packet of 1 to the largest the controller takes. Bulk packet sizes are 8, 16, 32
+                // or 64 at full speed and 512 at high speed (USB 2.0 5.8.3).
+                if (size == 0 || size > MIMHID_MAX_ENDPOINT_BYTES)
                     return false;
+                if (attributes == TUSB_XFER_BULK) {
 #if TUD_OPT_HIGH_SPEED
-                if (interval > 16)
-                    return false;
+                    if (size != 512)
+                        return false;
+#else
+                    if (size != 8 && size != 16 && size != 32 && size != 64)
+                        return false;
 #endif
+                }
+                // bInterval of an interrupt endpoint: 1 to 255 frames at full speed, an exponent 1 to
+                // 16 at high speed (9.6.6). A bulk endpoint's is not a polling interval.
+                if (attributes == TUSB_XFER_INTERRUPT) {
+                    if (interval == 0)
+                        return false;
+#if TUD_OPT_HIGH_SPEED
+                    if (interval > 16)
+                        return false;
+#endif
+                }
             }
             const uint32_t bit = in ? (1ul << (16 + number)) : (1ul << number);
-            if (addresses & bit)
-                return false; // an address once
-            addresses |= bit;
+            if (alt_addresses & bit)
+                return false; // an address once in a setting
+            alt_addresses |= bit;
             mimhid_ep_info_t* info = &out->ep[in ? 1 : 0][number];
+            if (addresses & bit) {
+                // Seen before: in another setting of the same interface, or in another interface,
+                // which is not allowed. The controller opens a bulk or interrupt endpoint once for
+                // the whole configuration (generic.c), so its descriptor repeats as it was; an
+                // isochronous endpoint is activated with the descriptor of the setting selected, and
+                // its buffer is the largest of them.
+                if (info->interface != w.number || info->type != xfer)
+                    return false;
+                if (iso) {
+                    if (size > info->packet_size)
+                        info->packet_size = size;
+                } else if (info->packet_size != size || info->interval != interval ||
+                           info->attributes != attributes) {
+                    return false;
+                }
+                break;
+            }
+            addresses |= bit;
             info->kind = MIMHID_EP_GENERIC;
-            info->type = attributes;
+            info->type = xfer;
+            info->attributes = attributes;
+            info->interval = interval;
             info->packet_size = size;
-            info->interface = out->count;
+            info->interface = w.number;
             break;
         }
         default:

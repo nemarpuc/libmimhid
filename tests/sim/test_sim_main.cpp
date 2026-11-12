@@ -24,6 +24,18 @@ int main() {
         std::printf("simulated board OK (high speed)\n");
     return g_failures == 0 ? 0 : 1;
 #endif
+#ifdef SIM_ISO
+    // A board with isochronous endpoints: its own scenario, and the Device given as bytes, whose
+    // refusals depend on what the board has. (The Nodes of test_generic_nodes assume the 64-byte
+    // transfers of a board without them.)
+    test_isochronous();
+    test_byte_device();
+    fake_board_stop();
+    std::printf("%d checks, %d failed\n", g_checks, g_failures);
+    if (g_failures == 0)
+        std::printf("simulated board OK (isochronous)\n");
+    return g_failures == 0 ? 0 : 1;
+#endif
     test_zero_identity();
     test_bad_arguments();
     test_line_rate();

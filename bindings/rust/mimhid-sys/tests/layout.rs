@@ -91,6 +91,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_EVENT_TRANSFER_LOST".to_owned(), MIMHID_EVENT_TRANSFER_LOST as i64);
     map.insert("MIMHID_EVENT_ENDPOINT_DATA".to_owned(), MIMHID_EVENT_ENDPOINT_DATA as i64);
     map.insert("MIMHID_EVENT_ENDPOINT_HALT".to_owned(), MIMHID_EVENT_ENDPOINT_HALT as i64);
+    map.insert("MIMHID_EVENT_INTERFACE_ALTERNATE".to_owned(), MIMHID_EVENT_INTERFACE_ALTERNATE as i64);
     map.insert("MIMHID_CONTROL_ACTION_LEAVE".to_owned(), MIMHID_CONTROL_ACTION_LEAVE as i64);
     map.insert("MIMHID_CONTROL_ACTION_ANSWER".to_owned(), MIMHID_CONTROL_ACTION_ANSWER as i64);
     map.insert("MIMHID_CONTROL_ACTION_STALL".to_owned(), MIMHID_CONTROL_ACTION_STALL as i64);
@@ -105,6 +106,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_CONTROL_FLAG_FIXED".to_owned(), MIMHID_CONTROL_FLAG_FIXED as i64);
     map.insert("MIMHID_CONTROL_FLAG_LOST".to_owned(), MIMHID_CONTROL_FLAG_LOST as i64);
     map.insert("MIMHID_CONTROL_FLAG_ACCEPTED".to_owned(), MIMHID_CONTROL_FLAG_ACCEPTED as i64);
+    map.insert("MIMHID_TRANSFER_ISOCHRONOUS".to_owned(), MIMHID_TRANSFER_ISOCHRONOUS as i64);
     map.insert("MIMHID_TRANSFER_BULK".to_owned(), MIMHID_TRANSFER_BULK as i64);
     map.insert("MIMHID_TRANSFER_INTERRUPT".to_owned(), MIMHID_TRANSFER_INTERRUPT as i64);
     map.insert("MIMHID_FULL_DROP_NEWEST".to_owned(), MIMHID_FULL_DROP_NEWEST as i64);

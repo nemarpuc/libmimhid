@@ -253,7 +253,8 @@ struct GenericInterface {
 // own entry, but the one of the first live Node on that address is the one that counts.
 struct EndpointRuntime {
     std::uint8_t address{};
-    std::uint16_t max_packet_size{};
+    std::uint16_t max_packet_size{}; // an isochronous endpoint: the largest of its settings
+    bool isochronous{}; // a transfer is one packet (USB 2.0 5.6): at most max_packet_size
     mimhid_endpoint_policy policy{};
     std::uint32_t outstanding{}; // frames written minus frames the board reported finished
     std::uint64_t epoch{};       // counts the resets of `outstanding`, which wake writers

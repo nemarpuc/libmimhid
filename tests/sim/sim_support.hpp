@@ -117,5 +117,9 @@ void test_byte_device();
 // test_sim_high_speed.cpp
 void test_high_speed_rules();
 #endif
+#ifdef SIM_ISO
+// test_sim_isochronous.cpp
+void test_isochronous();
+#endif
 
 } // namespace sim

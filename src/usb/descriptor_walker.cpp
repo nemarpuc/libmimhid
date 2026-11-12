@@ -7,6 +7,8 @@
 
 #include "usb/descriptor_walker.hpp"
 
+#include <algorithm>
+#include <map>
 #include <set>
 
 namespace mimhid::usb {
@@ -149,8 +151,17 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
         return refuse(error, MIMHID_ERR_PARAM, kConfig,
                       "bmAttributes has bit 7 set and bits 4..0 zero (USB 2.0 9.6.3).", 7, c[7]);
 
-    // The interfaces, their endpoints and the descriptors between them.
-    std::set<std::uint8_t> addresses;
+    // The interfaces, their settings, their endpoints and the descriptors between them.
+    struct Owner {
+        std::uint8_t interface_number;
+        std::uint8_t attributes;
+        std::uint16_t max_packet_size;
+        std::uint8_t interval;
+    };
+    std::map<std::uint8_t, Owner> owners;   // address -> the interface that has it, in any setting
+    std::set<std::uint8_t> setting_addresses; // the addresses of the setting being walked
+    std::vector<std::uint8_t> settings;       // settings of each interface so far
+    std::uint8_t interface_number = 0, alternate = 0; // of the interface descriptor walked
     std::uint32_t pos = 9U;
     bool inside = false;       // after an interface descriptor
     std::uint8_t declared = 0; // bNumEndpoints of the interface
@@ -196,66 +207,153 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
                               "that follows it; that number is in length.",
                               pos + 2U, out->interface_count);
             break;
-        case kTypeInterface:
-            // 9.6.5: 9 bytes, the number is the index of the interface (0, 1, 2, ...), and no
-            // alternate setting but 0.
+        case kTypeInterface: {
+            // 9.6.5: 9 bytes, the number is the index of the interface (0, 1, 2, ...), and its
+            // alternate settings follow its setting 0 as 1, 2, ... in order. Nothing comes between
+            // the settings of an interface (an association, in particular, does not).
             if (l != 9U)
                 return refuse(error, MIMHID_ERR_PARAM, kConfig,
                               "An interface descriptor is 9 bytes (USB 2.0 9.6.5).", pos, l);
-            if (c[pos + 2U] != out->interface_count)
-                return refuse(error, MIMHID_ERR_PARAM, kConfig,
-                              "Interface numbers are 0, 1, 2, ... in order; the number expected "
-                              "is in length.",
-                              pos + 2U, out->interface_count);
-            if (c[pos + 3U] != 0U)
-                return refuse(error, MIMHID_ERR_UNSUPPORTED, kConfig,
-                              "An alternate setting other than 0 is not supported.", pos + 3U,
-                              c[pos + 3U]);
-            if (out->interface_count >= lim.max_interfaces)
-                return refuse(error, MIMHID_ERR_OVERFLOW, kConfig,
-                              "The interfaces exceed the board's maximum interfaces "
-                              "(mimhid_board_limits.max_interfaces_any).",
-                              static_cast<std::uint32_t>(lim.max_interfaces),
-                              out->interface_count + 1U);
-            if (group_left != 0U)
-                --group_left;
-            group_pending = false;
+            const std::uint8_t number = c[pos + 2U];
+            const std::uint8_t alt = c[pos + 3U];
+            if (alt == 0U) {
+                if (number != out->interface_count)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "Interface numbers are 0, 1, 2, ... in order; the number "
+                                  "expected is in length.",
+                                  pos + 2U, out->interface_count);
+                if (out->interface_count >= lim.max_interfaces)
+                    return refuse(error, MIMHID_ERR_OVERFLOW, kConfig,
+                                  "The interfaces exceed the board's maximum interfaces "
+                                  "(mimhid_board_limits.max_interfaces_any).",
+                                  static_cast<std::uint32_t>(lim.max_interfaces),
+                                  out->interface_count + 1U);
+                if (group_left != 0U)
+                    --group_left;
+                group_pending = false;
+                ++out->interface_count;
+                settings.push_back(1U);
+            } else {
+                if (out->interface_count == 0U || number != out->interface_count - 1U ||
+                    group_pending)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "An alternate setting follows the setting before it of the "
+                                  "same interface, with nothing between them; the number of the "
+                                  "interface expected is in length.",
+                                  pos + 2U,
+                                  out->interface_count == 0U ? 0U : out->interface_count - 1U);
+                if (alt != settings[number] || settings[number] == 255U)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "The alternate settings of an interface are 0, 1, 2, ... in "
+                                  "order; the setting expected is in length.",
+                                  pos + 3U, settings[number]);
+                ++settings[number];
+            }
             inside = true;
             declared = c[pos + 4U];
             seen = 0;
             itf_at = pos;
-            ++out->interface_count;
+            interface_number = number;
+            alternate = alt;
+            setting_addresses.clear();
             break;
+        }
         case kTypeEndpoint: {
-            if (!inside || l != 7U || seen >= declared)
+            // 7 bytes, or 9 with the bRefresh and bSynchAddress of an audio-class endpoint; the
+            // board reads no class, and the two bytes are served as given.
+            if (!inside || (l != 7U && l != 9U) || seen >= declared)
                 return refuse(error, MIMHID_ERR_PARAM, kConfig,
-                              "An endpoint descriptor is 7 bytes and follows the interface that "
-                              "announced it (bNumEndpoints).",
+                              "An endpoint descriptor is 7 bytes (9 for the audio-class form) "
+                              "and follows the interface that announced it (bNumEndpoints).",
                               pos, l);
             ++seen;
             const std::uint8_t attributes = c[pos + 3U];
-            if (attributes != MIMHID_TRANSFER_BULK && attributes != MIMHID_TRANSFER_INTERRUPT)
-                return refuse(error, MIMHID_ERR_UNSUPPORTED, kConfig,
-                              "bmAttributes of an endpoint is 2 (bulk) or 3 (interrupt) and "
-                              "nothing else: the board has no isochronous endpoints.",
-                              pos + 3U, attributes);
+            const std::uint8_t xfer = attributes & 0x03U;
             mimhid_usb_endpoint ep{};
             ep.address = c[pos + 2U];
-            ep.transfer_type = attributes;
-            ep.max_packet_size = le16(&c[pos + 4U]);
             ep.interval = c[pos + 6U];
-            ComposerError shape;
-            if (check_endpoint_shape(ep, lim, 0, &shape) != MIMHID_OK) {
-                // The rule that was broken, at the place in the caller's bytes.
-                return refuse(error, shape.result, kConfig, shape.reason, pos + 2U, shape.offset);
+            ep.max_packet_size = le16(&c[pos + 4U]);
+            if (xfer == MIMHID_TRANSFER_ISOCHRONOUS) {
+                // 5.6.3, 9.6.6: bits 5..2 of bmAttributes are the synchronization and usage type
+                // and bits 7..6 are reserved; a packet of 1 to the largest the board takes (one
+                // transaction per frame: the bits that name more are above that); bInterval 1 at
+                // full speed, an exponent 1 to 16 at high speed.
+                if ((lim.transfer_types & (1U << MIMHID_TRANSFER_ISOCHRONOUS)) == 0U)
+                    return refuse(error, MIMHID_ERR_UNSUPPORTED, kConfig,
+                                  "The board has no isochronous endpoints "
+                                  "(mimhid_board_limits.transfer_types).",
+                                  pos + 3U, attributes);
+                if ((attributes & 0xC0U) != 0U)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "Bits 7..6 of bmAttributes are reserved and zero (USB 2.0 "
+                                  "9.6.6).",
+                                  pos + 3U, attributes);
+                const std::size_t largest =
+                    std::min<std::size_t>(lim.max_transfer_bytes, lim.high_speed ? 1024U : 1023U);
+                if ((ep.address & 0x70U) != 0U || (ep.address & 0x0FU) == 0U ||
+                    (ep.address & 0x0FU) > lim.max_endpoint_number)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "An endpoint address has bits 6..4 zero and a number from 1 to "
+                                  "the highest the board's controller has.",
+                                  pos + 2U, ep.address);
+                if (ep.max_packet_size == 0U || ep.max_packet_size > largest)
+                    return refuse(error, MIMHID_ERR_OVERFLOW, kConfig,
+                                  "An isochronous packet is 1 to the board's largest (1023 "
+                                  "bytes at full speed, 1024 at high speed, and no more than "
+                                  "mimhid_board_limits.max_transfer_bytes).",
+                                  pos + 4U, ep.max_packet_size);
+                if (lim.high_speed ? (ep.interval == 0U || ep.interval > 16U) : ep.interval != 1U)
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  lim.high_speed
+                                      ? "bInterval of an isochronous endpoint is 1 to 16 at "
+                                        "high speed (USB 2.0 9.6.6)."
+                                      : "bInterval of an isochronous endpoint is 1 at full "
+                                        "speed (USB 2.0 9.6.6).",
+                                  pos + 6U, ep.interval);
+            } else {
+                if (attributes != MIMHID_TRANSFER_BULK && attributes != MIMHID_TRANSFER_INTERRUPT)
+                    return refuse(error, MIMHID_ERR_UNSUPPORTED, kConfig,
+                                  "bmAttributes of an endpoint is 1 (isochronous, with the "
+                                  "synchronization bits), 2 (bulk) or 3 (interrupt).",
+                                  pos + 3U, attributes);
+                ep.transfer_type = attributes;
+                ComposerError shape;
+                if (check_endpoint_shape(ep, lim, 0, &shape) != MIMHID_OK) {
+                    // The rule that was broken, at the place in the caller's bytes.
+                    return refuse(error, shape.result, kConfig, shape.reason, pos + 2U,
+                                  shape.offset);
+                }
             }
-            if (!addresses.insert(ep.address).second)
+            if (!setting_addresses.insert(ep.address).second)
                 return refuse(error, MIMHID_ERR_PARAM, kConfig,
-                              "Two endpoints use the same address; the address is in length.",
+                              "Two endpoints of one setting use the same address; the address "
+                              "is in length.",
                               pos + 2U, ep.address);
-            out->endpoints.push_back(
-                WalkedEndpoint{ep.address, ep.transfer_type, ep.interval, ep.max_packet_size,
-                               static_cast<std::uint8_t>(out->interface_count - 1U), pos});
+            const auto owner = owners.find(ep.address);
+            if (owner == owners.end()) {
+                owners.emplace(ep.address, Owner{interface_number, attributes, ep.max_packet_size,
+                                                 ep.interval});
+            } else {
+                // Seen: in another setting of the same interface, which is how the settings share
+                // an endpoint, or in another interface, which is not allowed. The board opens a
+                // bulk or interrupt endpoint once for the whole configuration, so it is the same
+                // in every setting; an isochronous endpoint is started with the descriptor of the
+                // setting selected, so its packet size may differ.
+                const bool iso = xfer == MIMHID_TRANSFER_ISOCHRONOUS;
+                const bool same_type = (owner->second.attributes & 0x03U) == xfer;
+                if (owner->second.interface_number != interface_number || !same_type ||
+                    (!iso && (owner->second.attributes != attributes ||
+                              owner->second.max_packet_size != ep.max_packet_size ||
+                              owner->second.interval != ep.interval)))
+                    return refuse(error, MIMHID_ERR_PARAM, kConfig,
+                                  "An address is used again only by the same interface in another "
+                                  "setting, with the same type, and, for a bulk or interrupt "
+                                  "endpoint, the same descriptor; the address is in length.",
+                                  pos + 2U, ep.address);
+            }
+            out->endpoints.push_back(WalkedEndpoint{
+                ep.address, xfer, ep.interval, ep.max_packet_size, interface_number, alternate,
+                pos});
             break;
         }
         default:

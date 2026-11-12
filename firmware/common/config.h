@@ -80,7 +80,14 @@ _Static_assert(MIMHID_MAX_ENDPOINT_BYTES <= 1024, "an endpoint packet is at most
 // board is at most one endpoint packet (the slot of the queue pool below); the host sends a longer
 // one as several frames, each a multiple of the endpoint's packet size except the last (USB 2.0
 // 5.8.3: a transfer ends with a short packet).
-#define MIMHID_MAX_TRANSFER_BYTES MIMHID_MAX_ENDPOINT_BYTES
+//
+// A port with isochronous endpoints (MIMHID_ISO_BYTES, core.h) holds a whole isochronous packet in
+// one slot, so a transfer is at most the larger of the two; a bulk or interrupt transfer may then
+// be longer than its endpoint packet, and the controller sends it as several (USB 2.0 5.8.3).
+#define MIMHID_MAX_TRANSFER_BYTES                                                                  \
+    (MIMHID_ISO_BYTES > MIMHID_MAX_ENDPOINT_BYTES ? MIMHID_ISO_BYTES : MIMHID_MAX_ENDPOINT_BYTES)
+_Static_assert(MIMHID_MAX_TRANSFER_BYTES <= MIMHID_MAX_FRAME_PAYLOAD,
+               "an endpoint data frame fits the frame limit");
 _Static_assert(MIMHID_MAX_REPORT_BYTES <= MIMHID_MAX_TRANSFER_BYTES,
                "a report is one endpoint data frame");
 // The queues of the generic driver's IN endpoints are cut from one pool of slots, each holding a
@@ -88,7 +95,7 @@ _Static_assert(MIMHID_MAX_REPORT_BYTES <= MIMHID_MAX_TRANSFER_BYTES,
 // bytes is 4 KiB at full speed, 32 slots of 1024 bytes is 32 KiB at high speed: a few endpoints with
 // a depth of eight, or one with a long queue.
 #ifndef MIMHID_EP_POOL_SLOTS
-#if MIMHID_MAX_ENDPOINT_BYTES <= 64
+#if MIMHID_MAX_TRANSFER_BYTES <= 64
 #define MIMHID_EP_POOL_SLOTS 64
 #else
 #define MIMHID_EP_POOL_SLOTS 32
@@ -173,9 +180,12 @@ enum {
 
 typedef struct {
     uint8_t kind;         // MIMHID_EP_*
-    uint8_t type;         // TUSB_XFER_BULK or TUSB_XFER_INTERRUPT
-    uint16_t packet_size; // wMaxPacketSize
+    uint8_t type;         // TUSB_XFER_BULK, TUSB_XFER_INTERRUPT or TUSB_XFER_ISOCHRONOUS
+    uint16_t packet_size; // wMaxPacketSize; of an isochronous endpoint in several alternate
+                          // settings, the largest of them
     uint8_t interface;    // bInterfaceNumber it belongs to
+    uint8_t attributes;   // bmAttributes
+    uint8_t interval;     // bInterval
 } mimhid_ep_info_t;
 
 // What a walk of a staged configuration finds.
@@ -185,8 +195,10 @@ typedef struct {
                                               // group, its own number when it has none
     uint16_t itf_start[MIMHID_MAX_INTERFACES]; // offset of its descriptor in the configuration
     uint16_t itf_span[MIMHID_MAX_INTERFACES];  // bytes from there to the next interface or
-                                               // association descriptor (a group's first
-                                               // interface: to the end of the group)
+                                               // association descriptor of another interface (a
+                                               // group's first interface: to the end of the group);
+                                               // its alternate settings are inside it
+    uint8_t itf_alts[MIMHID_MAX_INTERFACES];   // alternate settings it has (1: only setting 0)
     mimhid_ep_info_t ep[2][16];                // [0] OUT, [1] IN, by endpoint number
 } mimhid_layout_t;
 
