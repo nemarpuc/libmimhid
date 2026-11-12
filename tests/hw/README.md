@@ -87,6 +87,8 @@ only one board may be connected.
 | `hw_composite` | A keyboard profile and a two-interface Node with an interface association, opened in one batch. |
 | `hw_bytes bytes` | A device given as bytes with a BOS descriptor: the target reads every descriptor and two strings back byte for byte, a vendor request is answered by a rule of the Device, bulk IN and OUT, Halt. |
 | `hw_bytes bos` | A composed Device with `bcdUSB` 0x0210 and a BOS given with `mimusb_device_set_bos`: the target reads it back. |
+| `hw_iso` | A Node with an isochronous IN endpoint in setting 1 and none in setting 0: the endpoint counts of both settings from the descriptors, `SET_INTERFACE` to each (reported as `INTERFACE_ALTERNATE` with the Node's id), 100 packets of 192 bytes read as isochronous transfers in order and whole. |
+| `hw_cdc` | A CDC-ACM function from `mimusb_cdc_acm_descriptors_make` and `mimusb_cdc_acm_rules`: the `cdc_acm` driver's `/dev/ttyACM*` appears, setting its baud rate reaches the program as `SET_LINE_CODING`, bytes go both ways. |
 | `hw_keyboard_latency [presses]` | Step 9: submit to evdev event for a keyboard profile, with the event device grabbed. Compare versions over several runs each: one run's median moves by some 0.3 ms from one enumeration to the next. |
 
 Each prints `PASSED` or what failed and returns nonzero on a failure. They do not replace the

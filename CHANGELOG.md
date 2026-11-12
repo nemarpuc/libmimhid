@@ -8,12 +8,32 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [0.5.0] - 2026-11-12
 
-**Not hardware-verified.** Nothing of this release was run on a board: the simulated board (the
-firmware core on a fake HAL) and the scripted board cover it. The wire protocol and the firmware
-behaviour are unchanged from 0.4.0; the firmware images differ only in the version they report.
+**Hardware-verified on 2026-11-13 (see "Run on a board") for the parts listed there.** The wire
+protocol and the firmware behaviour are unchanged from 0.4.0; the firmware images differ only in the
+version they report, and a 0.4.0 board has to be flashed with this release's firmware, because the
+library refuses a board of another minor version.
 The C ABI changes (`mimusb_usb_endpoint` is 12 bytes, `mimusb_usb_interface` has `settings`), so a
 program built against 0.4.0 needs the changes below, and the shared library keeps SOVERSION 0
 while the version is 0.x.
+
+### Run on a board
+
+2026-11-13, a Raspberry Pi Pico (RP2040) flashed with this release's firmware image through
+`mimusb_device_enter_bootloader`, a Prolific PL2303 adapter (7,812,500 baud), the target the same
+Linux machine (a VMware guest, both USB devices passed through). Not run: a second machine as the
+target, Windows or macOS, the RP2350, the other boards, the `mimusb_verify_*` programs, an
+isochronous OUT endpoint.
+
+- `hw_bulk wait|newest|oldest`, `hw_control_rules`, `hw_composite`, `hw_bytes`: all passed, with no
+  error on the link counters.
+- `hw_iso` (new): a Node with an isochronous IN endpoint in setting 1 and none in setting 0. The
+  target reads both settings' endpoint counts from the descriptors, selects setting 1, and receives
+  100 of 100 packets of 192 bytes in order and whole; `INTERFACE_ALTERNATE` names the Node.
+- `hw_cdc` (new): the CDC-ACM helpers. Linux binds `cdc_acm` and makes `/dev/ttyACM0`; setting the
+  baud rate on it reaches the program as `SET_LINE_CODING` with its 7-byte data stage; bytes go
+  both ways.
+- `hw_keyboard_latency 300`: 300 presses, none missed; submit to key-down median 1202 us, p99
+  1795 us.
 
 ### Added
 
