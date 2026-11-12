@@ -115,6 +115,15 @@ MIMUSB_TRANSFER_INTERRUPT = 3
 MIMUSB_FULL_DROP_NEWEST = 1
 MIMUSB_FULL_DROP_OLDEST = 2
 MIMUSB_FULL_WAIT = 3
+MIMUSB_ISO_SYNC_NONE = 0
+MIMUSB_ISO_SYNC_ASYNCHRONOUS = 1
+MIMUSB_ISO_SYNC_ADAPTIVE = 2
+MIMUSB_ISO_SYNC_SYNCHRONOUS = 3
+MIMUSB_ISO_USAGE_DATA = 0
+MIMUSB_ISO_USAGE_FEEDBACK = 1
+MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK = 2
+MIMUSB_ITEM_ENDPOINT = 1
+MIMUSB_ITEM_DESCRIPTOR = 2
 
 
 class Node(c.Structure):
@@ -318,9 +327,12 @@ class UsbEndpoint(c.Structure):
         ("address", c.c_uint8),
         ("transfer_type", c.c_uint8),
         ("interval", c.c_uint8),
-        ("reserved8", c.c_uint8),
+        ("audio_form", c.c_uint8),
         ("max_packet_size", c.c_uint16),
-        ("reserved16", c.c_uint16),
+        ("refresh", c.c_uint8),
+        ("synch_address", c.c_uint8),
+        ("sync_type", c.c_uint8),
+        ("usage_type", c.c_uint8),
         ("policy", EndpointPolicy),
     ]
 
@@ -347,6 +359,23 @@ class ControlRule(c.Structure):
     ]
 
 
+class UsbItem(c.Structure):
+    _fields_ = [
+        ("kind", c.c_uint32),
+        ("reserved", c.c_uint32),
+        ("endpoint", UsbEndpoint),
+        ("descriptor", c.POINTER(c.c_uint8)),
+        ("descriptor_length", c.c_size_t),
+    ]
+
+
+class UsbSetting(c.Structure):
+    _fields_ = [
+        ("items", c.POINTER(UsbItem)),
+        ("item_count", c.c_size_t),
+    ]
+
+
 class UsbInterface(c.Structure):
     _fields_ = [
         ("number", c.c_uint8),
@@ -354,10 +383,8 @@ class UsbInterface(c.Structure):
         ("subclass", c.c_uint8),
         ("protocol", c.c_uint8),
         ("name", c.c_char_p),
-        ("class_descriptors", c.POINTER(c.c_uint8)),
-        ("class_descriptors_length", c.c_size_t),
-        ("endpoints", c.POINTER(UsbEndpoint)),
-        ("endpoint_count", c.c_size_t),
+        ("settings", c.POINTER(UsbSetting)),
+        ("setting_count", c.c_size_t),
     ]
 
 
@@ -723,6 +750,8 @@ ABI_STRUCTS = {
     "mimusb_endpoint_policy": EndpointPolicy,
     "mimusb_usb_endpoint": UsbEndpoint,
     "mimusb_control_rule": ControlRule,
+    "mimusb_usb_item": UsbItem,
+    "mimusb_usb_setting": UsbSetting,
     "mimusb_usb_interface": UsbInterface,
     "mimusb_node_config": NodeConfig,
     "mimusb_hid_node_config": HidNodeConfig,
@@ -874,6 +903,8 @@ __all__ += [
     "EndpointPolicy",
     "UsbEndpoint",
     "ControlRule",
+    "UsbItem",
+    "UsbSetting",
     "UsbInterface",
     "NodeConfig",
     "HidNodeConfig",

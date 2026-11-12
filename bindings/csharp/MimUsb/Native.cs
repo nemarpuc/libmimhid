@@ -282,9 +282,12 @@ public struct UsbEndpoint
     public byte Address;
     public byte TransferType;
     public byte Interval;
-    public byte Reserved8;
+    public byte AudioForm;
     public ushort MaxPacketSize;
-    public ushort Reserved16;
+    public byte Refresh;
+    public byte SynchAddress;
+    public byte SyncType;
+    public byte UsageType;
     public EndpointPolicy Policy;
 }
 
@@ -311,6 +314,23 @@ public struct ControlRule
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct UsbItem
+{
+    public uint Kind;
+    public uint Reserved;
+    public UsbEndpoint Endpoint;
+    public nint Descriptor;
+    public nuint DescriptorLength;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct UsbSetting
+{
+    public nint Items;
+    public nuint ItemCount;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct UsbInterface
 {
     public byte Number;
@@ -318,10 +338,8 @@ public struct UsbInterface
     public byte Subclass;
     public byte Protocol;
     public nint Name;
-    public nint ClassDescriptors;
-    public nuint ClassDescriptorsLength;
-    public nint Endpoints;
-    public nuint EndpointCount;
+    public nint Settings;
+    public nuint SettingCount;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -778,6 +796,15 @@ public static class Native
     public const int MIMUSB_FULL_DROP_NEWEST = 1;
     public const int MIMUSB_FULL_DROP_OLDEST = 2;
     public const int MIMUSB_FULL_WAIT = 3;
+    public const int MIMUSB_ISO_SYNC_NONE = 0;
+    public const int MIMUSB_ISO_SYNC_ASYNCHRONOUS = 1;
+    public const int MIMUSB_ISO_SYNC_ADAPTIVE = 2;
+    public const int MIMUSB_ISO_SYNC_SYNCHRONOUS = 3;
+    public const int MIMUSB_ISO_USAGE_DATA = 0;
+    public const int MIMUSB_ISO_USAGE_FEEDBACK = 1;
+    public const int MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK = 2;
+    public const int MIMUSB_ITEM_ENDPOINT = 1;
+    public const int MIMUSB_ITEM_DESCRIPTOR = 2;
 
     public static readonly IReadOnlyDictionary<string, Type> AbiStructs =
         new Dictionary<string, Type>
@@ -796,6 +823,8 @@ public static class Native
             ["mimusb_endpoint_policy"] = typeof(EndpointPolicy),
             ["mimusb_usb_endpoint"] = typeof(UsbEndpoint),
             ["mimusb_control_rule"] = typeof(ControlRule),
+            ["mimusb_usb_item"] = typeof(UsbItem),
+            ["mimusb_usb_setting"] = typeof(UsbSetting),
             ["mimusb_usb_interface"] = typeof(UsbInterface),
             ["mimusb_node_config"] = typeof(NodeConfig),
             ["mimusb_hid_node_config"] = typeof(HidNodeConfig),
@@ -928,6 +957,15 @@ public static class Native
             ["MIMUSB_FULL_DROP_NEWEST"] = 1,
             ["MIMUSB_FULL_DROP_OLDEST"] = 2,
             ["MIMUSB_FULL_WAIT"] = 3,
+            ["MIMUSB_ISO_SYNC_NONE"] = 0,
+            ["MIMUSB_ISO_SYNC_ASYNCHRONOUS"] = 1,
+            ["MIMUSB_ISO_SYNC_ADAPTIVE"] = 2,
+            ["MIMUSB_ISO_SYNC_SYNCHRONOUS"] = 3,
+            ["MIMUSB_ISO_USAGE_DATA"] = 0,
+            ["MIMUSB_ISO_USAGE_FEEDBACK"] = 1,
+            ["MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK"] = 2,
+            ["MIMUSB_ITEM_ENDPOINT"] = 1,
+            ["MIMUSB_ITEM_DESCRIPTOR"] = 2,
         };
 
     [DllImport(Library, EntryPoint = "mimusb_last_error", ExactSpelling = true, CallingConvention = Call)]

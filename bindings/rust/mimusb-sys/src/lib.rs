@@ -127,6 +127,15 @@ pub const MIMUSB_TRANSFER_INTERRUPT: i32 = 3;
 pub const MIMUSB_FULL_DROP_NEWEST: i32 = 1;
 pub const MIMUSB_FULL_DROP_OLDEST: i32 = 2;
 pub const MIMUSB_FULL_WAIT: i32 = 3;
+pub const MIMUSB_ISO_SYNC_NONE: i32 = 0;
+pub const MIMUSB_ISO_SYNC_ASYNCHRONOUS: i32 = 1;
+pub const MIMUSB_ISO_SYNC_ADAPTIVE: i32 = 2;
+pub const MIMUSB_ISO_SYNC_SYNCHRONOUS: i32 = 3;
+pub const MIMUSB_ISO_USAGE_DATA: i32 = 0;
+pub const MIMUSB_ISO_USAGE_FEEDBACK: i32 = 1;
+pub const MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK: i32 = 2;
+pub const MIMUSB_ITEM_ENDPOINT: i32 = 1;
+pub const MIMUSB_ITEM_DESCRIPTOR: i32 = 2;
 
 pub type mimusb_log_sink = Option<unsafe extern "C" fn(a: *mut c_void, b: mimusb_log_level, c: *const c_char)>;
 
@@ -295,9 +304,12 @@ pub struct mimusb_usb_endpoint {
     pub address: u8,
     pub transfer_type: u8,
     pub interval: u8,
-    pub reserved8: u8,
+    pub audio_form: u8,
     pub max_packet_size: u16,
-    pub reserved16: u16,
+    pub refresh: u8,
+    pub synch_address: u8,
+    pub sync_type: u8,
+    pub usage_type: u8,
     pub policy: mimusb_endpoint_policy,
 }
 
@@ -323,16 +335,29 @@ pub struct mimusb_control_rule {
 }
 
 #[repr(C)]
+pub struct mimusb_usb_item {
+    pub kind: u32,
+    pub reserved: u32,
+    pub endpoint: mimusb_usb_endpoint,
+    pub descriptor: *const u8,
+    pub descriptor_length: usize,
+}
+
+#[repr(C)]
+pub struct mimusb_usb_setting {
+    pub items: *const mimusb_usb_item,
+    pub item_count: usize,
+}
+
+#[repr(C)]
 pub struct mimusb_usb_interface {
     pub number: u8,
     pub class_code: u8,
     pub subclass: u8,
     pub protocol: u8,
     pub name: *const c_char,
-    pub class_descriptors: *const u8,
-    pub class_descriptors_length: usize,
-    pub endpoints: *const mimusb_usb_endpoint,
-    pub endpoint_count: usize,
+    pub settings: *const mimusb_usb_setting,
+    pub setting_count: usize,
 }
 
 #[repr(C)]
