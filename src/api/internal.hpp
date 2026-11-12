@@ -12,6 +12,7 @@
 #include "mimusb.h"
 #include "transport/link.hpp"
 #include "usb/board_rule.hpp"
+#include "usb/descriptor_composer.hpp"
 
 #include <array>
 #include <atomic>
@@ -237,15 +238,33 @@ mimusb_result link_available(const struct mimusb_node* node, const char* field) 
 
 namespace mimusb::detail {
 
-// One interface of a Node opened with mimusb_node_open, copied from the caller's configuration.
+// One interface of a Node opened with mimusb_node_open, copied from the caller's configuration:
+// its settings are bAlternateSetting 0, 1, 2, ... in order, each a sequence of items.
 struct GenericInterface {
     std::uint8_t number{};
     std::uint8_t class_code{};
     std::uint8_t subclass{};
     std::uint8_t protocol{};
     std::string name;
-    std::vector<std::uint8_t> class_descriptors;
-    std::vector<mimusb_usb_endpoint> endpoints;
+    std::vector<usb::ComposerSetting> settings;
+
+    // Calls `visit(endpoint)` for every endpoint item of every setting, in bus order.
+    template <typename Visit> void for_each_endpoint(Visit&& visit) const {
+        for (const usb::ComposerSetting& setting : settings) {
+            for (const usb::ComposerItem& item : setting.items) {
+                if (item.is_endpoint)
+                    visit(item.endpoint);
+            }
+        }
+    }
+    template <typename Visit> void for_each_endpoint(Visit&& visit) {
+        for (usb::ComposerSetting& setting : settings) {
+            for (usb::ComposerItem& item : setting.items) {
+                if (item.is_endpoint)
+                    visit(item.endpoint);
+            }
+        }
+    }
 };
 
 // What the library knows of an IN endpoint of a Node while it is open. The counters are

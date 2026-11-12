@@ -25,6 +25,8 @@ struct HandWritten {
     std::vector<std::uint8_t> descriptor;
     std::uint8_t hid[9]{};
     mimusb_usb_endpoint endpoint{};
+    mimusb_usb_item items[2]{};
+    mimusb_usb_setting setting{};
     mimusb_usb_interface itf{};
     mimusb_control_rule rule{};
     mimusb_node_config config{};
@@ -42,10 +44,12 @@ struct HandWritten {
         itf.number = number;
         itf.class_code = 0x03;
         itf.name = "hand written";
-        itf.class_descriptors = hid;
-        itf.class_descriptors_length = sizeof(hid);
-        itf.endpoints = &endpoint;
-        itf.endpoint_count = 1;
+        items[0] = mimusb_usb_item_make_descriptor(hid, sizeof(hid));
+        items[1] = mimusb_usb_item_make_endpoint(endpoint);
+        setting.items = items;
+        setting.item_count = 2;
+        itf.settings = &setting;
+        itf.setting_count = 1;
         mimusb_node_config_init(&config);
         config.interfaces = &itf;
         config.interface_count = 1;

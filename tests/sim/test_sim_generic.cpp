@@ -36,6 +36,9 @@ mimusb_usb_endpoint endpoint(std::uint8_t address, std::uint8_t type, std::uint8
 // One vendor-class interface (class 0xFF) with the given endpoints.
 struct Vendor {
     std::vector<mimusb_usb_endpoint> eps;
+    std::vector<std::uint8_t> class_bytes; // one whole class descriptor, before the endpoints
+    std::vector<mimusb_usb_item> items;
+    mimusb_usb_setting setting{};
     mimusb_usb_interface itf{};
     mimusb_node_config config;
     explicit Vendor(std::vector<mimusb_usb_endpoint> endpoints, std::uint8_t number = 0)
@@ -44,16 +47,23 @@ struct Vendor {
         itf.class_code = 0xFF;
         itf.subclass = 1;
         itf.protocol = 2;
-        itf.endpoints = eps.data();
-        itf.endpoint_count = eps.size();
         mimusb_node_config_init(&config);
-        config.interfaces = &itf;
         config.interface_count = 1;
+        refresh();
     }
     void refresh() {
-        config.interfaces = &itf; // after a copy it would point at the other object
-        itf.endpoints = eps.data();
-        itf.endpoint_count = eps.size();
+        // After a copy the pointers would point at the other object.
+        items.clear();
+        if (!class_bytes.empty())
+            items.push_back(
+                mimusb_usb_item_make_descriptor(class_bytes.data(), class_bytes.size()));
+        for (const mimusb_usb_endpoint& ep : eps)
+            items.push_back(mimusb_usb_item_make_endpoint(ep));
+        setting.items = items.data();
+        setting.item_count = items.size();
+        itf.settings = &setting;
+        itf.setting_count = 1;
+        config.interfaces = &itf;
     }
 };
 
@@ -426,7 +436,7 @@ void open_checks() {
         Vendor v({endpoint(0x81, MIMUSB_TRANSFER_BULK), endpoint(0x81, MIMUSB_TRANSFER_BULK)});
         expect(v, MIMUSB_ERR_PARAM, "address");
         v = Vendor({endpoint(0x81, MIMUSB_TRANSFER_BULK), endpoint(0x01, MIMUSB_TRANSFER_BULK)});
-        v.eps[1].reserved8 = 1;
+        v.eps[1].audio_form = 2;
         expect(v, MIMUSB_ERR_PARAM);
     }
     // Transfer type.
@@ -487,18 +497,12 @@ void open_checks() {
         const std::uint8_t zero_length[] = {1, 0x24};
         const std::uint8_t too_long[] = {9, 0x24, 0};
         Vendor v = base();
-        v.itf.class_descriptors = good;
-        v.itf.class_descriptors_length = sizeof(good);
+        v.class_bytes.assign(good, good + sizeof(good));
         expect(v, MIMUSB_OK);
-        v.itf.class_descriptors = zero_length;
-        v.itf.class_descriptors_length = sizeof(zero_length);
-        expect(v, MIMUSB_ERR_PARAM, "class_descriptors");
-        v.itf.class_descriptors = too_long;
-        v.itf.class_descriptors_length = sizeof(too_long);
-        expect(v, MIMUSB_ERR_PARAM, "class_descriptors");
-        v.itf.class_descriptors = nullptr;
-        v.itf.class_descriptors_length = 3;
-        expect(v, MIMUSB_ERR_PARAM);
+        v.class_bytes.assign(zero_length, zero_length + sizeof(zero_length));
+        expect(v, MIMUSB_ERR_PARAM, "descriptor");
+        v.class_bytes.assign(too_long, too_long + sizeof(too_long));
+        expect(v, MIMUSB_ERR_PARAM, "descriptor");
     }
     // Association: 8 bytes of type 0x0B naming this Node's interfaces.
     {
@@ -563,8 +567,7 @@ void strings() {
     const std::uint8_t desc[] = {5, 0x24, 0x01, first, 0};
     Vendor v({endpoint(0x81, MIMUSB_TRANSFER_BULK)});
     v.itf.name = "Data";
-    v.itf.class_descriptors = desc;
-    v.itf.class_descriptors_length = sizeof(desc);
+    v.class_bytes.assign(desc, desc + sizeof(desc));
     mimusb_node* node = nullptr;
     MIMUSB_CHECK(open_vendor(device, &v, &node) == MIMUSB_OK);
     char text[64];
@@ -610,28 +613,30 @@ void association_beside_hid() {
     const std::uint8_t call[] = {5, 0x24, 0x01, 0x00, 0x03};
     const std::uint8_t acm[] = {4, 0x24, 0x02, 0x02};
     const std::uint8_t onion[] = {5, 0x24, 0x06, 0x02, 0x03};
-    std::vector<std::uint8_t> comm_class;
-    for (const auto* d : {header, call, onion})
-        comm_class.insert(comm_class.end(), d, d + 5);
-    comm_class.insert(comm_class.end(), acm, acm + 4);
-    const mimusb_usb_endpoint comm_eps[] = {
-        endpoint(0x83, MIMUSB_TRANSFER_INTERRUPT, MIMUSB_FULL_DROP_NEWEST, 2)};
-    const mimusb_usb_endpoint data_eps[] = {
-        endpoint(0x84, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_WAIT, 4),
-        endpoint(0x04, MIMUSB_TRANSFER_BULK)};
+    const mimusb_usb_endpoint comm_ep =
+        endpoint(0x83, MIMUSB_TRANSFER_INTERRUPT, MIMUSB_FULL_DROP_NEWEST, 2);
+    const mimusb_usb_item comm_items[] = {
+        mimusb_usb_item_make_descriptor(header, sizeof(header)),
+        mimusb_usb_item_make_descriptor(call, sizeof(call)),
+        mimusb_usb_item_make_descriptor(onion, sizeof(onion)),
+        mimusb_usb_item_make_descriptor(acm, sizeof(acm)),
+        mimusb_usb_item_make_endpoint(comm_ep)};
+    const mimusb_usb_item data_items[] = {
+        mimusb_usb_item_make_endpoint(endpoint(0x84, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_WAIT, 4)),
+        mimusb_usb_item_make_endpoint(endpoint(0x04, MIMUSB_TRANSFER_BULK))};
+    const mimusb_usb_setting comm_setting = {comm_items, 5};
+    const mimusb_usb_setting data_setting = {data_items, 2};
     mimusb_usb_interface itfs[2] = {};
     itfs[0].number = 2;
     itfs[0].class_code = 0x02;
     itfs[0].subclass = 0x02;
     itfs[0].protocol = 0x01;
-    itfs[0].class_descriptors = comm_class.data();
-    itfs[0].class_descriptors_length = comm_class.size();
-    itfs[0].endpoints = comm_eps;
-    itfs[0].endpoint_count = 1;
+    itfs[0].settings = &comm_setting;
+    itfs[0].setting_count = 1;
     itfs[1].number = 3;
     itfs[1].class_code = 0x0A;
-    itfs[1].endpoints = data_eps;
-    itfs[1].endpoint_count = 2;
+    itfs[1].settings = &data_setting;
+    itfs[1].setting_count = 1;
     const std::uint8_t association[] = {8, 0x0B, 2, 2, 0x02, 0x02, 0x01, 0};
     mimusb_node_config config;
     mimusb_node_config_init(&config);

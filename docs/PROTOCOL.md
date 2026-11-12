@@ -103,7 +103,7 @@ The interface number (`mimusb_usb_interface.number`, `mimusb_hid_node_config.int
 49.. the chip's unique id, n bytes
 ```
 
-All wider values are little endian. The length is `49 + n` (the minimum, `MIMUSB_PONG_MIN_LEN`, is 49). (Version 0.2.0 added byte 34 and moved the unique id; version 0.3.0 added bytes 36 to 48 and moved it again, and zeroed the bytes 5, 21..22 and 25..26 that no longer mean anything; the length byte stays at 35.) The host reads `max_control_data_bytes` as the largest Feature answer and the answer memory as the largest report descriptor and Feature answers together. A reader ignores bytes past the ones it knows. `chip` is `0` (unknown), `1` RP2040, `2` RP2350, `3` ESP32-S3, `4` nRF52840, `5` STM32F4.
+All wider values are little endian. The length is `49 + n` (the minimum, `MIMUSB_PONG_MIN_LEN`, is 49). (Bytes 5, 21..22 and 25..26 are zero; the length byte is 35.) The host reads `max_control_data_bytes` as the largest Feature answer and the answer memory as the largest report descriptor and Feature answers together. A reader ignores bytes past the ones it knows. `chip` is `0` (unknown), `1` RP2040, `2` RP2350, `3` ESP32-S3, `4` nRF52840, `5` STM32F4.
 
 **Versions.** The firmware and the library of one release speak the same protocol. A host talks to a board whose `fw_major` and `fw_minor` equal its own; `fw_patch` never changes the wire. The first four bytes keep their place in every release, so the host can read them from any board: it lists a board of another major or minor version in `mimusb_discover` with only those values (`firmware_compatible` 0), and refuses to open it with `MIMUSB_ERR_PROTOCOL`. A change of the frame format or of any layout in this document raises the minor number.
 

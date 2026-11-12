@@ -203,8 +203,11 @@ static int run_bos(mimusb_device* device, const char* port, uint32_t baud) {
     itf.class_code = 0xFF;
     itf.subclass = 1;
     itf.protocol = 2;
-    itf.endpoints = eps;
-    itf.endpoint_count = 2;
+    const mimusb_usb_item items[2] = {mimusb_usb_item_make_endpoint(eps[0]),
+                                      mimusb_usb_item_make_endpoint(eps[1])};
+    const mimusb_usb_setting setting = {items, 2};
+    itf.settings = &setting;
+    itf.setting_count = 1;
     mimusb_node_config nc;
     mimusb_node_config_init(&nc);
     nc.interfaces = &itf;

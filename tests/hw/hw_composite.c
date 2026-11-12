@@ -81,13 +81,18 @@ int main(void) {
     itf[0].number = 1;
     itf[0].class_code = 0xFF;
     itf[0].name = "Control";
-    itf[0].endpoints = e1;
-    itf[0].endpoint_count = 1;
+    const mimusb_usb_item it1[1] = {mimusb_usb_item_make_endpoint(e1[0])};
+    const mimusb_usb_item it2[2] = {mimusb_usb_item_make_endpoint(e2[0]),
+                                    mimusb_usb_item_make_endpoint(e2[1])};
+    const mimusb_usb_setting st1 = {it1, 1};
+    const mimusb_usb_setting st2 = {it2, 2};
+    itf[0].settings = &st1;
+    itf[0].setting_count = 1;
     itf[1].number = 2;
     itf[1].class_code = 0xFF;
     itf[1].name = "Data";
-    itf[1].endpoints = e2;
-    itf[1].endpoint_count = 2;
+    itf[1].settings = &st2;
+    itf[1].setting_count = 1;
     const uint8_t iad[8] = {8, 0x0B, 1, 2, 0xFF, 0, 0, 0}; // first interface 1, two interfaces
     mimusb_node_config nc;
     mimusb_node_config_init(&nc);

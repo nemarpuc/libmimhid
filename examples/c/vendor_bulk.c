@@ -72,8 +72,11 @@ int main(void) {
     interface_config.number = 0;
     interface_config.class_code = 0xFF; // vendor specific
     interface_config.name = "Data";
-    interface_config.endpoints = endpoints;
-    interface_config.endpoint_count = 2;
+    const mimusb_usb_item items[2] = {mimusb_usb_item_make_endpoint(endpoints[0]),
+                                      mimusb_usb_item_make_endpoint(endpoints[1])};
+    const mimusb_usb_setting setting = {items, 2};
+    interface_config.settings = &setting;
+    interface_config.setting_count = 1;
 
     mimusb_node_config node_config;
     mimusb_node_config_init(&node_config);

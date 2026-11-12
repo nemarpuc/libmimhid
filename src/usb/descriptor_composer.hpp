@@ -21,15 +21,27 @@
 
 namespace mimusb::usb {
 
-// One interface of a Node.
+// One item of a setting, in bus order: an endpoint (its descriptor is made from `endpoint`) or a
+// descriptor given as bytes (one whole descriptor, placed as given).
+struct ComposerItem {
+    bool is_endpoint{false};
+    mimusb_usb_endpoint endpoint{};
+    std::vector<std::uint8_t> descriptor;
+};
+
+// One alternate setting of an interface.
+struct ComposerSetting {
+    std::vector<ComposerItem> items;
+};
+
+// One interface of a Node: its settings are bAlternateSetting 0, 1, 2, ... in order.
 struct ComposerInterface {
     std::uint8_t number{};
     std::uint8_t class_code{};
     std::uint8_t subclass{};
     std::uint8_t protocol{};
-    std::u16string name;                         // empty: the interface has no string
-    std::vector<std::uint8_t> class_descriptors; // placed after the Interface descriptor as given
-    std::vector<mimusb_usb_endpoint> endpoints;
+    std::u16string name; // empty: the interface has no string
+    std::vector<ComposerSetting> settings;
 };
 
 // The interfaces of one Node and the association that holds them together, if it has one.
@@ -79,16 +91,11 @@ struct ComposedString {
     std::vector<std::uint8_t> descriptor;
 };
 
-struct ComposedInterface {
-    std::uint8_t number{};
-    std::vector<mimusb_usb_endpoint> endpoints;
-};
-
 struct Composed {
     std::vector<std::uint8_t> device;          // 18 bytes (USB 2.0 9.6.1)
     std::vector<std::uint8_t> configuration;   // the whole configuration descriptor (9.6.3)
     std::vector<ComposedString> strings;       // by index, then language; index 0 is the board's
-    std::vector<ComposedInterface> interfaces; // in interface number order
+    std::size_t interface_count{};            // interfaces in the configuration
 };
 
 // What went wrong when a configuration cannot be composed. `offset` carries the number that
@@ -114,9 +121,9 @@ constexpr std::uint8_t kStringFirstFree = 5;
 std::size_t queue_slots(std::uint8_t depth, std::uint8_t on_full) noexcept;
 
 // The checks of one endpoint that do not depend on how it was given: its address, the transfer
-// type and packet size the board takes, the interval, the reserved fields. The policy of an IN
-// endpoint and the uniqueness of the address are the caller's. MIMUSB_OK, or the rule broken, in
-// `error`.
+// type and packet size the board takes, the interval, the audio form. Where it may appear (not an
+// isochronous endpoint in setting 0), its policy and the uniqueness of its address are the
+// caller's. MIMUSB_OK, or the rule broken, in `error`.
 mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const ComposerLimits& lim,
                                    std::uint16_t node_id, ComposerError* error);
 

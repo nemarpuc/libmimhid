@@ -88,10 +88,14 @@ void test_generic_frames() {
     mimusb_usb_endpoint eps[] = {ep(0x81, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_WAIT, 3),
                                  ep(0x82, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_DROP_OLDEST, 2),
                                  ep(0x01, MIMUSB_TRANSFER_BULK, 0, 0)};
+    const mimusb_usb_item items[] = {mimusb_usb_item_make_endpoint(eps[0]),
+                                     mimusb_usb_item_make_endpoint(eps[1]),
+                                     mimusb_usb_item_make_endpoint(eps[2])};
+    const mimusb_usb_setting setting = {items, 3};
     mimusb_usb_interface itf{};
     itf.class_code = 0xFF;
-    itf.endpoints = eps;
-    itf.endpoint_count = 3;
+    itf.settings = &setting;
+    itf.setting_count = 1;
     mimusb_node_config config;
     mimusb_node_config_init(&config);
     config.interfaces = &itf;

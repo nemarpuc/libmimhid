@@ -27,13 +27,16 @@ enum class Direction { none, in, out };
 // The direction of `address` among the endpoints of the Node: none when it has no such endpoint.
 Direction endpoint_direction(const mimusb_node* node, const std::uint8_t address) {
     if (node->generic) {
+        bool found = false;
         for (const mimusb::detail::GenericInterface& itf : node->interfaces) {
-            for (const mimusb_usb_endpoint& ep : itf.endpoints) {
+            itf.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
                 if (ep.address == address)
-                    return (address & 0x80U) != 0U ? Direction::in : Direction::out;
-            }
+                    found = true;
+            });
         }
-        return Direction::none;
+        if (!found)
+            return Direction::none;
+        return (address & 0x80U) != 0U ? Direction::in : Direction::out;
     }
     if (node->config.ep_in.address == address)
         return Direction::in;
@@ -392,10 +395,10 @@ mimusb_result MIMUSB_CALL mimusb_node_endpoint_set_policy(mimusb_node* node, con
         device->endpoint_cv.notify_all();
         // The copy the composer reads at the next commit.
         for (mimusb::detail::GenericInterface& itf : node->interfaces) {
-            for (mimusb_usb_endpoint& e : itf.endpoints) {
+            itf.for_each_endpoint([&](mimusb_usb_endpoint& e) {
                 if (e.address == address)
                     e.policy = *policy;
-            }
+            });
         }
         device->dirty = device->dirty || !live;
         return MIMUSB_OK;

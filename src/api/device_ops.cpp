@@ -494,8 +494,7 @@ mimusb_result groups_of_nodes(const std::vector<mimusb_node*>& nodes,
                 made.subclass = itf.subclass;
                 made.protocol = itf.protocol;
                 utf16_from_utf8(itf.name.c_str(), &made.name);
-                made.class_descriptors = itf.class_descriptors;
-                made.endpoints = itf.endpoints;
+                made.settings = itf.settings;
                 group.interfaces.push_back(std::move(made));
             }
             groups->push_back(std::move(group));
@@ -1221,11 +1220,14 @@ std::uint16_t node_of_endpoint(mimusb_device* device, const std::uint32_t addres
             continue;
         if (node->generic) {
             for (const GenericInterface& itf : node->interfaces) {
-                for (const mimusb_usb_endpoint& ep : itf.endpoints) {
-                    if (ep.address == address) {
-                        *interface_number = itf.number;
-                        return public_node_id(node);
-                    }
+                bool owns = false;
+                itf.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
+                    if (ep.address == address)
+                        owns = true;
+                });
+                if (owns) {
+                    *interface_number = itf.number;
+                    return public_node_id(node);
                 }
             }
         } else if (node->config.ep_in.address == address ||
@@ -1240,6 +1242,25 @@ std::uint16_t node_of_endpoint(mimusb_device* device, const std::uint32_t addres
         const auto found = device->bytes.interface_of.find(static_cast<std::uint8_t>(address));
         if (found != device->bytes.interface_of.end())
             *interface_number = found->second;
+    }
+    return 0U;
+}
+
+// The public id of the live Node that owns an interface; 0 when none does (a Device given as
+// bytes has no Node).
+std::uint16_t node_of_interface(mimusb_device* device, const std::uint8_t interface_number) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    for (const mimusb_node* node : device->slots) {
+        if (node == nullptr || node->closed)
+            continue;
+        if (node->generic) {
+            for (const GenericInterface& itf : node->interfaces) {
+                if (itf.number == interface_number)
+                    return public_node_id(node);
+            }
+        } else if (node->iface == interface_number) {
+            return public_node_id(node);
+        }
     }
     return 0U;
 }
@@ -1432,11 +1453,30 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
                     ++ep.epoch;
                 }
             }
+            // The same for the IN endpoints of the Nodes' interfaces: the writers that wait on
+            // them start counting again.
+            for (mimusb_node* node : device->slots) {
+                if (node == nullptr || node->closed || !node->generic)
+                    continue;
+                for (const GenericInterface& itf : node->interfaces) {
+                    if (itf.number != d[0])
+                        continue;
+                    itf.for_each_endpoint([&](const mimusb_usb_endpoint& e) {
+                        for (EndpointRuntime& ep : node->in_endpoints) {
+                            if (ep.address == e.address) {
+                                ep.outstanding = 0U;
+                                ++ep.epoch;
+                            }
+                        }
+                    });
+                }
+            }
         }
         device->endpoint_cv.notify_all();
         event.kind = MIMUSB_EVENT_INTERFACE_ALTERNATE;
         event.interface_number = d[0];
         event.value = d[1];
+        event.node_id = node_of_interface(device, d[0]);
         break;
     }
     default:

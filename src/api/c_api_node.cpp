@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <utility>
@@ -434,13 +435,11 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_n
                       "class_code is required.", 0, 0, 0, 0, in.number, 0);
             return MIMUSB_ERR_UNSET_FIELD;
         }
-        if ((in.endpoints == nullptr && in.endpoint_count != 0U) ||
-            (in.class_descriptors == nullptr && in.class_descriptors_length != 0U) ||
-            in.endpoint_count > static_cast<std::size_t>(device->board.max_endpoint_number) * 2U) {
-            set_error(MIMUSB_ERR_PARAM, "node_config.interfaces",
-                      "endpoints and class_descriptors must not be null with a nonzero count, and "
-                      "an interface has no more endpoints than the board has.",
-                      0, 0, 0, 0, in.number, 0);
+        if (in.settings == nullptr || in.setting_count == 0U || in.setting_count > 255U) {
+            set_error(MIMUSB_ERR_PARAM, "node_config.interfaces.settings",
+                      "An interface has 1 to 255 settings (bAlternateSetting 0, 1, 2, ... in "
+                      "order); settings must not be null.",
+                      0, 0, 0, 0, in.number, static_cast<std::uint32_t>(in.setting_count));
             return MIMUSB_ERR_PARAM;
         }
         if (!valid_usb_string(in.name)) {
@@ -455,20 +454,77 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_n
         copy.subclass = in.subclass;
         copy.protocol = in.protocol;
         copy.name = in.name != nullptr ? in.name : "";
-        if (in.class_descriptors_length != 0U)
-            copy.class_descriptors.assign(in.class_descriptors,
-                                          in.class_descriptors + in.class_descriptors_length);
-        if (in.endpoint_count != 0U)
-            copy.endpoints.assign(in.endpoints, in.endpoints + in.endpoint_count);
-        for (const mimusb_usb_endpoint& ep : copy.endpoints) {
-            if ((ep.address & 0x80U) != 0U && ep.policy.on_full != 0U && ep.policy.depth != 0U) {
-                mimusb::detail::EndpointRuntime runtime;
-                runtime.address = ep.address;
-                runtime.max_packet_size = ep.max_packet_size;
-                runtime.policy = ep.policy;
-                node->in_endpoints.push_back(runtime);
+        for (std::size_t s = 0U; s < in.setting_count; ++s) {
+            const mimusb_usb_setting& setting = in.settings[s];
+            if (setting.items == nullptr && setting.item_count != 0U) {
+                set_error(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.items",
+                          "items must not be null with a nonzero item_count.", 0, 0, 0, 0,
+                          in.number, static_cast<std::uint32_t>(s));
+                return MIMUSB_ERR_PARAM;
             }
+            mimusb::usb::ComposerSetting made_setting;
+            for (std::size_t k = 0U; k < setting.item_count; ++k) {
+                const mimusb_usb_item& item = setting.items[k];
+                mimusb::usb::ComposerItem made_item;
+                if (item.reserved != 0U) {
+                    set_error(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.items.reserved",
+                              "reserved must be zero.", 0, 0, 0, 0, in.number,
+                              static_cast<std::uint32_t>(k));
+                    return MIMUSB_ERR_PARAM;
+                }
+                if (item.kind == MIMUSB_ITEM_ENDPOINT) {
+                    if (item.descriptor != nullptr || item.descriptor_length != 0U) {
+                        set_error(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.items.descriptor",
+                                  "An endpoint item leaves descriptor and descriptor_length "
+                                  "zero.",
+                                  0, 0, 0, 0, in.number, static_cast<std::uint32_t>(k));
+                        return MIMUSB_ERR_PARAM;
+                    }
+                    made_item.is_endpoint = true;
+                    made_item.endpoint = item.endpoint;
+                } else if (item.kind == MIMUSB_ITEM_DESCRIPTOR) {
+                    mimusb_usb_endpoint zero{};
+                    if (item.descriptor == nullptr ||
+                        std::memcmp(&item.endpoint, &zero, sizeof(zero)) != 0) {
+                        set_error(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.items.descriptor",
+                                  "A descriptor item has a descriptor and leaves endpoint all "
+                                  "zero.",
+                                  0, 0, 0, 0, in.number, static_cast<std::uint32_t>(k));
+                        return MIMUSB_ERR_PARAM;
+                    }
+                    made_item.descriptor.assign(item.descriptor,
+                                                item.descriptor + item.descriptor_length);
+                } else {
+                    set_error(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.settings.items.kind",
+                              "kind is MIMUSB_ITEM_ENDPOINT or MIMUSB_ITEM_DESCRIPTOR.", 0, 0, 0,
+                              0, in.number, static_cast<std::uint32_t>(k));
+                    return MIMUSB_ERR_UNSET_FIELD;
+                }
+                made_setting.items.push_back(std::move(made_item));
+            }
+            copy.settings.push_back(std::move(made_setting));
         }
+        // One runtime per IN address, over all settings: an address that comes again in another
+        // setting is the same endpoint (the composer checks they agree). The largest packet is the
+        // bound of a write, and an isochronous endpoint takes one packet per write.
+        copy.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
+            if ((ep.address & 0x80U) == 0U || ep.policy.on_full == 0U || ep.policy.depth == 0U)
+                return;
+            for (mimusb::detail::EndpointRuntime& known : node->in_endpoints) {
+                if (known.address == ep.address) {
+                    known.max_packet_size = std::max(known.max_packet_size, ep.max_packet_size);
+                    return;
+                }
+            }
+            mimusb::detail::EndpointRuntime runtime;
+            runtime.address = ep.address;
+            runtime.max_packet_size = ep.max_packet_size;
+            runtime.isochronous = ep.transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS;
+            runtime.policy = ep.policy;
+            node->in_endpoints.push_back(runtime);
+        });
         node->interfaces.push_back(std::move(copy));
     }
     // The interface checks of the composer on this Node alone; the ones across Nodes (numbers
@@ -483,8 +539,7 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_n
             made.subclass = itf.subclass;
             made.protocol = itf.protocol;
             mimusb::detail::utf16_from_utf8(itf.name.c_str(), &made.name);
-            made.class_descriptors = itf.class_descriptors;
-            made.endpoints = itf.endpoints;
+            made.settings = itf.settings;
             groups[0].interfaces.push_back(std::move(made));
         }
         if (const mimusb_result r = mimusb::detail::precheck_groups(device, std::move(groups));

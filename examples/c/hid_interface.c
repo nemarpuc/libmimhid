@@ -90,10 +90,13 @@ int main(void) {
     interface_config.subclass = 1;      // boot interface (HID 1.11 4.2)
     interface_config.protocol = 1;      // keyboard (HID 1.11 4.3)
     interface_config.name = "Keyboard";
-    interface_config.class_descriptors = hid_descriptor;
-    interface_config.class_descriptors_length = sizeof(hid_descriptor);
-    interface_config.endpoints = &endpoint;
-    interface_config.endpoint_count = 1;
+    // One setting: the HID descriptor, then the endpoint, in the order they go on the bus.
+    const mimusb_usb_item items[2] = {
+        mimusb_usb_item_make_descriptor(hid_descriptor, sizeof(hid_descriptor)),
+        mimusb_usb_item_make_endpoint(endpoint)};
+    const mimusb_usb_setting setting = {items, 2};
+    interface_config.settings = &setting;
+    interface_config.setting_count = 1;
 
     // What the board does with the target's control requests for this interface. They are tried in
     // order, the first that matches wins, and a request no rule matches is stalled.

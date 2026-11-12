@@ -155,11 +155,13 @@ void test_link_lost() {
     endpoint.max_packet_size = 64;
     endpoint.interval = 1;
     endpoint.policy = {MIMUSB_FULL_DROP_NEWEST, 4};
+    const mimusb_usb_item item = mimusb_usb_item_make_endpoint(endpoint);
+    const mimusb_usb_setting setting = {&item, 1};
     mimusb_usb_interface itf{};
     itf.number = 1;
     itf.class_code = 0xFF;
-    itf.endpoints = &endpoint;
-    itf.endpoint_count = 1;
+    itf.settings = &setting;
+    itf.setting_count = 1;
     mimusb_node_config generic;
     mimusb_node_config_init(&generic);
     generic.interfaces = &itf;

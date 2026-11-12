@@ -8,6 +8,7 @@
 #include "usb/descriptor_walker.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <map>
 #include <set>
 
@@ -84,6 +85,31 @@ mimusb_result check_bos(const std::uint8_t* bos, const std::size_t length,
                       4, found);
     return MIMUSB_OK;
 }
+
+namespace {
+
+// The byte of an endpoint descriptor (at `pos`) that a refusal of the endpoint checker is about,
+// from the field it names (the same checker serves a Node's endpoints, which have no bytes).
+std::uint32_t endpoint_byte(const char* field, const std::uint32_t pos) {
+    const auto ends_with = [&](const char* suffix) {
+        const std::size_t n = std::strlen(suffix);
+        const std::size_t m = field != nullptr ? std::strlen(field) : 0U;
+        return m >= n && std::strcmp(field + (m - n), suffix) == 0;
+    };
+    if (ends_with(".max_packet_size"))
+        return pos + 4U;
+    if (ends_with(".interval"))
+        return pos + 6U;
+    if (ends_with(".transfer_type") || ends_with(".sync_type"))
+        return pos + 3U;
+    if (ends_with(".refresh"))
+        return pos + 7U;
+    if (ends_with(".audio_form"))
+        return pos;
+    return pos + 2U; // the address
+}
+
+} // namespace
 
 mimusb_result walk_descriptors(const std::uint8_t* device, const std::size_t device_length,
                                const std::uint8_t* configuration,
@@ -273,43 +299,29 @@ mimusb_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
             ep.address = c[pos + 2U];
             ep.interval = c[pos + 6U];
             ep.max_packet_size = le16(&c[pos + 4U]);
+            // The audio-class form's two bytes are served as given, and what follows the common
+            // fields is the one checker of an endpoint (check_endpoint_shape), which a Node's
+            // endpoints go through too.
+            ep.audio_form = l == 9U ? 1U : 0U;
+            if (l == 9U) {
+                ep.refresh = c[pos + 7U];
+                ep.synch_address = c[pos + 8U];
+            }
             if (xfer == MIMUSB_TRANSFER_ISOCHRONOUS) {
                 // 5.6.3, 9.6.6: bits 5..2 of bmAttributes are the synchronization and usage type
-                // and bits 7..6 are reserved; a packet of 1 to the largest the board takes (one
-                // transaction per frame: the bits that name more are above that); bInterval 1 at
-                // full speed, an exponent 1 to 16 at high speed.
-                if ((lim.transfer_types & (1U << MIMUSB_TRANSFER_ISOCHRONOUS)) == 0U)
-                    return refuse(error, MIMUSB_ERR_UNSUPPORTED, kConfig,
-                                  "The board has no isochronous endpoints "
-                                  "(mimusb_board_limits.transfer_types).",
-                                  pos + 3U, attributes);
+                // and bits 7..6 are reserved.
                 if ((attributes & 0xC0U) != 0U)
                     return refuse(error, MIMUSB_ERR_PARAM, kConfig,
                                   "Bits 7..6 of bmAttributes are reserved and zero (USB 2.0 "
                                   "9.6.6).",
                                   pos + 3U, attributes);
-                const std::size_t largest =
-                    std::min<std::size_t>(lim.max_transfer_bytes, lim.high_speed ? 1024U : 1023U);
-                if ((ep.address & 0x70U) != 0U || (ep.address & 0x0FU) == 0U ||
-                    (ep.address & 0x0FU) > lim.max_endpoint_number)
-                    return refuse(error, MIMUSB_ERR_PARAM, kConfig,
-                                  "An endpoint address has bits 6..4 zero and a number from 1 to "
-                                  "the highest the board's controller has.",
-                                  pos + 2U, ep.address);
-                if (ep.max_packet_size == 0U || ep.max_packet_size > largest)
-                    return refuse(error, MIMUSB_ERR_OVERFLOW, kConfig,
-                                  "An isochronous packet is 1 to the board's largest (1023 "
-                                  "bytes at full speed, 1024 at high speed, and no more than "
-                                  "mimusb_board_limits.max_transfer_bytes).",
-                                  pos + 4U, ep.max_packet_size);
-                if (lim.high_speed ? (ep.interval == 0U || ep.interval > 16U) : ep.interval != 1U)
-                    return refuse(error, MIMUSB_ERR_PARAM, kConfig,
-                                  lim.high_speed
-                                      ? "bInterval of an isochronous endpoint is 1 to 16 at "
-                                        "high speed (USB 2.0 9.6.6)."
-                                      : "bInterval of an isochronous endpoint is 1 at full "
-                                        "speed (USB 2.0 9.6.6).",
-                                  pos + 6U, ep.interval);
+                ep.transfer_type = xfer;
+                ep.sync_type = static_cast<std::uint8_t>((attributes >> 2U) & 0x03U);
+                ep.usage_type = static_cast<std::uint8_t>((attributes >> 4U) & 0x03U);
+                ComposerError shape;
+                if (check_endpoint_shape(ep, lim, 0, &shape) != MIMUSB_OK)
+                    return refuse(error, shape.result, kConfig, shape.reason,
+                                  endpoint_byte(shape.field, pos), shape.offset);
             } else {
                 if (attributes != MIMUSB_TRANSFER_BULK && attributes != MIMUSB_TRANSFER_INTERRUPT)
                     return refuse(error, MIMUSB_ERR_UNSUPPORTED, kConfig,

@@ -159,10 +159,22 @@ mimusb_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
         itf.subclass = first.config.subclass;
         itf.protocol = first.config.protocol;
         itf.name = first.name;
-        itf.class_descriptors = hid_descriptor(first.config, joined_descriptor(group).size());
-        itf.endpoints.push_back(first.config.ep_in);
-        if (first.config.ep_out.address != 0U || first.config.ep_out.max_packet_size != 0U)
-            itf.endpoints.push_back(first.config.ep_out);
+        // One setting: the HID descriptor, then the endpoints.
+        ComposerSetting setting;
+        ComposerItem hid;
+        hid.descriptor = hid_descriptor(first.config, joined_descriptor(group).size());
+        setting.items.push_back(std::move(hid));
+        ComposerItem in;
+        in.is_endpoint = true;
+        in.endpoint = first.config.ep_in;
+        setting.items.push_back(std::move(in));
+        if (first.config.ep_out.address != 0U || first.config.ep_out.max_packet_size != 0U) {
+            ComposerItem out_item;
+            out_item.is_endpoint = true;
+            out_item.endpoint = first.config.ep_out;
+            setting.items.push_back(std::move(out_item));
+        }
+        itf.settings.push_back(std::move(setting));
         made.interfaces.push_back(std::move(itf));
         out->push_back(std::move(made));
     }

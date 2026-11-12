@@ -148,8 +148,11 @@ int main(int argc, char** argv) {
     itf.number = 0;
     itf.class_code = 0xFF;
     itf.name = "Data";
-    itf.endpoints = eps;
-    itf.endpoint_count = 2;
+    const mimusb_usb_item items[2] = {mimusb_usb_item_make_endpoint(eps[0]),
+                                      mimusb_usb_item_make_endpoint(eps[1])};
+    const mimusb_usb_setting setting = {items, 2};
+    itf.settings = &setting;
+    itf.setting_count = 1;
     mimusb_node_config nc;
     mimusb_node_config_init(&nc);
     nc.interfaces = &itf;

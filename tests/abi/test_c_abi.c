@@ -32,19 +32,29 @@ _Static_assert(offsetof(mimusb_device_info, baud_rate) == 140, "device_info.baud
 _Static_assert(offsetof(mimusb_device_info, unique_id) == 155, "device_info.unique_id");
 _Static_assert(offsetof(mimusb_device_info, version_major) == 128, "device_info.version_major");
 
-_Static_assert(sizeof(mimusb_usb_endpoint) == 10, "usb_endpoint layout");
 _Static_assert(offsetof(mimusb_usb_endpoint, address) == 0, "usb_endpoint.address");
 _Static_assert(offsetof(mimusb_usb_endpoint, transfer_type) == 1, "usb_endpoint.transfer_type");
 _Static_assert(offsetof(mimusb_usb_endpoint, interval) == 2, "usb_endpoint.interval");
 _Static_assert(offsetof(mimusb_usb_endpoint, max_packet_size) == 4, "usb_endpoint.max_packet_size");
-_Static_assert(offsetof(mimusb_usb_endpoint, policy) == 8, "usb_endpoint.policy");
+_Static_assert(offsetof(mimusb_usb_endpoint, audio_form) == 3, "usb_endpoint.audio_form");
+_Static_assert(offsetof(mimusb_usb_endpoint, refresh) == 6, "usb_endpoint.refresh");
+_Static_assert(offsetof(mimusb_usb_endpoint, synch_address) == 7, "usb_endpoint.synch_address");
+_Static_assert(offsetof(mimusb_usb_endpoint, sync_type) == 8, "usb_endpoint.sync_type");
+_Static_assert(offsetof(mimusb_usb_endpoint, usage_type) == 9, "usb_endpoint.usage_type");
+_Static_assert(offsetof(mimusb_usb_endpoint, policy) == 10, "usb_endpoint.policy");
+_Static_assert(sizeof(mimusb_usb_endpoint) == 12, "usb_endpoint layout");
+_Static_assert(sizeof(mimusb_usb_item) == 40, "usb_item layout");
+_Static_assert(offsetof(mimusb_usb_item, endpoint) == 8, "usb_item.endpoint");
+_Static_assert(offsetof(mimusb_usb_item, descriptor) == 24, "usb_item.descriptor");
+_Static_assert(sizeof(mimusb_usb_setting) == 16, "usb_setting layout");
 _Static_assert(sizeof(mimusb_endpoint_policy) == 2, "endpoint_policy layout");
 
-_Static_assert(sizeof(mimusb_usb_interface) == 48, "usb_interface layout");
+_Static_assert(sizeof(mimusb_usb_interface) == 32, "usb_interface layout");
 _Static_assert(offsetof(mimusb_usb_interface, number) == 0, "usb_interface.number");
 _Static_assert(offsetof(mimusb_usb_interface, class_code) == 1, "usb_interface.class_code");
 _Static_assert(offsetof(mimusb_usb_interface, name) == 8, "usb_interface.name");
-_Static_assert(offsetof(mimusb_usb_interface, endpoints) == 32, "usb_interface.endpoints");
+_Static_assert(offsetof(mimusb_usb_interface, settings) == 16, "usb_interface.settings");
+_Static_assert(offsetof(mimusb_usb_interface, setting_count) == 24, "usb_interface.setting_count");
 
 _Static_assert(sizeof(mimusb_hid_node_config) == 48, "hid_node_config layout");
 _Static_assert(offsetof(mimusb_hid_node_config, bcd_hid) == 12, "hid_node_config.bcd_hid");

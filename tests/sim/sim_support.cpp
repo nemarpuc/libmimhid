@@ -219,10 +219,12 @@ mimusb_node* open_vendor_node(mimusb_device* device, const mimusb_control_rule* 
     ep.max_packet_size = 64;
     ep.interval = 1;
     ep.policy = {MIMUSB_FULL_DROP_NEWEST, 4};
+    const mimusb_usb_item item = mimusb_usb_item_make_endpoint(ep);
+    const mimusb_usb_setting setting = {&item, 1};
     mimusb_usb_interface itf{};
     itf.class_code = 0xFF;
-    itf.endpoints = &ep;
-    itf.endpoint_count = 1;
+    itf.settings = &setting;
+    itf.setting_count = 1;
     mimusb_node_config config;
     mimusb_node_config_init(&config);
     config.interfaces = &itf;

@@ -39,12 +39,18 @@ std::vector<std::uint8_t> string_descriptor(const std::u16string& units) {
 }
 
 void endpoint_descriptor(std::vector<std::uint8_t>* out, const mimusb_usb_endpoint& ep) {
-    out->push_back(7);
+    out->push_back(ep.audio_form != 0U ? 9U : 7U);
     out->push_back(kTypeEndpoint);
     out->push_back(ep.address);
-    out->push_back(ep.transfer_type);
+    // USB 2.0 Table 9-13: bits 1..0 transfer type, 3..2 synchronization type, 5..4 usage type.
+    out->push_back(static_cast<std::uint8_t>(ep.transfer_type | (ep.sync_type << 2U) |
+                                             (ep.usage_type << 4U)));
     put_u16(out, ep.max_packet_size);
     out->push_back(ep.interval);
+    if (ep.audio_form != 0U) {
+        out->push_back(ep.refresh);
+        out->push_back(ep.synch_address);
+    }
 }
 
 } // namespace
@@ -67,43 +73,82 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
     // USB 2.0 9.6.6: bits 6..4 are reserved and zero; number 0 is the control endpoint,
     // which has no endpoint descriptor.
     if ((ep.address & 0x70U) != 0U || number == 0U)
-        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.address",
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.address",
                       "An endpoint address is 0x81 to 0x8F (IN) or 0x01 to 0x0F (OUT): "
                       "bits 6..4 zero, endpoint number 1 to 15.",
                       ep.address, 0, node_id);
     if (number > lim.max_endpoint_number)
-        return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.endpoints.address",
+        return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.settings.endpoints.address",
                       "The endpoint number is above the highest the board's USB controller "
                       "has (mimusb_board_limits.max_endpoint_number).",
                       static_cast<std::uint32_t>(lim.max_endpoint_number), number, node_id);
-    if (ep.reserved8 != 0U || ep.reserved16 != 0U)
-        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.reserved",
-                      "The reserved fields of an endpoint must be zero.", ep.address, 0, node_id);
-    if (ep.transfer_type == 0U)
-        return refuse(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.transfer_type",
-                      "transfer_type is required: MIMUSB_TRANSFER_BULK or "
-                      "MIMUSB_TRANSFER_INTERRUPT.",
+    if (ep.audio_form > 1U)
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.audio_form",
+                      "audio_form is 0 (a 7-byte descriptor) or 1 (9 bytes, with refresh and "
+                      "synch_address).",
+                      ep.address, ep.audio_form, node_id);
+    if (ep.audio_form == 0U && (ep.refresh != 0U || ep.synch_address != 0U))
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.refresh",
+                      "refresh and synch_address are for audio_form 1 and are zero otherwise.",
                       ep.address, 0, node_id);
-    if (ep.transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS)
-        return refuse(MIMUSB_ERR_UNSUPPORTED, "node_config.interfaces.endpoints.transfer_type",
-                      "A Node has no isochronous endpoints: they come with alternate settings, "
-                      "which only a Device given as bytes (mimusb_device_set_descriptors) has.",
-                      ep.address, ep.transfer_type, node_id);
+    if (ep.transfer_type == 0U)
+        return refuse(MIMUSB_ERR_UNSET_FIELD,
+                      "node_config.interfaces.settings.endpoints.transfer_type",
+                      "transfer_type is required: MIMUSB_TRANSFER_ISOCHRONOUS, _BULK or "
+                      "_INTERRUPT.",
+                      ep.address, 0, node_id);
     if (ep.transfer_type > 3U)
-        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.transfer_type",
-                      "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.", ep.address,
-                      ep.transfer_type, node_id);
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.transfer_type",
+                      "transfer_type is bmAttributes bits 1..0: 1 isochronous, 2 bulk or 3 "
+                      "interrupt.",
+                      ep.address, ep.transfer_type, node_id);
     if ((lim.transfer_types & (1U << ep.transfer_type)) == 0U)
-        return refuse(MIMUSB_ERR_UNSUPPORTED, "node_config.interfaces.endpoints.transfer_type",
+        return refuse(MIMUSB_ERR_UNSUPPORTED,
+                      "node_config.interfaces.settings.endpoints.transfer_type",
                       "The board has no endpoints of this transfer type "
                       "(mimusb_board_limits.transfer_types).",
                       ep.address, ep.transfer_type, node_id);
-    if (ep.max_packet_size == 0U)
-        return refuse(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.max_packet_size",
-                      "max_packet_size must be non-zero (1 to board max_endpoint_bytes).",
+    const bool iso = ep.transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS;
+    if (!iso && (ep.sync_type != 0U || ep.usage_type != 0U))
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.sync_type",
+                      "sync_type and usage_type are for isochronous endpoints and are zero "
+                      "otherwise.",
                       ep.address, 0, node_id);
+    if (iso && (ep.sync_type > MIMUSB_ISO_SYNC_SYNCHRONOUS ||
+                ep.usage_type > MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK))
+        return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.sync_type",
+                      "sync_type is 0 to 3 and usage_type 0 to 2 (USB 2.0 Table 9-13).",
+                      ep.address, ep.sync_type, node_id);
+    if (ep.max_packet_size == 0U && !iso)
+        return refuse(MIMUSB_ERR_UNSET_FIELD,
+                      "node_config.interfaces.settings.endpoints.max_packet_size",
+                      "max_packet_size must be non-zero (1 to the board's largest packet).",
+                      ep.address, 0, node_id);
+    if (iso) {
+        // USB 2.0 5.6.3, 9.6.6: one transaction per frame, so at most 1023 bytes at full speed
+        // and 1024 at high speed, and no more than one frame to the board holds; bInterval is 1
+        // at full speed and an exponent 1 to 16 at high speed.
+        const std::size_t largest =
+            std::min<std::size_t>(lim.max_transfer_bytes, lim.high_speed ? 1024U : 1023U);
+        if (ep.max_packet_size == 0U || ep.max_packet_size > largest)
+            return refuse(MIMUSB_ERR_OVERFLOW,
+                          "node_config.interfaces.settings.endpoints.max_packet_size",
+                          "An isochronous packet is 1 to the board's largest (1023 bytes at full "
+                          "speed, 1024 at high speed, and no more than "
+                          "mimusb_board_limits.max_transfer_bytes).",
+                          static_cast<std::uint32_t>(largest), ep.max_packet_size, node_id);
+        if (lim.high_speed ? (ep.interval == 0U || ep.interval > 16U) : ep.interval != 1U)
+            return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.interval",
+                          lim.high_speed ? "bInterval of an isochronous endpoint is 1 to 16 at "
+                                           "high speed (USB 2.0 9.6.6)."
+                                         : "bInterval of an isochronous endpoint is 1 at full "
+                                           "speed (USB 2.0 9.6.6).",
+                          ep.address, ep.interval, node_id);
+        return MIMUSB_OK;
+    }
     if (ep.max_packet_size > lim.max_endpoint_bytes)
-        return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.endpoints.max_packet_size",
+        return refuse(MIMUSB_ERR_OVERFLOW,
+                      "node_config.interfaces.settings.endpoints.max_packet_size",
                       "An endpoint packet is larger than the board's endpoints hold.",
                       static_cast<std::uint32_t>(lim.max_endpoint_bytes), ep.max_packet_size,
                       node_id);
@@ -115,7 +160,8 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
                                  : (ep.max_packet_size == 8U || ep.max_packet_size == 16U ||
                                     ep.max_packet_size == 32U || ep.max_packet_size == 64U);
         if (!allowed)
-            return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.max_packet_size",
+            return refuse(MIMUSB_ERR_PARAM,
+                          "node_config.interfaces.settings.endpoints.max_packet_size",
                           lim.high_speed
                               ? "A bulk endpoint of a high-speed device has 512-byte "
                                 "packets (USB 2.0 5.8.3)."
@@ -124,12 +170,13 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
                           ep.address, ep.max_packet_size, node_id);
     } else {
         if (ep.interval == 0U)
-            return refuse(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.interval",
+            return refuse(MIMUSB_ERR_UNSET_FIELD,
+                          "node_config.interfaces.settings.endpoints.interval",
                           "An interrupt endpoint needs a bInterval (1 to 255; 1 to 16 at "
                           "high speed; USB 2.0 9.6.6).",
                           ep.address, 0, node_id);
         if (lim.high_speed && ep.interval > 16U)
-            return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.interval",
+            return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.interval",
                           "A high-speed board takes a bInterval of 1 to 16 (USB 2.0 "
                           "9.6.6).",
                           ep.address, ep.interval, node_id);
@@ -212,52 +259,120 @@ mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, Com
         }
     }
 
-    // Endpoints: addresses valid and unique over the device, numbers the controller has, types the
-    // board has, packet sizes USB allows, intervals, policies; class descriptors well formed.
-    std::set<std::uint8_t> addresses;
+    // Settings and their items. An interface has one or more settings (bAlternateSetting 0, 1, 2,
+    // ... in order, so none can be missing). An endpoint address is unique inside a setting; it may
+    // come again in another setting of the same interface (the same type, and for bulk and
+    // interrupt the same descriptor and policy: the board opens those once for the configuration;
+    // an isochronous endpoint is started with the descriptor of the setting selected, so its
+    // packet size and format may differ) and never in another interface. An isochronous endpoint
+    // is in a setting other than 0 (USB 2.0 5.6.3: the default setting carries no isochronous
+    // bandwidth). Every item that is a descriptor is one whole descriptor.
+    struct Owner {
+        std::uint32_t interface_number;
+        mimusb_usb_endpoint first;
+    };
+    std::map<std::uint8_t, Owner> owners;
     std::size_t pool_slots = 0;
     for (const auto& entry : by_number) {
         const ComposerInterface& itf = *entry.second.itf;
         const std::uint16_t node_id = entry.second.group->node_id;
-        const std::vector<std::uint8_t>& cd = itf.class_descriptors;
-        for (std::size_t at = 0; at < cd.size();) {
-            // bLength at least 2 and inside the bytes: every descriptor has bLength and type.
-            if (cd[at] < 2U || at + cd[at] > cd.size())
-                return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.class_descriptors",
-                              "A class descriptor's bLength must be at least 2 and stay inside "
-                              "the bytes; the offset of the descriptor is in offset.",
-                              static_cast<std::uint32_t>(at), static_cast<std::uint32_t>(cd.size()),
-                              node_id);
-            at += cd[at];
-        }
-        for (const mimusb_usb_endpoint& ep : itf.endpoints) {
-            const bool in = (ep.address & 0x80U) != 0U;
-            if (const mimusb_result shape = check_endpoint_shape(ep, lim, node_id, error);
-                shape != MIMUSB_OK)
-                return shape;
-            if (!addresses.insert(ep.address).second)
-                return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.address",
-                              "Two endpoints use the same address; it is in offset.", ep.address,
-                              entry.first, node_id);
-            if (in) {
-                if (ep.policy.on_full == 0U || ep.policy.depth == 0U)
-                    return refuse(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.policy",
-                                  "An IN endpoint needs a policy: on_full and depth are required.",
-                                  ep.address, 0, node_id);
-                if (ep.policy.on_full > MIMUSB_FULL_WAIT)
-                    return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.policy",
-                                  "on_full is MIMUSB_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.",
-                                  ep.address, ep.policy.on_full, node_id);
-                pool_slots += queue_slots(ep.policy.depth, ep.policy.on_full);
-            } else if (ep.policy.on_full != 0U || ep.policy.depth != 0U) {
-                return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.endpoints.policy",
-                              "The policy of an OUT endpoint must be all zero.", ep.address, 0,
-                              node_id);
+        if (itf.settings.empty())
+            return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings",
+                          "An interface has at least one setting (setting 0); the interface "
+                          "number is in offset.",
+                          itf.number, 0, node_id);
+        if (itf.settings.size() > 255U)
+            return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.settings",
+                          "An interface has at most 255 alternate settings (bAlternateSetting is "
+                          "one byte); the interface number is in offset.",
+                          itf.number, static_cast<std::uint32_t>(itf.settings.size()), node_id);
+        for (std::size_t setting_index = 0; setting_index < itf.settings.size(); ++setting_index) {
+            std::set<std::uint8_t> in_setting;
+            for (const ComposerItem& item : itf.settings[setting_index].items) {
+                if (!item.is_endpoint) {
+                    const std::vector<std::uint8_t>& d = item.descriptor;
+                    // USB 2.0 9.5: bLength, then bDescriptorType; the whole descriptor is the item.
+                    if (d.size() < 2U || d[0] != d.size())
+                        return refuse(MIMUSB_ERR_PARAM,
+                                      "node_config.interfaces.settings.items.descriptor",
+                                      "A descriptor item is one whole descriptor: its bLength is "
+                                      "at least 2 and equals descriptor_length; the interface "
+                                      "number is in offset.",
+                                      itf.number, static_cast<std::uint32_t>(d.size()), node_id);
+                    if (d[1] == kTypeInterface || d[1] == kTypeEndpoint)
+                        return refuse(MIMUSB_ERR_PARAM,
+                                      "node_config.interfaces.settings.items.descriptor",
+                                      "A descriptor item is not an Interface (4) or Endpoint (5) "
+                                      "descriptor: the library writes those from the settings "
+                                      "and endpoints.",
+                                      itf.number, d[1], node_id);
+                    continue;
+                }
+                const mimusb_usb_endpoint& ep = item.endpoint;
+                const bool in = (ep.address & 0x80U) != 0U;
+                if (const mimusb_result shape = check_endpoint_shape(ep, lim, node_id, error);
+                    shape != MIMUSB_OK)
+                    return shape;
+                if (ep.transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS && setting_index == 0U)
+                    return refuse(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.endpoints.transfer_type",
+                                  "An isochronous endpoint belongs to a setting other than 0: the "
+                                  "default setting carries no isochronous bandwidth (USB 2.0 "
+                                  "5.6.3); the address is in offset.",
+                                  ep.address, itf.number, node_id);
+                if (!in_setting.insert(ep.address).second)
+                    return refuse(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.endpoints.address",
+                                  "Two endpoints of one setting use the same address; it is in "
+                                  "offset.",
+                                  ep.address, entry.first, node_id);
+                if (in) {
+                    if (ep.policy.on_full == 0U || ep.policy.depth == 0U)
+                        return refuse(MIMUSB_ERR_UNSET_FIELD,
+                                      "node_config.interfaces.settings.endpoints.policy",
+                                      "An IN endpoint needs a policy: on_full and depth are "
+                                      "required.",
+                                      ep.address, 0, node_id);
+                    if (ep.policy.on_full > MIMUSB_FULL_WAIT)
+                        return refuse(MIMUSB_ERR_PARAM,
+                                      "node_config.interfaces.settings.endpoints.policy",
+                                      "on_full is MIMUSB_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.",
+                                      ep.address, ep.policy.on_full, node_id);
+                } else if (ep.policy.on_full != 0U || ep.policy.depth != 0U) {
+                    return refuse(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.endpoints.policy",
+                                  "The policy of an OUT endpoint must be all zero.", ep.address, 0,
+                                  node_id);
+                }
+                const auto owner = owners.find(ep.address);
+                if (owner == owners.end()) {
+                    owners.emplace(ep.address, Owner{entry.first, ep});
+                    if (in)
+                        pool_slots += queue_slots(ep.policy.depth, ep.policy.on_full);
+                    continue;
+                }
+                const mimusb_usb_endpoint& first = owner->second.first;
+                const bool iso = ep.transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS;
+                if (owner->second.interface_number != entry.first ||
+                    first.transfer_type != ep.transfer_type ||
+                    first.policy.on_full != ep.policy.on_full ||
+                    first.policy.depth != ep.policy.depth ||
+                    (!iso && (first.interval != ep.interval ||
+                              first.max_packet_size != ep.max_packet_size ||
+                              first.audio_form != ep.audio_form || first.refresh != ep.refresh ||
+                              first.synch_address != ep.synch_address)))
+                    return refuse(MIMUSB_ERR_PARAM,
+                                  "node_config.interfaces.settings.endpoints.address",
+                                  "An address is used again only by the same interface in "
+                                  "another setting, with the same type and policy and, for a "
+                                  "bulk or interrupt endpoint, the same descriptor; it is in "
+                                  "offset.",
+                                  ep.address, entry.first, node_id);
             }
         }
     }
     if (pool_slots > lim.endpoint_queue_slots)
-        return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.endpoints.policy",
+        return refuse(MIMUSB_ERR_OVERFLOW, "node_config.interfaces.settings.endpoints.policy",
                       "The queues of the IN endpoints need more slots than the board's pool "
                       "(mimusb_board_limits.endpoint_queue_slots); the slots needed are in "
                       "length.",
@@ -317,8 +432,7 @@ mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                       static_cast<std::uint32_t>(composed.strings.size()));
 
     // The Configuration descriptor with, per interface in number order, an association before
-    // its first interface, then the Interface descriptor, the class descriptors and the Endpoint
-    // descriptors.
+    // its first interface, then each setting: the Interface descriptor and the items in order.
     std::vector<std::uint8_t>& c = composed.configuration;
     c.assign(9, 0);
     for (const auto& entry : by_number) {
@@ -327,22 +441,28 @@ mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, Com
         if (!group.association.empty() && group.association[2] == itf.number)
             c.insert(c.end(), group.association.begin(), group.association.end());
         const auto name = name_index.find(entry.first);
-        c.push_back(9);
-        c.push_back(kTypeInterface);
-        c.push_back(itf.number);
-        c.push_back(0); // bAlternateSetting
-        c.push_back(static_cast<std::uint8_t>(itf.endpoints.size()));
-        c.push_back(itf.class_code);
-        c.push_back(itf.subclass);
-        c.push_back(itf.protocol);
-        c.push_back(name == name_index.end() ? 0U : name->second);
-        c.insert(c.end(), itf.class_descriptors.begin(), itf.class_descriptors.end());
-        for (const mimusb_usb_endpoint& ep : itf.endpoints)
-            endpoint_descriptor(&c, ep);
-        ComposedInterface made;
-        made.number = itf.number;
-        made.endpoints = itf.endpoints;
-        composed.interfaces.push_back(std::move(made));
+        for (std::size_t setting_index = 0; setting_index < itf.settings.size(); ++setting_index) {
+            const ComposerSetting& setting = itf.settings[setting_index];
+            std::size_t endpoints = 0;
+            for (const ComposerItem& item : setting.items)
+                endpoints += item.is_endpoint ? 1U : 0U;
+            c.push_back(9);
+            c.push_back(kTypeInterface);
+            c.push_back(itf.number);
+            c.push_back(static_cast<std::uint8_t>(setting_index)); // bAlternateSetting
+            c.push_back(static_cast<std::uint8_t>(endpoints));
+            c.push_back(itf.class_code);
+            c.push_back(itf.subclass);
+            c.push_back(itf.protocol);
+            c.push_back(name == name_index.end() ? 0U : name->second);
+            for (const ComposerItem& item : setting.items) {
+                if (item.is_endpoint)
+                    endpoint_descriptor(&c, item.endpoint);
+                else
+                    c.insert(c.end(), item.descriptor.begin(), item.descriptor.end());
+            }
+        }
+        ++composed.interface_count;
     }
     const std::size_t total = c.size();
     if (total > lim.max_config_bytes)
@@ -355,7 +475,7 @@ mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, Com
     c[1] = kTypeConfiguration;
     c[2] = static_cast<std::uint8_t>(total & 0xFFU);
     c[3] = static_cast<std::uint8_t>((total >> 8U) & 0xFFU);
-    c[4] = static_cast<std::uint8_t>(composed.interfaces.size());
+    c[4] = static_cast<std::uint8_t>(composed.interface_count);
     c[5] = cfg.configuration_value;
     c[6] = input.configuration.empty() ? 0 : kStringConfiguration;
     c[7] = cfg.bm_attributes;

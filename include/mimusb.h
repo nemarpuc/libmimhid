@@ -469,8 +469,8 @@ typedef struct mimusb_commit_timeouts {
 /* Transfer types of an endpoint: the values of bmAttributes bits 1..0 (USB 2.0 9.6.6). The board
  * has no control endpoints other than endpoint 0. Isochronous endpoints exist only on a board
  * whose mimusb_board_limits.transfer_types has bit MIMUSB_TRANSFER_ISOCHRONOUS, and only in a
- * Device given as bytes (mimusb_device_set_descriptors); mimusb_node_open refuses one with
- * MIMUSB_ERR_UNSUPPORTED. */
+ * setting of an interface other than setting 0, where they carry no bandwidth until the target
+ * selects the setting (USB 2.0 5.6.3). */
 enum { MIMUSB_TRANSFER_ISOCHRONOUS = 1, MIMUSB_TRANSFER_BULK = 2, MIMUSB_TRANSFER_INTERRUPT = 3 };
 
 /* What an IN endpoint does when `depth` transfers wait on the board for the target to read them.
@@ -490,18 +490,41 @@ typedef struct mimusb_endpoint_policy {
                         (mimusb_board_limits.endpoint_queue_slots) */
 } mimusb_endpoint_policy;
 
+/* Synchronization type and usage type of an isochronous endpoint: bmAttributes bits 3..2 and 5..4
+ * (USB 2.0 Table 9-13). Both are zero on an endpoint of any other transfer type. */
+enum {
+    MIMUSB_ISO_SYNC_NONE = 0,
+    MIMUSB_ISO_SYNC_ASYNCHRONOUS = 1,
+    MIMUSB_ISO_SYNC_ADAPTIVE = 2,
+    MIMUSB_ISO_SYNC_SYNCHRONOUS = 3
+};
+enum {
+    MIMUSB_ISO_USAGE_DATA = 0,
+    MIMUSB_ISO_USAGE_FEEDBACK = 1,
+    MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK = 2
+};
+
+/* One endpoint of a setting (USB 2.0 9.6.6). The library writes the Endpoint descriptor from these
+ * fields: 7 bytes, or 9 with audio_form 1 (bRefresh and bSynchAddress, the form of the audio and
+ * MIDI streaming classes: USB Audio 1.0 4.6.1.1, USB MIDI 1.0 6.2.1). */
 typedef struct mimusb_usb_endpoint {
     uint8_t address; /* IN: 0x81 to 0x8F; OUT: 0x01 to 0x0F: bit 7 the direction, bits 6..4 zero,
                         endpoint number 1 to 15 (USB 2.0 9.6.6); 0 for "no endpoint" where an
                         endpoint is optional */
-    uint8_t transfer_type; /* MIMUSB_TRANSFER_BULK or MIMUSB_TRANSFER_INTERRUPT */
+    uint8_t transfer_type; /* MIMUSB_TRANSFER_ISOCHRONOUS, _BULK or _INTERRUPT */
     uint8_t interval;      /* bInterval as it goes on the bus (USB 2.0 9.6.6): interrupt endpoints
                               1 to 255 (frames) at full speed, 1 to 16 (an exponent) at high
-                              speed; for bulk it is sent as given */
-    uint8_t reserved8;     /* zero */
+                              speed; isochronous 1 at full speed, 1 to 16 at high speed; for bulk
+                              it is sent as given */
+    uint8_t audio_form;    /* 0: a 7-byte descriptor; 1: 9 bytes, with refresh and synch_address */
     uint16_t max_packet_size; /* 1 to the board's max_endpoint_bytes; bulk: 8, 16, 32 or 64 at full
-                                 speed, 512 at high speed (USB 2.0 5.8.3) */
-    uint16_t reserved16;      /* zero */
+                                 speed, 512 at high speed (USB 2.0 5.8.3); isochronous: at most
+                                 1023 at full speed, 1024 at high speed, and the board's
+                                 max_transfer_bytes */
+    uint8_t refresh;       /* audio_form 1: bRefresh; otherwise zero */
+    uint8_t synch_address; /* audio_form 1: bSynchAddress; otherwise zero */
+    uint8_t sync_type;     /* MIMUSB_ISO_SYNC_*; isochronous only */
+    uint8_t usage_type;    /* MIMUSB_ISO_USAGE_*; isochronous only */
     mimusb_endpoint_policy policy; /* IN endpoints; all zero on an OUT endpoint */
 } mimusb_usb_endpoint;
 
@@ -568,26 +591,50 @@ typedef struct mimusb_control_rule {
     mimusb_control_action when_late; /* ASK: MIMUSB_CONTROL_ACTION_STALL or _DROP */
 } mimusb_control_rule;
 
+/* What an item of a setting is. A setting is a sequence of items in the order they go on the bus:
+ * an endpoint (the library writes its Endpoint descriptor) or a descriptor given as bytes (a class
+ * descriptor: a CDC functional descriptor, the HID descriptor, an audio or video class descriptor,
+ * a class-specific endpoint descriptor after the endpoint it belongs to). */
+enum { MIMUSB_ITEM_ENDPOINT = 1, MIMUSB_ITEM_DESCRIPTOR = 2 };
+
+/* One item. kind MIMUSB_ITEM_ENDPOINT uses `endpoint` and leaves the other fields zero; kind
+ * MIMUSB_ITEM_DESCRIPTOR uses `descriptor` and `descriptor_length` (one whole descriptor: bLength
+ * at least 2 and equal to descriptor_length, the type not 4 or 5, which the library writes itself)
+ * and leaves `endpoint` all zero. */
+typedef struct mimusb_usb_item {
+    uint32_t kind; /* MIMUSB_ITEM_* */
+    uint32_t reserved; /* zero */
+    mimusb_usb_endpoint endpoint;
+    const uint8_t* descriptor;
+    size_t descriptor_length;
+} mimusb_usb_item;
+
+/* One alternate setting of an interface (USB 2.0 9.6.5): the Interface descriptor with its
+ * bAlternateSetting, then the items in order. */
+typedef struct mimusb_usb_setting {
+    const mimusb_usb_item* items;
+    size_t item_count; /* may be 0: a setting with no endpoints and no class descriptors */
+} mimusb_usb_setting;
+
 /* One interface of a Node, as the target sees it (USB 2.0 9.6.5). The library puts class_code,
- * subclass and protocol in the Interface descriptor and does not read them, with two exceptions
- * mimusb_node_open makes: 0 is MIMUSB_ERR_UNSET_FIELD. HID (0x03) is accepted: the board has no
- * HID driver, and the HID descriptor goes in class_descriptors as given. `number` is the
+ * subclass and protocol in the Interface descriptor of every setting and does not read them, with
+ * one exception mimusb_node_open makes: 0 is MIMUSB_ERR_UNSET_FIELD. A HID interface (0x03) is
+ * accepted: the board has no HID driver, and the HID descriptor is an item. `number` is the
  * bInterfaceNumber, never renumbered: the numbers in use at a commit, over all Nodes, are 0, 1,
  * 2, ... without a gap (MIMUSB_ERR_PARAM otherwise, with the missing number in
- * mimusb_error_detail.offset). class_descriptors are bytes placed after the Interface descriptor
- * exactly as given (a CDC functional descriptor, for instance); each descriptor's bLength must be
- * at least 2 and stay inside the bytes. A string index inside them comes from
- * mimusb_device_add_string. name, if not null, becomes the interface's string. */
+ * mimusb_error_detail.offset). `settings` are bAlternateSetting 0, 1, 2, ... in order, at least
+ * one; the target selects one with SET_INTERFACE (MIMUSB_EVENT_INTERFACE_ALTERNATE). An endpoint
+ * address may appear in several settings of the interface; in no other interface. A string index
+ * inside a descriptor comes from mimusb_device_add_string. name, if not null, becomes the
+ * interface's string. */
 typedef struct mimusb_usb_interface {
     uint8_t number;
     uint8_t class_code; /* required, never 0 */
     uint8_t subclass;
     uint8_t protocol;
     const char* name;
-    const uint8_t* class_descriptors;
-    size_t class_descriptors_length;
-    const mimusb_usb_endpoint* endpoints;
-    size_t endpoint_count;
+    const mimusb_usb_setting* settings;
+    size_t setting_count; /* 1 or more */
 } mimusb_usb_interface;
 
 /* The interfaces of one Node. An interface association descriptor (USB-IF Interface Association
@@ -976,6 +1023,27 @@ mimusb_integer_field_make(int32_t logical_minimum, // NOLINT(bugprone-easily-swa
     return field;
 }
 
+/* An endpoint item of a setting. */
+static inline mimusb_usb_item mimusb_usb_item_make_endpoint(mimusb_usb_endpoint endpoint) {
+    mimusb_usb_item item;
+    memset(&item, 0, sizeof(item));
+    item.kind = MIMUSB_ITEM_ENDPOINT;
+    item.endpoint = endpoint;
+    return item;
+}
+
+/* A descriptor item of a setting: one whole descriptor, which the caller keeps until the Node is
+ * opened (the library copies it). */
+static inline mimusb_usb_item mimusb_usb_item_make_descriptor(const uint8_t* descriptor,
+                                                              size_t descriptor_length) {
+    mimusb_usb_item item;
+    memset(&item, 0, sizeof(item));
+    item.kind = MIMUSB_ITEM_DESCRIPTOR;
+    item.descriptor = descriptor;
+    item.descriptor_length = descriptor_length;
+    return item;
+}
+
 static inline void mimusb_device_config_init(mimusb_device_config* config) {
     mimusb_struct_init(config, sizeof(*config));
 }
@@ -1271,9 +1339,9 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_device_remote_wakeup(mimusb_device* 
  * The board first takes its USB device off the target. After MIMUSB_OK the board no longer
  * answers: the Device is good only for mimusb_device_close. Close does not know the board
  * restarted: it returns MIMUSB_ERR_NO_DEVICE only when the serial link itself failed. A Device
- * that was never committed has nothing to detach, so close returns MIMUSB_OK (seen on an RP2040);
+ * that was never committed has nothing to detach, so close returns MIMUSB_OK;
  * for a committed one the detach COMMIT close sends gets no answer, and close returns the link
- * error (MIMUSB_ERR_TIMEOUT; from reading the code, not run).
+ * error (MIMUSB_ERR_TIMEOUT).
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for an invalid Device; MIMUSB_ERR_UNSET_FIELD for a zero
  * timeout; MIMUSB_ERR_UNSUPPORTED on a board whose chip has no bootloader the firmware can enter;
  * a link error. */
@@ -1382,7 +1450,7 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_set_rule_data(mimusb_node* node
  * Blocking: None.
  * Synchronization: None.
  * The 9 bytes of a HID descriptor with one subordinate descriptor, the report descriptor of
- * report_descriptor_length bytes (HID 1.11 6.2.1), for mimusb_usb_interface.class_descriptors.
+ * report_descriptor_length bytes (HID 1.11 6.2.1), for a MIMUSB_ITEM_DESCRIPTOR item of a setting.
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null out, a length of 0 or above 65535;
  * MIMUSB_ERR_UNSET_FIELD for a zero bcd_hid. */
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_hid_descriptor_bytes(uint16_t bcd_hid,

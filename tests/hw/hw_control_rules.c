@@ -144,10 +144,12 @@ int main(void) {
     itf.number = 0;
     itf.class_code = 0x03;
     itf.name = "Vendor HID";
-    itf.class_descriptors = hidd;
-    itf.class_descriptors_length = 9;
-    itf.endpoints = eps;
-    itf.endpoint_count = 2;
+    const mimusb_usb_item items[3] = {mimusb_usb_item_make_descriptor(hidd, 9),
+                                      mimusb_usb_item_make_endpoint(eps[0]),
+                                      mimusb_usb_item_make_endpoint(eps[1])};
+    const mimusb_usb_setting setting = {items, 3};
+    itf.settings = &setting;
+    itf.setting_count = 1;
     static uint8_t feature[4] = {1, 2, 3, 4};
     mimusb_control_rule rules[6];
     memset(rules, 0, sizeof(rules));
