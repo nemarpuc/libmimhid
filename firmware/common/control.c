@@ -54,9 +54,10 @@ typedef struct {
     uint16_t index_value;
     uint16_t timeout_ms;  // ASK
     uint16_t offset;      // ANSWER: where its bytes are in the answer memory
-    uint16_t length;      // ANSWER: the bytes it answers with now (at most d.total)
-    uint16_t answer_end;  // answer memory used by this rule and the ones before it
-    mimhid_desc_t d;      // ANSWER: the bytes the host announced and has sent
+    uint16_t length;      // ANSWER: the bytes it answers with now (at most capacity)
+    uint16_t capacity;    // ANSWER: the answer memory reserved for it, from `offset`; never changes
+    uint16_t answer_end;  // answer memory reserved by this rule and the ones before it
+    mimhid_desc_t d;      // ANSWER: the bytes the host announced with the rule and has sent
     uint8_t bm_mask;
     uint8_t bm_value;
     uint8_t request_mask;
@@ -249,19 +250,26 @@ uint8_t mimhid_control_stage(const uint8_t* p, uint16_t len) {
     r.next = NONE;
     switch (r.action) {
     case MIMHID_RULE_ANSWER: {
-        if (len != 16)
+        if (len != 18)
             return MIMHID_NAK_PARAM;
         // The data stage of a device-to-host request only: USB 2.0 9.3.1 (bit 7 of bmRequestType).
         if ((r.bm_mask & 0x80) == 0 || (r.bm_value & 0x80) == 0)
             return MIMHID_NAK_PARAM;
-        const uint16_t length = get_u16(&p[14]);
-        if ((uint32_t)answer_before + length > MIMHID_ANSWER_BYTES)
+        // The rule reserves `capacity` bytes of answer memory for as long as the table is active; it
+        // starts with `length` of them, which the host sends with DESC_BEGIN and DESC_DATA, and
+        // RULE_DATA may later set any length up to the capacity.
+        const uint16_t capacity = get_u16(&p[14]);
+        const uint16_t length = get_u16(&p[16]);
+        if (length > capacity)
+            return MIMHID_NAK_PARAM;
+        if ((uint32_t)answer_before + capacity > MIMHID_ANSWER_BYTES)
             return MIMHID_NAK_OVERFLOW;
         r.offset = answer_before;
+        r.capacity = capacity;
         r.length = length;
         r.d.total = length;
         r.d.used = length == 0; // nothing to send
-        r.answer_end = (uint16_t)(answer_before + length);
+        r.answer_end = (uint16_t)(answer_before + capacity);
         break;
     }
     case MIMHID_RULE_ANSWER_LAST_SENT:
@@ -652,7 +660,7 @@ uint8_t mimhid_control_rule_data(const uint8_t* p, uint16_t len) {
         return MIMHID_NAK_PARAM;
     }
     rule_t* r = &a->rule[index];
-    if (n > r->d.total) {
+    if (n > r->capacity) {
         dcd_int_enable(RHPORT);
         return MIMHID_NAK_OVERFLOW;
     }
@@ -668,7 +676,7 @@ uint8_t mimhid_control_rule_data(const uint8_t* p, uint16_t len) {
     // The staged table is a copy of the active one until the host stages something else; it keeps
     // the change if its rule is still this one.
     if (index < s->count && s->rule[index].action == MIMHID_RULE_ANSWER &&
-        s->rule[index].offset == r->offset && s->rule[index].d.total == r->d.total) {
+        s->rule[index].offset == r->offset && s->rule[index].capacity == r->capacity) {
         memcpy(&s->answer[r->offset], &p[1], n);
         s->rule[index].length = n;
     }

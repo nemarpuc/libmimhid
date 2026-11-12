@@ -798,6 +798,13 @@ static void cmd_commit(const command_t* c) {
         cmd_answer(seq, c->type, 0);
         return;
     }
+    // A COMMIT that attaches is for a board that is off the bus. On a board that is attached it
+    // would change descriptors under a device the target has enumerated (it would never see the new
+    // device); the host detaches first, and so must any other.
+    if (g_attached) {
+        cmd_answer(seq, c->type, MIMHID_NAK_STATE);
+        return;
+    }
     // Everything that can refuse is checked before anything changes: the walk, then the pool.
     mimhid_layout_t layout;
     if (!staged_layout(&layout)) {

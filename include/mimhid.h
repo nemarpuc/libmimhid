@@ -1192,8 +1192,10 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device,
 
 /* mimhid_device_connect
  * Ownership: Nothing.
- * Blocking: Puts the board's USB device on the target (D+ pull-up on) and waits for the board's
- * answer. A Device that has not been configured yet commits instead.
+ * Blocking: A Device that is not on the target (not configured yet, or after
+ * mimhid_device_disconnect) commits instead, which puts the board's USB device on the target (D+
+ * pull-up on) and waits for the board's answer. A Device that is on the target already sends
+ * nothing and returns MIMHID_OK: the board refuses a commit that attaches while it is attached.
  * Synchronization: Device domain.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or timeouts; MIMHID_ERR_UNSET_FIELD
  * for a zero timeout; a link error; the results of mimhid_device_commit when it commits. */

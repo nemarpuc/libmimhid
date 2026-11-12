@@ -159,13 +159,12 @@ void test_commit_connect_disconnect() {
     mimhid_spec_release(keyboard);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 1000) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_is_ready(device) == 1);
-    // Configured: connect sends a COMMIT that attaches, nothing else.
+    // On the target already: connect sends nothing (a board refuses a COMMIT that attaches while it
+    // is attached).
     board.clear();
     MIMHID_CHECK(mimhid_device_connect(device, &kCommit) == MIMHID_OK);
     Received r;
-    MIMHID_CHECK(board.take(MIMHID_T_COMMIT, &r, 0) && r.payload.size() == 4U &&
-                 r.payload[1] == 0U);
-    MIMHID_CHECK(board.count(MIMHID_T_DESC_RESET) == 0U);
+    MIMHID_CHECK(board.count(MIMHID_T_COMMIT) == 0U && board.count(MIMHID_T_DESC_RESET) == 0U);
     // Disconnect detaches; the next connect configures the board again.
     MIMHID_CHECK(mimhid_device_disconnect(device, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(board.take(MIMHID_T_COMMIT, &r, 0) && r.payload[1] == 1U);

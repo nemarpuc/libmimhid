@@ -341,11 +341,12 @@ mimhid_result MIMHID_CALL mimhid_device_connect(mimhid_device* device,
     CommitWaits waits;
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
-    if (!device->configured) {
+    if (!device->configured)
         return commit_device(device, 0U, waits);
-    }
-    return command_error(device->link.connect(waits.control), "device.connect",
-                         "The board did not acknowledge connect.", MIMHID_T_COMMIT);
+    // The board's USB device is on the target already (a disconnect or a detaching commit clears
+    // `configured`). The board refuses a COMMIT that attaches while it is attached: it would change
+    // descriptors under a device the target has enumerated.
+    return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.connect")
 

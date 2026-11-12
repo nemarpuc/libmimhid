@@ -406,13 +406,19 @@ static int result_of(uint8_t type) {
     return result;
 }
 
+// True while the board is on the bus: an attaching COMMIT was acknowledged and no detach since.
+static bool g_up;
+
 static int command(uint8_t type, const uint8_t* p, size_t n) {
     g_out_len = 0;
     if (g_in_pos == g_in_len)
         g_in_pos = g_in_len = 0; // the input is all consumed: start over
     put_cmd(type, p, n);
     pump();
-    return result_of(type);
+    const int r = result_of(type);
+    if (type == MIMHID_T_COMMIT && r == 1)
+        g_up = !(n >= 1 && p[0] == 1);
+    return r;
 }
 
 static uint8_t g_ep0_size = 64;
@@ -682,6 +688,16 @@ static int stage(void) {
 // A COMMIT. When the board takes it, the target is taken to have enumerated and selected the
 // configuration (the stack's SET_CONFIGURATION), so the driver has opened its endpoints.
 static int commit_staged(void) {
+    // A COMMIT that attaches is refused by a board that is attached, so a test that configures
+    // again does what the host library does and detaches first. That detach is the harness's, not
+    // the test's: the counts of disconnects and connects the tests read leave it out.
+    if (g_up) {
+        const int disconnects = g_disconnects, connects = g_connects;
+        const uint8_t detach[] = {1};
+        assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+        g_disconnects = disconnects;
+        g_connects = connects;
+    }
     const int r = command(MIMHID_T_COMMIT, NULL, 0);
     if (r == 1)
         set_config();
@@ -1286,6 +1302,7 @@ typedef struct {
     uint8_t action; // MIMHID_RULE_*
     const uint8_t* data; // ANSWER: its bytes
     uint16_t length;     // ANSWER: their number
+    uint16_t capacity;   // ANSWER: the answer memory it reserves (rule_answer: its length)
     uint8_t endpoint, filter, first; // ANSWER_LAST_SENT
     uint16_t timeout_ms; // ASK
     uint8_t after;       // ASK: MIMHID_REPLY_STALL or MIMHID_REPLY_DROP
@@ -1306,6 +1323,7 @@ static trule_t rule_answer(uint8_t bm, uint8_t request, const uint8_t* data, uin
     trule_t r = rule_of(MIMHID_RULE_ANSWER, bm, request);
     r.data = data;
     r.length = length;
+    r.capacity = length;
     return r;
 }
 // ANSWER_LAST_SENT of an IN endpoint; filter 1 keeps only transfers that start with `first`.
@@ -1340,8 +1358,9 @@ static size_t rule_frame(uint8_t index, const trule_t* r, uint8_t* p) {
     p[k++] = r->action;
     switch (r->action) {
     case MIMHID_RULE_ANSWER:
-        put_u16(&p[k], r->length);
-        k += 2;
+        put_u16(&p[k], r->capacity);
+        put_u16(&p[k + 2], r->length);
+        k += 4;
         break;
     case MIMHID_RULE_ANSWER_LAST_SENT:
         p[k++] = r->endpoint;
@@ -1575,16 +1594,13 @@ static int commit_raw(const uint8_t* dev, size_t dev_len, tcfg_t* c) {
 static void expect_refused(int r) { expect_nak(r, MIMHID_NAK_DESCRIPTOR); }
 
 static void test_commit_walk(void) {
-    // Something committed first: the refusals must leave it as it is.
+    // Something committed first, which the harness takes off the bus before each of the commits
+    // below (as the host does: a COMMIT that attaches is refused while the board is attached, see
+    // test_commit_attached_refused).
     device_config(0, "Kept");
     node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys");
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
-    const uint16_t active_itfs = mimhid_active_interfaces();
-    uint8_t kept_cfg[64];
-    const uint16_t kept_len = (uint16_t)(tud_descriptor_configuration_cb(0)[2] |
-                                         (tud_descriptor_configuration_cb(0)[3] << 8));
-    memcpy(kept_cfg, tud_descriptor_configuration_cb(0), kept_len);
     g_disconnects = g_connects = 0;
 
     tcfg_t c;
@@ -1638,10 +1654,10 @@ static void test_commit_walk(void) {
         assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
         stage_endpoints(&c);
         expect_refused(commit_staged());
-        // Through all of those refusals the target saw neither a disconnect nor a connect, and
-        // the board still serves the configuration committed before them.
+        // Through all of those refusals the target saw no connect, and the board, off the bus since
+        // the detach before the first of them, serves no configuration.
         assert(g_connects == 0 && g_disconnects == 0);
-        assert(memcmp(tud_descriptor_configuration_cb(0), c.b, c.n) == 0);
+        assert(mimhid_active_interfaces() == 0);
     }
 
     // the configuration descriptor: its own header, wTotalLength, one configuration, attributes
@@ -1957,10 +1973,50 @@ static void test_commit_walk(void) {
             expect_refused(commit_staged());
         }
     }
+}
 
-    (void)active_itfs;
-    (void)kept_cfg;
-    (void)kept_len;
+// A COMMIT that attaches is refused (NAK STATE) by a board that is attached, whatever it carries:
+// the target has enumerated the device, and new descriptors under it would never be seen. The
+// refusal changes nothing, and a detach makes the same COMMIT work.
+static void test_commit_attached_refused(void) {
+    device_config(0, "First");
+    base_node();
+    assert(commit() == 1);
+    assert(g_up && mimhid_active_interfaces() == 1);
+    uint8_t first[64];
+    const uint16_t first_len = (uint16_t)(tud_descriptor_configuration_cb(0)[2] |
+                                          (tud_descriptor_configuration_cb(0)[3] << 8));
+    assert(first_len <= sizeof(first));
+    memcpy(first, tud_descriptor_configuration_cb(0), first_len);
+    const uint8_t first_device = tud_descriptor_device_cb()[8];
+
+    // Another configuration is staged in full and committed with no detach in between: refused,
+    // and nothing the target can see has changed.
+    device_config(0, "Second");
+    node_begin(0, 0, sizeof(k_desc_a), 4, 16, 1, "Keys");
+    node_data(0, 0, k_desc_a, sizeof(k_desc_a));
+    node_begin(1, 1, sizeof(k_desc_b), 1, 64, 0, "");
+    node_data(1, 0, k_desc_b, sizeof(k_desc_b));
+    assert(stage() == 1);
+    const int connects = g_connects, disconnects = g_disconnects;
+    const uint8_t attach[] = {0};
+    expect_nak(command(MIMHID_T_COMMIT, attach, sizeof(attach)), MIMHID_NAK_STATE);
+    expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_STATE);
+    assert(g_connects == connects && g_disconnects == disconnects);
+    assert(mimhid_active_interfaces() == 1 && mimhid_core_attached());
+    assert(memcmp(tud_descriptor_configuration_cb(0), first, first_len) == 0);
+    assert(tud_descriptor_device_cb()[8] == first_device);
+
+    // After the detach the same COMMIT is taken, and the second configuration is the active one.
+    const uint8_t detach[] = {1};
+    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(!mimhid_core_attached() && mimhid_active_interfaces() == 0);
+    assert(command(MIMHID_T_COMMIT, NULL, 0) == 1);
+    assert(mimhid_core_attached() && mimhid_active_interfaces() == 2);
+    assert(g_connects == connects + 1);
+    // A detach of a board that is not attached is no error: it leaves the board off the bus.
+    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
 }
 
 static void test_errors(void) {
@@ -2941,6 +2997,47 @@ static void test_rules(void) {
         assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &gone));
     }
 
+    // The capacity of an ANSWER rule: the answer memory it reserves for as long as the table is
+    // active, apart from the length it starts with. RULE_DATA sets any length up to the capacity, a
+    // shortened answer grows again, and a table staged again carries its own capacity.
+    {
+        enum { CAP = 6 };
+        static const uint8_t L[CAP + 1] = {1, 2, 3, 4, 5, 6, 7};
+        trule_t t[2];
+        t[0] = rule_answer(0xC0, 0x56, L, 2);
+        t[0].capacity = CAP; // starts with 2 bytes, may hold 6
+        t[1] = rule_answer(0xC0, 0x57, B, sizeof(B));
+        assert(control_config(0, t, 2) == 1);
+        assert(serve(0xC0, 0x56, 0, 0, 8, L, 2));
+        assert(rule_data(0, L, CAP) == 1); // longer than it started, within the capacity
+        assert(serve(0xC0, 0x56, 0, 0, 8, L, CAP));
+        assert(rule_data(0, L, 1) == 1); // shorter ...
+        assert(serve(0xC0, 0x56, 0, 0, 8, L, 1));
+        assert(rule_data(0, L, 5) == 1); // ... and longer again
+        assert(serve(0xC0, 0x56, 0, 0, 8, L, 5));
+        assert(rule_data(0, NULL, 0) == 1); // none at all, and back
+        assert(serve(0xC0, 0x56, 0, 0, 8, NULL, 0));
+        assert(rule_data(0, L, CAP) == 1);
+        expect_nak(rule_data(0, L, CAP + 1), MIMHID_NAK_OVERFLOW); // past the capacity
+        assert(serve(0xC0, 0x56, 0, 0, 8, L, CAP)); // the refused call changed nothing
+        // The next rule's bytes were not touched by the growth of this one.
+        assert(serve(0xC0, 0x57, 0, 0, 8, B, sizeof(B)));
+
+        // A length above the capacity is not a rule.
+        trule_t bad = t[0];
+        bad.length = bad.capacity + 1;
+        uint8_t p[32];
+        expect_nak(command(MIMHID_T_RULE, p, rule_frame(0, &bad, p)), MIMHID_NAK_PARAM);
+
+        // The capacity is what the answer memory is counted in, not the length.
+        trule_t big = rule_answer(0xC0, 0x58, L, 1);
+        big.capacity = MIMHID_ANSWER_BYTES;
+        assert(control_config(0, &big, 1) == 1);
+        trule_t two[2] = {big, rule_answer(0xC0, 0x59, B, 1)};
+        expect_nak(control_config(0, two, 2), MIMHID_NAK_OVERFLOW);
+        assert(control_config(0, t, 2) == 1);
+    }
+
     // STALL: the stack stalls the data or status stage.
     {
         trule_t t = rule_of(MIMHID_RULE_STALL, 0xC0, 0x55);
@@ -3390,7 +3487,10 @@ static void test_generic(void) {
         expect_nak(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE);
     }
 
-    // A failed COMMIT leaves the queues and endpoints of the active configuration as they were.
+    // A COMMIT the board refuses leaves the queues and endpoints of the active configuration as
+    // they were. A board that is attached refuses every COMMIT that attaches, so this one is sent
+    // as it is, with no detach before it, and is refused for that (the missing EP_CONFIG would
+    // refuse it too).
     {
         vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
         reset_io();
@@ -3399,7 +3499,7 @@ static void test_generic(void) {
         tcfg_t c;
         vendor_config(&c);
         assert(stage_cfg(&c) == 1);
-        expect_nak(commit_staged(), MIMHID_NAK_STATE); // no EP_CONFIG
+        expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_STATE);
         assert(EPSTATE(0x81).busy && memcmp(EPSTATE(0x81).buffer, A, 4) == 0);
         ep_in(1, B, 4);
         pump();
@@ -3626,6 +3726,16 @@ static void test_generic_hs(void) {
         assert(stage_cfg(&c) == 1);
         expect_refused(commit_staged());
     }
+    // The refusals left the board off the bus (the harness detaches before each COMMIT): the
+    // configuration with the 512-byte endpoint goes on again.
+    cfg_open(&c);
+    cfg_interface(&c, 0, 0, 2, 0xFF);
+    cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 512, 0);
+    cfg_endpoint(&c, 0x02, TUSB_XFER_INTERRUPT, 1024, 16);
+    cfg_close(&c);
+    assert(stage_cfg(&c) == 1);
+    assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(commit_staged() == 1);
     // a slot holds the largest transfer, which is the largest packet of the endpoint: 512 here
     set_config();
     uint8_t big[512];
@@ -3659,6 +3769,7 @@ int main(void) {
     test_serial_from_chip_id();
     test_desc_commands();
     test_commit_walk();
+    test_commit_attached_refused();
     test_errors();
     test_all_interfaces();
     test_ep_config();

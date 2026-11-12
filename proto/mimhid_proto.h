@@ -155,7 +155,9 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   0 rule index  1 bmRequestType mask  2 bmRequestType value  3 bRequest mask  4 bRequest value
  *   5..6 wValue mask  7..8 wValue value  9..10 wIndex mask  11..12 wIndex value  13 action
  *   then by action (MIMHID_RULE_*):
- *     ANSWER           14..15 length of the answer (u16 LE). The bytes follow in DESC_BEGIN and
+ *     ANSWER           14..15 capacity (u16 LE): the answer memory the rule reserves for as long
+ *                      as the table is active  16..17 length (u16 LE, at most the capacity): the
+ *                      bytes it answers with when it starts. Those bytes follow in DESC_BEGIN and
  *                      DESC_DATA with the kind MIMHID_DESC_ANSWER and the rule index as index
  *                      (language 0, flags 0); an answer of length 0 needs neither.
  *     ANSWER_LAST_SENT 14 endpoint address (an IN endpoint)  15 filter (0 or 1)  16 first byte
@@ -181,9 +183,10 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   (flag 0, nothing reported beyond what the rules say), under the same checks (NAK_STATE).
  *   A board starts with no rules.
  * RULE_DATA payload after the sequence number: 0 rule index  1.. bytes. Replaces the bytes of an
- *   ACTIVE rule of action ANSWER, at most as many as the rule was staged with (the rule then
- *   answers with that many); NAK_PARAM for another rule or a longer answer, NAK_BUSY when the
- *   board is answering from that rule at the moment. The staged copy changes too, so a later
+ *   ACTIVE rule of action ANSWER, any number of them up to the capacity the rule was staged with,
+ *   whatever length it has now (the rule then answers with that many); NAK_PARAM for another
+ *   rule, NAK_OVERFLOW for more bytes than the capacity, NAK_BUSY when the board is answering from
+ *   that rule at the moment. The staged copy changes too, so a later
  *   RULES_APPLY or COMMIT keeps it.
  *
  * Actions of a rule:
@@ -311,7 +314,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   data frame)  42..43 endpoint_queue_slots (the slots of the pool the IN queues of the generic
  *   driver are cut from)  44 transfer_types (bit n set: the board has endpoints of transfer type
  *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)  45..46
- *   max_answer_bytes (the answer memory: the bytes of every ANSWER rule together, a HID report
+ *   max_answer_bytes (the answer memory: the capacities of every ANSWER rule together, a HID report
  *   descriptor and the answers to its Feature reads among them)
  *   47.. the chip's unique id, n bytes
  * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.

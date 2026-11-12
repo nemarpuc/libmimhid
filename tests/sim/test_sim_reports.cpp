@@ -30,6 +30,19 @@ void queue_key_reports(mimhid_node* node, int count) {
     }
 }
 
+// Holds the target (it polls nothing), sends the first report and waits until the board has given
+// it to the controller, where it stays in flight, then sends the rest. The first report is then
+// always the one in flight and the others meet the queue: with a depth of d, 1 + d reports arrive
+// once the target reads again, whatever the order the firmware loop and the host ran in.
+void send_held(mimhid_node* node, int count) {
+    fake_board_hold_reports(1);
+    queue_key_reports(node, 1);
+    for (int i = 0; i < 2000 && fake_board_endpoint_busy(0x81) == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    MIMHID_CHECK(fake_board_endpoint_busy(0x81) == 1);
+    queue_key_reports(node, count - 1);
+}
+
 std::uint32_t lost_reports(std::uint16_t node_id, int timeout_ms) {
     std::uint32_t lost = 0;
     EventRecord e{};
@@ -132,13 +145,11 @@ void test_queue_depth_and_loss() {
     // Off by default: a full queue drops silently, and nothing extra crosses the link.
     MIMHID_CHECK(set_depth(nk, 2, kControlMs) == MIMHID_OK);
     fake_board_clear_reports();
-    fake_board_hold_reports(1);
-    queue_key_reports(nk, 5);
+    send_held(nk, 5);
     MIMHID_CHECK(lost_reports(id, 100) == 0);
     fake_board_hold_reports(0);
     fake_report_t r{};
-    // The queue holds 2; a report the endpoint took before the others came is in flight besides,
-    // which depends on when the firmware loop ran, so 2 or 3 arrive.
+    // The first report is in flight and the queue holds 2: three arrive, the others were dropped.
     const auto count_reports = [&] {
         int n = 0;
         while (next_report(&r, n == 0 ? 2000 : 100))
@@ -146,17 +157,16 @@ void test_queue_depth_and_loss() {
         return n;
     };
     int arrived = count_reports();
-    MIMHID_CHECK(arrived == 2 || arrived == 3);
+    MIMHID_CHECK(arrived == 3);
 
     // Asked for: what did not fit is reported, and what arrived with it is all five.
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 0, kControlMs) == MIMHID_OK);
     fake_board_clear_reports();
-    fake_board_hold_reports(1);
-    queue_key_reports(nk, 5);
+    send_held(nk, 5);
     const std::uint32_t lost = lost_reports(id, 200);
     fake_board_hold_reports(0);
     arrived = count_reports();
-    MIMHID_CHECK((arrived == 2 || arrived == 3) && lost + static_cast<unsigned>(arrived) == 5U);
+    MIMHID_CHECK(arrived == 3 && lost == 2U);
 
     // The depth stays with the node when another node's commit rebuilds the interfaces.
     mimhid_spec* mouse = mouse_spec(2);
@@ -167,12 +177,11 @@ void test_queue_depth_and_loss() {
         g_events.clear();
     }
     fake_board_clear_reports();
-    fake_board_hold_reports(1);
-    queue_key_reports(nk, 4);
+    send_held(nk, 4);
     const std::uint32_t lost_after = lost_reports(mimhid_node_id(nk), 200);
     fake_board_hold_reports(0);
     arrived = count_reports();
-    MIMHID_CHECK((arrived == 2 || arrived == 3) && lost_after + static_cast<unsigned>(arrived) == 4U);
+    MIMHID_CHECK(arrived == 3 && lost_after == 1U);
 
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 0, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);

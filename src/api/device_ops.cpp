@@ -566,7 +566,9 @@ std::vector<std::uint8_t> rule_payload(const std::size_t index, const usb::Board
     p.push_back(static_cast<std::uint8_t>(r.action));
     switch (r.action) {
     case MIMHID_CONTROL_ANSWER:
+        // The capacity the rule was given and the bytes it holds now (at most the capacity).
         put_u16_le(&p, entry.capacity);
+        put_u16_le(&p, static_cast<std::uint32_t>(entry.data.size()));
         break;
     case MIMHID_CONTROL_ANSWER_LAST_SENT:
         p.push_back(r.endpoint_address);
@@ -656,21 +658,12 @@ mimhid_result build_rule_table(mimhid_device* device, const std::vector<mimhid_n
                                const std::vector<usb::HidNodeInput>& hid,
                                std::vector<usb::BoardRule>* table) {
     table->clear();
-    // The board takes an ANSWER rule with the length it is staged with, so a rule whose bytes were
-    // changed to fewer keeps that length from here on: the room to grow again is gone.
-    const auto settle = [](std::vector<usb::BoardRule>* rules) {
-        for (usb::BoardRule& rule : *rules) {
-            if (rule.rule.action == MIMHID_CONTROL_ANSWER)
-                rule.capacity = static_cast<std::uint16_t>(rule.data.size());
-        }
-    };
+    // An ANSWER rule keeps the capacity it was given however its bytes change, so the board
+    // reserves the same room each time the table is sent and a shortened answer can grow again.
     for (mimhid_node* node : nodes) {
-        if (node->generic) {
-            settle(&node->rules);
+        if (node->generic)
             table->insert(table->end(), node->rules.begin(), node->rules.end());
-        }
     }
-    settle(&device->device_rules);
     std::vector<usb::BoardRule> library = usb::compose_hid_rules(hid);
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
@@ -938,7 +931,7 @@ mimhid_result change_rule_data(mimhid_device* device, mimhid_node* node, const s
     }
     if (length > own[rule_index].capacity) {
         set_error(MIMHID_ERR_PARAM, "length",
-                  "The rule was given fewer bytes; give the rule more bytes with a new table.");
+                  "length is more than the rule's capacity, the length of its data when the rule was set.");
         return MIMHID_ERR_PARAM;
     }
     std::vector<std::uint8_t> bytes;

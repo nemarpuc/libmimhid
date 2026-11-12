@@ -425,6 +425,15 @@ void test_control_rules() {
     target_control(0xC0, 0x60, 0, 0, 8);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 3 &&
                  std::memcmp(r.data, answer_bytes, 3) == 0);
+    // The table was sent again with rule 0 shortened to two bytes; it keeps the capacity it was
+    // given (three), so it grows again, and does not take a fourth byte.
+    MIMHID_CHECK(mimhid_node_set_rule_data(node, 0, longer, 3, kControlMs) == MIMHID_OK);
+    target_control(0xC0, 0x50, 0, 0, 8);
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 3 &&
+                 std::memcmp(r.data, longer, 3) == 0);
+    MIMHID_CHECK(mimhid_node_set_rule_data(node, 0, longer, 4, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_set_rule_data(node, 0, changed, sizeof(changed), kControlMs) ==
+                 MIMHID_OK);
     // Live: new rules replace the Device's, the Node's stay.
     device_rules[1].request_value = 0x61;
     MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, device_rules, 2, kControlMs) ==

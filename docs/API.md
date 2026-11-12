@@ -395,7 +395,7 @@ mimhid_result mimhid_device_connect(mimhid_device* device, const mimhid_commit_t
 ```
 
 - **Ownership:** Nothing.
-- **Blocking:** Puts the board's USB device on the target (D+ pull-up on) and waits for the board's answer. A Device that has not been configured yet commits instead.
+- **Blocking:** A Device that is not on the target (not configured yet, or after `mimhid_device_disconnect`) commits instead, which puts the board's USB device on the target (D+ pull-up on) and waits for the board's answer. A Device that is on the target already sends nothing and returns `MIMHID_OK`: the board refuses a commit that attaches while it is attached.
 - **Synchronization:** Device domain.
 - **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device or timeouts; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; a link error; the results of `mimhid_device_commit` when it commits.
 
@@ -490,7 +490,7 @@ mimhid_result mimhid_node_set_rule_data(mimhid_node* node, size_t rule_index, co
 - **Ownership:** Copies data.
 - **Blocking:** One command to the board, waiting up to control_timeout_ms; it is retried while the board is answering from that rule. Inside a batch, or before the first commit, the bytes are kept for the commit.
 - **Synchronization:** Device domain. Changes the bytes an `ANSWER` rule returns without a new table: rule number rule_index of the array given to `mimhid_device_set_control_rules` (or of `mimhid_node_config.rules` for the Node). At most as many bytes as the rule was given (the rule then answers with that many; when the library next writes the whole table, which any Node open or close or `mimhid_device_set_control_rules` does, a rule keeps the length it had then as the most it can be given). A profile Node has no rules of its own to change: use `mimhid_node_set_feature_response`.
-- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device or Node, a rule that is not an ANSWER rule, a null data with a length or more bytes than the rule has; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_BUSY` when the board kept answering from the rule; a link error. When the table is later built again (another Node opens), a rule whose bytes were changed to fewer keeps the shorter length as its room.
+- **Returns:** `MIMHID_OK`; `MIMHID_ERR_PARAM` for an invalid Device or Node, a rule that is not an ANSWER rule, a null data with a length or more bytes than the rule's capacity; `MIMHID_ERR_UNSET_FIELD` for a zero timeout; `MIMHID_ERR_BUSY` when the board kept answering from the rule; a link error. A rule keeps its capacity, the length of its data when the rule was set, however its bytes change and however often the table is built again, so a shortened answer can be made longer again, up to the capacity.
 
 #### `mimhid_hid_descriptor_bytes`, `mimhid_hid_descriptor_rule`
 
