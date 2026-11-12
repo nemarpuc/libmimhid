@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimusb contributors
 /*
- * Public C ABI: the endpoints of a Node opened with mimusb_node_open (writing to an IN endpoint,
- * the Halt feature, flushing, the policy of the board's queue), and the wait policy's count.
+ * Public C ABI: the endpoints of a Node of a mimusb_spec_create_interfaces Spec (writing to an IN
+ * endpoint, the Halt feature, flushing, the policy of the board's queue), and the wait policy's
+ * count.
  */
 
 #include "api/support.hpp"

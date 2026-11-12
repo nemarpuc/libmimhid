@@ -657,9 +657,9 @@ mimusb_result check_rule_table(const mimusb_device* device,
     return MIMUSB_OK;
 }
 
-// The table the board is to hold: the rules of the Nodes opened with mimusb_node_open in node
-// order, those the library writes for the profile Nodes, then the Device's own. What the target
-// has set (idle rate, protocol) is kept from the table the board holds now.
+// The table the board is to hold: the rules of the Nodes of mimusb_spec_create_interfaces Specs in
+// node order, those the library writes for the profile Nodes, then the Device's own. What the
+// target has set (idle rate, protocol) is kept from the table the board holds now.
 mimusb_result build_rule_table(mimusb_device* device, const std::vector<mimusb_node*>& nodes,
                                const std::vector<usb::HidNodeInput>& hid,
                                std::vector<usb::BoardRule>* table) {

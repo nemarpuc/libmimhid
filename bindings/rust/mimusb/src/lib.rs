@@ -317,7 +317,7 @@ impl RawNodeRef {
     }
 }
 
-/// A Node opened with `mimusb_node_open`: interfaces of the caller's own, which may be HID written
+/// A Node of a `mimusb_spec_create_interfaces` Spec: interfaces of the caller's own, which may be HID written
 /// by hand. It has no Spec; its calls are the endpoint calls, of which `write` is the one that
 /// sends a transfer.
 #[derive(Clone, Copy)]

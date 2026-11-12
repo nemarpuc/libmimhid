@@ -240,8 +240,9 @@ mimusb_result link_available(const struct mimusb_node* node, const char* field) 
 
 namespace mimusb::detail {
 
-// One interface of a Node opened with mimusb_node_open, copied from the caller's configuration:
-// its settings are bAlternateSetting 0, 1, 2, ... in order, each a sequence of items.
+// One interface of a Node of a mimusb_spec_create_interfaces Spec, copied from the caller's
+// configuration: its settings are bAlternateSetting 0, 1, 2, ... in order, each a sequence of
+// items.
 struct GenericInterface {
     std::uint8_t number{};
     std::uint8_t class_code{};
@@ -422,14 +423,15 @@ struct mimusb_node {
     mimusb_device* device{};
     mimusb_spec* spec{};
     mimusb::detail::NodeState state;
-    // A Node opened with mimusb_node_open (generic) has no Spec: its interfaces are in `interfaces`
-    // and `config` is not used. A profile Node (mimusb_node_open_profile, _raw) has a Spec and
-    // `config`, and the board's HID driver serves it.
+    // A Node of a mimusb_spec_create_interfaces Spec has no profile: its interfaces are in
+    // `interfaces` and `config` is not used. A profile Node (mimusb_node_open_profile, _raw) has a
+    // Spec and `config`, and the board's HID driver serves it.
     bool generic{false};
     std::vector<mimusb::detail::GenericInterface> interfaces;
     std::vector<std::uint8_t> association;
     std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
-    std::vector<mimusb::usb::BoardRule> rules; // a Node opened with mimusb_node_open: its own
+    std::vector<mimusb::usb::BoardRule>
+        rules; // a Node of a mimusb_spec_create_interfaces Spec: its own
     mimusb::usb::HidNodeConfig config{};
     std::string interface_string;
     std::uint16_t node_id{};

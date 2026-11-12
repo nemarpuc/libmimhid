@@ -518,7 +518,7 @@ mimusb_result mimusb_cdc_acm_rules(uint8_t control_interface, const uint8_t line
 
 - **Ownership:** Nothing for the first; `out_rules[1].data` points at `line_coding`, which the caller keeps until the rules are given to the library.
 - **Blocking:** None.
-- **Synchronization:** None. Helpers for a CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3 and 6.3) opened with `mimusb_node_open`: two interfaces, `control_interface` (class 0x02, subclass 0x02, one interrupt IN endpoint) and `control_interface + 1` (class 0x0A, a bulk IN and a bulk OUT endpoint). The first writes the four class descriptors, to go in the setting of the communication interface in the order header, call management, ACM, union and then the notification endpoint, and the Interface Association descriptor for `mimusb_node_config.association`. The second fills three rules: `ACCEPT` for `SET_LINE_CODING` and `SET_CONTROL_LINE_STATE`, and `ANSWER` for `GET_LINE_CODING`. The program serves the data endpoints itself.
+- **Synchronization:** None. Helpers for a CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3 and 6.3) opened through `mimusb_spec_create_interfaces` and `mimusb_node_open`: two interfaces, `control_interface` (class 0x02, subclass 0x02, one interrupt IN endpoint) and `control_interface + 1` (class 0x0A, a bulk IN and a bulk OUT endpoint). The first writes the four class descriptors, to go in the setting of the communication interface in the order header, call management, ACM, union and then the notification endpoint, and the Interface Association descriptor for `mimusb_node_config.association`. The second fills three rules: `ACCEPT` for `SET_LINE_CODING` and `SET_CONTROL_LINE_STATE`, and `ANSWER` for `GET_LINE_CODING`. The program serves the data endpoints itself.
 - **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null pointer or a `control_interface` of 255; `MIMUSB_ERR_UNSET_FIELD` for a zero `bcd_cdc`.
 
 #### `mimusb_device_control_reply`
@@ -757,7 +757,7 @@ mimusb_result mimusb_node_set_feature_response(mimusb_node* node, uint8_t report
 - **Ownership:** Copies data.
 - **Blocking:** Waits up to control_timeout_ms for the board's answer; inside a batch, or for a Node not yet committed, it is sent with the commit instead.
 - **Synchronization:** Device domain. Sets what the board answers (the bytes after the Report ID, at most the board's max_feature_bytes; `mimusb_device_limits`) when the target reads Feature report report_id of this Node (profile Nodes only): an `ANSWER` rule the library writes, whose bytes it changes in place when the length stays and otherwise sends the table again. A Feature read with no answer set is stalled. A touch Spec with enable_contact_count_maximum_feature_declaration has its answer set already.
-- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for an invalid Node, null data with a nonzero length, or more than max_feature_bytes, or a Node opened with `mimusb_node_open`; `MIMUSB_ERR_UNSET_FIELD` for a zero timeout; `MIMUSB_ERR_OVERFLOW` when the board has no room; a link error.
+- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for an invalid Node, null data with a nonzero length, or more than max_feature_bytes, or a Node of a `mimusb_spec_create_interfaces` Spec; `MIMUSB_ERR_UNSET_FIELD` for a zero timeout; `MIMUSB_ERR_OVERFLOW` when the board has no room; a link error.
 
 #### `mimusb_node_endpoint_set_policy`
 

@@ -234,13 +234,13 @@ enum {
      * MIMUSB_FULL_DROP_OLDEST the dropped ones are the oldest. Only after
      * mimusb_device_set_loss_reporting. */
     MIMUSB_EVENT_TRANSFER_LOST = 11,
-    /* The target sent a packet on an OUT endpoint of a Node opened with mimusb_node_open, or of a
-     * Device given as bytes (node_id 0; mimusb_device_set_descriptors): data and length are the
-     * packet as it came (a zero-length packet has length 0); endpoint_address names the endpoint
-     * and interface_number its interface. */
+    /* The target sent a packet on an OUT endpoint of a Node of a mimusb_spec_create_interfaces
+     * Spec, or of a Device given as bytes (node_id 0; mimusb_device_set_descriptors): data and
+     * length are the packet as it came (a zero-length packet has length 0); endpoint_address names
+     * the endpoint and interface_number its interface. */
     MIMUSB_EVENT_ENDPOINT_DATA = 12,
     /* The target set (value 1) or cleared (value 0) the Halt feature of an endpoint of a Node
-     * opened with mimusb_node_open (USB 2.0 9.4.1, 9.4.5); endpoint_address names it. */
+     * of a mimusb_spec_create_interfaces Spec (USB 2.0 9.4.1, 9.4.5); endpoint_address names it. */
     MIMUSB_EVENT_ENDPOINT_HALT = 13,
     /* The target selected an alternate setting of an interface of a Device given as bytes (USB 2.0
      * 9.4.10): interface_number is the interface and value the setting. The board has already
@@ -2051,7 +2051,7 @@ MIMUSB_API uint16_t MIMUSB_CALL mimusb_node_id(const mimusb_node* node);
  * and otherwise sends the table again. A touch Spec with
  * enable_contact_count_maximum_feature_declaration has its answer set already.
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for an invalid Node, null data with a nonzero length, or
- * more than max_feature_bytes, or a Node opened with mimusb_node_open;
+ * more than max_feature_bytes, or a Node of a mimusb_spec_create_interfaces Spec;
  * MIMUSB_ERR_UNSET_FIELD for a zero timeout; MIMUSB_ERR_OVERFLOW when the board has no room for
  * the rule or its bytes; a link error. */
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_set_feature_response(mimusb_node* node,
