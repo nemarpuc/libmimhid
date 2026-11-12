@@ -62,6 +62,41 @@ Run them in order; stop at the first failure and record it.
    described under "Measured, once" in [`docs/LATENCY.md`](../../docs/LATENCY.md) and record the
    same columns.
 
+## Programs for a target that is the same machine
+
+A second machine is what the steps above ask for. When the board's USB port and the serial
+adapter are both plugged into one Linux machine, the programs in this directory check a good part
+of the same ground without a person watching the target, and without typing into the session:
+they present vendor-defined devices, or grab the input device before a key is sent.
+
+```sh
+cmake -S tests/hw -B <build dir> && cmake --build <build dir>
+sudo cp tests/hw/99-mimhid-hwtest.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+```
+
+The rule lets the group of the serial ports read the USB node, the hidraw node and the input
+events of the device the programs present (the pid.codes test pair, `1209:0001`); edit the group
+name in it for your distribution. The programs find the board themselves (`mimhid_discover`), so
+only one board may be connected.
+
+| Program | What it shows |
+|---|---|
+| `hw_bulk wait` | A vendor Node with bulk IN and OUT: transfers of 1 to 292 bytes with their boundaries, a zero-length packet, writes of up to 262,100 bytes without loss under the wait policy, 200 packets from the target, stall and clear. |
+| `hw_bulk newest`, `hw_bulk oldest` | The two drop policies with a target that does not read: which transfers it then reads, and that the lost ones are reported. |
+| `hw_control_rules` | An HID interface written by hand: the report descriptor the kernel read, `ANSWER_LAST_SENT`, an `ANSWER` and its bytes replaced, `ACCEPT` with a data stage, `ASK`, a stall for a request no rule matches, an Output report on the OUT endpoint. |
+| `hw_composite` | A keyboard profile and a two-interface Node with an interface association, opened in one batch. |
+| `hw_keyboard_latency [presses]` | Step 9: submit to evdev event for a keyboard profile, with the event device grabbed. Compare versions over several runs each: one run's median moves by some 0.3 ms from one enumeration to the next. |
+
+Each prints `PASSED` or what failed and returns nonzero on a failure. They do not replace the
+steps above: the target's USB stack is this machine's, nothing is checked on Windows or macOS,
+and the `mimhid_verify_*` programs are not run by them.
+
+Two things learned while writing them. A read on the target side that is cancelled by its
+timeout while a transfer is arriving can lose the packets the host controller had already taken
+(seen in a VMware guest with a 50 ms timeout: data the board had sent correctly was gone), so
+the programs read with a long timeout. And a board can be written again without its button:
+`mimhid_device_enter_bootloader` restarts it into the chip's bootloader.
+
 ## What to record, and where
 
 - **`CHANGELOG.md`**: in the release's section, the line that says whether it is hardware-verified.
