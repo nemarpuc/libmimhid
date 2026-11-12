@@ -877,6 +877,7 @@ mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(const uint8_t interface_num
 }
 MIMUSB_C_RESULT_CATCH("hid_descriptor_rule")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
     const uint16_t bcd_cdc, const uint8_t control_interface,
     const uint8_t call_management_capabilities, const uint8_t acm_capabilities,
@@ -920,6 +921,7 @@ mimusb_result MIMUSB_CALL mimusb_cdc_acm_rules(const uint8_t control_interface,
     }
     // PSTN 1.2 6.3: class requests to the communication interface. bmRequestType 0x21 is host to
     // device, class, interface; 0xA1 is device to host.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const auto make = [&](const uint8_t type, const uint8_t request,
                           const mimusb_control_rule_action action) {
         mimusb_control_rule r{};
