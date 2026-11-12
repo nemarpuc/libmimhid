@@ -43,8 +43,8 @@ void endpoint_descriptor(std::vector<std::uint8_t>* out, const mimusb_usb_endpoi
     out->push_back(kTypeEndpoint);
     out->push_back(ep.address);
     // USB 2.0 Table 9-13: bits 1..0 transfer type, 3..2 synchronization type, 5..4 usage type.
-    out->push_back(static_cast<std::uint8_t>(ep.transfer_type | (ep.sync_type << 2U) |
-                                             (ep.usage_type << 4U)));
+    out->push_back(
+        static_cast<std::uint8_t>(ep.transfer_type | (ep.sync_type << 2U) | (ep.usage_type << 4U)));
     put_u16(out, ep.max_packet_size);
     out->push_back(ep.interval);
     if (ep.audio_form != 0U) {
@@ -117,8 +117,8 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
     if (iso && (ep.sync_type > MIMUSB_ISO_SYNC_SYNCHRONOUS ||
                 ep.usage_type > MIMUSB_ISO_USAGE_IMPLICIT_FEEDBACK))
         return refuse(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.sync_type",
-                      "sync_type is 0 to 3 and usage_type 0 to 2 (USB 2.0 Table 9-13).",
-                      ep.address, ep.sync_type, node_id);
+                      "sync_type is 0 to 3 and usage_type 0 to 2 (USB 2.0 Table 9-13).", ep.address,
+                      ep.sync_type, node_id);
     if (ep.max_packet_size == 0U && !iso)
         return refuse(MIMUSB_ERR_UNSET_FIELD,
                       "node_config.interfaces.settings.endpoints.max_packet_size",
@@ -147,11 +147,10 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
         return MIMUSB_OK;
     }
     if (ep.max_packet_size > lim.max_endpoint_bytes)
-        return refuse(MIMUSB_ERR_OVERFLOW,
-                      "node_config.interfaces.settings.endpoints.max_packet_size",
-                      "An endpoint packet is larger than the board's endpoints hold.",
-                      static_cast<std::uint32_t>(lim.max_endpoint_bytes), ep.max_packet_size,
-                      node_id);
+        return refuse(
+            MIMUSB_ERR_OVERFLOW, "node_config.interfaces.settings.endpoints.max_packet_size",
+            "An endpoint packet is larger than the board's endpoints hold.",
+            static_cast<std::uint32_t>(lim.max_endpoint_bytes), ep.max_packet_size, node_id);
     if (ep.transfer_type == MIMUSB_TRANSFER_BULK) {
         // USB 2.0 5.8.3: bulk packets are 8, 16, 32 or 64 bytes at full speed and 512 at
         // high speed.
@@ -160,14 +159,13 @@ mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const Composer
                                  : (ep.max_packet_size == 8U || ep.max_packet_size == 16U ||
                                     ep.max_packet_size == 32U || ep.max_packet_size == 64U);
         if (!allowed)
-            return refuse(MIMUSB_ERR_PARAM,
-                          "node_config.interfaces.settings.endpoints.max_packet_size",
-                          lim.high_speed
-                              ? "A bulk endpoint of a high-speed device has 512-byte "
-                                "packets (USB 2.0 5.8.3)."
-                              : "A bulk endpoint of a full-speed device has 8, 16, 32 or "
-                                "64-byte packets (USB 2.0 5.8.3).",
-                          ep.address, ep.max_packet_size, node_id);
+            return refuse(
+                MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.max_packet_size",
+                lim.high_speed ? "A bulk endpoint of a high-speed device has 512-byte "
+                                 "packets (USB 2.0 5.8.3)."
+                               : "A bulk endpoint of a full-speed device has 8, 16, 32 or "
+                                 "64-byte packets (USB 2.0 5.8.3).",
+                ep.address, ep.max_packet_size, node_id);
     } else {
         if (ep.interval == 0U)
             return refuse(MIMUSB_ERR_UNSET_FIELD,
@@ -339,10 +337,9 @@ mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                                       "on_full is MIMUSB_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.",
                                       ep.address, ep.policy.on_full, node_id);
                 } else if (ep.policy.on_full != 0U || ep.policy.depth != 0U) {
-                    return refuse(MIMUSB_ERR_PARAM,
-                                  "node_config.interfaces.settings.endpoints.policy",
-                                  "The policy of an OUT endpoint must be all zero.", ep.address, 0,
-                                  node_id);
+                    return refuse(
+                        MIMUSB_ERR_PARAM, "node_config.interfaces.settings.endpoints.policy",
+                        "The policy of an OUT endpoint must be all zero.", ep.address, 0, node_id);
                 }
                 const auto owner = owners.find(ep.address);
                 if (owner == owners.end()) {

@@ -92,10 +92,10 @@ struct ComposedString {
 };
 
 struct Composed {
-    std::vector<std::uint8_t> device;          // 18 bytes (USB 2.0 9.6.1)
-    std::vector<std::uint8_t> configuration;   // the whole configuration descriptor (9.6.3)
-    std::vector<ComposedString> strings;       // by index, then language; index 0 is the board's
-    std::size_t interface_count{};            // interfaces in the configuration
+    std::vector<std::uint8_t> device;        // 18 bytes (USB 2.0 9.6.1)
+    std::vector<std::uint8_t> configuration; // the whole configuration descriptor (9.6.3)
+    std::vector<ComposedString> strings;     // by index, then language; index 0 is the board's
+    std::size_t interface_count{};           // interfaces in the configuration
 };
 
 // What went wrong when a configuration cannot be composed. `offset` carries the number that

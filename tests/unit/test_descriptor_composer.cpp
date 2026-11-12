@@ -448,7 +448,8 @@ mimusb::usb::ComposerInterface general_itf(std::uint8_t number, std::uint8_t cls
 
 // A class descriptor (one whole descriptor) before everything else in setting 0.
 void set_class(mimusb::usb::ComposerInterface* itf, std::vector<std::uint8_t> bytes) {
-    itf->settings[0].items.insert(itf->settings[0].items.begin(), descriptor_item(std::move(bytes)));
+    itf->settings[0].items.insert(itf->settings[0].items.begin(),
+                                  descriptor_item(std::move(bytes)));
 }
 
 void add_endpoint(mimusb::usb::ComposerInterface* itf, const mimusb_usb_endpoint& ep) {
@@ -685,8 +686,8 @@ void test_settings_and_items() {
     itf.settings.push_back(setting_of({}));
     itf.settings.push_back(setting_of(
         {descriptor_item(general), endpoint_item(out_ep), descriptor_item(cs_endpoint)}));
-    itf.settings.push_back(setting_of(
-        {descriptor_item(general), endpoint_item(in_ep), descriptor_item(cs_endpoint)}));
+    itf.settings.push_back(
+        setting_of({descriptor_item(general), endpoint_item(in_ep), descriptor_item(cs_endpoint)}));
     mimusb::usb::ComposerGroup group;
     group.interfaces.push_back(itf);
     MIMUSB_CHECK(mimusb::usb::compose_descriptors(with_iso(general_input({group})), &out, &err) ==
@@ -699,28 +700,42 @@ void test_settings_and_items() {
     {
         mimusb::usb::WalkedDescriptors walked;
         ComposerError walk_error;
-        MIMUSB_CHECK(mimusb::usb::walk_descriptors(
-                         out.device.data(), out.device.size(), out.configuration.data(),
-                         out.configuration.size(), nullptr, 0, with_iso(general_input({group})).limits,
-                         &walked, &walk_error) == MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::usb::walk_descriptors(out.device.data(), out.device.size(),
+                                                   out.configuration.data(),
+                                                   out.configuration.size(), nullptr, 0,
+                                                   with_iso(general_input({group})).limits, &walked,
+                                                   &walk_error) == MIMUSB_OK);
         MIMUSB_CHECK(walked.interface_count == 1U && walked.endpoints.size() == 2U);
         if (walked.endpoints.size() == 2U) {
-            MIMUSB_CHECK(walked.endpoints[0].address == 0x01 && walked.endpoints[0].alternate_setting == 1U &&
+            MIMUSB_CHECK(walked.endpoints[0].address == 0x01 &&
+                         walked.endpoints[0].alternate_setting == 1U &&
                          walked.endpoints[0].max_packet_size == 192U &&
                          walked.endpoints[0].transfer_type == MIMUSB_TRANSFER_ISOCHRONOUS);
-            MIMUSB_CHECK(walked.endpoints[1].address == 0x82 && walked.endpoints[1].alternate_setting == 2U &&
+            MIMUSB_CHECK(walked.endpoints[1].address == 0x82 &&
+                         walked.endpoints[1].alternate_setting == 2U &&
                          walked.endpoints[1].max_packet_size == 384U);
         }
     }
-    MIMUSB_CHECK(hex(out.configuration) ==
-                 "090252000101008032"                                   // Configuration, 82 bytes
-                 "090400000001020000"                                   // setting 0, no endpoint
-                 "090400010101020000" "07240101010100"                  // setting 1: class bytes
-                 "090501" "09" "c000" "01" "00" "00"                    // iso OUT, adaptive, 9 bytes
-                 "07250100000000"                                       // its CS_ENDPOINT
-                 "090400020101020000" "07240101010100"                  // setting 2
-                 "090582" "05" "8001" "01" "00" "83"                    // iso IN, asynchronous
-                 "07250100000000");
+    MIMUSB_CHECK(hex(out.configuration) == "090252000101008032" // Configuration, 82 bytes
+                                           "090400000001020000" // setting 0, no endpoint
+                                           "090400010101020000"
+                                           "07240101010100" // setting 1: class bytes
+                                           "090501"
+                                           "09"
+                                           "c000"
+                                           "01"
+                                           "00"
+                                           "00"             // iso OUT, adaptive, 9 bytes
+                                           "07250100000000" // its CS_ENDPOINT
+                                           "090400020101020000"
+                                           "07240101010100" // setting 2
+                                           "090582"
+                                           "05"
+                                           "8001"
+                                           "01"
+                                           "00"
+                                           "83" // iso IN, asynchronous
+                                           "07250100000000");
 
     // Refusals.
     const auto refuse = [&](ComposerInput in, mimusb_result want, const char* field) {
@@ -756,7 +771,8 @@ void test_settings_and_items() {
            MIMUSB_OK, "");
     // A board without isochronous endpoints.
     {
-        ComposerInput in = one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 64))})}));
+        ComposerInput in =
+            one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 64))})}));
         in.limits.transfer_types = 0x0C;
         refuse(in, MIMUSB_ERR_UNSUPPORTED, "transfer_type");
     }
@@ -800,8 +816,8 @@ void test_settings_and_items() {
     refuse(one(itf_with({})), MIMUSB_ERR_PARAM, "settings");
     // An address is unique inside a setting; in another setting of the same interface it is the
     // same endpoint, with the same type, policy and (bulk, interrupt) descriptor.
-    refuse(one(itf_with({setting_of({endpoint_item(general_ep(0x81, 2, 64)),
-                                      endpoint_item(general_ep(0x81, 2, 64))})})),
+    refuse(one(itf_with({setting_of(
+               {endpoint_item(general_ep(0x81, 2, 64)), endpoint_item(general_ep(0x81, 2, 64))})})),
            MIMUSB_ERR_PARAM, "address");
     refuse(one(itf_with({setting_of({endpoint_item(general_ep(0x81, 2, 64))}),
                          setting_of({endpoint_item(general_ep(0x81, 2, 64))})})),
@@ -830,8 +846,9 @@ void test_settings_and_items() {
     }
     // The queue of an endpoint that comes in several settings is counted once.
     {
-        ComposerInput in = one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 192))}),
-                                         setting_of({endpoint_item(iso_ep(0x82, 384))})}));
+        ComposerInput in =
+            one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 192))}),
+                          setting_of({endpoint_item(iso_ep(0x82, 384))})}));
         in.limits.endpoint_queue_slots = 5; // DROP_OLDEST, depth 2: 2 * 2 + 1 = 5 slots, once
         refuse(in, MIMUSB_OK, "");
         in.limits.endpoint_queue_slots = 4;
@@ -839,8 +856,10 @@ void test_settings_and_items() {
     }
     // The configuration holds every setting.
     {
-        ComposerInput in = one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 192))})}));
-        in.limits.max_config_bytes = 9 + 9 + 9 + 7 - 1; // Configuration, two Interfaces, an Endpoint
+        ComposerInput in =
+            one(itf_with({setting_of({}), setting_of({endpoint_item(iso_ep(0x82, 192))})}));
+        in.limits.max_config_bytes =
+            9 + 9 + 9 + 7 - 1; // Configuration, two Interfaces, an Endpoint
         refuse(in, MIMUSB_ERR_OVERFLOW, "interfaces");
         in.limits.max_config_bytes = 9 + 9 + 9 + 7;
         refuse(in, MIMUSB_OK, "");

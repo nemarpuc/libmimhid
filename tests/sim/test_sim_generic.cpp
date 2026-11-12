@@ -615,12 +615,11 @@ void association_beside_hid() {
     const std::uint8_t onion[] = {5, 0x24, 0x06, 0x02, 0x03};
     const mimusb_usb_endpoint comm_ep =
         endpoint(0x83, MIMUSB_TRANSFER_INTERRUPT, MIMUSB_FULL_DROP_NEWEST, 2);
-    const mimusb_usb_item comm_items[] = {
-        mimusb_usb_item_make_descriptor(header, sizeof(header)),
-        mimusb_usb_item_make_descriptor(call, sizeof(call)),
-        mimusb_usb_item_make_descriptor(onion, sizeof(onion)),
-        mimusb_usb_item_make_descriptor(acm, sizeof(acm)),
-        mimusb_usb_item_make_endpoint(comm_ep)};
+    const mimusb_usb_item comm_items[] = {mimusb_usb_item_make_descriptor(header, sizeof(header)),
+                                          mimusb_usb_item_make_descriptor(call, sizeof(call)),
+                                          mimusb_usb_item_make_descriptor(onion, sizeof(onion)),
+                                          mimusb_usb_item_make_descriptor(acm, sizeof(acm)),
+                                          mimusb_usb_item_make_endpoint(comm_ep)};
     const mimusb_usb_item data_items[] = {
         mimusb_usb_item_make_endpoint(endpoint(0x84, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_WAIT, 4)),
         mimusb_usb_item_make_endpoint(endpoint(0x04, MIMUSB_TRANSFER_BULK))};

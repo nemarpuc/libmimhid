@@ -498,8 +498,8 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_n
                                                 item.descriptor + item.descriptor_length);
                 } else {
                     set_error(MIMUSB_ERR_UNSET_FIELD, "node_config.interfaces.settings.items.kind",
-                              "kind is MIMUSB_ITEM_ENDPOINT or MIMUSB_ITEM_DESCRIPTOR.", 0, 0, 0,
-                              0, in.number, static_cast<std::uint32_t>(k));
+                              "kind is MIMUSB_ITEM_ENDPOINT or MIMUSB_ITEM_DESCRIPTOR.", 0, 0, 0, 0,
+                              in.number, static_cast<std::uint32_t>(k));
                     return MIMUSB_ERR_UNSET_FIELD;
                 }
                 made_setting.items.push_back(std::move(made_item));

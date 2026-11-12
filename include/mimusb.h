@@ -521,10 +521,10 @@ typedef struct mimusb_usb_endpoint {
                                  speed, 512 at high speed (USB 2.0 5.8.3); isochronous: at most
                                  1023 at full speed, 1024 at high speed, and the board's
                                  max_transfer_bytes */
-    uint8_t refresh;       /* audio_form 1: bRefresh; otherwise zero */
-    uint8_t synch_address; /* audio_form 1: bSynchAddress; otherwise zero */
-    uint8_t sync_type;     /* MIMUSB_ISO_SYNC_*; isochronous only */
-    uint8_t usage_type;    /* MIMUSB_ISO_USAGE_*; isochronous only */
+    uint8_t refresh;          /* audio_form 1: bRefresh; otherwise zero */
+    uint8_t synch_address;    /* audio_form 1: bSynchAddress; otherwise zero */
+    uint8_t sync_type;        /* MIMUSB_ISO_SYNC_*; isochronous only */
+    uint8_t usage_type;       /* MIMUSB_ISO_USAGE_*; isochronous only */
     mimusb_endpoint_policy policy; /* IN endpoints; all zero on an OUT endpoint */
 } mimusb_usb_endpoint;
 
@@ -602,7 +602,7 @@ enum { MIMUSB_ITEM_ENDPOINT = 1, MIMUSB_ITEM_DESCRIPTOR = 2 };
  * at least 2 and equal to descriptor_length, the type not 4 or 5, which the library writes itself)
  * and leaves `endpoint` all zero. */
 typedef struct mimusb_usb_item {
-    uint32_t kind; /* MIMUSB_ITEM_* */
+    uint32_t kind;     /* MIMUSB_ITEM_* */
     uint32_t reserved; /* zero */
     mimusb_usb_endpoint endpoint;
     const uint8_t* descriptor;

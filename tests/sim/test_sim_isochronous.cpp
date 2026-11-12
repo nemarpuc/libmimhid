@@ -222,7 +222,8 @@ void refusals() {
                  node == nullptr);
     itf.settings = with_alternate;
     itf.setting_count = 2;
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &node) == MIMUSB_OK && node != nullptr);
+    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &node) == MIMUSB_OK &&
+                 node != nullptr);
     if (node != nullptr)
         MIMUSB_CHECK(mimusb_node_close(node, &kCommit, kDrainMs) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
@@ -260,12 +261,14 @@ void node_streaming() {
     in.policy = {MIMUSB_FULL_DROP_OLDEST, 4};
     const mimusb_usb_item control_items[] = {
         mimusb_usb_item_make_descriptor(ac_header, sizeof(ac_header))};
-    const mimusb_usb_item alt1[] = {mimusb_usb_item_make_descriptor(as_general, sizeof(as_general)),
-                                    mimusb_usb_item_make_endpoint(out),
-                                    mimusb_usb_item_make_descriptor(cs_endpoint, sizeof(cs_endpoint))};
-    const mimusb_usb_item alt2[] = {mimusb_usb_item_make_descriptor(as_general, sizeof(as_general)),
-                                    mimusb_usb_item_make_endpoint(in),
-                                    mimusb_usb_item_make_descriptor(cs_endpoint, sizeof(cs_endpoint))};
+    const mimusb_usb_item alt1[] = {
+        mimusb_usb_item_make_descriptor(as_general, sizeof(as_general)),
+        mimusb_usb_item_make_endpoint(out),
+        mimusb_usb_item_make_descriptor(cs_endpoint, sizeof(cs_endpoint))};
+    const mimusb_usb_item alt2[] = {
+        mimusb_usb_item_make_descriptor(as_general, sizeof(as_general)),
+        mimusb_usb_item_make_endpoint(in),
+        mimusb_usb_item_make_descriptor(cs_endpoint, sizeof(cs_endpoint))};
     const mimusb_usb_setting control_settings[] = {{control_items, 1}};
     const mimusb_usb_setting stream_settings[] = {{nullptr, 0}, {alt1, 3}, {alt2, 3}};
     mimusb_usb_interface itfs[2] = {};
@@ -295,11 +298,11 @@ void node_streaming() {
     // descriptor and its items in the order given; 9-byte endpoint descriptors whose bmAttributes
     // carry the synchronization type.
     const Bytes expected = {
-        9, 4, 1, 0, 0, 1, 1, 0, 0, 9, 0x24, 1, 0, 1, 9, 0, 1, 2,        // interface 1
-        9, 4, 2, 0, 0, 1, 2, 0, 0,                                      // interface 2, setting 0
-        9, 4, 2, 1, 1, 1, 2, 0, 0, 7, 0x24, 1, 1, 1, 1, 0,              // setting 1
-        9, 5, 0x03, 0x09, 0xC0, 0x00, 1, 0, 0, 7, 0x25, 1, 0, 0, 0, 0, // iso OUT, CS_ENDPOINT
-        9, 4, 2, 2, 1, 1, 2, 0, 0, 7, 0x24, 1, 1, 1, 1, 0,              // setting 2
+        9, 4, 1,    0,    0,    1,    1, 0, 0, 9, 0x24, 1, 0, 1, 9, 0, 1, 2, // interface 1
+        9, 4, 2,    0,    0,    1,    2, 0, 0,                          // interface 2, setting 0
+        9, 4, 2,    1,    1,    1,    2, 0, 0, 7, 0x24, 1, 1, 1, 1, 0,  // setting 1
+        9, 5, 0x03, 0x09, 0xC0, 0x00, 1, 0, 0, 7, 0x25, 1, 0, 0, 0, 0,  // iso OUT, CS_ENDPOINT
+        9, 4, 2,    2,    1,    1,    2, 0, 0, 7, 0x24, 1, 1, 1, 1, 0,  // setting 2
         9, 5, 0x82, 0x05, 0x80, 0x01, 1, 0, 0, 7, 0x25, 1, 0, 0, 0, 0}; // iso IN, CS_ENDPOINT
     std::uint16_t length = 0;
     const std::uint8_t* got = fake_board_config_descriptor(&length);
@@ -317,7 +320,8 @@ void node_streaming() {
     MIMUSB_CHECK(select_setting(2, 1));
     MIMUSB_CHECK(wait_event(MIMUSB_EVENT_INTERFACE_ALTERNATE, &ev) && ev.interface_number == 2U &&
                  ev.value == 1U && ev.node_id == mimusb_node_id(audio));
-    MIMUSB_CHECK(fake_board_endpoint_packet(0x03) == 192U && fake_board_endpoint_packet(0x82) == 0U);
+    MIMUSB_CHECK(fake_board_endpoint_packet(0x03) == 192U &&
+                 fake_board_endpoint_packet(0x82) == 0U);
     Bytes frame(192, 0x5A);
     fake_board_target_out(0x03, frame.data(), frame.size());
     MIMUSB_CHECK(wait_event(MIMUSB_EVENT_ENDPOINT_DATA, &ev) && ev.endpoint_address == 0x03U &&
