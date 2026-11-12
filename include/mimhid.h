@@ -1255,7 +1255,11 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* 
  * the ROM's download mode on an ESP32-S3, the bootloader in flash on an nRF52840 board that has
  * one).
  * The board first takes its USB device off the target. After MIMHID_OK the board no longer
- * answers: the Device is good only for mimhid_device_close, which reports the board as gone.
+ * answers: the Device is good only for mimhid_device_close. Close does not know the board
+ * restarted: it returns MIMHID_ERR_NO_DEVICE only when the serial link itself failed. A Device
+ * that was never committed has nothing to detach, so close returns MIMHID_OK (seen on an RP2040);
+ * for a committed one the detach COMMIT close sends gets no answer, and close returns the link
+ * error (MIMHID_ERR_TIMEOUT; from reading the code, not run).
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device; MIMHID_ERR_UNSET_FIELD for a zero
  * timeout; MIMHID_ERR_UNSUPPORTED on a board whose chip has no bootloader the firmware can enter;
  * a link error. */
