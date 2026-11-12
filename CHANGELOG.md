@@ -6,6 +6,26 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
+**Not hardware-verified as `tests/hw/README.md` defines it; what was run on a board is listed under
+"Run on a board" below.** The wire protocol changes (a new event, a new bit in the PONG's
+`transfer_types`): a 0.3.x board and this library do not talk to each other, and the firmware of
+this release is needed to use isochronous endpoints.
+
+### Run on a board
+
+2026-11-12, a Raspberry Pi Pico (RP2040), a Prolific PL2303 adapter, a Windows 10 machine as the
+target. Not run: Linux, macOS or Android as the target, the RP2350, the other boards, audio
+classes, an isochronous OUT endpoint, the `mimhid_verify_*` programs.
+
+- A UVC camera (128x96 YUY2, 256-byte isochronous packets, descriptors as bytes) enumerated by
+  Windows, opened by its camera application, and streamed: four openings and closings of the
+  stream in a row, then a program restart with the stream open, three times, with no stop of the
+  board and no error on the link counters.
+- Before the fix under "Fixed", the second opening of the stream stopped the board (its USB core:
+  commands that run there timed out while the serial link still answered) until it was unplugged.
+
 ### Added
 
 - Alternate settings and isochronous endpoints in a Device given as bytes
