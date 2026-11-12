@@ -541,6 +541,12 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_digitizer_sample.tilt_x".to_owned(), offset_of!(mimusb_digitizer_sample, tilt_x) as i64);
     map.insert("mimusb_digitizer_sample.tilt_y".to_owned(), offset_of!(mimusb_digitizer_sample, tilt_y) as i64);
     map.insert("mimusb_digitizer_sample.twist".to_owned(), offset_of!(mimusb_digitizer_sample, twist) as i64);
+    map.insert("mimusb_cdc_acm_descriptors.size".to_owned(), size_of::<mimusb_cdc_acm_descriptors>() as i64);
+    map.insert("mimusb_cdc_acm_descriptors.header".to_owned(), offset_of!(mimusb_cdc_acm_descriptors, header) as i64);
+    map.insert("mimusb_cdc_acm_descriptors.call_management".to_owned(), offset_of!(mimusb_cdc_acm_descriptors, call_management) as i64);
+    map.insert("mimusb_cdc_acm_descriptors.acm".to_owned(), offset_of!(mimusb_cdc_acm_descriptors, acm) as i64);
+    map.insert("mimusb_cdc_acm_descriptors.union_".to_owned(), offset_of!(mimusb_cdc_acm_descriptors, union_) as i64);
+    map.insert("mimusb_cdc_acm_descriptors.association".to_owned(), offset_of!(mimusb_cdc_acm_descriptors, association) as i64);
     map
 }
 

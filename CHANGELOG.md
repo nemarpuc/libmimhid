@@ -6,6 +6,12 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+### Added
+
+- `mimusb_cdc_acm_descriptors_make` and `mimusb_cdc_acm_rules`: the class descriptors, the
+  Interface Association descriptor and the line-coding control rules of a CDC-ACM function, for a
+  Node opened with `mimusb_node_open`.
+
 ### Changed
 
 - **An interface of a Node is a list of alternate settings, and a setting is a sequence of

@@ -66,6 +66,7 @@ LAYOUT = {
     "mimusb_touchpad_extra": ("TouchpadExtra", ["pressure", "width", "height", "azimuth"]),
     "mimusb_pen_sample": ("PenSample", ["in_range", "tip", "eraser", "barrel_buttons", "x", "y", "pressure", "tilt_x", "tilt_y", "twist"]),
     "mimusb_digitizer_sample": ("DigitizerSample", ["in_range", "tip", "eraser", "barrel_buttons", "x", "y", "pressure", "tilt_x", "tilt_y", "twist"]),
+    "mimusb_cdc_acm_descriptors": ("CdcAcmDescriptors", ["header", "call_management", "acm", "union_", "association"]),
 }
 
 CONSTANTS = [

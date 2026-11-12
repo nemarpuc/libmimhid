@@ -124,6 +124,18 @@ device_link_counters(mimusb_device* device, bool reset, uint32_t control_timeout
                                                        mimusb_control_rule* out_rule) noexcept {
     return mimusb_hid_descriptor_rule(interface_number, descriptor_type, bytes, length, out_rule);
 }
+[[nodiscard]] inline mimusb_result
+cdc_acm_descriptors_make(uint16_t bcd_cdc, uint8_t control_interface,
+                         uint8_t call_management_capabilities, uint8_t acm_capabilities,
+                         mimusb_cdc_acm_descriptors* out) noexcept {
+    return mimusb_cdc_acm_descriptors_make(bcd_cdc, control_interface, call_management_capabilities,
+                                           acm_capabilities, out);
+}
+[[nodiscard]] inline mimusb_result cdc_acm_rules(uint8_t control_interface,
+                                                 const uint8_t line_coding[7],
+                                                 mimusb_control_rule out_rules[3]) noexcept {
+    return mimusb_cdc_acm_rules(control_interface, line_coding, out_rules);
+}
 [[nodiscard]] inline mimusb_result device_set_loss_reporting(mimusb_device* device,
                                                              uint32_t enabled, uint32_t interval_ms,
                                                              uint32_t control_timeout_ms) noexcept {

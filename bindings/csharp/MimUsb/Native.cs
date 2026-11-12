@@ -689,6 +689,16 @@ public struct DigitizerSample
     public int Twist;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct CdcAcmDescriptors
+{
+    public fixed byte Header[5];
+    public fixed byte CallManagement[5];
+    public fixed byte Acm[4];
+    public fixed byte Union[5];
+    public fixed byte Association[8];
+}
+
 public static class Native
 {
     private const string Library = "mimusb";
@@ -850,6 +860,7 @@ public static class Native
             ["mimusb_touchpad_extra"] = typeof(TouchpadExtra),
             ["mimusb_pen_sample"] = typeof(PenSample),
             ["mimusb_digitizer_sample"] = typeof(DigitizerSample),
+            ["mimusb_cdc_acm_descriptors"] = typeof(CdcAcmDescriptors),
         };
 
     public static readonly IReadOnlyDictionary<string, long> AbiConstants =
@@ -1046,6 +1057,14 @@ public static class Native
     public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, ref ControlRule rule);
     [DllImport(Library, EntryPoint = "mimusb_hid_descriptor_rule", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, nint rule);
+    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_descriptors_make", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result CdcAcmDescriptorsMake(ushort bcdCdc, byte controlInterface, byte callManagementCapabilities, byte acmCapabilities, ref CdcAcmDescriptors @out);
+    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_descriptors_make", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result CdcAcmDescriptorsMake(ushort bcdCdc, byte controlInterface, byte callManagementCapabilities, byte acmCapabilities, nint @out);
+    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_rules", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result CdcAcmRules(byte controlInterface, nint lineCoding, ref ControlRule rules);
+    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_rules", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result CdcAcmRules(byte controlInterface, nint lineCoding, nint rules);
     [DllImport(Library, EntryPoint = "mimusb_device_control_reply", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceControlReply(nint device, uint token, ControlAction action, nint data, nuint length, uint sendTimeoutMs);
     [DllImport(Library, EntryPoint = "mimusb_device_set_loss_reporting", ExactSpelling = true, CallingConvention = Call)]

@@ -735,6 +735,16 @@ class DigitizerSample(c.Structure):
     ]
 
 
+class CdcAcmDescriptors(c.Structure):
+    _fields_ = [
+        ("header", c.c_uint8 * 5),
+        ("call_management", c.c_uint8 * 5),
+        ("acm", c.c_uint8 * 4),
+        ("union_", c.c_uint8 * 5),
+        ("association", c.c_uint8 * 8),
+    ]
+
+
 ABI_STRUCTS = {
     "mimusb_error_detail": ErrorDetail,
     "mimusb_event": Event,
@@ -777,6 +787,7 @@ ABI_STRUCTS = {
     "mimusb_touchpad_extra": TouchpadExtra,
     "mimusb_pen_sample": PenSample,
     "mimusb_digitizer_sample": DigitizerSample,
+    "mimusb_cdc_acm_descriptors": CdcAcmDescriptors,
 }
 
 
@@ -818,6 +829,8 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimusb_node_set_rule_data", [NodeP, c.c_size_t, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimusb_hid_descriptor_bytes", [c.c_uint16, c.c_uint8, c.c_size_t, c.POINTER(c.c_uint8)], c.c_int32)
     declare("mimusb_hid_descriptor_rule", [c.c_uint8, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(ControlRule)], c.c_int32)
+    declare("mimusb_cdc_acm_descriptors_make", [c.c_uint16, c.c_uint8, c.c_uint8, c.c_uint8, c.POINTER(CdcAcmDescriptors)], c.c_int32)
+    declare("mimusb_cdc_acm_rules", [c.c_uint8, c.POINTER(c.c_uint8), c.POINTER(ControlRule)], c.c_int32)
     declare("mimusb_device_control_reply", [DeviceP, c.c_uint32, c.c_int32, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimusb_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
     declare("mimusb_device_add_string", [DeviceP, c.c_char_p, c.POINTER(c.c_uint8)], c.c_int32)
@@ -930,6 +943,7 @@ __all__ += [
     "TouchpadExtra",
     "PenSample",
     "DigitizerSample",
+    "CdcAcmDescriptors",
     "ABI_STRUCTS",
     "load",
 ]

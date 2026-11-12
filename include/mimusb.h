@@ -1472,6 +1472,50 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(uint8_t interfac
                                                                 const uint8_t* bytes, size_t length,
                                                                 mimusb_control_rule* out_rule);
 
+/* The class descriptors of a CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3), for the items of
+ * the communication interface's setting, and the Interface Association descriptor that goes in
+ * mimusb_node_config.association. A CDC-ACM function is two interfaces: the communication
+ * interface (class 0x02, subclass 0x02, protocol 0x01 or as the program chooses; one interrupt IN
+ * endpoint for notifications) and the data interface (class 0x0A; a bulk IN and a bulk OUT
+ * endpoint), the data interface number following the communication one. */
+typedef struct mimusb_cdc_acm_descriptors {
+    uint8_t header[5];          /* Header Functional descriptor (CDC 1.2 5.2.3.1) */
+    uint8_t call_management[5]; /* Call Management Functional descriptor (PSTN 1.2 5.3.1) */
+    uint8_t acm[4];             /* Abstract Control Management Functional descriptor (5.3.2) */
+    uint8_t union_[5];          /* Union Functional descriptor (CDC 1.2 5.2.3.8) */
+    uint8_t association[8];     /* Interface Association descriptor (USB IAD ECN) */
+} mimusb_cdc_acm_descriptors;
+
+/* mimusb_cdc_acm_descriptors_make
+ * Ownership: Nothing; writes out.
+ * Blocking: None.
+ * Synchronization: None.
+ * Writes the descriptors above for a CDC-ACM function whose communication interface is
+ * control_interface and whose data interface is control_interface + 1. The class descriptors go
+ * in the setting of the communication interface in the order header, call_management, acm, union_
+ * and then the notification endpoint. call_management_capabilities and acm_capabilities are
+ * bmCapabilities of those descriptors, written as given.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null out or a control_interface of 255;
+ * MIMUSB_ERR_UNSET_FIELD for a zero bcd_cdc (e.g. 0x0120). */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
+    uint16_t bcd_cdc, uint8_t control_interface, uint8_t call_management_capabilities,
+    uint8_t acm_capabilities, mimusb_cdc_acm_descriptors* out);
+
+/* mimusb_cdc_acm_rules
+ * Ownership: out_rules[1].data points at `line_coding`, which the caller keeps until the rules
+ * are given to the library (it copies them then).
+ * Blocking: None.
+ * Synchronization: None.
+ * Fills three rules for the communication interface control_interface (PSTN 1.2 6.3): ACCEPT for
+ * SET_LINE_CODING (0x20) and SET_CONTROL_LINE_STATE (0x22), which the program hears as
+ * MIMUSB_EVENT_CONTROL_SETUP (flag ACCEPTED) and CONTROL_DATA, and ANSWER for GET_LINE_CODING
+ * (0x21) with the 7 bytes of `line_coding` (dwDTERate, bCharFormat, bParityType, bDataBits).
+ * mimusb_node_set_rule_data changes those bytes later.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null line_coding or out_rules. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_cdc_acm_rules(uint8_t control_interface,
+                                                          const uint8_t line_coding[7],
+                                                          mimusb_control_rule out_rules[3]);
+
 /* mimusb_device_control_reply
  * Ownership: Copies data.
  * Blocking: Writes one frame, for up to send_timeout_ms without progress; it does not wait for the

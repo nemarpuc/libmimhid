@@ -476,6 +476,12 @@ Check("mimusb_digitizer_sample.pressure", (long)Marshal.OffsetOf<DigitizerSample
 Check("mimusb_digitizer_sample.tilt_x", (long)Marshal.OffsetOf<DigitizerSample>("TiltX"));
 Check("mimusb_digitizer_sample.tilt_y", (long)Marshal.OffsetOf<DigitizerSample>("TiltY"));
 Check("mimusb_digitizer_sample.twist", (long)Marshal.OffsetOf<DigitizerSample>("Twist"));
+Check("mimusb_cdc_acm_descriptors.size", Marshal.SizeOf<CdcAcmDescriptors>());
+Check("mimusb_cdc_acm_descriptors.header", (long)Marshal.OffsetOf<CdcAcmDescriptors>("Header"));
+Check("mimusb_cdc_acm_descriptors.call_management", (long)Marshal.OffsetOf<CdcAcmDescriptors>("CallManagement"));
+Check("mimusb_cdc_acm_descriptors.acm", (long)Marshal.OffsetOf<CdcAcmDescriptors>("Acm"));
+Check("mimusb_cdc_acm_descriptors.union_", (long)Marshal.OffsetOf<CdcAcmDescriptors>("Union"));
+Check("mimusb_cdc_acm_descriptors.association", (long)Marshal.OffsetOf<CdcAcmDescriptors>("Association"));
 
 foreach (var failure in failures)
     Console.Error.WriteLine($"layout mismatch: {failure}");

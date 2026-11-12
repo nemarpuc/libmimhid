@@ -508,6 +508,18 @@ mimusb_result mimusb_hid_descriptor_rule(uint8_t interface_number, uint8_t descr
 - **Synchronization:** None. Helpers for a HID interface of the caller's own (`examples/c/hid_interface.c`): the first writes the 9-byte HID descriptor with one report descriptor (HID 1.11 6.2.1) as a `MIMUSB_ITEM_DESCRIPTOR` item of a setting; the second fills an `ANSWER` rule for `GET_DESCRIPTOR` (USB 2.0 9.4.3, HID 1.11 7.1.1) of type 0x22 (report descriptor) or 0x21 (HID descriptor) on one interface.
 - **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null pointer, a length of 0 or above 65535 or another descriptor type; `MIMUSB_ERR_UNSET_FIELD` for a zero bcd_hid.
 
+#### `mimusb_cdc_acm_descriptors_make`, `mimusb_cdc_acm_rules`
+
+```c
+mimusb_result mimusb_cdc_acm_descriptors_make(uint16_t bcd_cdc, uint8_t control_interface, uint8_t call_management_capabilities, uint8_t acm_capabilities, mimusb_cdc_acm_descriptors* out);
+mimusb_result mimusb_cdc_acm_rules(uint8_t control_interface, const uint8_t line_coding[7], mimusb_control_rule out_rules[3]);
+```
+
+- **Ownership:** Nothing for the first; `out_rules[1].data` points at `line_coding`, which the caller keeps until the rules are given to the library.
+- **Blocking:** None.
+- **Synchronization:** None. Helpers for a CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3 and 6.3) opened with `mimusb_node_open`: two interfaces, `control_interface` (class 0x02, subclass 0x02, one interrupt IN endpoint) and `control_interface + 1` (class 0x0A, a bulk IN and a bulk OUT endpoint). The first writes the four class descriptors, to go in the setting of the communication interface in the order header, call management, ACM, union and then the notification endpoint, and the Interface Association descriptor for `mimusb_node_config.association`. The second fills three rules: `ACCEPT` for `SET_LINE_CODING` and `SET_CONTROL_LINE_STATE`, and `ANSWER` for `GET_LINE_CODING`. The program serves the data endpoints itself.
+- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null pointer or a `control_interface` of 255; `MIMUSB_ERR_UNSET_FIELD` for a zero `bcd_cdc`.
+
 #### `mimusb_device_control_reply`
 
 ```c

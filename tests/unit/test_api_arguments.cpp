@@ -89,6 +89,16 @@ void test_node_arguments() {
     MIMUSB_CHECK(refused(mimusb_node_set_rule_data(nullptr, 0, data, 1, 100)));
     mimusb_control_rule rule{};
     MIMUSB_CHECK(refused(mimusb_hid_descriptor_rule(0, 0x22, nullptr, 1, &rule)));
+    {
+        mimusb_cdc_acm_descriptors cdc{};
+        MIMUSB_CHECK(refused(mimusb_cdc_acm_descriptors_make(0x0120, 0, 0, 0, nullptr)));
+        MIMUSB_CHECK(refused(mimusb_cdc_acm_descriptors_make(0x0120, 255, 0, 0, &cdc)));
+        MIMUSB_CHECK(mimusb_cdc_acm_descriptors_make(0, 0, 0, 0, &cdc) == MIMUSB_ERR_UNSET_FIELD);
+        const std::uint8_t line[7] = {};
+        mimusb_control_rule rules[3];
+        MIMUSB_CHECK(refused(mimusb_cdc_acm_rules(0, nullptr, rules)));
+        MIMUSB_CHECK(refused(mimusb_cdc_acm_rules(0, line, nullptr)));
+    }
     MIMUSB_CHECK(refused(mimusb_hid_descriptor_bytes(0x0111, 0, 0, nullptr)));
 }
 

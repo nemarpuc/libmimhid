@@ -544,5 +544,11 @@ int main(void) {
     OFFSET(mimusb_digitizer_sample, tilt_x);
     OFFSET(mimusb_digitizer_sample, tilt_y);
     OFFSET(mimusb_digitizer_sample, twist);
+    SIZE(mimusb_cdc_acm_descriptors);
+    OFFSET(mimusb_cdc_acm_descriptors, header);
+    OFFSET(mimusb_cdc_acm_descriptors, call_management);
+    OFFSET(mimusb_cdc_acm_descriptors, acm);
+    OFFSET(mimusb_cdc_acm_descriptors, union_);
+    OFFSET(mimusb_cdc_acm_descriptors, association);
     return 0;
 }

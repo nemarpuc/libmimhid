@@ -683,6 +683,15 @@ pub struct mimusb_digitizer_sample {
     pub twist: i32,
 }
 
+#[repr(C)]
+pub struct mimusb_cdc_acm_descriptors {
+    pub header: [u8; 5],
+    pub call_management: [u8; 5],
+    pub acm: [u8; 4],
+    pub union_: [u8; 5],
+    pub association: [u8; 8],
+}
+
 extern "C" {
     pub fn mimusb_last_error() -> *const mimusb_error_detail;
     pub fn mimusb_result_name(result: mimusb_result) -> *const c_char;
@@ -713,6 +722,8 @@ extern "C" {
     pub fn mimusb_node_set_rule_data(node: *mut mimusb_node, rule_index: usize, data: *const u8, length: usize, control_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_hid_descriptor_bytes(bcd_hid: u16, country_code: u8, report_descriptor_length: usize, out: *mut u8) -> mimusb_result;
     pub fn mimusb_hid_descriptor_rule(interface_number: u8, descriptor_type: u8, bytes: *const u8, length: usize, out_rule: *mut mimusb_control_rule) -> mimusb_result;
+    pub fn mimusb_cdc_acm_descriptors_make(bcd_cdc: u16, control_interface: u8, call_management_capabilities: u8, acm_capabilities: u8, out: *mut mimusb_cdc_acm_descriptors) -> mimusb_result;
+    pub fn mimusb_cdc_acm_rules(control_interface: u8, line_coding: *const u8, out_rules: *mut mimusb_control_rule) -> mimusb_result;
     pub fn mimusb_device_control_reply(device: *mut mimusb_device, token: u32, action: mimusb_control_action, data: *const u8, length: usize, send_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_device_set_loss_reporting(device: *mut mimusb_device, enabled: u32, interval_ms: u32, control_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_device_add_string(device: *mut mimusb_device, utf8: *const c_char, out_index: *mut u8) -> mimusb_result;

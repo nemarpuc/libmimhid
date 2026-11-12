@@ -609,17 +609,20 @@ void association_beside_hid() {
     test_fill_node_config(&nc, 1);
     mimusb_node* m = open_node(device, mouse, &nc);
 
-    const std::uint8_t header[] = {5, 0x24, 0x00, 0x10, 0x01};
-    const std::uint8_t call[] = {5, 0x24, 0x01, 0x00, 0x03};
-    const std::uint8_t acm[] = {4, 0x24, 0x02, 0x02};
-    const std::uint8_t onion[] = {5, 0x24, 0x06, 0x02, 0x03};
+    mimusb_cdc_acm_descriptors cdc_bytes{};
+    MIMUSB_CHECK(mimusb_cdc_acm_descriptors_make(0x0110, 2, 0x00, 0x02, &cdc_bytes) == MIMUSB_OK);
+    const std::uint8_t line_coding[7] = {0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08}; // 115200 8N1
+    mimusb_control_rule cdc_rules[3];
+    MIMUSB_CHECK(mimusb_cdc_acm_rules(2, line_coding, cdc_rules) == MIMUSB_OK);
     const mimusb_usb_endpoint comm_ep =
         endpoint(0x83, MIMUSB_TRANSFER_INTERRUPT, MIMUSB_FULL_DROP_NEWEST, 2);
-    const mimusb_usb_item comm_items[] = {mimusb_usb_item_make_descriptor(header, sizeof(header)),
-                                          mimusb_usb_item_make_descriptor(call, sizeof(call)),
-                                          mimusb_usb_item_make_descriptor(onion, sizeof(onion)),
-                                          mimusb_usb_item_make_descriptor(acm, sizeof(acm)),
-                                          mimusb_usb_item_make_endpoint(comm_ep)};
+    const mimusb_usb_item comm_items[] = {
+        mimusb_usb_item_make_descriptor(cdc_bytes.header, sizeof(cdc_bytes.header)),
+        mimusb_usb_item_make_descriptor(cdc_bytes.call_management,
+                                        sizeof(cdc_bytes.call_management)),
+        mimusb_usb_item_make_descriptor(cdc_bytes.acm, sizeof(cdc_bytes.acm)),
+        mimusb_usb_item_make_descriptor(cdc_bytes.union_, sizeof(cdc_bytes.union_)),
+        mimusb_usb_item_make_endpoint(comm_ep)};
     const mimusb_usb_item data_items[] = {
         mimusb_usb_item_make_endpoint(endpoint(0x84, MIMUSB_TRANSFER_BULK, MIMUSB_FULL_WAIT, 4)),
         mimusb_usb_item_make_endpoint(endpoint(0x04, MIMUSB_TRANSFER_BULK))};
@@ -636,13 +639,14 @@ void association_beside_hid() {
     itfs[1].class_code = 0x0A;
     itfs[1].settings = &data_setting;
     itfs[1].setting_count = 1;
-    const std::uint8_t association[] = {8, 0x0B, 2, 2, 0x02, 0x02, 0x01, 0};
     mimusb_node_config config;
     mimusb_node_config_init(&config);
     config.interfaces = itfs;
     config.interface_count = 2;
-    config.association = association;
-    config.association_length = sizeof(association);
+    config.association = cdc_bytes.association;
+    config.association_length = sizeof(cdc_bytes.association);
+    config.rules = cdc_rules;
+    config.rule_count = 3;
     mimusb_node* cdc = nullptr;
     MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &cdc) == MIMUSB_OK && cdc != nullptr);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
@@ -656,8 +660,8 @@ void association_beside_hid() {
     bool found = false;
     for (std::uint16_t i = 9; i < length; i += c[i]) {
         if (c[i + 1] == 0x0B) {
-            found =
-                std::memcmp(c + i, association, 8) == 0 && c[i + 8 + 1] == 4 && c[i + 8 + 2] == 2;
+            found = std::memcmp(c + i, cdc_bytes.association, 8) == 0 && c[i + 8 + 1] == 4 &&
+                    c[i + 8 + 2] == 2;
         }
     }
     MIMUSB_CHECK(found && fake_board_interface_count() == 4);
@@ -678,6 +682,23 @@ void association_beside_hid() {
     fake_board_target_out(0x04, text, 4);
     MIMUSB_CHECK(wait_event(MIMUSB_EVENT_ENDPOINT_DATA, &ev) && ev.endpoint_address == 0x04 &&
                  ev.interface_number == 3 && ev.node_id == mimusb_node_id(cdc));
+
+    // The line-coding rules: the target reads the coding the program gave, and a new one it sets
+    // is accepted and reported with its data stage.
+    {
+        const std::uint8_t get[8] = {0xA1, 0x21, 0, 0, 2, 0, 7, 0};
+        fake_board_target_control(get, nullptr, 0);
+        fake_control_result_t res{};
+        MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 &&
+                     res.outcome == FAKE_CONTROL_ANSWERED && res.length == 7 &&
+                     std::memcmp(res.data, line_coding, 7) == 0);
+        const std::uint8_t set[8] = {0x21, 0x20, 0, 0, 2, 0, 7, 0};
+        const std::uint8_t next[7] = {0x00, 0x4B, 0x00, 0x00, 0x00, 0x00, 0x08}; // 19200 8N1
+        fake_board_target_control(set, next, sizeof(next));
+        MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 && res.outcome == FAKE_CONTROL_ACKED);
+        MIMUSB_CHECK(wait_event(MIMUSB_EVENT_CONTROL_DATA, &ev) && ev.data.size() == 7 &&
+                     std::memcmp(ev.data.data(), next, 7) == 0);
+    }
 
     // Closing the CDC Node leaves the HID ones (interfaces 0 and 1) as they were.
     MIMUSB_CHECK(mimusb_node_close(cdc, &kCommit, kDrainMs) == MIMUSB_OK);

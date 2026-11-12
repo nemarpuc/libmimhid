@@ -877,6 +877,70 @@ mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(const uint8_t interface_num
 }
 MIMUSB_C_RESULT_CATCH("hid_descriptor_rule")
 
+mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
+    const uint16_t bcd_cdc, const uint8_t control_interface,
+    const uint8_t call_management_capabilities, const uint8_t acm_capabilities,
+    mimusb_cdc_acm_descriptors* out) try {
+    mimusb::detail::clear_error();
+    if (out == nullptr || control_interface == 0xFFU) {
+        set_error(MIMUSB_ERR_PARAM, "control_interface",
+                  "out is required and the data interface needs the next number.");
+        return MIMUSB_ERR_PARAM;
+    }
+    if (bcd_cdc == 0U) {
+        set_error(MIMUSB_ERR_UNSET_FIELD, "bcd_cdc", "bcd_cdc must be given (e.g. 0x0120).");
+        return MIMUSB_ERR_UNSET_FIELD;
+    }
+    const uint8_t data_interface = static_cast<uint8_t>(control_interface + 1U);
+    // CDC 1.2 5.2.3: bLength, bDescriptorType 0x24 (CS_INTERFACE), bDescriptorSubtype, data.
+    const uint8_t header[5] = {5U, 0x24U, 0x00U, static_cast<uint8_t>(bcd_cdc & 0xFFU),
+                               static_cast<uint8_t>(bcd_cdc >> 8U)};
+    const uint8_t call[5] = {5U, 0x24U, 0x01U, call_management_capabilities, data_interface};
+    const uint8_t acm[4] = {4U, 0x24U, 0x02U, acm_capabilities};
+    const uint8_t onion[5] = {5U, 0x24U, 0x06U, control_interface, data_interface};
+    // The Interface Association descriptor (USB IAD ECN): first interface, two interfaces, class
+    // 0x02, subclass 0x02, protocol 0x01, no string.
+    const uint8_t association[8] = {8U, 0x0BU, control_interface, 2U, 0x02U, 0x02U, 0x01U, 0U};
+    std::memcpy(out->header, header, sizeof header);
+    std::memcpy(out->call_management, call, sizeof call);
+    std::memcpy(out->acm, acm, sizeof acm);
+    std::memcpy(out->union_, onion, sizeof onion);
+    std::memcpy(out->association, association, sizeof association);
+    return MIMUSB_OK;
+}
+MIMUSB_C_RESULT_CATCH("cdc_acm_descriptors_make")
+
+mimusb_result MIMUSB_CALL mimusb_cdc_acm_rules(const uint8_t control_interface,
+                                               const uint8_t line_coding[7],
+                                               mimusb_control_rule out_rules[3]) try {
+    mimusb::detail::clear_error();
+    if (line_coding == nullptr || out_rules == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "cdc_acm_rules", "line_coding and out_rules are required.");
+        return MIMUSB_ERR_PARAM;
+    }
+    // PSTN 1.2 6.3: class requests to the communication interface. bmRequestType 0x21 is host to
+    // device, class, interface; 0xA1 is device to host.
+    const auto make = [&](const uint8_t type, const uint8_t request,
+                          const mimusb_control_rule_action action) {
+        mimusb_control_rule r{};
+        r.request_type_mask = 0xFFU;
+        r.request_type_value = type;
+        r.request_mask = 0xFFU;
+        r.request_value = request;
+        r.index_mask = 0xFFFFU;
+        r.index_value = control_interface;
+        r.action = action;
+        return r;
+    };
+    out_rules[0] = make(0x21U, 0x20U, MIMUSB_CONTROL_ACCEPT); // SET_LINE_CODING
+    out_rules[1] = make(0xA1U, 0x21U, MIMUSB_CONTROL_ANSWER); // GET_LINE_CODING
+    out_rules[1].data = line_coding;
+    out_rules[1].length = 7U;
+    out_rules[2] = make(0x21U, 0x22U, MIMUSB_CONTROL_ACCEPT); // SET_CONTROL_LINE_STATE
+    return MIMUSB_OK;
+}
+MIMUSB_C_RESULT_CATCH("cdc_acm_rules")
+
 uint16_t MIMUSB_CALL mimusb_node_id(const mimusb_node* node) try {
     mimusb::detail::clear_error();
     if (node == nullptr || node->closed) {
