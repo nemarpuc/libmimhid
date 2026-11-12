@@ -6,6 +6,9 @@
 #include "generic.h"
 #include "hal.h"
 #include "tusb.h"
+#if MIMHID_ISO_BYTES != 0
+#include "device/dcd.h" // dcd_edpt_close_all, dcd_event_bus_reset (detach)
+#endif
 #include <string.h>
 
 // The port's stated endpoint packet size and the speed the stack runs at must agree, and the
@@ -810,6 +813,15 @@ static void cmd_commit(const command_t* c) {
         // Detach: leave the target's bus and forget the active configuration.
         g_attached = false;
         tud_disconnect();
+#if MIMHID_ISO_BYTES != 0
+        // The packet memory of a controller that hands it out once per endpoint (the RP2040's
+        // isochronous buffers) is only reclaimed by a bus reset or by closing every endpoint, and a
+        // target that never saw the detach sends no bus reset: take the endpoints off the controller
+        // here, and have the stack forget its configuration the way a bus reset would. The pull-up
+        // is off, so nothing is on the bus meanwhile.
+        dcd_edpt_close_all(0);
+        dcd_event_bus_reset(0, TUSB_SPEED_FULL, false);
+#endif
         mimhid_control_detach();
         mimhid_clear_config();
         static const mimhid_layout_t none; // no endpoints: every queue of the pool is released

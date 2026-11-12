@@ -178,6 +178,9 @@ static struct {
     uint16_t iso_buffer; // bytes usbd_edpt_iso_alloc gave: 0 for an endpoint that has none
     uint16_t packet; // wMaxPacketSize of the descriptor the endpoint was opened or activated with
 } g_ep[2][16];       // [0] OUT, [1] IN
+static unsigned g_close_all, g_bus_resets;
+unsigned fake_board_close_all_count(void) { return g_close_all; }
+unsigned fake_board_bus_reset_count(void) { return g_bus_resets; }
 #define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr)&0x0F]
 
 bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
@@ -210,6 +213,19 @@ bool usbd_edpt_iso_activate(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
     EPSTATE(desc->bEndpointAddress).stalled = false;
     EPSTATE(desc->bEndpointAddress).packet = size;
     return true;
+}
+// What a detach does on a controller whose packet memory is only given back by closing every
+// endpoint (firmware/common/core.c, cmd_commit): the buffers and the open endpoints are gone, and
+// the stack is told of a bus reset, which here changes nothing more (its drivers are not run).
+void dcd_edpt_close_all(uint8_t rhport) {
+    (void)rhport;
+    memset(g_ep, 0, sizeof(g_ep));
+    ++g_close_all;
+}
+void dcd_event_handler(dcd_event_t const* event, bool in_isr) {
+    (void)in_isr;
+    if (event->event_id == DCD_EVENT_BUS_RESET)
+        ++g_bus_resets;
 }
 // Stalls of endpoint 0, which the stack's own failure path makes with this call.
 static bool g_ep0_stalled;

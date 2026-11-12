@@ -21,6 +21,15 @@ change of the minor number may change the API, the ABI or the wire protocol.
 - Simulated-board scenario `mimhid.sim-iso`, host walker and firmware tests for settings and
   isochronous descriptors.
 
+### Fixed
+
+- A detach (`mimhid_device_close`, `mimhid_device_clear_descriptors`) on a board with isochronous
+  endpoints now closes every endpoint of the controller and tells the stack of a bus reset. The
+  RP2040 and RP2350 hand out their packet memory once per endpoint and take it back only at a bus
+  reset or when every endpoint is closed; a target that never saw the detach sends no bus reset,
+  and the next attach would then allocate on top of the old buffers until the driver's assertion
+  stopped the board. Not reproduced on a board: the reasoning is from the TinyUSB source.
+
 ### Changed
 
 - A Node still has bulk and interrupt endpoints only: an isochronous `transfer_type` in a Node is
