@@ -4,6 +4,7 @@
 #include "config.h"
 #include "control.h"
 #include "core.h"
+#include "hal.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 #include <string.h>
@@ -536,8 +537,13 @@ static bool is_iso(const tusb_desc_endpoint_t* ep) {
 static bool ep_start(uint8_t rhport, const tusb_desc_endpoint_t* ep) {
     const uint8_t address = ep->bEndpointAddress;
     const uint8_t number = address & 0x0F;
-    if (is_iso(ep) && !usbd_edpt_iso_activate(rhport, ep))
-        return false;
+    if (is_iso(ep)) {
+        // What was armed when the target left this endpoint's setting is still on the controller
+        // and would meet the transfer armed next.
+        hal_usb_clear_endpoint(address);
+        if (!usbd_edpt_iso_activate(rhport, ep))
+            return false;
+    }
     if (address & 0x80) {
         in_t* q = &g_in[number];
         q->open = true;
@@ -558,6 +564,7 @@ static bool ep_start(uint8_t rhport, const tusb_desc_endpoint_t* ep) {
 // of it is awaited).
 static void ep_stop(uint8_t address) {
     const uint8_t number = address & 0x0F;
+    hal_usb_clear_endpoint(address);
     if (address & 0x80) {
         in_t* q = &g_in[number];
         q->open = false;

@@ -63,4 +63,12 @@ void hal_enter_bootloader(void);
 // Disarms EP0 IN and OUT without stalling, leaving EP0 to NAK incoming tokens indefinitely.
 void hal_control_silent_drop(void);
 
+// Takes the transfer that is armed on one endpoint of the controller off it: its buffer is no longer
+// offered to the target and its completion is forgotten. Called when a SET_INTERFACE stops or
+// starts an isochronous endpoint. The target stops polling an endpoint of the setting it left, so
+// the transfer that was armed is never taken; the driver (the RP2040's) stops with "ep was already
+// available" when the next transfer is armed on top of it. Does nothing on a chip whose driver has
+// no such state.
+void hal_usb_clear_endpoint(uint8_t address);
+
 #endif // MIMHID_HAL_H

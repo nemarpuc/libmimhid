@@ -57,6 +57,9 @@ unsigned fake_board_endpoint_packet(uint8_t address);
  * (a detach on a board with isochronous endpoints: the controller's packet memory is given back).
  */
 unsigned fake_board_close_all_count(void);
+/* How many times the firmware took the transfer armed on this endpoint off the controller (a
+ * SET_INTERFACE that stops or starts an isochronous endpoint). */
+unsigned fake_board_clear_endpoint_count(uint8_t address);
 unsigned fake_board_bus_reset_count(void);
 int fake_board_endpoint_stalled(uint8_t address);
 // 1 while the controller holds a transfer of the endpoint that the target has not read.

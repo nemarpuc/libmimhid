@@ -98,6 +98,7 @@ static int g_bootloader_entered;
 bool hal_has_bootloader(void) { return g_has_bootloader; }
 void hal_enter_bootloader(void) { g_bootloader_entered++; }
 void hal_control_silent_drop(void) {}
+void hal_usb_clear_endpoint(uint8_t address) { (void)address; }
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
     (void)ep_addr;

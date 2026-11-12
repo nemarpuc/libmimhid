@@ -68,6 +68,9 @@ uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
 bool hal_has_bootloader(void) { return false; }
 void hal_enter_bootloader(void) {}
 void hal_control_silent_drop(void) {}
+static unsigned g_clear_endpoint[256];
+void hal_usb_clear_endpoint(uint8_t address) { ++g_clear_endpoint[address]; }
+unsigned fake_board_clear_endpoint_count(uint8_t address) { return g_clear_endpoint[address]; }
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
     (void)ep_addr;

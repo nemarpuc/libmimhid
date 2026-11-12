@@ -194,3 +194,4 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
 }
 
 void hal_control_silent_drop(void) {}
+void hal_usb_clear_endpoint(uint8_t address) { (void)address; }

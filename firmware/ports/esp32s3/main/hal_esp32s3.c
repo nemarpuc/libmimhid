@@ -138,3 +138,4 @@ void hal_enter_bootloader(void) {
 }
 
 void hal_control_silent_drop(void) {}
+void hal_usb_clear_endpoint(uint8_t address) { (void)address; }

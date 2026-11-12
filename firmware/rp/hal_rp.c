@@ -205,6 +205,20 @@ void hal_enter_bootloader(void) {
     reset_usb_boot(0, 0);
 }
 
+void hal_usb_clear_endpoint(uint8_t address) {
+    const uint8_t number = address & 0x0Fu;
+    const bool in = (address & 0x80u) != 0u;
+    if (number == 0u || number >= 16u)
+        return;
+    const uint32_t irq = save_and_disable_interrupts();
+    if (in)
+        usb_dpram->ep_buf_ctrl[number].in = 0;
+    else
+        usb_dpram->ep_buf_ctrl[number].out = 0;
+    hw_clear_alias(usb_hw)->buf_status = 1u << (number * 2u + (in ? 0u : 1u));
+    restore_interrupts(irq);
+}
+
 void hal_control_silent_drop(void) {
     hw_clear_alias(usb_hw)->ep_stall_arm = USB_EP_STALL_ARM_EP0_IN_BITS | USB_EP_STALL_ARM_EP0_OUT_BITS;
     usb_dpram->ep_buf_ctrl[0].in = 0;

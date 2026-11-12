@@ -23,6 +23,14 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ### Fixed
 
+- A target that leaves an alternate setting with an isochronous endpoint and selects it again (a
+  camera application closed and opened again) stopped the RP2040 and RP2350 board: the transfer
+  armed on the controller was never taken by the target, and TinyUSB's driver stops with "ep was
+  already available" when the next one is armed on top of it. `SET_INTERFACE` now takes the armed
+  transfer off the controller of every isochronous endpoint it stops or starts
+  (`hal_usb_clear_endpoint`). Seen on a board: four openings and closings of a UVC stream in a row,
+  and a detach while streaming followed by three attaches, with no stop; before, the second opening
+  stopped the board until it was unplugged.
 - A detach (`mimhid_device_close`, `mimhid_device_clear_descriptors`) on a board with isochronous
   endpoints now closes every endpoint of the controller and tells the stack of a bus reset. The
   RP2040 and RP2350 hand out their packet memory once per endpoint and take it back only at a bus

@@ -206,6 +206,7 @@ void hal_enter_bootloader(void) {}
 #endif
 
 void hal_control_silent_drop(void) {}
+void hal_usb_clear_endpoint(uint8_t address) { (void)address; }
 
 // TinyUSB raises USBPULLUP on every USB_EVT_READY (a cable plugged in, or the target powering up),
 // whatever tud_disconnect() did before. Until the host has committed a configuration (and after a

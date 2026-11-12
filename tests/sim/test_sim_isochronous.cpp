@@ -107,8 +107,12 @@ void streaming() {
     MIMHID_CHECK(!fake_board_wait_transfer(0x81, &t, 150));
 
     // Setting 1: the endpoint is on the bus at 192 bytes, the board tells the program, and the
-    // packet that waited goes out.
+    // packet that waited goes out. What was armed on the controller when the target left a setting
+    // is taken off it (the RP2040's driver stops when the next transfer is armed on top of it), at
+    // the stop and at the start.
+    const unsigned cleared = fake_board_clear_endpoint_count(0x81);
     MIMHID_CHECK(select_setting(0, 1));
+    MIMHID_CHECK(fake_board_clear_endpoint_count(0x81) == cleared + 1U);
     MIMHID_CHECK(wait_event(MIMHID_EVENT_INTERFACE_ALTERNATE, &ev) && ev.interface_number == 0U &&
                  ev.value == 1U && ev.node_id == 0U);
     MIMHID_CHECK(selected_setting(0) == 1 && fake_board_endpoint_packet(0x81) == 192U);
@@ -129,7 +133,10 @@ void streaming() {
     MIMHID_CHECK(std::strcmp(mimhid_last_error()->field, "node.endpoint.write") == 0);
 
     // Setting 2: the same endpoint with the bigger packet; the setting before it is left.
+    const unsigned before_two = fake_board_clear_endpoint_count(0x81);
     MIMHID_CHECK(select_setting(0, 2));
+    MIMHID_CHECK(fake_board_clear_endpoint_count(0x81) ==
+                 before_two + 2U); // setting 1 stopped, 2 started
     MIMHID_CHECK(wait_event(MIMHID_EVENT_INTERFACE_ALTERNATE, &ev) && ev.value == 2U);
     MIMHID_CHECK(selected_setting(0) == 2 && fake_board_endpoint_packet(0x81) == 384U);
     Bytes big(384, 0x5A);
