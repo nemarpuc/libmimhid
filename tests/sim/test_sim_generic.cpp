@@ -390,15 +390,19 @@ void open_checks() {
     MIMUSB_CHECK(test_node_open_interfaces(nullptr, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
     {
         Vendor v = base();
+        v.refresh();
         v.config.struct_size = 4;
         expect(v, MIMUSB_ERR_PARAM);
         v = base();
+        v.refresh();
         v.config.reserved = 1;
         expect(v, MIMUSB_ERR_PARAM);
         v = base();
+        v.refresh();
         v.config.interface_count = 0;
         expect(v, MIMUSB_ERR_PARAM);
         v = base();
+        v.refresh();
         MIMUSB_CHECK(test_node_open_interfaces(device, &v.config, nullptr, &node) ==
                      MIMUSB_ERR_PARAM);
         MIMUSB_CHECK(test_node_open_interfaces(device, &v.config, &kCommit, nullptr) ==
@@ -407,12 +411,15 @@ void open_checks() {
     // Class: 0 is unset; any other is the caller's.
     {
         Vendor v = base();
+        v.refresh();
         v.itf.class_code = 0;
         expect(v, MIMUSB_ERR_UNSET_FIELD, "class_code");
         v = base();
+        v.refresh();
         v.itf.class_code = 0x03; // a hand-written HID interface is the caller's too
         expect(v, MIMUSB_OK);
         v = base();
+        v.refresh();
         v.itf.class_code = 0x02; // any other class is the caller's
         expect(v, MIMUSB_OK);
     }
@@ -444,12 +451,15 @@ void open_checks() {
     // Transfer type.
     {
         Vendor v = base();
+        v.refresh();
         v.eps[0].transfer_type = 0;
         expect(v, MIMUSB_ERR_UNSET_FIELD, "transfer_type");
         v = base();
+        v.refresh();
         v.eps[0].transfer_type = 1; // isochronous: the board has none
         expect(v, MIMUSB_ERR_UNSUPPORTED, "transfer_type");
         v = base();
+        v.refresh();
         v.eps[0].transfer_type = 0; // control
         v.eps[0].transfer_type = 4;
         expect(v, MIMUSB_ERR_PARAM, "transfer_type");
@@ -457,15 +467,19 @@ void open_checks() {
     // Packet size.
     {
         Vendor v = base();
+        v.refresh();
         v.eps[0].max_packet_size = 0;
         expect(v, MIMUSB_ERR_UNSET_FIELD, "max_packet_size");
         v = base();
+        v.refresh();
         v.eps[0].max_packet_size = 65;
         expect(v, MIMUSB_ERR_OVERFLOW, "max_packet_size");
         v = base();
+        v.refresh();
         v.eps[0].max_packet_size = 48; // bulk is 8, 16, 32 or 64 at full speed (USB 2.0 5.8.3)
         expect(v, MIMUSB_ERR_PARAM, "max_packet_size");
         v = base();
+        v.refresh();
         v.eps[0].max_packet_size = 8;
         expect(v, MIMUSB_OK);
     }
@@ -477,19 +491,24 @@ void open_checks() {
         v = Vendor({endpoint(0x81, MIMUSB_TRANSFER_INTERRUPT)});
         expect(v, MIMUSB_OK);
         v = base();
+        v.refresh();
         v.eps[0].policy = {};
         expect(v, MIMUSB_ERR_UNSET_FIELD, "policy");
         v = base();
+        v.refresh();
         v.eps[0].policy.depth = 0;
         expect(v, MIMUSB_ERR_UNSET_FIELD, "policy");
         v = base();
+        v.refresh();
         v.eps[0].policy.on_full = 9;
         expect(v, MIMUSB_ERR_PARAM, "policy");
         v = base();
+        v.refresh();
         v.eps[1].policy = {MIMUSB_FULL_WAIT, 2};
         expect(v, MIMUSB_ERR_PARAM, "policy");
         // More queue than the board's pool holds.
         v = base();
+        v.refresh();
         v.eps[0].policy = {MIMUSB_FULL_DROP_OLDEST, 255};
         expect(v, MIMUSB_ERR_OVERFLOW, "policy");
     }
@@ -499,6 +518,7 @@ void open_checks() {
         const std::uint8_t zero_length[] = {1, 0x24};
         const std::uint8_t too_long[] = {9, 0x24, 0};
         Vendor v = base();
+        v.refresh();
         v.class_bytes.assign(good, good + sizeof(good));
         expect(v, MIMUSB_OK);
         v.class_bytes.assign(zero_length, zero_length + sizeof(zero_length));
@@ -509,6 +529,7 @@ void open_checks() {
     // Association: 8 bytes of type 0x0B naming this Node's interfaces.
     {
         Vendor v = base();
+        v.refresh();
         const std::uint8_t short_assoc[] = {8, 0x0B, 0};
         v.config.association = short_assoc;
         v.config.association_length = sizeof(short_assoc);

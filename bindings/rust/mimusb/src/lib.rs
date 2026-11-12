@@ -366,6 +366,7 @@ mod tests {
         // SAFETY: the structure is plain data; all-zero is the documented unset state.
         let mut options: sys::mimusb_keyboard_options = unsafe { core::mem::zeroed() };
         options.struct_size = core::mem::size_of::<sys::mimusb_keyboard_options>() as u32;
+        options.function.bcd_hid = 0x0111;
         options
     }
 
