@@ -78,24 +78,25 @@ int main(void) {
     if (r != MIMHID_OK || (r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK)
         return fail("enumeration", r);
 
-    // Report every request, and hold vendor requests 0x42 that read from the device: the sink
-    // answers them. If no answer came within 100 ms the target would see a STALL.
+    // Report every request, and ask the program about vendor requests 0x42 that read from the
+    // device: the sink answers them. If no answer came within 100 ms the target would see a STALL.
     mimhid_control_rule rule = {0};
     rule.request_type_mask = 0xFF;
     rule.request_type_value = 0xC0; // device to host, vendor, device
     rule.request_mask = 0xFF;
     rule.request_value = 0x42;
+    rule.action = MIMHID_CONTROL_ASK;
     rule.timeout_ms = 100;
     rule.when_late = MIMHID_CONTROL_ACTION_STALL;
-    if ((r = mimhid_device_set_control_routing(device, 1, &rule, 1, EXAMPLE_CONTROL_TIMEOUT_MS)) !=
+    if ((r = mimhid_device_set_control_rules(device, 1, &rule, 1, EXAMPLE_CONTROL_TIMEOUT_MS)) !=
         MIMHID_OK)
-        return fail("set_control_routing", r);
+        return fail("set_control_rules", r);
 
     printf(
         "Listening for 10 s; send vendor request 0x42 (read) from the target to get an answer.\n");
     sleep_ms(10000);
 
-    // Closing the Device closes the Node and takes the rules off the board.
+    // Closing the Device closes the Node and takes the Device's rules off the board.
     r = mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return r == MIMHID_OK ? 0 : fail("device_close", r);
 }

@@ -218,16 +218,16 @@ std::vector<std::uint8_t> Board::pong_payload() {
     std::vector<std::uint8_t> p(pong_.version, pong_.version + 3);
     p.push_back(pong_.ready);
     p.push_back(pong_.reserved);
-    p.push_back(pong_.max_interfaces);
+    p.push_back(0U); // reserved
     p.push_back(pong_.flags);
     p.push_back(pong_.chip);
     p.push_back(pong_.high_speed);
     put_u32(&p, baud_.load());
     put_u32(&p, pong_.max_baud);
     put_u32(&p, pong_.uart_flags);
-    put_u16(&p, pong_.max_descriptor_bytes);
+    put_u16(&p, 0U); // reserved
     put_u16(&p, pong_.max_report_bytes);
-    put_u16(&p, pong_.max_feature_bytes);
+    put_u16(&p, 0U); // reserved
     put_u16(&p, pong_.max_endpoint_bytes);
     put_u16(&p, pong_.max_frame_payload);
     put_u16(&p, pong_.max_control_data_bytes);
@@ -240,6 +240,7 @@ std::vector<std::uint8_t> Board::pong_payload() {
     put_u16(&p, pong_.max_transfer_bytes);
     put_u16(&p, pong_.endpoint_queue_slots);
     p.push_back(pong_.transfer_types);
+    put_u16(&p, pong_.max_answer_bytes);
     p.insert(p.end(), pong_.unique_id.begin(), pong_.unique_id.end());
     return p;
 }

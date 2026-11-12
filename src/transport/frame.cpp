@@ -123,16 +123,13 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length)
         return false;
     out->compatible = true;
-    out->max_interfaces = p[5];
     out->has_unique_id = (p[6] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
     out->chip = p[7];
     out->usb_high_speed = p[8] != 0;
     out->baud = get_u32(&p[9]);
     out->max_baud = get_u32(&p[13]);
     out->uart_flags = get_u32(&p[17]);
-    out->max_descriptor_bytes = static_cast<std::uint16_t>(p[21] | (p[22] << 8));
     out->max_report_bytes = static_cast<std::uint16_t>(p[23] | (p[24] << 8));
-    out->max_feature_bytes = static_cast<std::uint16_t>(p[25] | (p[26] << 8));
     out->max_endpoint_bytes = static_cast<std::uint16_t>(p[27] | (p[28] << 8));
     out->max_frame_payload = static_cast<std::uint16_t>(p[29] | (p[30] << 8));
     out->max_control_data_bytes = static_cast<std::uint16_t>(p[31] | (p[32] << 8));
@@ -144,6 +141,7 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->max_transfer_bytes = static_cast<std::uint16_t>(p[40] | (p[41] << 8));
     out->endpoint_queue_slots = static_cast<std::uint16_t>(p[42] | (p[43] << 8));
     out->transfer_types = p[44];
+    out->max_answer_bytes = static_cast<std::uint16_t>(p[45] | (p[46] << 8));
     out->unique_id_length = id_length;
     std::memcpy(out->unique_id.data(), &p[MIMHID_PONG_MIN_LEN], id_length);
     return true;

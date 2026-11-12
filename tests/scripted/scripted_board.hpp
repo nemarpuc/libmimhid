@@ -51,20 +51,17 @@ using Policy = std::function<std::optional<Reply>(const Received&)>;
 struct Pong {
     std::uint8_t version[3]{MIMHID_VERSION_MAJOR, MIMHID_VERSION_MINOR, MIMHID_VERSION_PATCH};
     std::uint8_t ready{1};
-    std::uint8_t reserved{0}; // byte 4 of the PONG: reserved, zero
-    std::uint8_t max_interfaces{7};
+    std::uint8_t reserved{0}; // byte 4 of the PONG: reserved, zero (as are bytes 5, 21..22, 25..26)
     std::uint8_t flags{0x01}; // MIMHID_PONG_FLAG_UNIQUE_ID
     std::uint8_t chip{0};
     std::uint8_t high_speed{0};
     std::uint32_t max_baud{3000000};
     std::uint32_t uart_flags{0x01};
-    std::uint16_t max_descriptor_bytes{512};
     std::uint16_t max_report_bytes{64};
-    std::uint16_t max_feature_bytes{64};
     std::uint16_t max_endpoint_bytes{64};
     std::uint16_t max_frame_payload{1024};
     std::uint16_t max_control_data_bytes{256};
-    std::uint8_t max_control_rules{8};
+    std::uint8_t max_control_rules{64};
     std::uint8_t max_endpoint_number{7};
     std::uint8_t max_interfaces_any{15};
     std::uint16_t max_config_descriptor_bytes{1024};
@@ -72,6 +69,7 @@ struct Pong {
     std::uint16_t max_transfer_bytes{64};
     std::uint16_t endpoint_queue_slots{64};
     std::uint8_t transfer_types{0x0C}; // bulk and interrupt
+    std::uint16_t max_answer_bytes{4096};
     std::vector<std::uint8_t> unique_id{1, 2, 3, 4, 5, 6, 7, 8};
     // When set, sent as the whole PONG payload instead of the fields above.
     std::optional<std::vector<std::uint8_t>> raw;

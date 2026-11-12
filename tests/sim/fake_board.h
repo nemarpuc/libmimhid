@@ -81,7 +81,7 @@ enum {
 typedef struct {
     int outcome;
     uint8_t setup[8]; // as the stack got it (a retyped request has the vendor type)
-    uint8_t data[1100];
+    uint8_t data[4100];
     size_t length; // what was sent to the target, or what the board took from it
 } fake_control_result_t;
 

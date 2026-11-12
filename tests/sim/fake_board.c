@@ -20,14 +20,7 @@
 
 uint8_t const* tud_descriptor_device_cb(void);
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index);
-uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance);
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid);
-uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type,
-                               uint8_t* buffer, uint16_t reqlen);
-void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type,
-                           uint8_t const* buffer, uint16_t bufsize);
-void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol);
-bool tud_hid_set_idle_cb(uint8_t instance, uint8_t idle_rate);
 void tud_suspend_cb(bool remote_wakeup_en);
 void tud_resume_cb(void);
 void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
@@ -125,8 +118,6 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
 // ---- recording TinyUSB stubs ----
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
-static fake_report_t g_reports[512];
-static unsigned g_report_head, g_report_tail;
 static bool g_mounted, g_suspended, g_connect_pending;
 static unsigned g_connects;
 static unsigned g_mount_delay_ms = 5;
@@ -164,23 +155,6 @@ bool tud_connect(void) {
 bool tud_remote_wakeup(void) { return true; }
 static volatile int g_hold_reports;
 void fake_board_hold_reports(int hold) { g_hold_reports = hold; }
-bool tud_hid_n_ready(uint8_t itf) {
-    (void)itf;
-    return g_mounted && !g_hold_reports;
-}
-
-bool tud_hid_n_report(uint8_t itf, uint8_t rid, void const* r, uint16_t len) {
-    (void)rid;
-    pthread_mutex_lock(&g_lock);
-    fake_report_t* e = &g_reports[g_report_head % 512];
-    e->iface = itf;
-    e->length = len;
-    memcpy(e->data, r, len);
-    g_report_head++;
-    pthread_cond_broadcast(&g_cond);
-    pthread_mutex_unlock(&g_lock);
-    return true;
-}
 
 // ---- the endpoints of the generic driver: the controller and the target's side of them ----
 // The calls of the stack's device layer the driver makes (src/device/usbd.c), with the state they
@@ -235,8 +209,8 @@ static const usbd_class_driver_t* generic_driver(void) {
 
 // What the stack's SET_CONFIGURATION does (process_set_config in src/device/usbd.c): the drivers'
 // reset, then open for each interface in descriptor order (an association first, skipped; a whole
-// group with one call); what open returns is where the walk goes on. A HID interface is the stack's
-// own HID driver's, so it is stepped over (the board's driver refuses it with 0).
+// group with one call); what open returns is where the walk goes on. Every interface, HID or not,
+// is the generic driver's.
 static void sim_set_config(void) {
     const usbd_class_driver_t* d = generic_driver();
     memset(g_ep, 0, sizeof(g_ep));
@@ -249,17 +223,10 @@ static void sim_set_config(void) {
             pos = (uint16_t)(pos + cfg[pos]);
             continue;
         }
-        uint16_t used;
-        if (cfg[pos + 5] == TUSB_CLASS_HID) {
-            used = 9;
-            while (pos + used < total && cfg[pos + used + 1] != TUSB_DESC_INTERFACE &&
-                   cfg[pos + used + 1] != TUSB_DESC_INTERFACE_ASSOCIATION)
-                used = (uint16_t)(used + cfg[pos + used]);
-        } else {
-            used = d->open(0, (const tusb_desc_interface_t*)&cfg[pos], (uint16_t)(total - pos));
-            if (used < 9)
-                return;
-        }
+        const uint16_t used =
+            d->open(0, (const tusb_desc_interface_t*)&cfg[pos], (uint16_t)(total - pos));
+        if (used < 9)
+            return;
         pos = (uint16_t)(pos + used);
     }
 }
@@ -320,7 +287,7 @@ static void endpoints_poll(void) {
 // ---- control transfers: the stack's side of them ----
 static fake_control_result_t g_control[32];
 static unsigned g_control_head, g_control_tail;
-static uint8_t g_control_out[1100];
+static uint8_t g_control_out[4100];
 static size_t g_control_out_length;
 
 static struct {
@@ -348,7 +315,13 @@ bool tud_control_status(uint8_t rhport, tusb_control_request_t const* request) {
     return true;
 }
 
+// Set while the board thread plays a control transfer the test does not want to hear about (the
+// target's HID requests the helpers below make): its outcome is not recorded.
+static bool g_control_silent;
+
 static void control_result(const fake_control_result_t* r) {
+    if (g_control_silent)
+        return;
     pthread_mutex_lock(&g_lock);
     g_control[g_control_head++ % 32] = *r;
     pthread_cond_broadcast(&g_cond);
@@ -398,7 +371,7 @@ void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
 typedef struct {
     int kind;
     uint8_t a, b, c;
-    uint8_t data[1100];
+    uint8_t data[4100];
     size_t length;
 } action_t;
 
@@ -421,10 +394,6 @@ static void run_actions(void) {
         action_t act = g_actions[g_action_tail++ % 256];
         pthread_mutex_unlock(&g_lock);
         switch (act.kind) {
-        case 1:
-            tud_hid_set_report_cb(act.a, act.c, (hid_report_type_t)act.b, act.data,
-                                  (uint16_t)act.length);
-            break;
         case 2:
             g_suspended = true;
             tud_suspend_cb(act.a != 0);
@@ -432,12 +401,6 @@ static void run_actions(void) {
         case 3:
             g_suspended = false;
             tud_resume_cb();
-            break;
-        case 4:
-            tud_hid_set_protocol_cb(act.a, act.b);
-            break;
-        case 5:
-            tud_hid_set_idle_cb(act.a, act.b);
             break;
         case 6: {
             dcd_event_t e;
@@ -447,7 +410,9 @@ static void run_actions(void) {
             memcpy(&e.setup_received, act.data, 8);
             g_control_out_length = act.length - 8;
             memcpy(g_control_out, act.data + 8, g_control_out_length);
+            g_control_silent = act.a != 0;
             __wrap_dcd_event_handler(&e, true);
+            g_control_silent = false;
             break;
         }
         case 7: { // a packet on an OUT endpoint
@@ -516,32 +481,33 @@ void fake_board_stop(void) {
     pthread_join(g_thread, NULL);
 }
 
-int fake_board_wait_report(fake_report_t* out, uint32_t timeout_ms) {
-    struct timespec until;
-    clock_gettime(CLOCK_REALTIME, &until);
-    until.tv_sec += timeout_ms / 1000;
-    until.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
-    if (until.tv_nsec >= 1000000000L) {
-        until.tv_sec++;
-        until.tv_nsec -= 1000000000L;
+// The interface that owns an IN endpoint of the configuration the board runs, 0xFF when none.
+static uint8_t interface_of_endpoint(uint8_t address) {
+    const uint8_t* c = tud_descriptor_configuration_cb(0);
+    const uint16_t total = (uint16_t)(c[2] | (c[3] << 8));
+    uint8_t current = 0xFF;
+    for (uint16_t i = 0; i < total && c[i] != 0; i = (uint16_t)(i + c[i])) {
+        if (c[i + 1] == TUSB_DESC_INTERFACE)
+            current = c[i + 2];
+        else if (c[i + 1] == TUSB_DESC_ENDPOINT && c[i + 2] == address)
+            return current;
     }
-    pthread_mutex_lock(&g_lock);
-    while (g_report_tail == g_report_head) {
-        if (pthread_cond_timedwait(&g_cond, &g_lock, &until) != 0)
-            break;
-    }
-    int ok = g_report_tail != g_report_head;
-    if (ok)
-        *out = g_reports[g_report_tail++ % 512];
-    pthread_mutex_unlock(&g_lock);
-    return ok;
+    return 0xFF;
 }
 
-void fake_board_clear_reports(void) {
-    pthread_mutex_lock(&g_lock);
-    g_report_tail = g_report_head;
-    pthread_mutex_unlock(&g_lock);
+// What a HID report was: a transfer of the interface's IN endpoint (HID reports are the generic
+// driver's now), told by the interface that owns the endpoint.
+int fake_board_wait_report(fake_report_t* out, uint32_t timeout_ms) {
+    fake_transfer_t t;
+    if (!fake_board_wait_transfer(0, &t, timeout_ms))
+        return 0;
+    out->iface = interface_of_endpoint(t.address);
+    out->length = t.length;
+    memcpy(out->data, t.data, t.length);
+    return 1;
 }
+
+void fake_board_clear_reports(void) { fake_board_clear_transfers(); }
 
 int fake_board_mounted(void) { return g_mounted; }
 unsigned fake_board_connects(void) { return g_connects; }
@@ -553,16 +519,26 @@ const uint8_t* fake_board_config_descriptor(uint16_t* length) {
     return c;
 }
 
-const uint8_t* fake_board_report_descriptor(uint8_t iface, uint16_t* length) {
-    const uint8_t* c = tud_descriptor_configuration_cb(0);
-    uint16_t total = (uint16_t)(c[2] | (c[3] << 8));
-    int seen = 0;
-    *length = 0;
-    for (uint16_t i = 0; i < total; i += c[i]) {
-        if (c[i + 1] == 0x21 && seen++ == iface)
-            *length = (uint16_t)(c[i + 7] | (c[i + 8] << 8));
+// A control request as the target makes it, played out on the board thread; waits for its outcome.
+// Every request of a helper below is a request of the class or the standard, answered or refused by
+// the rules the host wrote.
+static int control_in(const uint8_t setup[8], fake_control_result_t* out) {
+    fake_control_result_t stale;
+    while (fake_board_wait_control(&stale, 0)) {
     }
-    return tud_hid_descriptor_report_cb(iface);
+    fake_board_target_control(setup, NULL, 0);
+    return fake_board_wait_control(out, 2000);
+}
+
+const uint8_t* fake_board_report_descriptor(uint8_t iface, uint16_t* length) {
+    // GET_DESCRIPTOR of the report descriptor (HID 1.11 7.1.1), as the target reads it.
+    static fake_control_result_t r;
+    const uint8_t setup[8] = {0x81, 0x06, 0x00, 0x22, iface, 0x00, 0xFF, 0x0F};
+    *length = 0;
+    if (!control_in(setup, &r) || r.outcome != FAKE_CONTROL_ANSWERED)
+        return NULL;
+    *length = (uint16_t)r.length;
+    return r.data;
 }
 
 const uint8_t* fake_board_device_descriptor(void) { return tud_descriptor_device_cb(); }
@@ -613,17 +589,47 @@ size_t fake_board_string(uint8_t index, char* out, size_t capacity) {
     return n;
 }
 
+// GET_REPORT of a Feature report as the target asks (HID 1.11 7.2.1); the length of the answer, or
+// 0 when the request was refused (a STALL) or answered with nothing. The Report ID leads the data
+// when it is not 0.
 size_t fake_board_feature(uint8_t iface, uint8_t report_id, uint8_t* out, size_t capacity) {
-    return tud_hid_get_report_cb(iface, report_id, HID_REPORT_TYPE_FEATURE, out,
-                                 (uint16_t)capacity);
+    fake_control_result_t r;
+    const uint8_t setup[8] = {0xA1, 0x01, report_id, 0x03, iface, 0x00, (uint8_t)(capacity & 0xFF),
+                              (uint8_t)(capacity >> 8)};
+    if (!control_in(setup, &r) || r.outcome != FAKE_CONTROL_ANSWERED)
+        return 0;
+    memcpy(out, r.data, r.length < capacity ? r.length : capacity);
+    return r.length;
 }
 
+// A class request of the target to an interface with its data stage, played out silently.
+static void silent_class_request(uint8_t request, uint16_t value, uint8_t iface, const uint8_t* data,
+                                 size_t length) {
+    action_t a = {6, 1, 0, 0, {0}, 0};
+    const uint8_t setup[8] = {0x21, request, (uint8_t)(value & 0xFF), (uint8_t)(value >> 8), iface,
+                              0x00, (uint8_t)(length & 0xFF), (uint8_t)(length >> 8)};
+    memcpy(a.data, setup, 8);
+    if (length > sizeof(a.data) - 8)
+        length = sizeof(a.data) - 8;
+    if (length)
+        memcpy(a.data + 8, data, length);
+    a.length = 8 + length;
+    post(a);
+}
+
+// SET_REPORT (HID 1.11 7.2.2): the type in the high byte of wValue and the Report ID in the low;
+// with a Report ID the data stage starts with it.
 void fake_board_target_set_report(uint8_t iface, uint8_t report_type, uint8_t report_id,
                                   const uint8_t* data, size_t length) {
-    action_t a = {1,         iface, report_type,
-                  report_id, {0},   length > sizeof(a.data) ? sizeof(a.data) : length};
-    memcpy(a.data, data, a.length);
-    post(a);
+    uint8_t stage[1100];
+    size_t n = 0;
+    if (report_id != 0)
+        stage[n++] = report_id;
+    if (length > sizeof(stage) - n)
+        length = sizeof(stage) - n;
+    if (length)
+        memcpy(stage + n, data, length);
+    silent_class_request(0x09, (uint16_t)((report_type << 8) | report_id), iface, stage, n + length);
 }
 void fake_board_target_control(const uint8_t setup[8], const uint8_t* out_data, size_t out_length) {
     action_t a = {6, 0, 0, 0, {0}, 8};
@@ -665,13 +671,12 @@ void fake_board_target_resume(void) {
     action_t a = {3, 0, 0, 0, {0}, 0};
     post(a);
 }
+// SET_PROTOCOL (HID 1.11 7.2.6): the protocol is wValue. SET_IDLE (7.2.4): the rate is the high byte.
 void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol) {
-    action_t a = {4, iface, protocol, 0, {0}, 0};
-    post(a);
+    silent_class_request(0x0B, protocol, iface, NULL, 0);
 }
 void fake_board_target_set_idle(uint8_t iface, uint8_t rate) {
-    action_t a = {5, iface, rate, 0, {0}, 0};
-    post(a);
+    silent_class_request(0x0A, (uint16_t)(rate << 8), iface, NULL, 0);
 }
 void fake_board_set_mount_delay_ms(unsigned ms) { g_mount_delay_ms = ms; }
 uint32_t fake_board_baud(void) { return g_board_baud; }

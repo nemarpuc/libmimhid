@@ -346,9 +346,10 @@ void test_remote_wakeup() {
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
-// Control routing: the rules reach the board as given, a board with fewer rules refuses more,
-// and closing removes the routing.
-void test_control_routing() {
+// Control rules: the rules reach the board as given with the rules of the Nodes, a board with
+// fewer rules refuses more, a refused table leaves the old one, and closing removes the Device's
+// rules and keeps the Nodes'.
+void test_control_rules() {
     Board board;
     if (!board.start())
         return;
@@ -358,36 +359,86 @@ void test_control_routing() {
     mimhid_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
+    mimhid_node* node = open_vendor_node(device);
     mimhid_control_rule rules[2]{};
     for (mimhid_control_rule& rule : rules) {
         rule.request_type_mask = 0x60;
         rule.request_type_value = 0x40;
+        rule.action = MIMHID_CONTROL_ASK;
         rule.timeout_ms = 300;
         rule.when_late = MIMHID_CONTROL_ACTION_STALL;
     }
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, rules, 2, kControlMs) ==
+    board.clear();
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, rules, 2, kControlMs) ==
                  MIMHID_ERR_OVERFLOW);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, rules, 1, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE) == 0U);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, rules, 1, kControlMs) == MIMHID_OK);
+    // RULE: seq, index, the four request bytes, wValue mask and value, wIndex mask and value,
+    // action, and for ASK the time (2) and the action when it ran out; then RULES_APPLY: seq,
+    // flags, count.
     Received r;
-    MIMHID_CHECK(board.take(MIMHID_T_CONTROL_CONFIG, &r, 0) && r.payload.size() == 1U + 2U + 15U);
+    MIMHID_CHECK(board.take(MIMHID_T_RULE, &r, 0) && r.payload.size() == 18U);
     if (r.payload.size() == 18U) {
-        MIMHID_CHECK(r.payload[1] == 0 && r.payload[2] == 1 && r.payload[3] == 0x60 &&
-                     r.payload[4] == 0x40 && r.payload[15] == (300 & 0xFF) &&
+        MIMHID_CHECK(r.payload[1] == 0 && r.payload[2] == 0x60 && r.payload[3] == 0x40 &&
+                     r.payload[14] == MIMHID_RULE_ASK && r.payload[15] == (300 & 0xFF) &&
                      r.payload[16] == (300 >> 8) &&
                      r.payload[17] == MIMHID_CONTROL_ACTION_STALL - 1);
     }
+    MIMHID_CHECK(board.take(MIMHID_T_RULES_APPLY, &r, 0) && r.payload.size() == 3U &&
+                 r.payload[1] == 0 && r.payload[2] == 1);
     board.set_policy([](const Received& q) -> std::optional<Reply> {
-        if (q.type == MIMHID_T_CONTROL_CONFIG)
+        if (q.type == MIMHID_T_RULES_APPLY)
             return Reply::nak(MIMHID_NAK_PARAM);
         return std::nullopt;
     });
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 1, nullptr, 0, kControlMs) ==
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 1, nullptr, 0, kControlMs) ==
                  MIMHID_ERR_PARAM);
     board.set_policy(nullptr);
     board.clear();
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    board.clear();
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
-    MIMHID_CHECK(board.take(MIMHID_T_CONTROL_CONFIG, &r, 0) && r.payload.size() == 3U &&
-                 r.payload[1] == 0 && r.payload[2] == 0);
+}
+
+// The rules need a Node: a Device with none has no USB configuration to hold them, so they wait for
+// the first commit, and the ones of a batch go with its commit.
+void test_control_rules_wait_for_a_configuration() {
+    Board board;
+    if (!board.start())
+        return;
+    mimhid_device* device = open_on(board, board_options());
+    if (device == nullptr)
+        return;
+    mimhid_control_rule rule{};
+    rule.request_type_mask = 0x60;
+    rule.request_type_value = 0x40;
+    rule.action = MIMHID_CONTROL_STALL;
+    board.clear();
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &rule, 1, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE) == 0U);
+    mimhid_node* node = open_vendor_node(device);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE) == 1U);
+    // In a batch the new rules go with the commit that ends it.
+    MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_OK);
+    board.clear();
+    rule.request_value = 6;
+    rule.request_mask = 0xFF;
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &rule, 1, kControlMs) == MIMHID_OK);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE) == 0U);
+    MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE) == 1U && board.count(MIMHID_T_COMMIT) >= 1U);
+    // Arguments.
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 2, &rule, 1, kControlMs) ==
+                 MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, nullptr, 1, kControlMs) ==
+                 MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &rule, 1, 0) == MIMHID_ERR_UNSET_FIELD);
+    mimhid_control_rule unset = rule;
+    unset.action = static_cast<mimhid_control_rule_action>(0);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &unset, 1, kControlMs) ==
+                 MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
 // A new USB identity is checked against the board and committed.
@@ -448,7 +499,7 @@ void test_device_arguments() {
     MIMHID_CHECK(mimhid_device_batch_end(nullptr, &kCommit) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_latched_error(nullptr) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_set_loss_reporting(nullptr, 0, 0, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_set_control_routing(nullptr, 0, nullptr, 0, kControlMs) ==
+    MIMHID_CHECK(mimhid_device_set_control_rules(nullptr, 0, nullptr, 0, kControlMs) ==
                  MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_control_reply(nullptr, 1, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0,
                                              kSendMs) == MIMHID_ERR_PARAM);
@@ -479,7 +530,8 @@ void test_api_commands() {
     test_link_counters();
     test_remote_wakeup();
     test_enter_bootloader();
-    test_control_routing();
+    test_control_rules();
+    test_control_rules_wait_for_a_configuration();
     test_set_usb_identity();
     test_device_arguments();
 }

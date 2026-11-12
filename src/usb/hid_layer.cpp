@@ -30,6 +30,82 @@ bool same_settings(const HidNodeInput& a, const HidNodeInput& b) {
            same_endpoint(x.ep_in, y.ep_in) && same_endpoint(x.ep_out, y.ep_out);
 }
 
+// bmRequestType (USB 2.0 9.3.1): direction, type and recipient, all three compared.
+constexpr std::uint8_t kStandardInterfaceIn = 0x81;
+constexpr std::uint8_t kClassInterfaceIn = 0xA1;
+constexpr std::uint8_t kClassInterfaceOut = 0x21;
+// bRequest: GET_DESCRIPTOR (USB 2.0 9.4.3); the HID class requests (HID 1.11 7.2).
+constexpr std::uint8_t kGetDescriptor = 0x06;
+constexpr std::uint8_t kGetReport = 0x01;
+constexpr std::uint8_t kGetIdle = 0x02;
+constexpr std::uint8_t kGetProtocol = 0x03;
+constexpr std::uint8_t kSetReport = 0x09;
+constexpr std::uint8_t kSetIdle = 0x0A;
+constexpr std::uint8_t kSetProtocol = 0x0B;
+// Report types in the high byte of wValue of GET_REPORT (HID 1.11 7.2.1).
+constexpr std::uint16_t kInputReport = 0x0100;
+constexpr std::uint16_t kFeatureReport = 0x0300;
+
+// The nodes grouped by interface number, in the order of the first Node on each.
+struct Grouped {
+    std::map<std::uint32_t, std::vector<const HidNodeInput*>> by_number;
+    std::vector<std::uint32_t> order;
+};
+
+Grouped group_by_interface(const std::vector<HidNodeInput>& nodes) {
+    Grouped grouped;
+    for (const HidNodeInput& node : nodes) {
+        auto& group = grouped.by_number[node.config.interface_number];
+        if (group.empty())
+            grouped.order.push_back(node.config.interface_number);
+        group.push_back(&node);
+    }
+    return grouped;
+}
+
+// Nodes sharing an interface join their report descriptors, in the order of the Nodes.
+std::vector<std::uint8_t> joined_descriptor(const std::vector<const HidNodeInput*>& group) {
+    std::vector<std::uint8_t> joined;
+    for (const HidNodeInput* node : group)
+        joined.insert(joined.end(), node->report_descriptor->begin(),
+                      node->report_descriptor->end());
+    return joined;
+}
+
+// The HID descriptor (HID 1.11 6.2.1): bLength 9, type, bcdHID, bCountryCode, one descriptor (the
+// report descriptor) and its length.
+std::vector<std::uint8_t> hid_descriptor(const mimhid_hid_node_config& config,
+                                         const std::size_t report_length) {
+    return {9,
+            kTypeHid,
+            static_cast<std::uint8_t>(config.bcd_hid & 0xFFU),
+            static_cast<std::uint8_t>(config.bcd_hid >> 8U),
+            config.country_code,
+            1,
+            kTypeHidReport,
+            static_cast<std::uint8_t>(report_length & 0xFFU),
+            static_cast<std::uint8_t>((report_length >> 8U) & 0xFFU)};
+}
+
+BoardRule make_rule(const BoardRule::Role role, const std::uint8_t iface,
+                    const std::uint8_t request_type, const std::uint8_t request,
+                    const std::uint16_t value_mask, const std::uint16_t value,
+                    const mimhid_control_rule_action action) {
+    BoardRule r;
+    r.role = role;
+    r.iface = iface;
+    r.rule.request_type_mask = 0xFFU;
+    r.rule.request_type_value = request_type;
+    r.rule.request_mask = 0xFFU;
+    r.rule.request_value = request;
+    r.rule.value_mask = value_mask;
+    r.rule.value_value = value;
+    r.rule.index_mask = 0xFFFFU;
+    r.rule.index_value = iface;
+    r.rule.action = action;
+    return r;
+}
+
 } // namespace
 
 mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
@@ -41,18 +117,13 @@ mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
         return MIMHID_ERR_PARAM;
     };
 
-    std::map<std::uint32_t, std::vector<const HidNodeInput*>> by_number;
-    std::vector<std::uint32_t> order;
-    for (const HidNodeInput& node : nodes) {
-        auto& group = by_number[node.config.interface_number];
-        if (group.empty())
-            order.push_back(node.config.interface_number);
-        group.push_back(&node);
-    }
+    const Grouped grouped = group_by_interface(nodes);
+    const auto& by_number = grouped.by_number;
+    const auto& order = grouped.order;
 
     out->clear();
     for (const std::uint32_t number : order) {
-        const auto& group = by_number[number];
+        const auto& group = by_number.at(number);
         // HID 1.11 6.2.1 / 5.6: Nodes sharing an interface join their report descriptors, so every
         // Report ID must be unique on it and every Node must have some.
         if (group.size() >= 2U) {
@@ -87,23 +158,7 @@ mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
         itf.subclass = first.config.subclass;
         itf.protocol = first.config.protocol;
         itf.name = first.name;
-        itf.hid = true;
-        for (const HidNodeInput* node : group)
-            itf.report_descriptor.insert(itf.report_descriptor.end(),
-                                         node->report_descriptor->begin(),
-                                         node->report_descriptor->end());
-        const std::size_t report_length = itf.report_descriptor.size();
-        // The HID descriptor: bLength 9, type, bcdHID, bCountryCode, one descriptor (the report
-        // descriptor) and its length.
-        itf.class_descriptors = {9,
-                                 kTypeHid,
-                                 static_cast<std::uint8_t>(first.config.bcd_hid & 0xFFU),
-                                 static_cast<std::uint8_t>(first.config.bcd_hid >> 8U),
-                                 first.config.country_code,
-                                 1,
-                                 kTypeHidReport,
-                                 static_cast<std::uint8_t>(report_length & 0xFFU),
-                                 static_cast<std::uint8_t>((report_length >> 8U) & 0xFFU)};
+        itf.class_descriptors = hid_descriptor(first.config, joined_descriptor(group).size());
         itf.endpoints.push_back(first.config.ep_in);
         if (first.config.ep_out.address != 0U || first.config.ep_out.max_packet_size != 0U)
             itf.endpoints.push_back(first.config.ep_out);
@@ -111,6 +166,100 @@ mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
         out->push_back(std::move(made));
     }
     return MIMHID_OK;
+}
+
+std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes) {
+    const Grouped grouped = group_by_interface(nodes);
+    std::vector<BoardRule> out;
+    for (const std::uint32_t number : grouped.order) {
+        const auto& group = grouped.by_number.at(number);
+        const HidNodeInput& first = *group.front();
+        const std::uint8_t iface = static_cast<std::uint8_t>(number);
+        const std::vector<std::uint8_t> report_descriptor = joined_descriptor(group);
+        using Role = BoardRule::Role;
+
+        // GET_DESCRIPTOR of the report descriptor and of the HID descriptor (HID 1.11 7.1.1): the
+        // type in the high byte of wValue, any index.
+        BoardRule r = make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor,
+                                0xFF00U, static_cast<std::uint16_t>(kTypeHidReport << 8U),
+                                MIMHID_CONTROL_ANSWER);
+        r.data = report_descriptor;
+        out.push_back(r);
+        r = make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
+                      static_cast<std::uint16_t>(kTypeHid << 8U), MIMHID_CONTROL_ANSWER);
+        r.data = hid_descriptor(first.config, report_descriptor.size());
+        out.push_back(r);
+
+        // GET_REPORT of an Input report (7.2.1): the last report the board sent on the IN
+        // endpoint, whose first byte is the Report ID when the interface has them.
+        std::bitset<256> ids;
+        bool has_ids = false;
+        for (const HidNodeInput* node : group) {
+            if (node->has_report_ids) {
+                has_ids = true;
+                ids |= node->report_ids;
+            }
+        }
+        const auto last_sent = [&](const std::uint16_t value_mask, const std::uint16_t value,
+                                   const bool filter, const std::uint8_t id) {
+            BoardRule rule = make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport,
+                                       value_mask, value, MIMHID_CONTROL_ANSWER_LAST_SENT);
+            rule.rule.endpoint_address = first.config.ep_in.address;
+            rule.rule.first_byte_filter = filter ? 1U : 0U;
+            rule.rule.first_byte = id;
+            out.push_back(std::move(rule));
+        };
+        if (has_ids) {
+            for (std::size_t id = 0U; id < ids.size(); ++id) {
+                if (ids.test(id))
+                    last_sent(0xFFFFU, static_cast<std::uint16_t>(kInputReport | id), true,
+                              static_cast<std::uint8_t>(id));
+            }
+        } else {
+            last_sent(0xFF00U, kInputReport, false, 0U);
+        }
+
+        // GET_REPORT of a Feature report: what the Node set, with the Report ID in front when
+        // there is one (it is the first byte of the data stage, as of an Input report).
+        for (const HidNodeInput* node : group) {
+            for (const HidNodeInput::Feature& feature : node->features) {
+                BoardRule rule = make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport,
+                                           0xFFFFU,
+                                           static_cast<std::uint16_t>(kFeatureReport |
+                                                                      feature.report_id),
+                                           MIMHID_CONTROL_ANSWER);
+                if (feature.report_id != 0U)
+                    rule.data.push_back(feature.report_id);
+                rule.data.insert(rule.data.end(), feature.data.begin(), feature.data.end());
+                out.push_back(std::move(rule));
+            }
+        }
+
+        // SET_REPORT, SET_IDLE and SET_PROTOCOL (7.2.2, 7.2.4, 7.2.6): taken, and reported to the
+        // program by the library. Any value: the report type and ID, the idle rate and the
+        // protocol are in wValue, and are read from the setup packet that is reported.
+        out.push_back(make_rule(Role::hid_set_report, iface, kClassInterfaceOut, kSetReport, 0U,
+                                0U, MIMHID_CONTROL_ACCEPT));
+        out.push_back(make_rule(Role::hid_set_idle, iface, kClassInterfaceOut, kSetIdle, 0U, 0U,
+                                MIMHID_CONTROL_ACCEPT));
+        out.push_back(make_rule(Role::hid_set_protocol, iface, kClassInterfaceOut, kSetProtocol,
+                                0U, 0U, MIMHID_CONTROL_ACCEPT));
+
+        // GET_IDLE and GET_PROTOCOL (7.2.3, 7.2.5): one byte each, kept by the library as the
+        // target sets them. HID 1.11 7.2.4: the idle rate is 0 until the host sets it; 7.2.6: the
+        // protocol is the report protocol, 1, at the start.
+        r = make_rule(Role::hid_get_idle, iface, kClassInterfaceIn, kGetIdle, 0U, 0U,
+                      MIMHID_CONTROL_ANSWER);
+        r.data = {0U};
+        out.push_back(r);
+        r = make_rule(Role::hid_get_protocol, iface, kClassInterfaceIn, kGetProtocol, 0U, 0U,
+                      MIMHID_CONTROL_ANSWER);
+        r.data = {1U};
+        out.push_back(r);
+    }
+    for (BoardRule& rule : out)
+        rule.capacity = static_cast<std::uint16_t>(rule.data.size());
+    return out;
 }
 
 } // namespace mimhid::usb

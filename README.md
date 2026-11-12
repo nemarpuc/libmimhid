@@ -174,7 +174,14 @@ permissions, and running the watchable demos under
 | Touchpad | `mimhid_spec_create_touchpad` | `1..16` contact slots + `0..65535` buttons | Optional `Contact Count Maximum` Feature report |
 | Pen (direct screen) | `mimhid_spec_create_pen` | In Range, Tip, optional Invert (eraser), up to two barrel switches, `X`/`Y`, optional pressure, tilt, twist | — |
 | Digitizer | `mimhid_spec_create_digitizer` | The Pen report under `Digitizers / Digitizer` (`0x0D/0x01`) | — |
-| Raw descriptor | `mimhid_spec_create_raw` / `mimhid_node_open_raw` | Any Input report (`mimhid_raw_submit` checks it against the Spec; `mimhid_report_send` does not) | Output reports and Feature writes arrive through `transport.event_sink`; Feature reads are answered with `mimhid_node_set_feature_response` |
+| Raw descriptor | `mimhid_spec_create_raw` | Any Input report (`mimhid_raw_submit` checks it against the Spec) | Output reports and Feature writes arrive through `transport.event_sink`; Feature reads are answered with `mimhid_node_set_feature_response` |
+
+A HID interface that is not a profile (a descriptor copied from a real device) is a
+`mimhid_node_open` Node of class 0x03 with its own control rules and
+`mimhid_node_endpoint_write` ([examples/c/hid_interface.c](examples/c/hid_interface.c)).
+The board has no HID driver: every interface runs on one generic driver, and
+what HID asks of endpoint 0 is a table of control rules that the library writes
+for a profile or you write yourself.
 
 Any generated profile can also include a battery-strength Input report. Full
 descriptor layouts and state-machine rules are in [PROFILES.md](docs/PROFILES.md).

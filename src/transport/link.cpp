@@ -91,9 +91,6 @@ void Link::handle_frame(const Frame& frame) {
             state_cv_.notify_all();
         } else if (ev.kind == MIMHID_EV_UNMOUNTED) {
             ready_.store(false, std::memory_order_release);
-        } else if (ev.kind == MIMHID_EV_OUTPUT_REPORT || ev.kind == MIMHID_EV_SET_REPORT) {
-            if (ev.length < 3)
-                break;
         }
         if (handler_)
             handler_(ev);

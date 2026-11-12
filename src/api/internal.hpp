@@ -11,6 +11,7 @@
 #include "hid/validator.hpp"
 #include "mimhid.h"
 #include "transport/link.hpp"
+#include "usb/board_rule.hpp"
 
 #include <array>
 #include <atomic>
@@ -18,10 +19,12 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <deque>
 #include <cstdint>
 #include <map>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -244,8 +247,9 @@ struct GenericInterface {
     std::vector<mimhid_usb_endpoint> endpoints;
 };
 
-// What the library knows of an IN endpoint of such a Node while it is open. The counters are
-// guarded by the Device's endpoint_mutex.
+// What the library knows of an IN endpoint of a Node while it is open. The counters are
+// guarded by the Device's endpoint_mutex. A Node that shares its interface (profile Nodes) has its
+// own entry, but the one of the first live Node on that address is the one that counts.
 struct EndpointRuntime {
     std::uint8_t address{};
     std::uint16_t max_packet_size{};
@@ -275,6 +279,16 @@ struct mimhid_discovery {
 };
 
 struct mimhid_device {
+    // The updater thread sends on the link: it is joined before the members go.
+    ~mimhid_device() {
+        {
+            std::lock_guard<std::mutex> lock(update_mutex);
+            updater_stop = true;
+        }
+        update_cv.notify_all();
+        if (updater.joinable())
+            updater.join();
+    }
     mimhid_device_config config{};
     mimhid_device_info info{};
     mimhid::transport::BoardInfo board{};
@@ -292,6 +306,35 @@ struct mimhid_device {
     std::mutex endpoint_mutex;
     std::condition_variable endpoint_cv;
 
+    // The control rules: what the board's table holds (the Nodes' rules in node order, then the
+    // Device's), and what the library needs of it. Guarded by rules_mutex, which is never held
+    // while another mutex is taken. The reader thread classifies the requests the board reports
+    // from `table`, and answers GET_IDLE and GET_PROTOCOL by changing the bytes of rules in it.
+    std::mutex rules_mutex;
+    std::vector<mimhid::usb::BoardRule> table;
+    std::vector<mimhid::usb::BoardRule> device_rules; // set by mimhid_device_set_control_rules
+    bool report_all{false};
+    // What the reader thread waits for: the data stage of an ACCEPT rule of a profile interface.
+    struct Pending {
+        std::uint8_t token{};
+        std::uint8_t role{};
+        std::uint8_t iface{};
+        std::uint16_t value{};
+    };
+    std::vector<Pending> pending; // reader thread only
+    // Changes of the bytes of an ANSWER rule the reader thread asks for, done by `updater` (the
+    // reader thread cannot wait for the board). Guarded by update_mutex.
+    struct Update {
+        std::uint16_t index{};
+        std::uint8_t value{};
+    };
+    std::mutex update_mutex;
+    std::condition_variable update_cv;
+    std::deque<Update> updates;
+    std::atomic<std::uint32_t> rule_timeout_ms{0}; // the control timeout of the last commit
+    std::thread updater;
+    bool updater_stop{false};
+
     // Nodes by node id (the index). A closed Node leaves a null entry that the next Node takes.
     // Event delivery reads this from the reader thread.
     std::mutex nodes_mutex;
@@ -301,7 +344,7 @@ struct mimhid_device {
     bool configured{false};                  // the board holds a committed configuration
     bool dirty{false};                       // staged changes not yet committed
     std::atomic<bool> loss_reported{false};  // the board reports dropped reports
-    std::atomic<bool> control_routed{false}; // the board holds control routing rules or reports
+    std::atomic<bool> control_routed{false}; // the board holds control rules (the Device's own)
     std::atomic<bool> reconfiguring{false};
     std::atomic<bool> closing{false};
     std::atomic<mimhid_result> latched{MIMHID_OK};
@@ -317,7 +360,8 @@ struct mimhid_node {
     bool generic{false};
     std::vector<mimhid::detail::GenericInterface> interfaces;
     std::vector<std::uint8_t> association;
-    std::vector<mimhid::detail::EndpointRuntime> in_endpoints; // generic Nodes only
+    std::vector<mimhid::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
+    std::vector<mimhid::usb::BoardRule> rules; // a Node opened with mimhid_node_open: its own
     mimhid_hid_node_config config{};
     std::string interface_string;
     std::uint16_t node_id{};

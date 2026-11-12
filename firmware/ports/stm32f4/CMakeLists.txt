@@ -41,11 +41,9 @@ target_include_directories(mimhid_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 
-# The host packs nodes into as many interfaces as the core has IN endpoints (see core.h). The
-# endpoint numbers are 1 to that many, in both directions. The BSP's UART (USART2) is reused,
+# The endpoint numbers are 1 to what the core has IN endpoints, in both directions (see core.h). The BSP's UART (USART2) is reused,
 # starting at the protocol's boot rate.
 set(MIMHID_DEFS
-    MIMHID_HID_ITFS=${MIMHID_STM32_ENDPOINTS}
     MIMHID_MAX_ENDPOINT_NUMBER=${MIMHID_STM32_ENDPOINTS}
     MIMHID_MAX_ENDPOINT_BYTES=64
     CFG_TUSB_OS=OPT_OS_NONE

@@ -8,7 +8,7 @@
  * class: an interface is its numbers, its class descriptors as given and its endpoints. The board
  * holds what this makes and checks that it is a configuration it can run (docs/PROTOCOL.md); it
  * builds nothing itself. What only HID needs (Nodes sharing an interface, Report IDs, the HID
- * descriptor) is made before this, in hid_layer.hpp.
+ * descriptor and the rules that serve it) is made before this, in hid_layer.hpp.
  */
 
 #include "mimhid.h"
@@ -30,10 +30,6 @@ struct ComposerInterface {
     std::u16string name;                          // empty: the interface has no string
     std::vector<std::uint8_t> class_descriptors;  // placed after the Interface descriptor as given
     std::vector<mimhid_usb_endpoint> endpoints;
-    // HID: the report descriptor the board keeps for GET_DESCRIPTOR(report). The board's HID
-    // driver serves such an interface; every other interface is served by its generic driver.
-    bool hid{};
-    std::vector<std::uint8_t> report_descriptor;
 };
 
 // The interfaces of one Node and the association that holds them together, if it has one.
@@ -46,7 +42,6 @@ struct ComposerGroup {
 // What the board takes (its PONG).
 struct ComposerLimits {
     std::size_t max_interfaces{};          // of any class
-    std::size_t max_hid_interfaces{};
     std::size_t max_endpoint_number{};
     std::size_t max_endpoint_bytes{};
     std::size_t max_config_bytes{};
@@ -84,8 +79,6 @@ struct ComposedString {
 
 struct ComposedInterface {
     std::uint8_t number{};
-    bool hid{};
-    std::vector<std::uint8_t> report_descriptor;
     std::vector<mimhid_usb_endpoint> endpoints;
 };
 

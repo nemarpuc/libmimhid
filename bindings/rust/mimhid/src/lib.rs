@@ -317,14 +317,15 @@ impl RawNodeRef {
     }
 }
 
-/// A Node opened with `mimhid_node_open_raw`: a descriptor sent as it is, with no Spec, so its
-/// only call is `send`, which checks nothing.
+/// A Node opened with `mimhid_node_open`: interfaces of the caller's own, which may be HID written
+/// by hand. It has no Spec; its calls are the endpoint calls, of which `write` is the one that
+/// sends a transfer.
 #[derive(Clone, Copy)]
-pub struct DescriptorNodeRef(NodeRef);
+pub struct GenericNodeRef(NodeRef);
 
-impl DescriptorNodeRef {
+impl GenericNodeRef {
     /// # Safety
-    /// `node` must come from `mimhid_node_open_raw` and remain live.
+    /// `node` must come from `mimhid_node_open` and remain live.
     pub unsafe fn from_raw(node: *mut sys::mimhid_node) -> Option<Self> {
         unsafe { NodeRef::from_raw(node) }.map(Self)
     }
@@ -337,10 +338,17 @@ impl DescriptorNodeRef {
         self.0.id()
     }
 
-    /// Sends `bytes` as one report, Report ID included.
-    pub fn send(self, bytes: &[u8], send_timeout_ms: u32) -> Result<(), Error> {
+    /// Writes `bytes` to the IN endpoint `address` of the Node as one transfer; for a HID
+    /// interface, one report with its Report ID, if it has them.
+    pub fn write(self, address: u8, bytes: &[u8], timeout_ms: u32) -> Result<(), Error> {
         result(unsafe {
-            sys::mimhid_report_send(self.as_ptr(), bytes.as_ptr(), bytes.len(), send_timeout_ms)
+            sys::mimhid_node_endpoint_write(
+                self.as_ptr(),
+                address,
+                bytes.as_ptr(),
+                bytes.len(),
+                timeout_ms,
+            )
         })
     }
 }

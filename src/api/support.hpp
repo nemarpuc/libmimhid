@@ -112,6 +112,14 @@ void unpublish_node(mimhid_device* device, const mimhid_node* node);
 
 // The depth of the queue of a HID interface's IN endpoint: the least any live Node on it set.
 std::uint8_t hid_interface_depth(mimhid_device* device, std::uint8_t iface);
+// The runtime (count of transfers the board has not finished) of the IN endpoint `address` a Node
+// writes to; null when the Node has no such endpoint.
+EndpointRuntime* write_runtime(mimhid_node* node, std::uint8_t address);
+// The frames of one transfer to an IN endpoint, waiting for room when the policy is WAIT. The
+// caller has checked the link. Shared by mimhid_node_endpoint_write and the profile Nodes.
+mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, std::uint8_t address,
+                             const std::uint8_t* data, std::size_t length,
+                             std::uint32_t timeout_ms);
 
 // Zeroes the wait counts of every IN endpoint of the generic Nodes and wakes the writers.
 void reset_endpoint_counts(mimhid_device* device);
@@ -135,6 +143,25 @@ mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
 
 mimhid_result commit_device(mimhid_device* device, std::uint32_t reconnect_delay_ms,
                             const CommitWaits& waits);
+
+// ---- control rules (device_ops.cpp) ----
+
+// Checks the caller's rules and copies them with their bytes.
+mimhid_result copy_control_rules(const mimhid_device* device, const mimhid_control_rule* rules,
+                                 std::size_t count, const char* field,
+                                 std::vector<usb::BoardRule>* out);
+// Sends the whole table again (Nodes' rules, the library's, the Device's) and makes it active.
+mimhid_result rebuild_rules(mimhid_device* device, std::uint32_t control_timeout_ms);
+// RULE_DATA for rule number `table_index` of the table, retried while the board is busy.
+mimhid_result send_rule_data(mimhid_device* device, std::size_t table_index,
+                             const std::uint8_t* data, std::size_t length,
+                             std::uint32_t control_timeout_ms);
+// mimhid_device_set_rule_data (node null) and mimhid_node_set_rule_data.
+mimhid_result change_rule_data(mimhid_device* device, mimhid_node* node, std::size_t rule_index,
+                               const std::uint8_t* data, std::size_t length,
+                               std::uint32_t control_timeout_ms);
+void start_rule_updater(mimhid_device* device);
+void stop_rule_updater(mimhid_device* device) noexcept;
 
 void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept;
 

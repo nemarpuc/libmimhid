@@ -39,6 +39,7 @@ int main() {
     test_chip_serial_and_boot();
     test_keep_attached_and_discovery();
     test_control();
+    test_control_rules();
     test_filled_values();
     test_init_fills_nothing();
     test_shared_interfaces();
@@ -48,6 +49,6 @@ int main() {
     fake_board_stop();
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     if (g_failures == 0)
-        std::printf("simulated board OK (%d HID interfaces)\n", SIM_HID_ITFS);
+        std::printf("simulated board OK (%d endpoints)\n", SIM_ENDPOINTS);
     return g_failures == 0 ? 0 : 1;
 }

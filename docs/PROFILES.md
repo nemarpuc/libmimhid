@@ -76,8 +76,10 @@ records five parser maxima on the `Spec`:
 When you attach the `Spec` to a `Device` via `mimhid_node_open`, those maxima
 are checked against the `mimhid_linux_hid_policy` values you supplied in
 `mimhid_device_config.transport.linux_hid` and against
-`transport.maximum_report_bytes` and the board's `max_report_bytes` and
-`max_descriptor_bytes` (`MIMHID_ERR_OVERFLOW` if any limit is exceeded).
+`transport.maximum_report_bytes` and the board's `max_report_bytes`, and the
+rules the Node needs (its descriptors and answers) against the board's
+`max_control_rules` and `max_answer_bytes` (`MIMHID_ERR_OVERFLOW` if any limit
+is exceeded).
 
 ### State machines, edge guards, and one report in flight
 
@@ -105,13 +107,29 @@ are checked against the `mimhid_linux_hid_policy` values you supplied in
 Every `mimhid_spec` reports `input_supported = 1`, `output_supported = 1`, and
 `feature_transport_supported = 1` in `mimhid_capability_manifest`:
 
-- **Output reports** sent by the target OS (`SET_REPORT(Output)` on endpoint 0
-  or an interrupt `OUT` transfer when `ep_out` is configured) arrive at
-  `transport.event_sink` as `MIMHID_EVENT_OUTPUT_REPORT`.
+The board has no HID driver: the library writes, for each profile interface,
+the control rules that give these their HID 1.11 behaviour (see
+[PROTOCOL.md](PROTOCOL.md#control-rules)), and turns what the board reports
+into the events below.
+
+- **Output reports** sent by the target OS (`SET_REPORT(Output)` on endpoint 0,
+  HID 1.11 7.2.2, or an interrupt `OUT` transfer when `ep_out` is configured)
+  arrive at `transport.event_sink` as `MIMHID_EVENT_OUTPUT_REPORT`. The event
+  for a `SET_REPORT` comes when its data stage has arrived.
 - **Feature writes** (`SET_REPORT(Feature)`) arrive at `transport.event_sink` as
   `MIMHID_EVENT_FEATURE_REPORT`.
-- **Feature reads** (`GET_REPORT(Feature)`) are answered by the board from the
-  byte slice registered with `mimhid_node_set_feature_response()`.
+- **Feature reads** (`GET_REPORT(Feature)`, 7.2.1) are answered by the board from
+  the byte slice registered with `mimhid_node_set_feature_response()`, with the
+  Report ID in front; a read with no answer set is stalled.
+- **Input reads** (`GET_REPORT(Input)`) return the last report sent on the
+  interface (with Report IDs, the last one with the Report ID asked for); none
+  sent since the commit is a stall.
+- **Idle rate and protocol** (7.2.3 to 7.2.6): `SET_IDLE` and `SET_PROTOCOL`
+  arrive as `MIMHID_EVENT_SET_IDLE` and `MIMHID_EVENT_SET_PROTOCOL`, and
+  `GET_IDLE` and `GET_PROTOCOL` return what the target set, starting at 0 and
+  the report protocol 1 at each mount. A `GET_IDLE` straight after a
+  `SET_IDLE` may still return the old value for one round trip. The board does
+  not repeat reports at the idle rate.
 
 ---
 
@@ -155,7 +173,7 @@ N-key rollover (NKRO) with no 6-key array limit and no `ErrorRollOver` state.
   descriptor. If you want the target OS to send Caps Lock / Num Lock / Scroll
   Lock `Output` reports, declare an `Output` Main item on Usage Page `0x08`
   (LEDs) in a raw descriptor (`mimhid_spec_create_raw` with
-  `requires_output = 1` or `mimhid_node_open_raw`, as shown in
+  `requires_output = 1`, as shown in
   [examples/c/verify/verify_keyboard.c](../examples/c/verify/verify_keyboard.c))
   and handle `MIMHID_EVENT_OUTPUT_REPORT` in `transport.event_sink`.
 
@@ -500,14 +518,23 @@ descriptor with `validate_raw`:
   library verifies that `length` and the leading Report ID byte match an entry in
   `reports`, and that any trailing Constant padding bits in the final byte are `0`.
 
-### 2. Unchecked interface descriptor (`mimhid_node_open_raw` + `mimhid_report_send`)
+### 2. Unchecked HID interface (`mimhid_node_open` with class 0x03 and its own rules)
 
-`mimhid_node_open_raw(device, descriptor, descriptor_length, &node_config, &timeouts, &node)`
-sends any `1..max_descriptor_bytes` byte slice directly to the board without
-running `validate_raw` or checking `transport.linux_hid`. This is used when
-replaying a captured physical device descriptor verbatim (including vendor
-collections, Output LED items, or non-standard item sequences). Send reports on
-that Node with `mimhid_report_send(node, report_bytes, report_length, send_timeout_ms)`.
+The board reads no class, so a HID interface that is not made from a `Spec`
+is an ordinary `mimhid_node_open` Node of class 0x03: any report descriptor
+(a captured physical device's, with vendor collections, Output LED items or
+non-standard item sequences; nothing is parsed or checked against
+`transport.linux_hid`), the HID descriptor in `class_descriptors`
+(`mimhid_hid_descriptor_bytes`), and the control rules that make it answer
+(`mimhid_node_config.rules`: `mimhid_hid_descriptor_rule` for the report
+descriptor and the HID descriptor, `MIMHID_CONTROL_ANSWER_LAST_SENT` for
+`GET_REPORT`, `MIMHID_CONTROL_ACCEPT` for `SET_REPORT`, `SET_IDLE` and
+`SET_PROTOCOL`, ...). Send its reports with
+`mimhid_node_endpoint_write(node, address, bytes, length, timeout_ms)` on its IN
+endpoint, Report ID included, and read an Output report as
+`MIMHID_EVENT_ENDPOINT_DATA` from its OUT endpoint or as an accepted
+`MIMHID_EVENT_CONTROL_SETUP`. [examples/c/hid_interface.c](../examples/c/hid_interface.c)
+does this for a boot keyboard.
 
 ---
 

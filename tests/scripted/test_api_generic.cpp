@@ -108,10 +108,10 @@ void test_generic_frames() {
                  policies[0].payload[1] == 0x81 && policies[0].payload[2] == 3 &&
                  policies[0].payload[3] == MIMHID_FULL_WAIT && policies[1].payload[1] == 0x82 &&
                  policies[1].payload[2] == 2 && policies[1].payload[3] == MIMHID_FULL_DROP_OLDEST);
-    // No report descriptor goes to the board for a Node that is not HID.
-    MIMHID_CHECK(board.count(MIMHID_T_DESC_BEGIN) > 0U);
+    // No bytes of an answer go to the board for a Node that has no rules.
+    MIMHID_CHECK(board.count(MIMHID_T_DESC_BEGIN) > 0U && board.count(MIMHID_T_RULE) == 0U);
     for (const Received& r : frames_of(board, MIMHID_T_DESC_BEGIN))
-        MIMHID_CHECK(r.payload[1] != MIMHID_DESC_HID_REPORT);
+        MIMHID_CHECK(r.payload[1] != MIMHID_DESC_ANSWER);
 
     // Data frames: 0x40 | endpoint number, split on packet boundaries, no zero-length packet
     // added; a zero-length write is a frame without payload.
@@ -235,27 +235,41 @@ void test_generic_frames() {
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_TRANSFER_LOST && s.value == 0x1234 &&
                  s.endpoint_address == 0x82 && s.node_id == mimhid_node_id(node));
 
-    // A profile Node has none of these calls in this release.
+    // A profile Node has the same endpoint calls: its IN endpoint is one of the generic driver's.
     mimhid_spec* spec = keyboard_spec();
     mimhid_hid_node_config hid = node_config(1);
     hid.ep_in.address = 0x85; // 0x82 is the vendor Node's
     mimhid_node* keys = nullptr;
     MIMHID_CHECK(mimhid_node_open_profile(device, spec, &hid, &kCommit, &keys) == MIMHID_OK);
     if (keys != nullptr) {
-        MIMHID_CHECK(mimhid_node_endpoint_write(keys, 0x85, data.data(), 1, kSendMs) ==
-                     MIMHID_ERR_UNSUPPORTED);
-        MIMHID_CHECK(mimhid_node_endpoint_stall(keys, 0x85, kControlMs) == MIMHID_ERR_UNSUPPORTED);
-        MIMHID_CHECK(mimhid_node_endpoint_flush(keys, 0x85, kControlMs) == MIMHID_ERR_UNSUPPORTED);
-        // The HID endpoint's policy is DROP_NEWEST only; its depth goes to the board.
+        // A write goes out as a data frame of the endpoint; another Node's endpoint is refused.
+        board.clear();
+        MIMHID_CHECK(mimhid_node_endpoint_write(keys, 0x85, data.data(), 3, kSendMs) == MIMHID_OK);
+        wait_for_frames(board, 0x45, 1);
+        MIMHID_CHECK(frames_of(board, 0x45).size() == 1U &&
+                     frames_of(board, 0x45)[0].payload.size() == 3U);
+        MIMHID_CHECK(mimhid_node_endpoint_write(keys, 0x82, data.data(), 1, kSendMs) ==
+                     MIMHID_ERR_PARAM);
+        MIMHID_CHECK(mimhid_node_endpoint_stall(keys, 0x85, kControlMs) == MIMHID_OK);
+        MIMHID_CHECK(board.count(MIMHID_T_EP_STALL) == 1U);
+        MIMHID_CHECK(mimhid_node_endpoint_clear_stall(keys, 0x85, kControlMs) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_endpoint_flush(keys, 0x85, kControlMs) == MIMHID_OK);
+        MIMHID_CHECK(board.count(MIMHID_T_EP_FLUSH) == 1U);
+        // The policy: any of the three, sent with the least depth of the interface's Nodes.
         board.clear();
         p = {MIMHID_FULL_WAIT, 2};
         MIMHID_CHECK(mimhid_node_endpoint_set_policy(keys, hid.ep_in.address, &p, kControlMs) ==
-                     MIMHID_ERR_UNSUPPORTED);
+                     MIMHID_OK);
+        f = frames_of(board, MIMHID_T_EP_CONFIG);
+        MIMHID_CHECK(f.size() == 1U && f[0].payload[1] == hid.ep_in.address &&
+                     f[0].payload[2] == 2 && f[0].payload[3] == MIMHID_FULL_WAIT);
+        board.clear();
         p = {MIMHID_FULL_DROP_NEWEST, 2};
         MIMHID_CHECK(mimhid_node_endpoint_set_policy(keys, hid.ep_in.address, &p, kControlMs) ==
                      MIMHID_OK);
         f = frames_of(board, MIMHID_T_EP_CONFIG);
-        MIMHID_CHECK(f.size() == 1U && f[0].payload[1] == hid.ep_in.address && f[0].payload[2] == 2);
+        MIMHID_CHECK(f.size() == 1U && f[0].payload[1] == hid.ep_in.address && f[0].payload[2] == 2 &&
+                     f[0].payload[3] == MIMHID_FULL_DROP_NEWEST);
         MIMHID_CHECK(mimhid_node_close(keys, &kCommit, kDrainMs) == MIMHID_OK);
     }
     mimhid_spec_release(spec);

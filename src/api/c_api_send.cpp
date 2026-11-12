@@ -64,28 +64,25 @@ mimhid_result consume_completion(mimhid_node* node, const char* field) noexcept 
 mimhid_result write_report(mimhid_node* node, const std::uint8_t* report, std::size_t length,
                            const char* field, std::uint32_t send_timeout_ms) noexcept {
     mimhid_device* device = node->device;
-    std::int32_t os_error = 0;
-    const tr::IoStatus status = device->link.send_report(node->config.ep_in.address, report, length,
-                                                         send_timeout_ms, &os_error);
-    mimhid_result result = MIMHID_OK;
+    // The same path as a generic Node's write, so the wait policy counts the report.
+    mimhid::detail::EndpointRuntime* ep =
+        mimhid::detail::write_runtime(node, node->config.ep_in.address);
+    mimhid_result result = ep == nullptr ? MIMHID_ERR_INTERNAL
+                                         : mimhid::detail::endpoint_write(
+                                               node, ep, node->config.ep_in.address, report,
+                                               length, send_timeout_ms);
     std::int32_t native = 0;
-    switch (status) {
-    case tr::IoStatus::ok:
+    switch (result) {
+    case MIMHID_OK:
         break;
-    case tr::IoStatus::timeout:
+    case MIMHID_ERR_SHORT_TRANSFER:
+        native = 0; // some bytes reached the serial driver
+        break;
+    case MIMHID_ERR_BUSY: // the endpoint was flushed while waiting: nothing was sent
         result = MIMHID_ERR_TIMEOUT;
         native = -1;
         break;
-    case tr::IoStatus::short_write:
-        result = MIMHID_ERR_SHORT_TRANSFER;
-        native = 0;
-        break;
-    case tr::IoStatus::closed:
-        result = MIMHID_ERR_NO_DEVICE;
-        native = -1;
-        break;
-    case tr::IoStatus::error:
-        result = MIMHID_ERR_IO;
+    default: // nothing reached the serial driver; the pending state is kept for a resend
         native = -1;
         break;
     }
@@ -362,59 +359,5 @@ mimhid_result MIMHID_CALL mimhid_raw_submit(mimhid_node* node, const std::uint8_
     return result;
 }
 MIMHID_C_RESULT_CATCH("raw.submit")
-
-mimhid_result MIMHID_CALL mimhid_report_send(mimhid_node* node, const uint8_t* report_bytes,
-                                             size_t report_length,
-                                             const uint32_t send_timeout_ms) try {
-    mimhid::detail::clear_error();
-    if (node == nullptr || node->closed || node->device == nullptr ||
-        (report_bytes == nullptr && report_length != 0U)) {
-        set_error(MIMHID_ERR_PARAM, "report_send",
-                  "A live Node and valid report buffer are required.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (node->generic) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "report_send",
-                  "A Node opened with mimhid_node_open sends with mimhid_node_endpoint_write.");
-        return MIMHID_ERR_UNSUPPORTED;
-    }
-    if (const mimhid_result t = require_timeout(send_timeout_ms, "send_timeout_ms"); t != MIMHID_OK)
-        return t;
-    if (const mimhid_result link = mimhid::detail::link_available(node, "report_send");
-        link != MIMHID_OK) {
-        return link;
-    }
-    mimhid_device* device = node->device;
-    if (report_length > device->maximum_report_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "report_send",
-                  "The report is longer than the board allows.");
-        return MIMHID_ERR_OVERFLOW;
-    }
-    std::int32_t os_error = 0;
-    const tr::IoStatus status = device->link.send_report(node->config.ep_in.address, report_bytes,
-                                                         report_length, send_timeout_ms, &os_error);
-    switch (status) {
-    case tr::IoStatus::ok:
-        mimhid::detail::clear_error();
-        return MIMHID_OK;
-    case tr::IoStatus::timeout:
-        set_error(MIMHID_ERR_TIMEOUT, "report_send", "Report send timed out.", os_error);
-        return MIMHID_ERR_TIMEOUT;
-    case tr::IoStatus::short_write:
-        set_error(MIMHID_ERR_SHORT_TRANSFER, "report_send", "Short write during report send.",
-                  os_error);
-        return MIMHID_ERR_SHORT_TRANSFER;
-    case tr::IoStatus::closed:
-        device->latched.store(MIMHID_ERR_NO_DEVICE, std::memory_order_release);
-        set_error(MIMHID_ERR_NO_DEVICE, "report_send", "The serial device was disconnected.",
-                  os_error);
-        return MIMHID_ERR_NO_DEVICE;
-    case tr::IoStatus::error:
-        set_error(MIMHID_ERR_IO, "report_send", "I/O error during report send.", os_error);
-        return MIMHID_ERR_IO;
-    }
-    return MIMHID_OK;
-}
-MIMHID_C_RESULT_CATCH("report_send")
 
 } // extern "C"

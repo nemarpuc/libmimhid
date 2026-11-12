@@ -5,7 +5,8 @@ The programs find a board with `mimhid_discover` (or connect directly via port p
 | File | What it shows |
 |---|---|
 | [`examples/c/basic_keyboard_mouse.c`](../examples/c/basic_keyboard_mouse.c) | `mimhid_discover`, `mimhid_device_open` with every value set in the program (the initializers fill none in) and a USB identity, a keyboard and a mouse Spec on interfaces 0 and 1 opened in one batch, a key press, mouse motion, and a click. |
-| [`examples/c/control_transfers.c`](../examples/c/control_transfers.c) | Control transfers of the target: report every request, hold one by a rule, and answer it from the event sink. Runs for 10 s and types nothing. |
+| [`examples/c/control_transfers.c`](../examples/c/control_transfers.c) | Control transfers of the target: report every request, hold one by an `ASK` rule, and answer it from the event sink. Runs for 10 s and types nothing. |
+| [`examples/c/hid_interface.c`](../examples/c/hid_interface.c) | A boot keyboard whose HID interface the program writes itself with `mimhid_node_open` (class 0x03): the HID descriptor (`mimhid_hid_descriptor_bytes`), the report descriptor and HID descriptor answers (`mimhid_hid_descriptor_rule`), `GET_REPORT` from the last report sent (`MIMHID_CONTROL_ANSWER_LAST_SENT`), `SET_REPORT`, `SET_IDLE` and `SET_PROTOCOL` taken (`MIMHID_CONTROL_ACCEPT`), and reports sent with `mimhid_node_endpoint_write`. |
 | [`examples/cpp/multitouch_gesture.cpp`](../examples/cpp/multitouch_gesture.cpp) | A two-finger touchscreen Spec and a pinch-out gesture through the `mimhid::` forwarders. |
 
 `libaoahid` has one large program, `multi_profile.c`, that CI runs against a fake transport that finds no device. `libmimhid` has no such transport for its examples: `mimhid_discover` messages every serial port of the host, so a CI run would touch real ports. The same ground is covered by `basic_keyboard_mouse.c` (open, Specs, batch, submit, close), `control_transfers.c` (the event sink and control routing), and `examples/c/verify/verify_all.c` (three profiles interleaved against one real target); the build of each is a CTest case only for the per-profile programs, which need no board.
@@ -155,31 +156,32 @@ static void configure_interface_with_out_endpoint(mimhid_hid_node_config* node_c
 }
 ```
 
-### Open a raw HID report descriptor directly
+### Send reports of a raw Spec
 
-`mimhid_spec_create_raw` builds a Spec from one instead, with a report table the library checks reports against.
+`mimhid_spec_create_raw` builds a Spec from a caller's report descriptor, with a report table the library checks reports against; it is opened with `mimhid_node_open_profile` like any other Spec.
 
 ```c
 #include <mimhid.h>
 
 static mimhid_result send_raw_report(mimhid_device* device,
-                                     const uint8_t* raw_desc,
-                                     size_t raw_desc_len,
+                                     mimhid_spec* raw_spec,
                                      const mimhid_hid_node_config* raw_config,
                                      const mimhid_commit_timeouts* commit_timeouts,
                                      const uint8_t* report,
                                      size_t report_len) {
     mimhid_node* raw_node = NULL;
-    mimhid_result r = mimhid_node_open_raw(
-        device, raw_desc, raw_desc_len, raw_config, commit_timeouts, &raw_node);
+    mimhid_result r = mimhid_node_open_profile(device, raw_spec, raw_config, commit_timeouts,
+                                               &raw_node);
     if (r != MIMHID_OK) return r;
-    return mimhid_report_send(raw_node, report, report_len, 500); /* Report ID included */
+    return mimhid_raw_submit(raw_node, report, report_len, 500); /* Report ID included, checked */
 }
 ```
 
+For a HID interface with no Spec at all (a descriptor copied from a real device, nothing checked), see `examples/c/hid_interface.c`: the interface is a `mimhid_node_open` Node of class 0x03 with its own control rules, and its reports go out with `mimhid_node_endpoint_write`.
+
 ### Present a vendor-class bulk device
 
-`mimhid_node_open` takes interfaces of any class but HID. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimhid_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMHID_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
+`mimhid_node_open` takes interfaces of any class, HID included. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimhid_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMHID_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
 
 ```c
 mimhid_usb_endpoint endpoints[2] = {
@@ -229,9 +231,10 @@ static mimhid_result setup_vendor_control_rule(mimhid_device* device) {
     rule.request_type_value = 0xC0;               /* vendor, device to host */
     rule.request_mask = 0xFF;
     rule.request_value = 0x42;
+    rule.action = MIMHID_CONTROL_ASK;             /* hold it and ask the program */
     rule.timeout_ms = 100;                        /* required: no default */
-    rule.when_late = MIMHID_CONTROL_ACTION_STALL; /* required: what happens if no answer comes */
-    return mimhid_device_set_control_routing(device, 1 /* report every request */, &rule, 1, 500);
+    rule.when_late = MIMHID_CONTROL_ACTION_STALL; /* required: STALL or DROP if no answer comes */
+    return mimhid_device_set_control_rules(device, 1 /* report every request */, &rule, 1, 500);
 }
 
 static void answer_held_control_setup(mimhid_device* device,
@@ -246,7 +249,7 @@ static void answer_held_control_setup(mimhid_device* device,
 }
 ```
 
-See [PROTOCOL.md](PROTOCOL.md#control-transfers) for what is held, the verdict of a host-to-device transfer, and the flags.
+See [PROTOCOL.md](PROTOCOL.md#control-rules) for the other actions (`ANSWER`, `ANSWER_LAST_SENT`, `ACCEPT`, `STALL`), what is held, the verdict of a host-to-device transfer, and the flags.
 
 ### Keep the board on the bus after the program exits
 

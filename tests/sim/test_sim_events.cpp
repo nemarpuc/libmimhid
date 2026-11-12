@@ -43,8 +43,8 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) ==
                  MIMHID_OK);
     std::uint8_t buffer[8] = {};
-    MIMHID_CHECK(fake_board_feature(0, 5, buffer, sizeof(buffer)) == 2 && buffer[0] == 0xAB &&
-                 buffer[1] == 0xCD);
+    MIMHID_CHECK(fake_board_feature(0, 5, buffer, sizeof(buffer)) == 3 && buffer[0] == 5 &&
+                 buffer[1] == 0xAB && buffer[2] == 0xCD); // the Report ID leads (HID 1.11 7.2.1)
 
     // Frames longer than 127 bytes carry a two-byte length: a Feature answer the target reads
     // whole, and a report the target writes.
@@ -52,7 +52,7 @@ void test_events_and_raw() {
     limits.struct_size = sizeof(limits);
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_OK &&
                  limits.max_feature_bytes == 1024 && limits.max_report_bytes == 64 &&
-                 limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == SIM_HID_ITFS);
+                 limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == SIM_ENDPOINTS);
     limits.reserved = 1;
     MIMHID_CHECK(mimhid_device_limits(device, &limits) == MIMHID_ERR_PARAM);
     limits.reserved = 0;
@@ -62,8 +62,8 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), big.size(), kControlMs) ==
                  MIMHID_OK);
     std::vector<std::uint8_t> got(1024);
-    MIMHID_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() &&
-                 std::memcmp(got.data(), big.data(), big.size()) == 0);
+    MIMHID_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() + 1U && got[0] == 5 &&
+                 std::memcmp(got.data() + 1, big.data(), big.size()) == 0);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), 1025, kControlMs) ==
                  MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) ==
@@ -98,7 +98,6 @@ void test_events_and_raw() {
     // No wait has a default: a zero timeout is refused before anything is sent.
     const std::uint8_t feature_zero[] = {1};
     MIMHID_CHECK(mimhid_raw_submit(node, good, sizeof(good), 0) == MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_report_send(node, good, sizeof(good), 0) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature_zero, sizeof(feature_zero), 0) ==
                  MIMHID_ERR_UNSET_FIELD);
     const mimhid_commit_timeouts no_control = {sizeof(mimhid_commit_timeouts), 0, 0, kReconnectMs};
@@ -115,8 +114,8 @@ void test_events_and_raw() {
     mimhid_node* refused = nullptr;
     MIMHID_CHECK(mimhid_node_open_profile(device, raw, nullptr, &no_control, &refused) ==
                  MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_node_open_raw(device, good, sizeof(good), nullptr, &no_reconnect,
-                                      &refused) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_open(device, nullptr, &no_reconnect, &refused) ==
+                 MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_commit(device, 0, &no_control) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_commit(device, 0, &no_reconnect) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_commit(device, 0, &wrong_size) == MIMHID_ERR_PARAM);
@@ -126,7 +125,7 @@ void test_events_and_raw() {
                  MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_disconnect(device, 0) == MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_remote_wakeup(device, 0) == MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_device_set_control_routing(device, 0, nullptr, 0, 0) ==
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, nullptr, 0, 0) ==
                  MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(mimhid_device_control_reply(device, 1, MIMHID_CONTROL_ACTION_STALL, nullptr, 0,
                                              0) == MIMHID_ERR_UNSET_FIELD);

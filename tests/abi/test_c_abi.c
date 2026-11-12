@@ -61,7 +61,7 @@ _Static_assert(offsetof(mimhid_usb_device, product_id) == 8, "usb_device.product
 _Static_assert(offsetof(mimhid_usb_device, bcd_device) == 10, "usb_device.bcd_device");
 
 _Static_assert(offsetof(mimhid_node_config, struct_size) == 0, "node_config.struct_size");
-_Static_assert(sizeof(mimhid_node_config) == 40, "node_config layout");
+_Static_assert(sizeof(mimhid_node_config) == 56, "node_config layout");
 _Static_assert(offsetof(mimhid_device_config, struct_size) == 0, "device_config.struct_size");
 _Static_assert(offsetof(mimhid_commit_timeouts, struct_size) == 0, "commit_timeouts.struct_size");
 _Static_assert(offsetof(mimhid_commit_timeouts, reserved) == 4, "commit_timeouts.reserved");

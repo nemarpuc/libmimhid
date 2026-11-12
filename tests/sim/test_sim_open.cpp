@@ -43,9 +43,9 @@ void test_open_identity_and_descriptors() {
     MIMHID_CHECK(board.version_major == MIMHID_VERSION_MAJOR &&
                  board.version_minor == MIMHID_VERSION_MINOR &&
                  board.version_patch == MIMHID_VERSION_PATCH);
-    MIMHID_CHECK(board.max_interfaces == SIM_HID_ITFS);
+    MIMHID_CHECK(board.max_interfaces == 15); // of any class, whatever the endpoint numbers
     MIMHID_CHECK(board.max_report_bytes == 64);
-    MIMHID_CHECK(board.max_endpoint_number == SIM_HID_ITFS);
+    MIMHID_CHECK(board.max_endpoint_number == SIM_ENDPOINTS);
     MIMHID_CHECK(board.chip == MIMHID_CHIP_UNKNOWN && board.usb_high_speed == 0);
     MIMHID_CHECK(board.has_unique_id == 1 && board.unique_id_length == 8 &&
                  board.unique_id[0] == 0xDE && board.unique_id[7] == 0x04);
@@ -173,15 +173,15 @@ void test_chip_serial_and_boot() {
     MIMHID_CHECK(c[9 + 25 + 2] == 0x01 && c[9 + 25 + 4] == 5 && c[9 + 25 + 5] == 0);
     mimhid_node* bad = nullptr;
     mimhid_hid_node_config broken = no;
-    // The class of a general Node is the caller's, and never 0; HID is the profile calls'.
+    // The class of a general Node is the caller's, and never 0.
     {
         mimhid_usb_endpoint ep{};
-        ep.address = 0x81;
+        ep.address = 0x82;
         ep.transfer_type = MIMHID_TRANSFER_BULK;
         ep.max_packet_size = 64;
         ep.policy = {MIMHID_FULL_DROP_NEWEST, 2};
         mimhid_usb_interface itf{};
-        itf.number = 0;
+        itf.number = 1; // beside the Node above
         itf.class_code = 0;
         itf.endpoints = &ep;
         itf.endpoint_count = 1;
@@ -191,9 +191,13 @@ void test_chip_serial_and_boot() {
         general.interface_count = 1;
         MIMHID_CHECK(mimhid_node_open(device, &general, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                      bad == nullptr);
+        // Class 0x03 is the caller's too: a hand-written HID interface (examples/c/hid_interface.c).
         itf.class_code = 0x03;
-        MIMHID_CHECK(mimhid_node_open(device, &general, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED &&
-                     bad == nullptr);
+        MIMHID_CHECK(mimhid_node_open(device, &general, &kCommit, &bad) == MIMHID_OK &&
+                     bad != nullptr);
+        if (bad != nullptr)
+            MIMHID_CHECK(mimhid_node_close(bad, &kCommit, kDrainMs) == MIMHID_OK);
+        bad = nullptr;
     }
     // USB 2.0 9.6.6: an endpoint address is a number 1 to 15 with bits 6..4 clear; IN has bit 7
     // set.
@@ -211,9 +215,9 @@ void test_chip_serial_and_boot() {
     }
     // A number the board's controller does not have is refused before the board is asked: the
     // target's SET_CONFIGURATION would fail. The firmware core of this build has the numbers 1 to
-    // SIM_HID_ITFS (the board's PONG says so).
-    if (SIM_HID_ITFS < 15) {
-        const std::uint8_t above = static_cast<std::uint8_t>(SIM_HID_ITFS + 1);
+    // SIM_ENDPOINTS (the board's PONG says so).
+    if (SIM_ENDPOINTS < 15) {
+        const std::uint8_t above = static_cast<std::uint8_t>(SIM_ENDPOINTS + 1);
         broken = no;
         broken.ep_in.address = static_cast<std::uint8_t>(0x80U | above);
         MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
@@ -227,14 +231,20 @@ void test_chip_serial_and_boot() {
                          MIMHID_ERR_OVERFLOW &&
                      bad == nullptr);
     }
-    // A HID Node's endpoints are interrupt endpoints, and its IN policy drops the newest report.
+    // A HID Node's endpoints are interrupt endpoints, and its IN policy is one of the three.
     broken = no;
     broken.ep_in.transfer_type = MIMHID_TRANSFER_BULK;
     MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED &&
                  bad == nullptr);
     broken = no;
-    broken.ep_in.policy.on_full = MIMHID_FULL_WAIT;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED);
+    broken.interface_number = 1; // beside the Node above
+    broken.ep_in.address = 0x82;
+    broken.ep_out.address = 0x02;
+    broken.ep_in.policy.on_full = MIMHID_FULL_WAIT; // all three policies are allowed now
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_OK);
+    if (bad != nullptr)
+        MIMHID_CHECK(mimhid_node_close(bad, &kCommit, kDrainMs) == MIMHID_OK);
+    bad = nullptr;
     // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0, 1 or 2; the rest is reserved.
     broken = no;
     broken.subclass = 2;
@@ -276,7 +286,7 @@ void test_keep_attached_and_discovery() {
     if (again != nullptr) {
         mimhid_device_info info{};
         MIMHID_CHECK(mimhid_device_board_info(again, &info) == MIMHID_OK &&
-                     info.max_interfaces == SIM_HID_ITFS);
+                     info.max_interfaces == 15);
         MIMHID_CHECK(mimhid_device_close(again, kControlMs, kDrainMs) == MIMHID_OK);
     }
 }
@@ -292,9 +302,6 @@ void test_filled_values() {
     mimhid_device* device = open_device(o);
     if (device == nullptr)
         return;
-    char text[64];
-    MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) > 0 &&
-                 std::strcmp(text, "libmimhid") == 0);
 
     static const std::uint16_t usages[1] = {0xCD};
     static const mimhid_usage_semantic semantics[1] = {MIMHID_USAGE_ONE_SHOT};
@@ -342,6 +349,10 @@ void test_filled_values() {
         if (node == nullptr)
             continue;
         MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
+        // The strings go to the board with the first configuration.
+        char text[64];
+        MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) > 0 &&
+                     std::strcmp(text, "libmimhid") == 0);
         fake_board_clear_reports();
         MIMHID_CHECK(mimhid_node_close(node, &timeouts, kDrainMs) == MIMHID_OK);
     }

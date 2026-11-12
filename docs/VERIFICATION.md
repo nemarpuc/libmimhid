@@ -39,9 +39,11 @@ The two sister libraries use some of the same words for different things:
    Runs the host library over a POSIX pseudo-terminal against the real C
    firmware core (`core.c`, `control.c`, `ep0.c`, `usb_descriptors.c`) and a
    TinyUSB device-controller stub ([tests/sim/fake_board.c](../tests/sim/fake_board.c))
-   in a background thread, compiled four ways: 15, 7, and 3 full-speed
-   interfaces (`mimhid.sim-15`, `mimhid.sim-7`, `mimhid.sim-3`) and `7`
-   high-speed interfaces (`mimhid.sim-hs`).
+   in a background thread, compiled four ways: with 15, 7, and 3 full-speed
+   endpoint numbers (`mimhid.sim-15`, `mimhid.sim-7`, `mimhid.sim-3`) and `7`
+   high-speed ones (`mimhid.sim-hs`). The fake target reads descriptors,
+   reports and Feature answers with control transfers, since the board has no
+   HID driver.
 4. **`hw` ([tests/hw/README.md](../tests/hw/README.md#hardware-tests), [examples/c/verify/](../examples/c/verify)).**
    Manual runs with a physical microcontroller board wired to a USB-UART adapter
    and plugged into a real target host. Only this layer exercises the real silicon
@@ -62,10 +64,10 @@ The two sister libraries use some of the same words for different things:
 | Baud handshake, probe burst & UART BREAK recovery (`src/transport/handshaker.cpp`) | `firmware_core_*` | `handshaker`, `api_open` | `test_sim_line_rate` (rate cap, noise injection, BREAK recovery) | — |
 | Serial port I/O & candidate port discovery (`src/transport/`) | — | `serial_port`, `ports_linux` (synthetic sysfs/`/dev`) | Pseudo-terminal I/O in `mimhid.sim-*` | — |
 | Command ACK/NAK, retries & sequence deduplication (`src/transport/link.cpp`, `core.c`) | `firmware_core_*` | `link`, `api_commands` | `test_sim_open`, `test_sim_reports` | — |
-| USB descriptors composed by the host (`src/usb/descriptor_composer.cpp`, byte for byte against the descriptors the firmware used to build), the firmware's `COMMIT` walk, interface numbers without a gap & `COMMIT` batching | `descriptor_composer`, `firmware_core_{15,7,4,3,hs}`, `itfs_*` | `api_open`, `api_commands`, `api_raw_node` | `test_sim_open` (`15`, `7`, `3` interfaces), `test_sim_reports` (interface numbers), `test_sim_high_speed` | — |
+| USB descriptors composed by the host (`src/usb/descriptor_composer.cpp`, byte for byte against the descriptors the firmware used to build), the firmware's `COMMIT` walk, interface numbers without a gap & `COMMIT` batching | `descriptor_composer`, `firmware_core_{15,7,6,3,hs}`, `probe_*` | `api_open`, `api_commands`, `api_raw_node` | `test_sim_open` (`15`, `7`, `3` endpoint numbers), `test_sim_reports` (interface numbers), `test_sim_high_speed` | — |
 | Physical bus control (`disconnect`, `connect`, 0V wait before first commit) | `firmware_core_*` | `api_commands` | `test_sim_open`, `test_sim_events` | — |
-| Target events (`MOUNTED`, `UNMOUNTED`, `SUSPEND`, `RESUME`, `OUTPUT_REPORT`, `FEATURE_REPORT`, `SET_PROTOCOL`, `SET_IDLE`, `REPORT_LOST`) | `firmware_core_*` | `api_events`, `api_raw_node` | `test_sim_events`, `test_sim_reports` | — |
-| Endpoint 0 control transfer routing & replies (`control.c`, `ep0.c`) | `firmware_core_*` | `api_commands`, `api_events` | `test_sim_control` (hold, answer, stall, drop, timeout, fixed requests, 8/16/32-byte EP0 packet splitting) | — |
+| Target events (`MOUNTED`, `UNMOUNTED`, `SUSPEND`, `RESUME`, `TRANSFER_LOST`, and the events the library makes from accepted control requests and OUT endpoint frames: `OUTPUT_REPORT`, `FEATURE_REPORT`, `SET_PROTOCOL`, `SET_IDLE`) | `firmware_core_*` | `api_events`, `api_raw_node` | `test_sim_events`, `test_sim_reports` | — |
+| Endpoint 0 control rules & replies (`control.c`, `ep0.c`: `ANSWER`, `ANSWER_LAST_SENT`, `ACCEPT`, `ASK`, `STALL`, `RULES_APPLY`, `RULE_DATA`, HID behaviour of profile Nodes from `compose_hid_rules`) | `firmware_core_*`, `descriptor_composer` | `api_commands`, `api_events`, `api_raw_node` | `test_sim_control` (hold, answer, last sent, accept, stall, drop, timeout, rule order, fixed requests, 8/16/32-byte EP0 packet splitting) | — |
 | Language bindings layout (Python, C#, Rust) | `generate.py --check`, `test_layout.py`, `MimHid.Tests`, `cargo test` | — | — | — |
 | CMake package & release archives | `mimhid.package-multiarch-layout`, `mimhid.package-component-contract`, `tests/release/test_release_tools.py` | — | — | — |
 

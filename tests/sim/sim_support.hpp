@@ -15,8 +15,8 @@
 #include <string>
 #include <vector>
 
-#ifndef SIM_HID_ITFS
-#define SIM_HID_ITFS 7
+#ifndef SIM_ENDPOINTS
+#define SIM_ENDPOINTS 7
 #endif
 
 namespace sim {
@@ -75,6 +75,11 @@ mimhid_spec* raw_spec_no_id();
 mimhid_spec* raw_spec_io();
 mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
                        const mimhid_hid_node_config* options = nullptr);
+// A Node of one vendor interface (number 0, class 0xFF) with an interrupt IN endpoint 0x81 and the
+// rules given, committed; the Device is waited on until the target has it mounted. The smallest
+// thing that gives the Device a USB configuration to hold rules in.
+mimhid_node* open_vendor_node(mimhid_device* device, const mimhid_control_rule* rules = nullptr,
+                              std::size_t rule_count = 0);
 bool next_report(fake_report_t* r, int timeout_ms = 2000);
 bool all_zero_after_id(const fake_report_t& r, bool has_id);
 
@@ -104,6 +109,7 @@ void test_events_and_raw();
 void test_link_loss();
 // test_sim_control.cpp
 void test_control();
+void test_control_rules();
 // test_sim_generic.cpp: Nodes of any class
 void test_generic_nodes();
 #ifdef SIM_HIGH_SPEED

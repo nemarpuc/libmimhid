@@ -34,14 +34,10 @@ extern "C" {
 // Endpoint 0 size
 #define CFG_TUD_ENDPOINT0_SIZE      64
 
-#include "core.h"
-#include "config.h"
-
-// One HID class instance per USB HID interface the MCU's endpoints allow
-#define CFG_TUD_HID                 MIMHID_HID_ITFS
-
-// HID buffer per interface: a report, and the data stage of a Feature report
-#define CFG_TUD_HID_EP_BUFSIZE      MIMHID_HID_BUFSIZE
+// No class driver of TinyUSB's is built: every interface runs on the board's own driver
+// (generic.c), whatever its class, and what a class does on the control pipe is the host's
+// control rules (control.c).
+#define CFG_TUD_HID                 0
 
 #ifdef __cplusplus
 }

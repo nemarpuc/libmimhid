@@ -204,10 +204,10 @@ void test_open_reports_the_board() {
     if (!board.start())
         return;
     Pong pong;
-    pong.max_interfaces = 3;
+    pong.max_interfaces_any = 3;
     pong.chip = 2;
     pong.max_report_bytes = 300;
-    pong.max_descriptor_bytes = 777;
+    pong.max_answer_bytes = 777;
     pong.max_control_rules = 4;
     board.set_pong(pong);
     mimhid_device* device = open_on(board, board_options());

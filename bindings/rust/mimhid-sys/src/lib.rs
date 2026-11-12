@@ -23,6 +23,7 @@ pub type mimhid_dpad_representation = i32;
 pub type mimhid_usage_semantic = i32;
 pub type mimhid_event_kind = i32;
 pub type mimhid_control_action = i32;
+pub type mimhid_control_rule_action = i32;
 
 pub const MIMHID_BAUD_FASTEST: u32 = 4294967295;
 pub const MIMHID_BOOT_BAUD: u32 = 115200;
@@ -32,7 +33,6 @@ pub const MIMHID_CHIP_RP2040: i32 = 1;
 pub const MIMHID_CHIP_RP2350: i32 = 2;
 pub const MIMHID_CHIP_STM32F4: i32 = 5;
 pub const MIMHID_CHIP_UNKNOWN: i32 = 0;
-pub const MIMHID_CONTROL_MAX_RULES: i32 = 8;
 pub const MIMHID_CONTROL_MAX_TIMEOUT_MS: i32 = 5000;
 pub const MIMHID_HOST_MAX_REPORT_BYTES: i32 = 1024;
 pub const MIMHID_LOSS_MAX_INTERVAL_MS: u32 = 60000;
@@ -110,10 +110,16 @@ pub const MIMHID_CONTROL_ACTION_LEAVE: i32 = 1;
 pub const MIMHID_CONTROL_ACTION_ANSWER: i32 = 2;
 pub const MIMHID_CONTROL_ACTION_STALL: i32 = 3;
 pub const MIMHID_CONTROL_ACTION_DROP: i32 = 4;
+pub const MIMHID_CONTROL_ANSWER: i32 = 1;
+pub const MIMHID_CONTROL_ANSWER_LAST_SENT: i32 = 2;
+pub const MIMHID_CONTROL_ACCEPT: i32 = 3;
+pub const MIMHID_CONTROL_ASK: i32 = 4;
+pub const MIMHID_CONTROL_STALL: i32 = 5;
 pub const MIMHID_CONTROL_FLAG_HELD: i32 = 1;
 pub const MIMHID_CONTROL_FLAG_TOO_LONG: i32 = 2;
 pub const MIMHID_CONTROL_FLAG_FIXED: i32 = 4;
 pub const MIMHID_CONTROL_FLAG_LOST: i32 = 8;
+pub const MIMHID_CONTROL_FLAG_ACCEPTED: i32 = 16;
 pub const MIMHID_TRANSFER_BULK: i32 = 2;
 pub const MIMHID_TRANSFER_INTERRUPT: i32 = 3;
 pub const MIMHID_FULL_DROP_NEWEST: i32 = 1;
@@ -188,7 +194,7 @@ pub struct mimhid_board_limits {
     pub max_control_rules: u32,
     pub max_endpoint_number: u32,
     pub max_interfaces_any: u32,
-    pub max_hid_interfaces: u32,
+    pub max_answer_bytes: u32,
     pub max_config_descriptor_bytes: u32,
     pub max_strings: u32,
     pub max_transfer_bytes: u32,
@@ -293,6 +299,27 @@ pub struct mimhid_usb_endpoint {
 }
 
 #[repr(C)]
+pub struct mimhid_control_rule {
+    pub request_type_mask: u8,
+    pub request_type_value: u8,
+    pub request_mask: u8,
+    pub request_value: u8,
+    pub value_mask: u16,
+    pub value_value: u16,
+    pub index_mask: u16,
+    pub index_value: u16,
+    pub action: mimhid_control_rule_action,
+    pub data: *const u8,
+    pub length: usize,
+    pub endpoint_address: u8,
+    pub first_byte_filter: u8,
+    pub first_byte: u8,
+    pub reserved8: u8,
+    pub timeout_ms: u32,
+    pub when_late: mimhid_control_action,
+}
+
+#[repr(C)]
 pub struct mimhid_usb_interface {
     pub number: u8,
     pub class_code: u8,
@@ -313,6 +340,8 @@ pub struct mimhid_node_config {
     pub interface_count: usize,
     pub association: *const u8,
     pub association_length: usize,
+    pub rules: *const mimhid_control_rule,
+    pub rule_count: usize,
 }
 
 #[repr(C)]
@@ -614,20 +643,6 @@ pub struct mimhid_digitizer_sample {
     pub twist: i32,
 }
 
-#[repr(C)]
-pub struct mimhid_control_rule {
-    pub request_type_mask: u8,
-    pub request_type_value: u8,
-    pub request_mask: u8,
-    pub request_value: u8,
-    pub value_mask: u16,
-    pub value_value: u16,
-    pub index_mask: u16,
-    pub index_value: u16,
-    pub timeout_ms: u32,
-    pub when_late: mimhid_control_action,
-}
-
 extern "C" {
     pub fn mimhid_last_error() -> *const mimhid_error_detail;
     pub fn mimhid_result_name(result: mimhid_result) -> *const c_char;
@@ -653,7 +668,11 @@ extern "C" {
     pub fn mimhid_device_board_info(device: *const mimhid_device, out_info: *mut mimhid_device_info) -> mimhid_result;
     pub fn mimhid_device_limits(device: *const mimhid_device, out_limits: *mut mimhid_board_limits) -> mimhid_result;
     pub fn mimhid_device_link_counters(device: *mut mimhid_device, reset: u32, control_timeout_ms: u32, out_counters: *mut mimhid_link_counters) -> mimhid_result;
-    pub fn mimhid_device_set_control_routing(device: *mut mimhid_device, report_all: u32, rules: *const mimhid_control_rule, rule_count: usize, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_set_control_rules(device: *mut mimhid_device, report_all: u32, rules: *const mimhid_control_rule, rule_count: usize, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_set_rule_data(device: *mut mimhid_device, rule_index: usize, data: *const u8, length: usize, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_node_set_rule_data(node: *mut mimhid_node, rule_index: usize, data: *const u8, length: usize, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_hid_descriptor_bytes(bcd_hid: u16, country_code: u8, report_descriptor_length: usize, out: *mut u8) -> mimhid_result;
+    pub fn mimhid_hid_descriptor_rule(interface_number: u8, descriptor_type: u8, bytes: *const u8, length: usize, out_rule: *mut mimhid_control_rule) -> mimhid_result;
     pub fn mimhid_device_control_reply(device: *mut mimhid_device, token: u32, action: mimhid_control_action, data: *const u8, length: usize, send_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_set_loss_reporting(device: *mut mimhid_device, enabled: u32, interval_ms: u32, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_add_string(device: *mut mimhid_device, utf8: *const c_char, out_index: *mut u8) -> mimhid_result;
@@ -673,7 +692,6 @@ extern "C" {
     pub fn mimhid_spec_manifest(spec: *const mimhid_spec, manifest: *mut mimhid_capability_manifest) -> mimhid_result;
     pub fn mimhid_node_open(device: *mut mimhid_device, config: *const mimhid_node_config, timeouts: *const mimhid_commit_timeouts, out_node: *mut *mut mimhid_node) -> mimhid_result;
     pub fn mimhid_node_open_profile(device: *mut mimhid_device, spec: *mut mimhid_spec, config: *const mimhid_hid_node_config, timeouts: *const mimhid_commit_timeouts, out_node: *mut *mut mimhid_node) -> mimhid_result;
-    pub fn mimhid_node_open_raw(device: *mut mimhid_device, descriptor: *const u8, descriptor_length: usize, config: *const mimhid_hid_node_config, timeouts: *const mimhid_commit_timeouts, out_node: *mut *mut mimhid_node) -> mimhid_result;
     pub fn mimhid_node_close(node: *mut mimhid_node, timeouts: *const mimhid_commit_timeouts, drain_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_node_id(node: *const mimhid_node) -> u16;
     pub fn mimhid_node_set_feature_response(node: *mut mimhid_node, report_id: u8, data: *const u8, length: usize, control_timeout_ms: u32) -> mimhid_result;
@@ -700,5 +718,4 @@ extern "C" {
     pub fn mimhid_digitizer_update(node: *mut mimhid_node, sample: *const mimhid_digitizer_sample) -> mimhid_result;
     pub fn mimhid_battery_update(node: *mut mimhid_node, strength: i32) -> mimhid_result;
     pub fn mimhid_raw_submit(node: *mut mimhid_node, report: *const u8, length: usize, send_timeout_ms: u32) -> mimhid_result;
-    pub fn mimhid_report_send(node: *mut mimhid_node, report_bytes: *const u8, report_length: usize, send_timeout_ms: u32) -> mimhid_result;
 }

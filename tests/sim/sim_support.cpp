@@ -211,6 +211,36 @@ mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
     return node;
 }
 
+mimhid_node* open_vendor_node(mimhid_device* device, const mimhid_control_rule* rules,
+                              const std::size_t rule_count) {
+    mimhid_usb_endpoint ep{};
+    ep.address = 0x81;
+    ep.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    ep.max_packet_size = 64;
+    ep.interval = 1;
+    ep.policy = {MIMHID_FULL_DROP_NEWEST, 4};
+    mimhid_usb_interface itf{};
+    itf.class_code = 0xFF;
+    itf.endpoints = &ep;
+    itf.endpoint_count = 1;
+    mimhid_node_config config;
+    mimhid_node_config_init(&config);
+    config.interfaces = &itf;
+    config.interface_count = 1;
+    config.rules = rules;
+    config.rule_count = rule_count;
+    mimhid_node* node = nullptr;
+    const mimhid_result r = mimhid_node_open(device, &config, &kCommit, &node);
+    if (r != MIMHID_OK) {
+        std::fprintf(stderr, "node_open: %s (%s)\n", mimhid_result_name(r),
+                     mimhid_last_error()->reason);
+        ++g_failures;
+        return nullptr;
+    }
+    MIMHID_CHECK(mimhid_device_wait_ready(device, 3000) == MIMHID_OK);
+    return node;
+}
+
 bool next_report(fake_report_t* r, int timeout_ms) {
     return fake_board_wait_report(r, static_cast<std::uint32_t>(timeout_ms)) != 0;
 }

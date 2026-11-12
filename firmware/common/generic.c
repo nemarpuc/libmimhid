@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimhid contributors
 #include "generic.h"
 #include "config.h"
+#include "control.h"
 #include "core.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
@@ -19,8 +20,7 @@
 // controller may read that buffer until the transfer completes, which with a target that does not
 // poll is as long as the target likes; a slot of the ring is free to be written again as soon as
 // the tail has passed it (a flush, a stall and DROP_OLDEST all move the tail past slots), so the
-// bytes on the bus must not live in one. The copy is the length of the transfer, as the one
-// TinyUSB's HID driver makes for a report (hidd.c, tud_hid_n_report).
+// bytes on the bus must not live in one. The copy is the length of the transfer.
 //
 // A ring of n slots holds n - 1 queued transfers at most (head == tail means empty, so the ring is
 // never filled). `depth` is how many transfers wait in the ring, so a queue costs depth + 1 slots.
@@ -400,7 +400,13 @@ static void in_service(uint8_t number) {
     if (!usbd_edpt_xfer(0, address, g_bus[number].data, len)) {
         q->inflight = false; // the transfer is lost
         lost_add(q, 1u);
+        return;
     }
+    // What an ANSWER_LAST_SENT rule of this endpoint answers with from now on. Here, on the USB
+    // side, which is also where the vendor callback that answers the request runs (control.c), so
+    // the one that reads it never meets a half-written copy. Hot path: one test when no rule names
+    // this endpoint.
+    mimhid_control_sent(number, g_bus[number].data, len);
 }
 
 void mimhid_generic_poll(void) {
@@ -463,8 +469,7 @@ static void gen_reset(uint8_t rhport) {
 // them to this driver (tu_edpt_bind_driver). An association takes all its interfaces in one call.
 static uint16_t gen_open(uint8_t rhport, tusb_desc_interface_t const* desc_itf, uint16_t max_len) {
     (void)rhport;
-    // An HID interface: 0, so the stack's HID driver takes it. The walk at COMMIT has already
-    // decided which interfaces those are.
+    // 0 for an interface the walk at COMMIT did not find: the stack then looks no further.
     const uint16_t span = mimhid_active_generic_span(desc_itf->bInterfaceNumber);
     if (span == 0 || span > max_len)
         return 0;

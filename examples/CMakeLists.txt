@@ -17,6 +17,9 @@ target_link_libraries(control_transfers PRIVATE mimhid::mimhid)
 add_executable(vendor_bulk c/vendor_bulk.c)
 target_link_libraries(vendor_bulk PRIVATE mimhid::mimhid)
 
+add_executable(hid_interface c/hid_interface.c)
+target_link_libraries(hid_interface PRIVATE mimhid::mimhid)
+
 add_executable(multitouch_gesture cpp/multitouch_gesture.cpp)
 target_link_libraries(multitouch_gesture PRIVATE mimhid::mimhid)
 

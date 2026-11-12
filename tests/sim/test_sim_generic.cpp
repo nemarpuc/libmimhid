@@ -223,7 +223,6 @@ void vendor_bulk() {
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, nullptr, 1, kSendMs) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_endpoint_stall(node, 0x85, kControlMs) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_endpoint_stall(node, 0x81, 0) == MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_report_send(node, a, 1, kSendMs) == MIMHID_ERR_UNSUPPORTED);
 
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
@@ -384,14 +383,14 @@ void open_checks() {
         MIMHID_CHECK(mimhid_node_open(device, &v.config, nullptr, &node) == MIMHID_ERR_PARAM);
         MIMHID_CHECK(mimhid_node_open(device, &v.config, &kCommit, nullptr) == MIMHID_ERR_PARAM);
     }
-    // Class: 0 is unset; 0x03 is the profile calls'.
+    // Class: 0 is unset; any other is the caller's.
     {
         Vendor v = base();
         v.itf.class_code = 0;
         expect(v, MIMHID_ERR_UNSET_FIELD, "class_code");
         v = base();
-        v.itf.class_code = 0x03;
-        expect(v, MIMHID_ERR_UNSUPPORTED, "class_code");
+        v.itf.class_code = 0x03; // a hand-written HID interface is the caller's too
+        expect(v, MIMHID_OK);
         v = base();
         v.itf.class_code = 0x02; // any other class is the caller's
         expect(v, MIMHID_OK);
@@ -407,8 +406,8 @@ void open_checks() {
         Vendor v({endpoint(bad, MIMHID_TRANSFER_BULK)});
         expect(v, MIMHID_ERR_PARAM, "address");
     }
-    if (SIM_HID_ITFS < 15) {
-        const std::uint8_t above = static_cast<std::uint8_t>(SIM_HID_ITFS + 1);
+    if (SIM_ENDPOINTS < 15) {
+        const std::uint8_t above = static_cast<std::uint8_t>(SIM_ENDPOINTS + 1);
         Vendor v({endpoint(static_cast<std::uint8_t>(0x80U | above), MIMHID_TRANSFER_BULK)});
         expect(v, MIMHID_ERR_OVERFLOW, "address");
         Vendor w({endpoint(above, MIMHID_TRANSFER_BULK)});
@@ -581,7 +580,7 @@ void strings() {
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
-#if SIM_HID_ITFS >= 4
+#if SIM_ENDPOINTS >= 4
 // The shape of CDC-ACM (USB CDC 1.2 PSTN): a communications interface with an interrupt IN
 // endpoint, a data interface with bulk IN and OUT, held by an association, beside two HID Nodes.
 void association_beside_hid() {
@@ -681,7 +680,7 @@ void test_generic_nodes() {
     policies();
     open_checks();
     strings();
-#if SIM_HID_ITFS >= 4
+#if SIM_ENDPOINTS >= 4
     association_beside_hid();
 #endif
 }

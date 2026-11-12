@@ -70,15 +70,12 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
         const ComposerGroup* group;
     };
     std::map<std::uint32_t, Entry> by_number;
-    std::size_t hid_count = 0;
     for (const ComposerGroup& group : input.groups) {
         for (const ComposerInterface& itf : group.interfaces) {
             if (!by_number.emplace(itf.number, Entry{&itf, &group}).second)
                 return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.number",
                               "Two interfaces have the same number; the number is in offset.",
                               itf.number, 0, group.node_id);
-            if (itf.hid)
-                ++hid_count;
         }
     }
     if (by_number.size() > lim.max_interfaces)
@@ -86,11 +83,6 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                       "The interfaces of all Nodes exceed the board's maximum interfaces.",
                       static_cast<std::uint32_t>(lim.max_interfaces),
                       static_cast<std::uint32_t>(by_number.size()));
-    if (hid_count > lim.max_hid_interfaces)
-        return refuse(MIMHID_ERR_OVERFLOW, "node_config.iface.number",
-                      "Number of distinct HID interfaces exceeds the board's maximum.",
-                      static_cast<std::uint32_t>(lim.max_hid_interfaces),
-                      static_cast<std::uint32_t>(hid_count));
 
     // USB 2.0 9.6.5: bInterfaceNumber is the index of the interface in the configuration, so the
     // numbers are 0, 1, 2, ... in order. A gap is the caller's to close; nothing is renumbered.
@@ -245,8 +237,7 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                     return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.policy",
                                   "on_full is MIMHID_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.",
                                   ep.address, ep.policy.on_full, node_id);
-                if (!itf.hid)
-                    pool_slots += queue_slots(ep.policy.depth, ep.policy.on_full);
+                pool_slots += queue_slots(ep.policy.depth, ep.policy.on_full);
             } else if (ep.policy.on_full != 0U || ep.policy.depth != 0U) {
                 return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.policy",
                               "The policy of an OUT endpoint must be all zero.", ep.address, 0,
@@ -339,8 +330,6 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
             endpoint_descriptor(&c, ep);
         ComposedInterface made;
         made.number = itf.number;
-        made.hid = itf.hid;
-        made.report_descriptor = itf.report_descriptor;
         made.endpoints = itf.endpoints;
         composed.interfaces.push_back(std::move(made));
     }

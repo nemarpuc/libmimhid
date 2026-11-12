@@ -1728,8 +1728,9 @@ static mimhid_result mimhid_spec_manifest_impl(const mimhid_spec* spec,
         return MIMHID_ERR_PARAM;
     }
     manifest->input_supported = 1U;
-    // The board delivers the target's Output and Feature requests as events and answers
-    // Feature reads from the responses registered with mimhid_node_set_feature_response().
+    // The library delivers the target's Output and Feature requests as events (they are taken by
+    // ACCEPT rules it writes) and answers Feature reads from the responses registered with
+    // mimhid_node_set_feature_response().
     manifest->output_supported = 1U;
     manifest->feature_transport_supported = 1U;
     manifest->profile_kind = spec->kind;

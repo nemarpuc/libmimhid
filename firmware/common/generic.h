@@ -3,11 +3,11 @@
 #ifndef MIMHID_GENERIC_H
 #define MIMHID_GENERIC_H
 
-// The board's own USB class driver, for every interface that is not HID: interrupt and bulk
-// endpoints in both directions, whatever the class. TinyUSB tries application drivers before its
-// own (get_driver and process_set_config in src/device/usbd.c), so the driver is returned from
-// usbd_app_driver_get_cb (generic.c) and says no to an HID interface, which the stack's HID driver
-// then takes.
+// The board's own USB class driver, for every interface of the configuration: interrupt and bulk
+// endpoints in both directions, whatever the class (HID too: the board runs no class driver of
+// TinyUSB's, so the stack's HID driver is not built). TinyUSB tries application drivers before its
+// own (get_driver and process_set_config in src/device/usbd.c); the driver is returned from
+// usbd_app_driver_get_cb (generic.c).
 //
 // IN endpoints: one queue each, cut at COMMIT from a pool of MIMHID_EP_POOL_SLOTS slots (config.h).
 // The receive side writes a frame's payload into the slot at the head of the queue while it checks

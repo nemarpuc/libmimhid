@@ -32,10 +32,16 @@ struct TestInput : ComposerInput {
     bool board_has_unique_id{true};
 };
 
+// The report descriptor of each interface of the last compose(), as hex: the composer no longer
+// carries them (the HID layer's ANSWER rule for GET_DESCRIPTOR of type 0x22 does), so the wrapper
+// reads them from the rules the way the board would answer. Test thread only.
+std::map<std::size_t, std::string> g_report_descriptors;
+
+std::string hex(const std::vector<std::uint8_t>& bytes);
+
 mimhid_result compose(const TestInput& in, Composed* out, ComposerError* error) {
     ComposerInput full = in;
     full.limits.max_interfaces = in.max_interfaces;
-    full.limits.max_hid_interfaces = in.max_interfaces;
     full.limits.max_endpoint_number = 15;
     full.limits.max_endpoint_bytes = 64;
     full.limits.max_config_bytes = 1024;
@@ -46,6 +52,12 @@ mimhid_result compose(const TestInput& in, Composed* out, ComposerError* error) 
     const mimhid_result grouped = mimhid::usb::compose_hid_groups(in.nodes, &full.groups, error);
     if (grouped != MIMHID_OK)
         return grouped;
+    g_report_descriptors.clear();
+    for (const mimhid::usb::BoardRule& rule : mimhid::usb::compose_hid_rules(in.nodes)) {
+        if (rule.rule.action == MIMHID_CONTROL_ANSWER && rule.rule.request_value == 0x06U &&
+            rule.rule.value_value == 0x2200U)
+            g_report_descriptors[rule.iface] = hex(rule.data);
+    }
     return mimhid::usb::compose_descriptors(full, out, error);
 }
 
@@ -137,7 +149,7 @@ void check_reports(const Composed& c, const std::vector<std::string>& expected) 
     MIMHID_CHECK(c.interfaces.size() == expected.size());
     for (std::size_t i = 0; i < expected.size() && i < c.interfaces.size(); ++i) {
         MIMHID_CHECK(c.interfaces[i].number == i);
-        MIMHID_CHECK(hex(c.interfaces[i].report_descriptor) == expected[i]);
+        MIMHID_CHECK(g_report_descriptors[i] == expected[i]);
     }
 }
 
@@ -385,7 +397,6 @@ mimhid_usb_endpoint general_ep(std::uint8_t address, std::uint8_t type, std::uin
 mimhid::usb::ComposerLimits full_speed_limits() {
     mimhid::usb::ComposerLimits lim;
     lim.max_interfaces = 15;
-    lim.max_hid_interfaces = 15;
     lim.max_endpoint_number = 15;
     lim.max_endpoint_bytes = 64;
     lim.max_config_bytes = 1024;
@@ -430,8 +441,7 @@ void test_general_vendor_and_association() {
     // descriptors (USB 2.0 9.6.3, 9.6.5, 9.6.6).
     MIMHID_CHECK(hex(c.configuration) ==
                  "09022300010100803209040000" "02ff000000" "032407" "07058102400000" "07050102400000");
-    MIMHID_CHECK(c.interfaces.size() == 1U && !c.interfaces[0].hid &&
-                 c.interfaces[0].report_descriptor.empty());
+    MIMHID_CHECK(c.interfaces.size() == 1U);
 
     // An association goes before the first interface of its Node, which is its bFirstInterface.
     mimhid::usb::ComposerGroup comm, hid;
@@ -529,7 +539,72 @@ void test_general_vendor_and_association() {
 
 } // namespace
 
+// The control rules of a profile interface (HID 1.11 7.1.1, 7.2): how many, which action each has
+// and the values that tell them apart. The board's table is made from exactly these.
+void test_hid_rules() {
+    using mimhid::usb::BoardRule;
+    using Role = BoardRule::Role;
+    // One Node without Report IDs: 2 descriptors, GET_REPORT Input from the last report (no
+    // first-byte filter, any Report ID), SET_REPORT, SET_IDLE and SET_PROTOCOL taken, and the two
+    // GET requests of one byte.
+    std::vector<HidNodeInput> one;
+    one.push_back(make_node(0, 1, 1, 0x0111, 0, 0x81, 8, 10, 0, 0, 0, &kRdA, ""));
+    std::vector<BoardRule> rules = mimhid::usb::compose_hid_rules(one);
+    MIMHID_CHECK(rules.size() == 8U);
+    if (rules.size() == 8U) {
+        MIMHID_CHECK(rules[0].rule.action == MIMHID_CONTROL_ANSWER && rules[0].rule.request_value == 6U &&
+                     rules[0].rule.value_mask == 0xFF00U && rules[0].rule.value_value == 0x2200U &&
+                     rules[0].data == kRdA && rules[0].capacity == kRdA.size());
+        MIMHID_CHECK(rules[1].rule.action == MIMHID_CONTROL_ANSWER &&
+                     rules[1].rule.value_value == 0x2100U && rules[1].data.size() == 9U &&
+                     rules[1].data[0] == 9U && rules[1].data[6] == 0x22U &&
+                     rules[1].data[7] == kRdA.size());
+        MIMHID_CHECK(rules[2].rule.action == MIMHID_CONTROL_ANSWER_LAST_SENT &&
+                     rules[2].rule.request_value == 1U && rules[2].rule.value_value == 0x0100U &&
+                     rules[2].rule.value_mask == 0xFF00U && rules[2].rule.endpoint_address == 0x81U &&
+                     rules[2].rule.first_byte_filter == 0U);
+        MIMHID_CHECK(rules[3].role == Role::hid_set_report &&
+                     rules[3].rule.action == MIMHID_CONTROL_ACCEPT && rules[3].rule.request_value == 9U);
+        MIMHID_CHECK(rules[4].role == Role::hid_set_idle &&
+                     rules[4].rule.action == MIMHID_CONTROL_ACCEPT && rules[4].rule.request_value == 10U);
+        MIMHID_CHECK(rules[5].role == Role::hid_set_protocol &&
+                     rules[5].rule.action == MIMHID_CONTROL_ACCEPT && rules[5].rule.request_value == 11U);
+        MIMHID_CHECK(rules[6].role == Role::hid_get_idle && rules[6].data == std::vector<std::uint8_t>{0U});
+        MIMHID_CHECK(rules[7].role == Role::hid_get_protocol &&
+                     rules[7].data == std::vector<std::uint8_t>{1U}); // the report protocol (7.2.6)
+        for (const BoardRule& r : rules) // every rule is of its interface
+            MIMHID_CHECK(r.rule.index_mask == 0xFFFFU && r.rule.index_value == 0U && r.iface == 0U);
+    }
+
+    // Two Nodes with Report IDs on one interface and a Feature report of the second: GET_REPORT of
+    // an Input report gets a rule for each ID with the filter on the first byte, and the Feature
+    // answer starts with its Report ID.
+    std::vector<HidNodeInput> two;
+    two.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 16, 5, 0, 0, 0, &kRdB, "", true, 1));
+    two.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 16, 5, 0, 0, 0, &kRdC, "", true, 2));
+    two[1].features.push_back({2U, {0xAAU, 0xBBU}});
+    rules = mimhid::usb::compose_hid_rules(two);
+    MIMHID_CHECK(rules.size() == 10U); // 2 + 2 + 1 + 5
+    std::size_t last_sent = 0U;
+    for (const BoardRule& r : rules) {
+        if (r.rule.action == MIMHID_CONTROL_ANSWER_LAST_SENT) {
+            ++last_sent;
+            MIMHID_CHECK(r.rule.first_byte_filter == 1U && r.rule.value_mask == 0xFFFFU &&
+                         r.rule.value_value == (0x0100U | r.rule.first_byte) &&
+                         (r.rule.first_byte == 1U || r.rule.first_byte == 2U));
+        }
+        if (r.rule.action == MIMHID_CONTROL_ANSWER && r.rule.request_value == 1U) {
+            MIMHID_CHECK(r.rule.value_value == 0x0302U &&
+                         r.data == (std::vector<std::uint8_t>{2U, 0xAAU, 0xBBU}));
+        }
+    }
+    MIMHID_CHECK(last_sent == 2U);
+    // The report descriptor answer is the two joined.
+    MIMHID_CHECK(rules[0].data.size() == kRdB.size() + kRdC.size());
+}
+
 void test_descriptor_composer() {
+    test_hid_rules();
     test_minimal_keyboard();
     test_strings_and_two_out_endpoints();
     test_shared_interface();

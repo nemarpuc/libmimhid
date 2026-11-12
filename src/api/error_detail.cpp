@@ -119,16 +119,18 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
         return "DESC_DATA";
     case MIMHID_T_COMMIT:
         return "COMMIT";
-    case MIMHID_T_FEATURE:
-        return "FEATURE";
+    case MIMHID_T_RULE:
+        return "RULE";
+    case MIMHID_T_RULES_APPLY:
+        return "RULES_APPLY";
+    case MIMHID_T_RULE_DATA:
+        return "RULE_DATA";
     case MIMHID_T_RESET:
         return "RESET";
     case MIMHID_T_REMOTE_WAKEUP:
         return "REMOTE_WAKEUP";
     case MIMHID_T_SET_BAUD:
         return "SET_BAUD";
-    case MIMHID_T_CONTROL_CONFIG:
-        return "CONTROL_CONFIG";
     case MIMHID_T_CONTROL_REPLY:
         return "CONTROL_REPLY";
     case MIMHID_T_LOSS_CONFIG:

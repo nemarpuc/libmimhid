@@ -95,7 +95,7 @@ Check("mimhid_board_limits.max_control_data_bytes", (long)Marshal.OffsetOf<Board
 Check("mimhid_board_limits.max_control_rules", (long)Marshal.OffsetOf<BoardLimits>("MaxControlRules"));
 Check("mimhid_board_limits.max_endpoint_number", (long)Marshal.OffsetOf<BoardLimits>("MaxEndpointNumber"));
 Check("mimhid_board_limits.max_interfaces_any", (long)Marshal.OffsetOf<BoardLimits>("MaxInterfacesAny"));
-Check("mimhid_board_limits.max_hid_interfaces", (long)Marshal.OffsetOf<BoardLimits>("MaxHidInterfaces"));
+Check("mimhid_board_limits.max_answer_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxAnswerBytes"));
 Check("mimhid_board_limits.max_config_descriptor_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxConfigDescriptorBytes"));
 Check("mimhid_board_limits.max_strings", (long)Marshal.OffsetOf<BoardLimits>("MaxStrings"));
 Check("mimhid_board_limits.max_transfer_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxTransferBytes"));
@@ -173,6 +173,24 @@ Check("mimhid_usb_endpoint.reserved8", (long)Marshal.OffsetOf<UsbEndpoint>("Rese
 Check("mimhid_usb_endpoint.max_packet_size", (long)Marshal.OffsetOf<UsbEndpoint>("MaxPacketSize"));
 Check("mimhid_usb_endpoint.reserved16", (long)Marshal.OffsetOf<UsbEndpoint>("Reserved16"));
 Check("mimhid_usb_endpoint.policy", (long)Marshal.OffsetOf<UsbEndpoint>("Policy"));
+Check("mimhid_control_rule.size", Marshal.SizeOf<ControlRule>());
+Check("mimhid_control_rule.request_type_mask", (long)Marshal.OffsetOf<ControlRule>("RequestTypeMask"));
+Check("mimhid_control_rule.request_type_value", (long)Marshal.OffsetOf<ControlRule>("RequestTypeValue"));
+Check("mimhid_control_rule.request_mask", (long)Marshal.OffsetOf<ControlRule>("RequestMask"));
+Check("mimhid_control_rule.request_value", (long)Marshal.OffsetOf<ControlRule>("RequestValue"));
+Check("mimhid_control_rule.value_mask", (long)Marshal.OffsetOf<ControlRule>("ValueMask"));
+Check("mimhid_control_rule.value_value", (long)Marshal.OffsetOf<ControlRule>("ValueValue"));
+Check("mimhid_control_rule.index_mask", (long)Marshal.OffsetOf<ControlRule>("IndexMask"));
+Check("mimhid_control_rule.index_value", (long)Marshal.OffsetOf<ControlRule>("IndexValue"));
+Check("mimhid_control_rule.action", (long)Marshal.OffsetOf<ControlRule>("Action"));
+Check("mimhid_control_rule.data", (long)Marshal.OffsetOf<ControlRule>("Data"));
+Check("mimhid_control_rule.length", (long)Marshal.OffsetOf<ControlRule>("Length"));
+Check("mimhid_control_rule.endpoint_address", (long)Marshal.OffsetOf<ControlRule>("EndpointAddress"));
+Check("mimhid_control_rule.first_byte_filter", (long)Marshal.OffsetOf<ControlRule>("FirstByteFilter"));
+Check("mimhid_control_rule.first_byte", (long)Marshal.OffsetOf<ControlRule>("FirstByte"));
+Check("mimhid_control_rule.reserved8", (long)Marshal.OffsetOf<ControlRule>("Reserved8"));
+Check("mimhid_control_rule.timeout_ms", (long)Marshal.OffsetOf<ControlRule>("TimeoutMs"));
+Check("mimhid_control_rule.when_late", (long)Marshal.OffsetOf<ControlRule>("WhenLate"));
 Check("mimhid_usb_interface.size", Marshal.SizeOf<UsbInterface>());
 Check("mimhid_usb_interface.number", (long)Marshal.OffsetOf<UsbInterface>("Number"));
 Check("mimhid_usb_interface.class_code", (long)Marshal.OffsetOf<UsbInterface>("ClassCode"));
@@ -191,6 +209,8 @@ Check("mimhid_node_config.interfaces", (long)Marshal.OffsetOf<NodeConfig>("Inter
 Check("mimhid_node_config.interface_count", (long)Marshal.OffsetOf<NodeConfig>("InterfaceCount"));
 Check("mimhid_node_config.association", (long)Marshal.OffsetOf<NodeConfig>("Association"));
 Check("mimhid_node_config.association_length", (long)Marshal.OffsetOf<NodeConfig>("AssociationLength"));
+Check("mimhid_node_config.rules", (long)Marshal.OffsetOf<NodeConfig>("Rules"));
+Check("mimhid_node_config.rule_count", (long)Marshal.OffsetOf<NodeConfig>("RuleCount"));
 if (new HidNodeConfig().StructSize != 0) failures.Add("mimhid_hid_node_config: the binding fills struct_size");
 Check("mimhid_hid_node_config.size", Marshal.SizeOf<HidNodeConfig>());
 Check("mimhid_hid_node_config.struct_size", (long)Marshal.OffsetOf<HidNodeConfig>("StructSize"));
@@ -435,17 +455,6 @@ Check("mimhid_digitizer_sample.pressure", (long)Marshal.OffsetOf<DigitizerSample
 Check("mimhid_digitizer_sample.tilt_x", (long)Marshal.OffsetOf<DigitizerSample>("TiltX"));
 Check("mimhid_digitizer_sample.tilt_y", (long)Marshal.OffsetOf<DigitizerSample>("TiltY"));
 Check("mimhid_digitizer_sample.twist", (long)Marshal.OffsetOf<DigitizerSample>("Twist"));
-Check("mimhid_control_rule.size", Marshal.SizeOf<ControlRule>());
-Check("mimhid_control_rule.request_type_mask", (long)Marshal.OffsetOf<ControlRule>("RequestTypeMask"));
-Check("mimhid_control_rule.request_type_value", (long)Marshal.OffsetOf<ControlRule>("RequestTypeValue"));
-Check("mimhid_control_rule.request_mask", (long)Marshal.OffsetOf<ControlRule>("RequestMask"));
-Check("mimhid_control_rule.request_value", (long)Marshal.OffsetOf<ControlRule>("RequestValue"));
-Check("mimhid_control_rule.value_mask", (long)Marshal.OffsetOf<ControlRule>("ValueMask"));
-Check("mimhid_control_rule.value_value", (long)Marshal.OffsetOf<ControlRule>("ValueValue"));
-Check("mimhid_control_rule.index_mask", (long)Marshal.OffsetOf<ControlRule>("IndexMask"));
-Check("mimhid_control_rule.index_value", (long)Marshal.OffsetOf<ControlRule>("IndexValue"));
-Check("mimhid_control_rule.timeout_ms", (long)Marshal.OffsetOf<ControlRule>("TimeoutMs"));
-Check("mimhid_control_rule.when_late", (long)Marshal.OffsetOf<ControlRule>("WhenLate"));
 
 foreach (var failure in failures)
     Console.Error.WriteLine($"layout mismatch: {failure}");

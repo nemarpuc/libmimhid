@@ -92,11 +92,6 @@ mimhid_result stall_command(mimhid_node* node, const std::uint8_t address, const
     mimhid::detail::clear_error();
     if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
         return r;
-    if (!node->generic) {
-        set_error(MIMHID_ERR_UNSUPPORTED, field,
-                  "The Halt feature of a HID Node's endpoint is not offered in this release.");
-        return MIMHID_ERR_UNSUPPORTED;
-    }
     if (endpoint_direction(node, address) == Direction::none) {
         set_error(MIMHID_ERR_PARAM, field, "The address is not an endpoint of this Node.", 0, 0,
                   public_node_id(node), 0, address, 0);
@@ -137,27 +132,34 @@ std::uint8_t hid_interface_depth(mimhid_device* device, const std::uint8_t iface
 
 } // namespace mimhid::detail
 
-extern "C" {
+namespace mimhid::detail {
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const uint8_t address,
-                                                     const uint8_t* data, const size_t length,
-                                                     const uint32_t timeout_ms) try {
-    mimhid::detail::clear_error();
-    if (const mimhid_result r = check_call(node, "node.endpoint.write"); r != MIMHID_OK)
-        return r;
-    if (!node->generic) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "node.endpoint.write",
-                  "A HID Node sends reports with its profile calls or mimhid_report_send.");
-        return MIMHID_ERR_UNSUPPORTED;
+// The runtime of the IN endpoint a Node writes to: its own; for Nodes sharing a profile interface
+// with the wait policy the one the first live Node of it keeps (the board has one queue for the
+// interface, and its count of finished transfers goes to every Node's runtime of that address,
+// which each clamp at zero).
+EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
+    EndpointRuntime* own = nullptr;
+    for (EndpointRuntime& ep : node->in_endpoints) {
+        if (ep.address == address)
+            own = &ep;
     }
-    EndpointRuntime* ep = runtime_of(node, address);
-    if (ep == nullptr || (data == nullptr && length != 0U)) {
-        set_error(MIMHID_ERR_PARAM, "node.endpoint.write",
-                  "The address must be an IN endpoint of the Node; data is null only with length "
-                  "0.",
-                  0, 0, public_node_id(node), 0, address, 0);
-        return MIMHID_ERR_PARAM;
+    // Only a wait policy counts transfers, so only it needs the one count of the interface; the
+    // other policies keep the report path free of the walk (and its lock).
+    if (own != nullptr && !node->generic && own->policy.on_full == MIMHID_FULL_WAIT) {
+        for (mimhid_node* other : live_nodes(node->device)) {
+            if (!other->generic && other->iface == node->iface && !other->in_endpoints.empty())
+                return &other->in_endpoints.front();
+        }
     }
+    return own;
+}
+
+// One transfer to an IN endpoint in frames, as mimhid_node_endpoint_write describes; the shared
+// path of the generic Nodes and of the reports of the profile Nodes.
+mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::uint8_t address,
+                             const std::uint8_t* data, const std::size_t length,
+                             const std::uint32_t timeout_ms) {
     mimhid_device* device = node->device;
     const bool waits = ep->policy.on_full == MIMHID_FULL_WAIT;
     if (waits && timeout_ms == 0U) {
@@ -165,8 +167,6 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const ui
                   "A write to an endpoint with the wait policy needs a timeout.");
         return MIMHID_ERR_UNSET_FIELD;
     }
-    if (const mimhid_result r = link_ready(node, "node.endpoint.write"); r != MIMHID_OK)
-        return r;
 
     // Frames: a multiple of the packet size each, except the last, so the target sees the
     // transfer it would have seen whole. The library adds no zero-length packet.
@@ -263,6 +263,29 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const ui
     }
     return MIMHID_OK;
 }
+
+} // namespace mimhid::detail
+
+extern "C" {
+
+mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const uint8_t address,
+                                                     const uint8_t* data, const size_t length,
+                                                     const uint32_t timeout_ms) try {
+    mimhid::detail::clear_error();
+    if (const mimhid_result r = check_call(node, "node.endpoint.write"); r != MIMHID_OK)
+        return r;
+    EndpointRuntime* ep = mimhid::detail::write_runtime(node, address);
+    if (ep == nullptr || (data == nullptr && length != 0U)) {
+        set_error(MIMHID_ERR_PARAM, "node.endpoint.write",
+                  "The address must be an IN endpoint of the Node; data is null only with length "
+                  "0.",
+                  0, 0, public_node_id(node), 0, address, 0);
+        return MIMHID_ERR_PARAM;
+    }
+    if (const mimhid_result r = link_ready(node, "node.endpoint.write"); r != MIMHID_OK)
+        return r;
+    return mimhid::detail::endpoint_write(node, ep, address, data, length, timeout_ms);
+}
 MIMHID_C_RESULT_CATCH("node.endpoint.write")
 
 mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* node, const uint8_t address,
@@ -283,11 +306,6 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_flush(mimhid_node* node, const ui
     const char* field = "node.endpoint.flush";
     if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
         return r;
-    if (!node->generic) {
-        set_error(MIMHID_ERR_UNSUPPORTED, field,
-                  "Flushing the endpoint of a HID Node is not offered in this release.");
-        return MIMHID_ERR_UNSUPPORTED;
-    }
     EndpointRuntime* ep = runtime_of(node, address);
     if (ep == nullptr) {
         set_error(MIMHID_ERR_PARAM, field, "The address must be an IN endpoint of the Node.", 0, 0,
@@ -332,12 +350,6 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
                   "on_full is MIMHID_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.");
         return MIMHID_ERR_PARAM;
     }
-    if (!node->generic && policy->on_full != MIMHID_FULL_DROP_NEWEST) {
-        set_error(MIMHID_ERR_UNSUPPORTED, field,
-                  "The IN endpoint of a HID Node takes MIMHID_FULL_DROP_NEWEST only in this "
-                  "release.");
-        return MIMHID_ERR_UNSUPPORTED;
-    }
     if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
         t != MIMHID_OK)
         return t;
@@ -379,21 +391,33 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
         device->dirty = device->dirty || !live;
         return MIMHID_OK;
     }
-    const std::uint8_t previous = node->config.ep_in.policy.depth;
+    // A profile Node: the interface's queue takes the least depth of its Nodes.
+    const mimhid_endpoint_policy previous = node->config.ep_in.policy;
     node->config.ep_in.policy = *policy;
     if (live) {
         const std::uint8_t depth = mimhid::detail::hid_interface_depth(device, node->iface);
-        const std::uint8_t payload[3] = {address, depth, MIMHID_EP_FULL_DROP_NEWEST};
+        const std::uint8_t payload[3] = {address, depth, policy->on_full};
         const mimhid_result r = command_error(
             device->link.command(MIMHID_T_EP_CONFIG, payload, sizeof(payload), control_timeout_ms,
                                  kCommandAttempts),
-            field, "The board did not accept the queue depth.", MIMHID_T_EP_CONFIG,
+            field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
             public_node_id(node));
         if (r != MIMHID_OK) {
-            node->config.ep_in.policy.depth = previous; // the board keeps the depth it had
+            node->config.ep_in.policy = previous; // the board keeps the policy it had
             return r;
         }
     }
+    EndpointRuntime* ep = runtime_of(node, address);
+    {
+        std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+        if (ep != nullptr) {
+            ep->policy = *policy;
+            ep->outstanding = 0U;
+            ++ep->epoch;
+        }
+    }
+    device->endpoint_cv.notify_all();
+    device->dirty = device->dirty || !live;
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("node.endpoint.set_policy")

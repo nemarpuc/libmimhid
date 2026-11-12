@@ -20,8 +20,7 @@
 // mimhid_core_init replaces with the fallback (mimhid_clear_config); an initializer here would put
 // a copy of the whole structure, 18 KB, in the flash image.
 static mimhid_config_t g_active;
-// What the walk of the active configuration found. Zero (no interfaces) is a valid starting state:
-// an endpoint number maps to an instance only when the instance is below `hid_count`.
+// What the walk of the active configuration found. Zero (no interfaces) is a valid starting state.
 static mimhid_layout_t g_layout;
 
 // The unique id as a serial number string descriptor: the hexadecimal digits of up to 15 bytes of
@@ -50,14 +49,9 @@ uint16_t mimhid_unique_id_string(uint8_t* dst) {
 
 // What the walk keeps of the interface it is in.
 typedef struct {
-    int state;        // 0 outside an interface, 1 after its descriptor, 2 after its HID descriptor
-                      // (a HID interface) or its descriptor (any other class)
-    bool hid;
+    bool inside;      // after an interface descriptor and before the next one
     uint8_t declared; // bNumEndpoints
     uint8_t seen;
-    uint8_t in_count;
-    uint8_t out_count;
-    uint8_t in_addr;
     uint16_t start; // offset of the interface descriptor
 } walk_itf_t;
 
@@ -69,23 +63,14 @@ typedef struct {
 } walk_group_t;
 
 // The interface that has just ended, which began at w->start and ends at `end`, must be complete:
-// every endpoint it announced, and for HID its HID descriptor, one interrupt IN endpoint and at
-// most one interrupt OUT endpoint.
+// every endpoint it announced. What lies between its descriptors is the caller's: the board reads
+// no class.
 static bool finish_interface(const walk_itf_t* w, uint16_t end, mimhid_layout_t* out) {
     if (w->seen != w->declared)
         return false;
     const uint8_t n = out->count;
     out->itf_start[n] = w->start;
     out->itf_span[n] = (uint16_t)(end - w->start);
-    out->itf_inst[n] = 0xFF;
-    if (w->hid) {
-        if (w->state != 2 || w->in_count != 1 || w->out_count > 1)
-            return false;
-        out->itf_inst[n] = out->hid_count;
-        out->inst_itf[out->hid_count] = n;
-        out->inst_ep_in[out->hid_count] = w->in_addr;
-        out->hid_count++;
-    }
     // Another interface of an association group extends the span of the group's first one: TinyUSB
     // calls the driver's open once for the group (process_set_config in usbd.c) and goes on from
     // the end of what open returns.
@@ -98,8 +83,6 @@ static bool finish_interface(const walk_itf_t* w, uint16_t end, mimhid_layout_t*
 
 bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
     memset(out, 0, sizeof(*out));
-    memset(out->ep_inst, 0xFF, sizeof(out->ep_inst));
-    memset(out->inst_itf, 0xFF, sizeof(out->inst_itf));
 
     // The device descriptor (USB 2.0 9.6.1): 18 bytes, one configuration, and a control endpoint
     // size the board's controller driver can work with (8, 16, 32 or 64; 64 only at high speed).
@@ -145,7 +128,7 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
         const uint8_t type = cfg[pos + 1];
         // An interface or an association ends the interface before it.
         if (type == TUSB_DESC_INTERFACE || type == TUSB_DESC_INTERFACE_ASSOCIATION) {
-            if (w.state != 0) {
+            if (w.inside) {
                 if (!finish_interface(&w, pos, out))
                     return false;
                 memset(&w, 0, sizeof(w));
@@ -172,12 +155,6 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
             if (l != 9 || out->count >= MIMHID_MAX_INTERFACES || cfg[pos + 2] != out->count ||
                 cfg[pos + 3] != 0)
                 return false;
-            const bool hid = cfg[pos + 5] == TUSB_CLASS_HID;
-            // HID interfaces run on TinyUSB's HID driver (hidd_open takes one interface and the
-            // stack binds an association's other interfaces to the same driver), so they cannot be
-            // part of an association, and there are as many as the controller's endpoints allow.
-            if (hid && (g.pending || g.left != 0 || out->hid_count >= MIMHID_HID_ITFS))
-                return false;
             // The group an interface belongs to is named by its first interface; the first one
             // also spans the whole group, which finish_interface completes.
             out->itf_group[out->count] = g.left != 0 ? g.first : out->count;
@@ -185,26 +162,13 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
                 g.left--;
             g.pending = false;
             memset(&w, 0, sizeof(w));
-            w.hid = hid;
-            w.state = hid ? 1 : 2; // a HID interface still needs its HID descriptor
+            w.inside = true;
             w.declared = cfg[pos + 4];
             w.start = pos;
             break;
         }
-        case HID_DESC_TYPE_HID:
-            if (w.state == 0)
-                return false; // before any interface
-            if (w.hid) {
-                // HID 1.11 6.2.1: right after the interface descriptor, announcing the report
-                // descriptor first.
-                if (w.state != 1 || l < 9 || cfg[pos + 6] != HID_DESC_TYPE_REPORT)
-                    return false;
-                out->report_len[out->count] = (uint16_t)(cfg[pos + 7] | (cfg[pos + 8] << 8));
-                w.state = 2;
-            }
-            break;
         case TUSB_DESC_ENDPOINT: {
-            if (w.state != 2 || l != 7 || ++w.seen > w.declared)
+            if (!w.inside || l != 7 || ++w.seen > w.declared)
                 return false;
             const uint8_t address = cfg[pos + 2];
             const uint8_t number = address & 0x0F;
@@ -217,8 +181,8 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
             if ((address & 0x70) != 0 || number == 0 || number > MIMHID_MAX_ENDPOINT_NUMBER)
                 return false;
             // Interrupt or bulk, and nothing else in bmAttributes (9.6.6: bits 5..2 are for
-            // isochronous endpoints, 7..6 are reserved). HID endpoints are interrupt.
-            if (attributes != TUSB_XFER_INTERRUPT && (w.hid || attributes != TUSB_XFER_BULK))
+            // isochronous endpoints, 7..6 are reserved).
+            if (attributes != TUSB_XFER_INTERRUPT && attributes != TUSB_XFER_BULK)
                 return false;
             // A packet of 1 to the largest the controller takes. Bulk packet sizes are 8, 16, 32
             // or 64 at full speed and 512 at high speed (USB 2.0 5.8.3).
@@ -248,48 +212,27 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
                 return false; // an address once
             addresses |= bit;
             mimhid_ep_info_t* info = &out->ep[in ? 1 : 0][number];
-            info->kind = w.hid ? MIMHID_EP_HID : MIMHID_EP_GENERIC;
+            info->kind = MIMHID_EP_GENERIC;
             info->type = attributes;
             info->packet_size = size;
             info->interface = out->count;
-            if (in) {
-                w.in_count++;
-                w.in_addr = address;
-                if (w.hid)
-                    out->ep_inst[number] = out->hid_count;
-            } else {
-                w.out_count++;
-            }
             break;
         }
         default:
-            // Anything else is a class descriptor of a generic interface, placed as given; a HID
-            // interface has nothing but its HID descriptor and its endpoints.
-            if (w.state == 0 || w.hid)
+            // Anything else is a class descriptor of the interface it follows, placed as given (a
+            // HID descriptor is one; the board does not read it).
+            if (!w.inside)
                 return false;
             break;
         }
         pos = (uint16_t)(pos + l);
     }
-    if (w.state != 0 && !finish_interface(&w, len, out))
+    if (w.inside && !finish_interface(&w, len, out))
         return false;
     if (g.pending || g.left != 0)
         return false; // an association whose interfaces are not all there
     if (out->count == 0 || cfg[4] != out->count)
         return false; // bNumInterfaces says what the walk found
-
-    // A report descriptor for every HID interface, of the length its HID descriptor announced, and
-    // none for any other interface.
-    for (uint8_t i = 0; i < MIMHID_MAX_INTERFACES; i++) {
-        const mimhid_report_desc_t* r = &c->report[i];
-        if (i >= out->count || out->itf_inst[i] == 0xFF) {
-            if (r->d.used)
-                return false;
-            continue;
-        }
-        if (!r->d.used || r->d.recv != r->d.total || r->d.total != out->report_len[i])
-            return false;
-    }
 
     // A string is a complete descriptor of its own length (9.6.7), unless the board makes it.
     for (uint8_t i = 0; i < MIMHID_MAX_STRINGS; i++) {
@@ -328,28 +271,9 @@ bool mimhid_apply_config(const mimhid_config_t* cfg) {
     return true;
 }
 
+const mimhid_layout_t* mimhid_active_layout(void) { return &g_layout; }
+
 uint8_t mimhid_active_interfaces(void) { return g_layout.count; }
-
-uint8_t mimhid_active_hid_instances(void) { return g_layout.hid_count; }
-
-uint8_t mimhid_active_interface_instance(uint8_t iface) {
-    return iface < g_layout.count ? g_layout.itf_inst[iface] : 0xFF;
-}
-
-uint8_t mimhid_active_instance_interface(uint8_t instance) {
-    return instance < g_layout.hid_count ? g_layout.inst_itf[instance] : 0xFF;
-}
-
-uint8_t mimhid_active_endpoint_instance(uint8_t endpoint_number) {
-    if (endpoint_number >= 16)
-        return 0xFF;
-    const uint8_t inst = g_layout.ep_inst[endpoint_number];
-    return inst < g_layout.hid_count ? inst : 0xFF;
-}
-
-uint8_t mimhid_active_instance_endpoint(uint8_t instance) {
-    return instance < g_layout.hid_count ? g_layout.inst_ep_in[instance] : 0;
-}
 
 const mimhid_ep_info_t* mimhid_active_endpoint(uint8_t address) {
     const mimhid_ep_info_t* e = &g_layout.ep[(address >> 7) & 1][address & 0x0F];
@@ -357,55 +281,16 @@ const mimhid_ep_info_t* mimhid_active_endpoint(uint8_t address) {
 }
 
 uint16_t mimhid_active_generic_span(uint8_t iface) {
-    if (iface >= g_layout.count || g_layout.itf_inst[iface] != 0xFF)
+    if (iface >= g_layout.count)
         return 0;
     return g_layout.itf_span[iface];
 }
 
 const uint8_t* mimhid_active_config_bytes(void) { return g_active.config_bytes; }
 
-// Feature report data for GET_REPORT; the id byte is added by TinyUSB.
-const mimhid_feature_t* mimhid_find_feature(uint8_t instance, uint8_t report_id) {
-    for (uint8_t f = 0; f < MIMHID_MAX_FEATURES; f++) {
-        if (g_active.feature[f].used && g_active.feature[f].report_id == report_id &&
-            mimhid_active_interface_instance(g_active.feature[f].iface) == instance) {
-            return &g_active.feature[f];
-        }
-    }
-    return NULL;
-}
-
-void mimhid_active_set_feature(uint8_t iface, uint8_t report_id, const uint8_t* data,
-                               uint16_t len) {
-    if (mimhid_active_interface_instance(iface) == 0xFF || len > MIMHID_FEATURE_MAX)
-        return;
-    mimhid_feature_t* free_slot = NULL;
-    for (uint8_t f = 0; f < MIMHID_MAX_FEATURES; f++) {
-        mimhid_feature_t* e = &g_active.feature[f];
-        if (e->used && e->iface == iface && e->report_id == report_id) {
-            free_slot = e;
-            break;
-        }
-        if (!e->used && free_slot == NULL)
-            free_slot = e;
-    }
-    if (free_slot == NULL)
-        return;
-    free_slot->used = true;
-    free_slot->iface = iface;
-    free_slot->report_id = report_id;
-    free_slot->len = len;
-    memcpy(free_slot->data, data, len);
-}
-
 // ---- TinyUSB callbacks ----
 
 uint8_t const* tud_descriptor_device_cb(void) { return g_active.device_bytes; }
-
-uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
-    const uint8_t iface = mimhid_active_instance_interface(instance);
-    return iface == 0xFF ? NULL : &g_active.report_pool[g_active.report[iface].off];
-}
 
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
     if (index >= g_active.device_bytes[17])

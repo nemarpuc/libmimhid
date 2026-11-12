@@ -7,16 +7,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifndef MIMHID_MAX_DESC_BYTES
-#define MIMHID_MAX_DESC_BYTES 2048 // all report descriptors together (DESC_HID_REPORT)
-#endif
-#ifndef MIMHID_MAX_FEATURES
-#define MIMHID_MAX_FEATURES 8
-#endif
-// The interfaces of any class one configuration holds: bInterfaceNumber is 0, 1, 2, ... in order
+// The interfaces one configuration holds, of any class: bInterfaceNumber is 0, 1, 2, ... in order
 // (USB 2.0 9.6.5), and TinyUSB keeps a driver per interface number (CFG_TUD_INTERFACE_MAX, 16 unless
-// a port says otherwise). HID interfaces among them are limited by the controller's endpoints
-// (MIMHID_HID_ITFS in core.h).
+// a port says otherwise). The endpoints they use are limited by the controller (core.h).
 #ifndef MIMHID_MAX_INTERFACES
 #define MIMHID_MAX_INTERFACES 15
 #endif
@@ -45,22 +38,24 @@
 #endif
 
 // What the board takes, announced in the PONG. MIMHID_MAX_ENDPOINT_BYTES is the port's own
-// (core.h); the others may be set by a port before this header. A Feature report travels on the
-// control pipe, so it may be longer than an endpoint packet.
+// (core.h); the others may be set by a port before this header.
 #include "core.h"
-_Static_assert(MIMHID_MAX_INTERFACES >= MIMHID_HID_ITFS && MIMHID_MAX_INTERFACES <= 15,
-               "MIMHID_MAX_INTERFACES is MIMHID_HID_ITFS to 15");
+_Static_assert(MIMHID_MAX_INTERFACES >= 1 && MIMHID_MAX_INTERFACES <= 15,
+               "MIMHID_MAX_INTERFACES is 1 to 15");
 #ifndef MIMHID_MAX_REPORT_BYTES
-#define MIMHID_MAX_REPORT_BYTES MIMHID_MAX_ENDPOINT_BYTES // largest report accepted from the host
+#define MIMHID_MAX_REPORT_BYTES MIMHID_MAX_ENDPOINT_BYTES // largest transfer one frame carries
 #endif
-#ifndef MIMHID_FEATURE_MAX
-#define MIMHID_FEATURE_MAX 1024 // largest Feature report the board answers
+// The data stage of a control transfer the host may read or answer, and of one an ACCEPT rule takes:
+// a Feature report fits, and so does the data of a RULE_DATA frame.
+#ifndef MIMHID_CONTROL_DATA_MAX
+#define MIMHID_CONTROL_DATA_MAX 1024
 #endif
-// The buffer TinyUSB keeps per HID interface: it holds a report and a Feature report.
-#define MIMHID_HID_BUFSIZE                                                                         \
-    (MIMHID_MAX_REPORT_BYTES > MIMHID_FEATURE_MAX ? MIMHID_MAX_REPORT_BYTES : MIMHID_FEATURE_MAX)
-// A frame carries a report, a Feature report or a configuration command, and a few bytes more.
-#define MIMHID_MAX_FRAME_PAYLOAD_RAW (MIMHID_HID_BUFSIZE + 8)
+// A frame carries a transfer, the data stage of a control transfer or a configuration command, and
+// a few bytes more.
+#define MIMHID_MAX_FRAME_PAYLOAD_RAW                                                               \
+    ((MIMHID_MAX_REPORT_BYTES > MIMHID_CONTROL_DATA_MAX ? MIMHID_MAX_REPORT_BYTES                   \
+                                                        : MIMHID_CONTROL_DATA_MAX) +                \
+     8)
 #define MIMHID_MAX_FRAME_PAYLOAD                                                                   \
     (MIMHID_MAX_FRAME_PAYLOAD_RAW > MIMHID_MIN_FRAME_PAYLOAD ? MIMHID_MAX_FRAME_PAYLOAD_RAW        \
                                                              : MIMHID_MIN_FRAME_PAYLOAD)
@@ -80,7 +75,7 @@ _Static_assert(MIMHID_MAX_REPORT_BYTES <= MIMHID_MAX_TRANSFER_BYTES,
 // The queues of the generic driver's IN endpoints are cut from one pool of slots, each holding a
 // transfer of up to MIMHID_MAX_TRANSFER_BYTES (a port constant; the PONG reports it). 64 slots of 64
 // bytes is 4 KiB at full speed, 32 slots of 1024 bytes is 32 KiB at high speed: a few endpoints with
-// a depth of eight, or one with a long queue. HID interfaces keep their own queues (core.c).
+// a depth of eight, or one with a long queue.
 #ifndef MIMHID_EP_POOL_SLOTS
 #if MIMHID_MAX_ENDPOINT_BYTES <= 64
 #define MIMHID_EP_POOL_SLOTS 64
@@ -90,11 +85,36 @@ _Static_assert(MIMHID_MAX_REPORT_BYTES <= MIMHID_MAX_TRANSFER_BYTES,
 #endif
 _Static_assert(MIMHID_EP_POOL_SLOTS >= 1 && MIMHID_EP_POOL_SLOTS <= 0xFFFF, "slots fit the PONG");
 
-// The data stage of a control transfer the host may answer or read: a Feature report fits, and a
-// descriptor of the sizes this board can hold.
-#ifndef MIMHID_CONTROL_DATA_MAX
-#define MIMHID_CONTROL_DATA_MAX MIMHID_HID_BUFSIZE
+// Control rules (control.c). The table the host stages holds the rules of every Node and the
+// device's own; two copies of it are kept (the active one and the one being staged), each with its
+// own answer memory.
+//
+// MIMHID_CONTROL_RULES is sized for fifteen HID interfaces with Report IDs and some to spare. The
+// profile layer writes, per interface, these rules: the report descriptor, the HID descriptor,
+// SET_REPORT, SET_IDLE, SET_PROTOCOL, GET_IDLE and GET_PROTOCOL (7), one GET_REPORT for each
+// Input report (a Spec with Report IDs has one for each ID: say 2) and one answer for each Feature
+// report (say 1): 10 per interface, 150 for fifteen, which leaves 10 for the rules of the caller.
+// A rule is under 32 bytes, so the two tables are under 10 KB.
+#ifndef MIMHID_CONTROL_RULES
+#define MIMHID_CONTROL_RULES 160
 #endif
+_Static_assert(MIMHID_CONTROL_RULES >= 1 && MIMHID_CONTROL_RULES <= 254,
+               "a rule index is a byte, and 0xFF means none");
+// MIMHID_ANSWER_BYTES is the answer memory of one table: the bytes of every ANSWER rule together.
+// Fifteen HID interfaces take at most 2048 bytes of report descriptors together (what 0.2 held), 135
+// of HID descriptors (9 each, HID 1.11 6.2.1), 30 for GET_IDLE and GET_PROTOCOL, and the Feature
+// answers; the rest of 4096 is for those and the caller's rules.
+#ifndef MIMHID_ANSWER_BYTES
+#define MIMHID_ANSWER_BYTES 4096
+#endif
+_Static_assert(MIMHID_ANSWER_BYTES >= 1 && MIMHID_ANSWER_BYTES <= 0xFFFF, "a length fits the wire");
+// ANSWER_LAST_SENT rules each keep the last transfer on their endpoint in a buffer of
+// MIMHID_MAX_TRANSFER_BYTES, apart from the tables (they are written as transfers are sent): one for
+// each Input report of fifteen interfaces (2 each, as above) and two to spare.
+#ifndef MIMHID_LAST_SENT_SLOTS
+#define MIMHID_LAST_SENT_SLOTS 32
+#endif
+_Static_assert(MIMHID_LAST_SENT_SLOTS >= 1 && MIMHID_LAST_SENT_SLOTS <= 254, "a slot is a byte");
 _Static_assert(MIMHID_CONTROL_DATA_MAX + 3 <= MIMHID_MAX_FRAME_PAYLOAD, "a reply fits a frame");
 
 // A descriptor the host announced with DESC_BEGIN and is still sending (or has sent) with
@@ -114,24 +134,12 @@ typedef struct {
 } mimhid_string_t;
 
 typedef struct {
-    mimhid_desc_t d;
-    uint16_t off; // into the report descriptor pool
-} mimhid_report_desc_t;
-
-typedef struct {
-    bool used;
-    uint8_t iface;
-    uint8_t report_id;
-    uint16_t len;
-    uint8_t data[MIMHID_FEATURE_MAX];
-} mimhid_feature_t;
-
-typedef struct {
     uint8_t depth;  // transfers that may wait, 0: not set
     uint8_t policy; // MIMHID_EP_FULL_*
 } mimhid_ep_cfg_t;
 
-// What the host staged with DESC_*, FEATURE and EP_CONFIG, and what a COMMIT makes active.
+// What the host staged with DESC_* and EP_CONFIG, and what a COMMIT makes active. (The staged
+// control rules are control.c's.)
 typedef struct {
     mimhid_desc_t device;
     _Alignas(4) uint8_t device_bytes[18];
@@ -140,18 +148,14 @@ typedef struct {
     mimhid_string_t string[MIMHID_MAX_STRINGS];
     uint16_t string_used; // bytes of the pool
     uint8_t string_pool[MIMHID_MAX_STRING_BYTES];
-    mimhid_report_desc_t report[MIMHID_MAX_INTERFACES]; // by interface number, HID interfaces only
-    uint16_t report_used;
-    uint8_t report_pool[MIMHID_MAX_DESC_BYTES];
-    mimhid_feature_t feature[MIMHID_MAX_FEATURES];
     mimhid_ep_cfg_t ep[16]; // by IN endpoint number
 } mimhid_config_t;
 
-// Who serves an endpoint of the active configuration.
+// Who serves an endpoint of the active configuration: the board's one driver for every interface
+// (generic.c), whatever the class.
 enum {
     MIMHID_EP_NONE = 0,
-    MIMHID_EP_HID,    // TinyUSB's HID driver
-    MIMHID_EP_GENERIC // generic.c
+    MIMHID_EP_GENERIC
 };
 
 typedef struct {
@@ -161,24 +165,15 @@ typedef struct {
     uint8_t interface;    // bInterfaceNumber it belongs to
 } mimhid_ep_info_t;
 
-// What a walk of a staged configuration finds. HID interfaces are numbered 0, 1, 2, ... in the
-// order of the descriptor among the HID interfaces, which is the order TinyUSB's HID driver numbers
-// its instances in (hidd_open takes the first free one), so a HID instance is the position of its
-// interface among the HID interfaces.
+// What a walk of a staged configuration finds.
 typedef struct {
-    uint8_t count;     // interfaces of any class
-    uint8_t hid_count; // HID interfaces
-    uint8_t itf_inst[MIMHID_MAX_INTERFACES];  // HID instance of an interface, 0xFF when it is not HID
+    uint8_t count; // interfaces
     uint8_t itf_group[MIMHID_MAX_INTERFACES]; // number of the first interface of its association
                                               // group, its own number when it has none
     uint16_t itf_start[MIMHID_MAX_INTERFACES]; // offset of its descriptor in the configuration
     uint16_t itf_span[MIMHID_MAX_INTERFACES];  // bytes from there to the next interface or
                                                // association descriptor (a group's first
                                                // interface: to the end of the group)
-    uint8_t inst_itf[MIMHID_HID_ITFS];         // the interface of a HID instance
-    uint8_t inst_ep_in[MIMHID_HID_ITFS];       // the IN endpoint of a HID instance
-    uint16_t report_len[MIMHID_MAX_INTERFACES]; // wReportLength of a HID interface
-    uint8_t ep_inst[16];                       // IN endpoint number to HID instance, 0xFF when none
     mimhid_ep_info_t ep[2][16];                // [0] OUT, [1] IN, by endpoint number
 } mimhid_layout_t;
 
@@ -196,34 +191,14 @@ bool mimhid_walk_config(const mimhid_config_t* cfg, mimhid_layout_t* layout);
 // Returns false (leaving the previous descriptors) when it does not hold together.
 bool mimhid_apply_config(const mimhid_config_t* cfg);
 
-// Feature report data for GET_REPORT of the active configuration, or NULL.
-const mimhid_feature_t* mimhid_find_feature(uint8_t instance, uint8_t report_id);
-
-// Changes the data returned for a Feature report of the active configuration; a no-op when the
-// interface is not part of it.
-void mimhid_active_set_feature(uint8_t iface, uint8_t report_id, const uint8_t* data, uint16_t len);
-
 // Forgets the active configuration (no interfaces, no endpoints).
 void mimhid_clear_config(void);
 
-// Interfaces of the active configuration, of every class.
+// What the walk of the active configuration found.
+const mimhid_layout_t* mimhid_active_layout(void);
+
+// Interfaces of the active configuration.
 uint8_t mimhid_active_interfaces(void);
-
-// HID instances of the active configuration.
-uint8_t mimhid_active_hid_instances(void);
-
-// The HID instance of an interface number of the active configuration, or 0xFF when the interface
-// does not exist or is not HID.
-uint8_t mimhid_active_interface_instance(uint8_t iface);
-
-// The interface number of a HID instance of the active configuration, or 0xFF.
-uint8_t mimhid_active_instance_interface(uint8_t instance);
-
-// The HID instance whose IN endpoint has this number in the active configuration, or 0xFF.
-uint8_t mimhid_active_endpoint_instance(uint8_t endpoint_number);
-
-// The address of the IN endpoint of a HID instance of the active configuration, or 0.
-uint8_t mimhid_active_instance_endpoint(uint8_t instance);
 
 // The active configuration's description of an endpoint (direction from bit 7 of the address), or
 // NULL when the address is not one of an endpoint of the active configuration.
@@ -231,7 +206,7 @@ const mimhid_ep_info_t* mimhid_active_endpoint(uint8_t address);
 
 // How the active configuration spans an interface, for the generic driver's open: the bytes the
 // interface (or, for the first interface of an association group, the whole group) covers, from its
-// interface descriptor. 0 when the interface is HID or not part of the configuration.
+// interface descriptor. 0 when the interface is not part of the configuration.
 uint16_t mimhid_active_generic_span(uint8_t iface);
 
 // The active configuration's interface and endpoint descriptors, for the generic driver.

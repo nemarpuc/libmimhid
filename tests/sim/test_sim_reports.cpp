@@ -137,16 +137,26 @@ void test_queue_depth_and_loss() {
     MIMHID_CHECK(lost_reports(id, 100) == 0);
     fake_board_hold_reports(0);
     fake_report_t r{};
-    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+    // The queue holds 2; a report the endpoint took before the others came is in flight besides,
+    // which depends on when the firmware loop ran, so 2 or 3 arrive.
+    const auto count_reports = [&] {
+        int n = 0;
+        while (next_report(&r, n == 0 ? 2000 : 100))
+            ++n;
+        return n;
+    };
+    int arrived = count_reports();
+    MIMHID_CHECK(arrived == 2 || arrived == 3);
 
-    // Asked for: the two that fit are sent, the three others are reported.
+    // Asked for: what did not fit is reported, and what arrived with it is all five.
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 1, 0, kControlMs) == MIMHID_OK);
     fake_board_clear_reports();
     fake_board_hold_reports(1);
     queue_key_reports(nk, 5);
-    MIMHID_CHECK(lost_reports(id, 200) == 3);
+    const std::uint32_t lost = lost_reports(id, 200);
     fake_board_hold_reports(0);
-    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+    arrived = count_reports();
+    MIMHID_CHECK((arrived == 2 || arrived == 3) && lost + static_cast<unsigned>(arrived) == 5U);
 
     // The depth stays with the node when another node's commit rebuilds the interfaces.
     mimhid_spec* mouse = mouse_spec(2);
@@ -159,9 +169,10 @@ void test_queue_depth_and_loss() {
     fake_board_clear_reports();
     fake_board_hold_reports(1);
     queue_key_reports(nk, 4);
-    MIMHID_CHECK(lost_reports(mimhid_node_id(nk), 200) == 2);
+    const std::uint32_t lost_after = lost_reports(mimhid_node_id(nk), 200);
     fake_board_hold_reports(0);
-    MIMHID_CHECK(next_report(&r) && next_report(&r) && !next_report(&r, 100));
+    arrived = count_reports();
+    MIMHID_CHECK((arrived == 2 || arrived == 3) && lost_after + static_cast<unsigned>(arrived) == 4U);
 
     MIMHID_CHECK(mimhid_device_set_loss_reporting(device, 0, 0, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
@@ -178,7 +189,8 @@ void test_touch_feature() {
     mimhid_node* node = open_node(device, touch);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
     std::uint8_t buffer[8] = {};
-    MIMHID_CHECK(fake_board_feature(0, 3, buffer, sizeof(buffer)) == 1 && buffer[0] == 3);
+    MIMHID_CHECK(fake_board_feature(0, 3, buffer, sizeof(buffer)) == 2 && buffer[0] == 3 &&
+                 buffer[1] == 3); // the Report ID leads, then the maximum contact count
 
     // A touch frame: contact down, then lifted.
     fake_board_clear_reports();
@@ -206,7 +218,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_batch_begin(device) == MIMHID_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
         mimhid_hid_node_config opt{};
-        test_fill_node_config(&opt, static_cast<uint8_t>(i % SIM_HID_ITFS));
+        test_fill_node_config(&opt, static_cast<uint8_t>(i % SIM_ENDPOINTS));
         nodes[i] = open_node(device, specs[i], &opt);
     }
     // Nothing is committed inside the batch, and staged nodes refuse reports.
@@ -219,7 +231,7 @@ void test_batch_and_packing() {
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
 
     // Four nodes need four interfaces, or are packed when the board has fewer.
-    const unsigned expected = SIM_HID_ITFS >= 4 ? 4 : SIM_HID_ITFS;
+    const unsigned expected = SIM_ENDPOINTS >= 4 ? 4 : SIM_ENDPOINTS;
     MIMHID_CHECK(fake_board_interface_count() == expected);
     std::size_t total = 0;
     for (unsigned i = 0; i < expected; ++i) {
@@ -268,11 +280,12 @@ void test_limits() {
     std::vector<mimhid_node*> nodes;
     std::vector<mimhid_spec*> specs;
     mimhid_result last = MIMHID_OK;
-    const unsigned limit = SIM_HID_ITFS;
+    const unsigned limit = SIM_ENDPOINTS;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
         mimhid_hid_node_config no{};
         test_fill_node_config(&no, static_cast<uint8_t>(i));
+        no.ep_in.policy.depth = 1; // the queues of all the IN endpoints share the board's pool
         mimhid_node* node = nullptr;
         last = mimhid_node_open_profile(device, specs.back(), &no, &kCommit, &node);
         if (last != MIMHID_OK)
@@ -298,7 +311,7 @@ void test_interface_numbers() {
     mimhid_device* device = open_device(base_options());
     if (device == nullptr)
         return;
-    if (SIM_HID_ITFS < 3) {
+    if (SIM_ENDPOINTS < 3) {
         MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
         return;
     }

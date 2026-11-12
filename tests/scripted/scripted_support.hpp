@@ -53,6 +53,32 @@ inline mimhid_hid_node_config node_config(std::uint8_t interface_number = 0) {
     return c;
 }
 
+// A Node of one vendor interface (class 0xFF) with an interrupt IN endpoint and the rules given,
+// committed: the smallest thing that gives the Device a USB configuration to hold rules in.
+inline mimhid_node* open_vendor_node(mimhid_device* device, const mimhid_control_rule* rules = nullptr,
+                                     std::size_t rule_count = 0) {
+    mimhid_usb_endpoint ep{};
+    ep.address = 0x81;
+    ep.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    ep.max_packet_size = 64;
+    ep.interval = 1;
+    ep.policy = {MIMHID_FULL_DROP_NEWEST, 4};
+    mimhid_usb_interface itf{};
+    itf.class_code = 0xFF;
+    itf.endpoints = &ep;
+    itf.endpoint_count = 1;
+    mimhid_node_config config;
+    mimhid_node_config_init(&config);
+    config.interfaces = &itf;
+    config.interface_count = 1;
+    config.rules = rules;
+    config.rule_count = rule_count;
+    mimhid_node* node = nullptr;
+    const mimhid_result r = mimhid_node_open(device, &config, &kCommit, &node);
+    MIMHID_CHECK(r == MIMHID_OK);
+    return node;
+}
+
 } // namespace scripted
 
 // The suites, one per file of tests/scripted (test_<suite>.cpp); test_scripted_main.cpp lists them.

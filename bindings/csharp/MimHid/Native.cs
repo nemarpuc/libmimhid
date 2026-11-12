@@ -95,6 +95,15 @@ public enum EventKind : int
 
 public enum ControlAction : int { Leave = 1, Answer = 2, Stall = 3, Drop = 4 }
 
+public enum ControlRuleAction : int
+{
+    Answer = 1,
+    AnswerLastSent = 2,
+    Accept = 3,
+    Ask = 4,
+    Stall = 5,
+}
+
 [StructLayout(LayoutKind.Sequential)]
 public struct ErrorDetail
 {
@@ -164,7 +173,7 @@ public struct BoardLimits
     public uint MaxControlRules;
     public uint MaxEndpointNumber;
     public uint MaxInterfacesAny;
-    public uint MaxHidInterfaces;
+    public uint MaxAnswerBytes;
     public uint MaxConfigDescriptorBytes;
     public uint MaxStrings;
     public uint MaxTransferBytes;
@@ -278,6 +287,28 @@ public struct UsbEndpoint
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct ControlRule
+{
+    public byte RequestTypeMask;
+    public byte RequestTypeValue;
+    public byte RequestMask;
+    public byte RequestValue;
+    public ushort ValueMask;
+    public ushort ValueValue;
+    public ushort IndexMask;
+    public ushort IndexValue;
+    public ControlRuleAction Action;
+    public nint Data;
+    public nuint Length;
+    public byte EndpointAddress;
+    public byte FirstByteFilter;
+    public byte FirstByte;
+    public byte Reserved8;
+    public uint TimeoutMs;
+    public ControlAction WhenLate;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct UsbInterface
 {
     public byte Number;
@@ -300,6 +331,8 @@ public struct NodeConfig
     public nuint InterfaceCount;
     public nint Association;
     public nuint AssociationLength;
+    public nint Rules;
+    public nuint RuleCount;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -623,21 +656,6 @@ public struct DigitizerSample
     public int Twist;
 }
 
-[StructLayout(LayoutKind.Sequential)]
-public struct ControlRule
-{
-    public byte RequestTypeMask;
-    public byte RequestTypeValue;
-    public byte RequestMask;
-    public byte RequestValue;
-    public ushort ValueMask;
-    public ushort ValueValue;
-    public ushort IndexMask;
-    public ushort IndexValue;
-    public uint TimeoutMs;
-    public ControlAction WhenLate;
-}
-
 public static class Native
 {
     private const string Library = "mimhid";
@@ -651,7 +669,6 @@ public static class Native
     public const int MIMHID_CHIP_RP2350 = 2;
     public const int MIMHID_CHIP_STM32F4 = 5;
     public const int MIMHID_CHIP_UNKNOWN = 0;
-    public const int MIMHID_CONTROL_MAX_RULES = 8;
     public const int MIMHID_CONTROL_MAX_TIMEOUT_MS = 5000;
     public const int MIMHID_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMHID_LOSS_MAX_INTERVAL_MS = 60000;
@@ -729,10 +746,16 @@ public static class Native
     public const int MIMHID_CONTROL_ACTION_ANSWER = 2;
     public const int MIMHID_CONTROL_ACTION_STALL = 3;
     public const int MIMHID_CONTROL_ACTION_DROP = 4;
+    public const int MIMHID_CONTROL_ANSWER = 1;
+    public const int MIMHID_CONTROL_ANSWER_LAST_SENT = 2;
+    public const int MIMHID_CONTROL_ACCEPT = 3;
+    public const int MIMHID_CONTROL_ASK = 4;
+    public const int MIMHID_CONTROL_STALL = 5;
     public const int MIMHID_CONTROL_FLAG_HELD = 1;
     public const int MIMHID_CONTROL_FLAG_TOO_LONG = 2;
     public const int MIMHID_CONTROL_FLAG_FIXED = 4;
     public const int MIMHID_CONTROL_FLAG_LOST = 8;
+    public const int MIMHID_CONTROL_FLAG_ACCEPTED = 16;
     public const int MIMHID_TRANSFER_BULK = 2;
     public const int MIMHID_TRANSFER_INTERRUPT = 3;
     public const int MIMHID_FULL_DROP_NEWEST = 1;
@@ -755,6 +778,7 @@ public static class Native
             ["mimhid_commit_timeouts"] = typeof(CommitTimeouts),
             ["mimhid_endpoint_policy"] = typeof(EndpointPolicy),
             ["mimhid_usb_endpoint"] = typeof(UsbEndpoint),
+            ["mimhid_control_rule"] = typeof(ControlRule),
             ["mimhid_usb_interface"] = typeof(UsbInterface),
             ["mimhid_node_config"] = typeof(NodeConfig),
             ["mimhid_hid_node_config"] = typeof(HidNodeConfig),
@@ -779,7 +803,6 @@ public static class Native
             ["mimhid_touchpad_extra"] = typeof(TouchpadExtra),
             ["mimhid_pen_sample"] = typeof(PenSample),
             ["mimhid_digitizer_sample"] = typeof(DigitizerSample),
-            ["mimhid_control_rule"] = typeof(ControlRule),
         };
 
     public static readonly IReadOnlyDictionary<string, long> AbiConstants =
@@ -793,7 +816,6 @@ public static class Native
             ["MIMHID_CHIP_RP2350"] = 2,
             ["MIMHID_CHIP_STM32F4"] = 5,
             ["MIMHID_CHIP_UNKNOWN"] = 0,
-            ["MIMHID_CONTROL_MAX_RULES"] = 8,
             ["MIMHID_CONTROL_MAX_TIMEOUT_MS"] = 5000,
             ["MIMHID_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMHID_LOSS_MAX_INTERVAL_MS"] = 60000,
@@ -871,10 +893,16 @@ public static class Native
             ["MIMHID_CONTROL_ACTION_ANSWER"] = 2,
             ["MIMHID_CONTROL_ACTION_STALL"] = 3,
             ["MIMHID_CONTROL_ACTION_DROP"] = 4,
+            ["MIMHID_CONTROL_ANSWER"] = 1,
+            ["MIMHID_CONTROL_ANSWER_LAST_SENT"] = 2,
+            ["MIMHID_CONTROL_ACCEPT"] = 3,
+            ["MIMHID_CONTROL_ASK"] = 4,
+            ["MIMHID_CONTROL_STALL"] = 5,
             ["MIMHID_CONTROL_FLAG_HELD"] = 1,
             ["MIMHID_CONTROL_FLAG_TOO_LONG"] = 2,
             ["MIMHID_CONTROL_FLAG_FIXED"] = 4,
             ["MIMHID_CONTROL_FLAG_LOST"] = 8,
+            ["MIMHID_CONTROL_FLAG_ACCEPTED"] = 16,
             ["MIMHID_TRANSFER_BULK"] = 2,
             ["MIMHID_TRANSFER_INTERRUPT"] = 3,
             ["MIMHID_FULL_DROP_NEWEST"] = 1,
@@ -946,10 +974,20 @@ public static class Native
     public static extern Result DeviceLinkCounters(nint device, uint reset, uint controlTimeoutMs, ref LinkCounters counters);
     [DllImport(Library, EntryPoint = "mimhid_device_link_counters", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceLinkCounters(nint device, uint reset, uint controlTimeoutMs, nint counters);
-    [DllImport(Library, EntryPoint = "mimhid_device_set_control_routing", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result DeviceSetControlRouting(nint device, uint reportAll, in ControlRule rules, nuint ruleCount, uint controlTimeoutMs);
-    [DllImport(Library, EntryPoint = "mimhid_device_set_control_routing", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result DeviceSetControlRouting(nint device, uint reportAll, nint rules, nuint ruleCount, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_control_rules", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetControlRules(nint device, uint reportAll, in ControlRule rules, nuint ruleCount, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_control_rules", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetControlRules(nint device, uint reportAll, nint rules, nuint ruleCount, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_rule_data", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetRuleData(nint device, nuint ruleIndex, nint data, nuint length, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_node_set_rule_data", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeSetRuleData(nint node, nuint ruleIndex, nint data, nuint length, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_hid_descriptor_bytes", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result HidDescriptorBytes(ushort bcdHid, byte countryCode, nuint reportDescriptorLength, nint @out);
+    [DllImport(Library, EntryPoint = "mimhid_hid_descriptor_rule", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, ref ControlRule rule);
+    [DllImport(Library, EntryPoint = "mimhid_hid_descriptor_rule", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, nint rule);
     [DllImport(Library, EntryPoint = "mimhid_device_control_reply", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceControlReply(nint device, uint token, ControlAction action, nint data, nuint length, uint sendTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_device_set_loss_reporting", ExactSpelling = true, CallingConvention = Call)]
@@ -1012,10 +1050,6 @@ public static class Native
     public static extern Result NodeOpenProfile(nint device, nint spec, in HidNodeConfig config, in CommitTimeouts timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_open_profile", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeOpenProfile(nint device, nint spec, nint config, nint timeouts, out nint node);
-    [DllImport(Library, EntryPoint = "mimhid_node_open_raw", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpenRaw(nint device, nint descriptor, nuint descriptorLength, in HidNodeConfig config, in CommitTimeouts timeouts, out nint node);
-    [DllImport(Library, EntryPoint = "mimhid_node_open_raw", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpenRaw(nint device, nint descriptor, nuint descriptorLength, nint config, nint timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimhid_node_close", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeClose(nint node, in CommitTimeouts timeouts, uint drainTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_node_close", ExactSpelling = true, CallingConvention = Call)]
@@ -1082,6 +1116,4 @@ public static class Native
     public static extern Result BatteryUpdate(nint node, int strength);
     [DllImport(Library, EntryPoint = "mimhid_raw_submit", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result RawSubmit(nint node, nint report, nuint length, uint sendTimeoutMs);
-    [DllImport(Library, EntryPoint = "mimhid_report_send", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result ReportSend(nint node, nint reportBytes, nuint reportLength, uint sendTimeoutMs);
 }

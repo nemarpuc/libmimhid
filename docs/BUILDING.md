@@ -112,21 +112,21 @@ satisfied by `0.2.x` installations only.
 
 The firmware lives under [firmware/](../firmware). One portable C core
 ([firmware/common/](../firmware/common)) implements the serial framing, SPSC
-report queues, dynamic USB descriptors, and endpoint 0 control-transfer handler
-on top of [TinyUSB](https://github.com/hathach/tinyusb); each MCU port supplies
+endpoint queues, the host's USB descriptors, and the endpoint 0 control rules
+(with no HID driver: every interface runs on the generic driver) on top of [TinyUSB](https://github.com/hathach/tinyusb); each MCU port supplies
 the twelve functions in [firmware/common/hal.h](../firmware/common/hal.h).
 
 Nothing about the chip, the board, or the UART pinout is guessed by the build:
 every port requires its chip/board and UART pins on the command line and fails
 at configure or compile time if any required setting is omitted.
 
-| Target | Source directory | USB controller | `MIMHID_HID_ITFS` | `MIMHID_MAX_ENDPOINT_NUMBER` | `MIMHID_MAX_ENDPOINT_BYTES` | Max UART rate (`hal_uart_max_baud`) | Cores |
-|---|---|---|---:|---:|---:|---:|---|
-| RP2040 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | `clk_peri / 16` (7,812,500 at 125 MHz) | Core 0 USB, Core 1 UART + DMA ring |
-| RP2350 | `firmware/` (`rp/`) | Full-Speed device | 15 | 15 | 64 | `clk_peri / 16` (9,375,000 at 150 MHz) | Core 0 USB, Core 1 UART + endless DMA ring |
-| nRF52840 | `firmware/ports/nrf52840` | Full-Speed USBD | 7 | 7 | 64 | 1,000,000 baud | Single loop (`UARTE1` 1-byte EasyDMA + ISR software ring, `UARTE0` disabled) |
-| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 3 (5 on F412) | 64 | PCLK1 / 8 | Single loop (`USART2` + `DMA1_Stream5` circular DMA ring) |
-| ESP32-S3 | `firmware/ports/esp32s3` | Full-Speed OTG | 4 | 6 | 64 | 5,000,000 baud | Single loop (`UART1` hardware FIFO + driver ring) |
+| Target | Source directory | USB controller | `MIMHID_MAX_ENDPOINT_NUMBER` | `MIMHID_MAX_ENDPOINT_BYTES` | Max UART rate (`hal_uart_max_baud`) | Cores |
+|---|---|---|---:|---:|---:|---|
+| RP2040 | `firmware/` (`rp/`) | Full-Speed device | 15 | 64 | `clk_peri / 16` (7,812,500 at 125 MHz) | Core 0 USB, Core 1 UART + DMA ring |
+| RP2350 | `firmware/` (`rp/`) | Full-Speed device | 15 | 64 | `clk_peri / 16` (9,375,000 at 150 MHz) | Core 0 USB, Core 1 UART + endless DMA ring |
+| nRF52840 | `firmware/ports/nrf52840` | Full-Speed USBD | 7 | 64 | 1,000,000 baud | Single loop (`UARTE1` 1-byte EasyDMA + ISR software ring, `UARTE0` disabled) |
+| STM32F4 | `firmware/ports/stm32f4` | Full-Speed OTG_FS | 3 (5 on F412) | 64 | PCLK1 / 8 | Single loop (`USART2` + `DMA1_Stream5` circular DMA ring) |
+| ESP32-S3 | `firmware/ports/esp32s3` | Full-Speed OTG | 6 | 64 | 5,000,000 baud | Single loop (`UART1` hardware FIFO + driver ring) |
 
 ### RP2040 and RP2350 (Pico SDK)
 

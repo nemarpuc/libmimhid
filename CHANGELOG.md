@@ -15,9 +15,68 @@ change of the minor number may change the API, the ABI or the wire protocol.
   target and restarts into the chip's own bootloader, so new firmware can be written without the
   BOOTSEL button. RP2040 and RP2350; the other ports answer `MIMHID_ERR_UNSUPPORTED`.
 
+### Step 3a: no HID driver on the board
+
+TinyUSB's HID driver is removed from the firmware. Every interface runs on the generic driver, and what
+HID asks of endpoint 0 is a table of control rules that the host writes. The target sees the same
+descriptors and the same answers for profile Nodes, apart from the differences listed under "Changed".
+
+- **`mimhid_node_open` takes interfaces of any class, HID included.** A HID interface of the caller's own
+  is class 0x03 with its HID descriptor in `class_descriptors` and its control rules in the new
+  `mimhid_node_config.rules` / `rule_count` (`mimhid_node_config` is 56 bytes). Helpers:
+  `mimhid_hid_descriptor_bytes`, `mimhid_hid_descriptor_rule`. New example `examples/c/hid_interface.c`.
+- **Control rules replace control routing.** `mimhid_device_set_control_routing` is replaced by
+  `mimhid_device_set_control_rules` and `mimhid_device_set_rule_data` (and `mimhid_node_set_rule_data`).
+  `mimhid_control_rule` has an `action`: `MIMHID_CONTROL_ANSWER` (bytes from the board's memory),
+  `_ANSWER_LAST_SENT` (the last transfer on an IN endpoint, optionally the last with a given first byte),
+  `_ACCEPT` (takes the data stage), `_ASK` (the earlier hold: `timeout_ms`, `when_late` STALL or DROP) and
+  `_STALL`. The rules of the Nodes come first, in node order, then the Device's. A request no rule matches
+  is stalled apart from the standard requests of the stack. New flag `MIMHID_CONTROL_FLAG_ACCEPTED`.
+- **Profile Nodes get their HID behaviour from rules the library writes** (`compose_hid_rules` in
+  `src/usb/hid_layer.cpp`): `GET_DESCRIPTOR` of the report and HID descriptors, `GET_REPORT` of the last
+  Input report (per Report ID) and of a Feature answer, `SET_REPORT`, `SET_IDLE`, `SET_PROTOCOL`, and the one-byte
+  `GET_IDLE` and `GET_PROTOCOL`. `MIMHID_EVENT_OUTPUT_REPORT`, `_FEATURE_REPORT`, `_SET_IDLE` and
+  `_SET_PROTOCOL` are made by the library from what the board reports; the idle rate and the protocol are put
+  back to 0 and 1 at each mount.
+- **Removed:** `mimhid_node_open_raw` and `mimhid_report_send` (use `mimhid_node_open` with class 0x03 and
+  `mimhid_node_endpoint_write`; a profile Node's IN endpoint takes `mimhid_node_endpoint_write` and
+  `mimhid_node_endpoint_set_policy` as well), `mimhid_device_set_control_routing`,
+  `mimhid_board_limits.max_hid_interfaces` (replaced by `max_answer_bytes`, the bytes of every `ANSWER` rule
+  together), `MIMHID_CONTROL_MAX_RULES`, `MIMHID_HID_ITFS` (the build states `MIMHID_MAX_ENDPOINT_NUMBER`
+  only), `firmware/tests/itfs_probe.c` (now `port_probe.c`). The limits `max_interfaces` and
+  `max_descriptor_bytes` of `mimhid_device_info` now mean `max_interfaces_any` and `max_answer_bytes`.
+- **Wire:** `RULE` (`0x18`, was `CONTROL_CONFIG`), `RULES_APPLY` (`0x21`), `RULE_DATA` (`0x22`); the
+  descriptor kind `ANSWER` (5) carries the bytes of an answer; `DESC_HID_REPORT` (4), `FEATURE` (`0x14`) and
+  the events `SET_REPORT`, `SET_PROTOCOL`, `SET_IDLE`, `OUTPUT_REPORT` (5 to 8) are gone and not reused;
+  `CONTROL_REPLY` keeps its actions; the event flag `0x10` (accepted). `PONG` bytes 5, 21..22 and 25..26 are
+  reserved, zero; `max_answer_bytes` is at bytes 45..46 and the unique id moves to 47. The board's limits:
+  160 rules, 4096 bytes of answers, 32 `ANSWER_LAST_SENT` rules (`MIMHID_CONTROL_RULES`,
+  `MIMHID_ANSWER_BYTES`, `MIMHID_LAST_SENT_SLOTS`).
+- **Firmware:** `CFG_TUD_HID` is 0. `control.c` holds two copies of the rule table and answers from them;
+  `RULES_APPLY` swaps them and `RULE_DATA` changes the bytes of an answer in place, both answering `NAK_BUSY`
+  while an answer is being sent. The ESP32-S3 port's `hid_device.c` is removed.
+- **Changed for the target and the program:**
+  - A Feature report read with no answer set is stalled (it was an empty answer).
+  - `GET_REPORT` of an Input report returns the last report sent with that Report ID (it was the last report
+    whatever its ID, stalled or empty when it had another).
+  - A `GET_IDLE` straight after a `SET_IDLE` may still return the old value for one round trip.
+  - `MIMHID_EVENT_OUTPUT_REPORT` / `_FEATURE_REPORT` for a `SET_REPORT` arrive when its data stage has, not at
+    the acknowledgement.
+  - Nodes on a shared interface that use the wait policy count against the first live Node of the interface.
+  - A profile Node's IN endpoint takes any of the three policies (it was drop-newest only), and
+    `mimhid_node_endpoint_write` splits a write longer than the board's frame limit and accepts a timeout of 0
+    with a drop policy.
+  - A rule given fewer bytes with `mimhid_*_set_rule_data` keeps that length when the table is built again.
+  - A Device with no Node holds no rules: they are kept until the first commit.
+  - Inside a batch a change of rules marks the Device for the commit at the end.
+  - A `COMMIT` applies the staged rules with `report_all` 0; the library sends `RULES_APPLY` with
+    `report_all` straight after an attach when it is set.
+- Bindings regenerated (Python, C#, Rust: `GenericNodeRef.write` replaces the descriptor Node of the Rust
+  crate); `tests/abi/abi_layout.golden` updated.
+
 ### Step 2: generic USB interfaces
 
-- **`mimhid_node_open` takes interfaces of any class but HID** (`mimhid_node_config`: interfaces, bulk
+- **`mimhid_node_open` takes interfaces of any class but HID** (until step 3a) (`mimhid_node_config`: interfaces, bulk
   and interrupt endpoints, class descriptors, an interface association). HID moved to
   `mimhid_node_open_profile` and `mimhid_node_open_raw` with `mimhid_hid_node_config`. The composer knows
   no class; `src/usb/hid_layer.cpp` makes the HID interfaces.

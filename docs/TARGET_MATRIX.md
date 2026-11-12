@@ -17,7 +17,7 @@ The portable firmware core is tested on the build host against a fake HAL for 15
 
 ## Control transfers
 
-The control-transfer routing is the only part of the firmware that sits between TinyUSB and the USB controller, so its status is listed apart. Its logic is tested by the firmware core's host-side tests (`firmware/tests`) and the simulated-board tests (`tests/sim`, a simulated TinyUSB around the same `control.c` and `ep0.c`).
+The control-transfer rule table is the only part of the firmware that sits between TinyUSB and the USB controller, and since 0.3.0 it also carries all that HID asks of endpoint 0 (the board has no HID driver), so its status is listed apart. Its logic is tested by the firmware core's host-side tests (`firmware/tests`) and the simulated-board tests (`tests/sim`, a simulated TinyUSB around the same `control.c` and `ep0.c`).
 
 | Board | Builds with `-Wl,--wrap=dcd_event_handler` | Run on a board |
 |---|---|---|

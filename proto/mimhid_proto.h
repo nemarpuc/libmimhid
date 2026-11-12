@@ -23,7 +23,7 @@
  *
  * Command frames (0x01..0x3F) start their payload with a one-byte sequence number that the
  * board echoes in its ACK or NAK. Endpoint data frames carry a transfer exactly as the target
- * receives or sends it (Report ID included for HID) and are not acknowledged: 0x41..0x4F to an IN
+ * receives or sends it (a HID Report ID included) and are not acknowledged: 0x41..0x4F to an IN
  * endpoint (host to board), 0xC1..0xCF from an OUT endpoint (board to host).
  */
 
@@ -45,19 +45,19 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_T_PING 0x01 /* no payload, no sequence number */
 #define MIMHID_T_DESC_RESET                                                                        \
     0x10 /* no payload after the sequence number: starts a new staged configuration, forgetting    \
-            every staged descriptor, string, Feature answer and endpoint setting */
+            every staged descriptor, string, control rule and endpoint setting */
 #define MIMHID_T_DESC_BEGIN 0x11 /* announces one descriptor (see below) */
 #define MIMHID_T_DESC_DATA 0x12  /* a chunk of the announced descriptor (see below) */
 #define MIMHID_T_COMMIT                                                                            \
     0x13                      /* apply: disconnect, rebuild descriptors, reconnect, then ACK;      \
                                   payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian] */
-#define MIMHID_T_FEATURE 0x14 /* data returned for GET_REPORT of a feature report of an interface  \
-                               */
+/* 0x14 was FEATURE: unused since the board's HID driver went (a Feature report answer is the data
+ * of an ANSWER control rule). The number is not reused in this release. */
 #define MIMHID_T_RESET 0x15   /* drop every queued report */
 #define MIMHID_T_REMOTE_WAKEUP 0x16
 #define MIMHID_T_SET_BAUD 0x17 /* payload after sequence number: the rate, u32 little endian */
-#define MIMHID_T_CONTROL_CONFIG                                                                    \
-    0x18                            /* which control transfers of the target are reported or held */
+#define MIMHID_T_RULE                                                                              \
+    0x18                            /* stages one control rule (see "Control rules" below) */
 #define MIMHID_T_CONTROL_REPLY 0x19 /* the answer to a held control transfer */
 #define MIMHID_T_LOSS_CONFIG                                                                       \
     0x1A /* payload after sequence number: enabled (0/1), minimum interval in ms (u16 LE) */
@@ -80,6 +80,12 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
             bootloader, where new firmware can be written; NAK_UNSUPPORTED on a chip that has     \
             none the firmware can enter, NAK_PARAM for another payload */
 #define MIMHID_BOOTLOADER_KEY "BOOT"
+#define MIMHID_T_RULES_APPLY                                                                       \
+    0x21 /* payload after sequence number: flags (bit 0: report every control transfer), rule     \
+            count. Makes the staged rules the active ones without a COMMIT (see below) */
+#define MIMHID_T_RULE_DATA                                                                         \
+    0x22 /* payload after sequence number: rule index, then the new bytes of an active ANSWER     \
+            rule (see below) */
 #define MIMHID_T_EP_IN_BASE                                                                        \
     0x40 /* 0x40 | endpoint number: data for that IN endpoint; 0x40 itself                         \
             (endpoint 0) is refused */
@@ -100,10 +106,9 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_EV_UNMOUNTED 2
 #define MIMHID_EV_SUSPEND 3 /* data: remote wakeup enabled by the target (0/1) */
 #define MIMHID_EV_RESUME 4
-#define MIMHID_EV_SET_REPORT 5    /* data: interface, report type, report id, bytes... */
-#define MIMHID_EV_SET_PROTOCOL 6  /* data: interface, protocol (0 boot, 1 report) */
-#define MIMHID_EV_SET_IDLE 7      /* data: interface, idle rate */
-#define MIMHID_EV_OUTPUT_REPORT 8 /* data: interface, length, bytes... */
+/* 5 to 8 were SET_REPORT, SET_PROTOCOL, SET_IDLE and OUTPUT_REPORT, which the board's HID driver
+ * made. A HID request is now a control transfer taken by an ACCEPT rule, and an Output report on
+ * an OUT endpoint is an endpoint data frame. The numbers are not reused in this release. */
 #define MIMHID_EV_CONTROL_SETUP 9 /* data: token, flags, the 8 setup bytes */
 #define MIMHID_EV_CONTROL_DATA 10 /* data: token, the data stage of a host-to-device transfer */
 #define MIMHID_EV_TRANSFER_LOST                                                                    \
@@ -140,45 +145,92 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_STRING_MAX 126
 /* The longest string descriptor as it is on the bus: 2 + 2 * MIMHID_STRING_MAX bytes. */
 #define MIMHID_STRING_DESC_MAX (2 + 2 * MIMHID_STRING_MAX)
-#define MIMHID_CONTROL_RULES 8 /* rules a board holds at once */
-#define MIMHID_CONTROL_RULE_LEN 15
-
 /*
  * Control transfers. Every request the target sends on endpoint 0 (the setup packet of a
- * control transfer) can be reported, and the answer to chosen ones can come from the host.
+ * control transfer) is looked up in a table of rules, which the host writes. The first rule that
+ * matches decides what the board does; a request no rule matches is left to the board's USB stack,
+ * which answers the standard requests it can and stalls the rest (USB 2.0 9.2.7).
  *
- * CONTROL_CONFIG payload after the sequence number:
- *   0 flags (bit 0: report every control transfer)  1 rule count n (0..MIMHID_CONTROL_RULES)
- *   2.. n rules of MIMHID_CONTROL_RULE_LEN bytes:
- *     0 bmRequestType mask  1 bmRequestType value  2 bRequest mask  3 bRequest value
- *     4..5 wValue mask  6..7 wValue value  8..9 wIndex mask  10..11 wIndex value
- *     12..13 timeout in ms (1..MIMHID_CONTROL_TIMEOUT_MAX)  14 action after the timeout
- *   A request matches a rule when each field ANDed with its mask equals the value; the first
- *   matching rule holds the transfer. The set replaces the previous one; zero rules and no flag
- *   leave every request to the board's own handling, which is how a board starts.
+ * RULE (staged) payload after the sequence number:
+ *   0 rule index  1 bmRequestType mask  2 bmRequestType value  3 bRequest mask  4 bRequest value
+ *   5..6 wValue mask  7..8 wValue value  9..10 wIndex mask  11..12 wIndex value  13 action
+ *   then by action (MIMHID_RULE_*):
+ *     ANSWER           14..15 length of the answer (u16 LE). The bytes follow in DESC_BEGIN and
+ *                      DESC_DATA with the kind MIMHID_DESC_ANSWER and the rule index as index
+ *                      (language 0, flags 0); an answer of length 0 needs neither.
+ *     ANSWER_LAST_SENT 14 endpoint address (an IN endpoint)  15 filter (0 or 1)  16 first byte
+ *     ASK              14..15 timeout in ms (1..MIMHID_CONTROL_TIMEOUT_MAX)  16 action after the
+ *                      timeout (MIMHID_REPLY_STALL or MIMHID_REPLY_DROP)
+ *     ACCEPT, STALL    nothing more
+ *   A request matches a rule when each field ANDed with its mask equals the value. The rules are
+ *   numbered from 0 in the order they are tried. The staged table is a stack: a RULE with index i
+ *   (at most the number of rules staged) replaces rule i and forgets every rule after it, so the
+ *   host writes the table in order. DESC_RESET forgets the staged rules. The table and its answer
+ *   bytes are limited by the board (control rule count and answer bytes in the PONG); more is
+ *   NAK_OVERFLOW. A value outside its mask, an unknown action, an ANSWER or ANSWER_LAST_SENT to a request that is not
+ *   device to host (bit 7 of bmRequestType in both mask and value), an ASK without its timeout or
+ *   with another action after it, or a LAST_SENT with an endpoint that is not an IN address is
+ *   NAK_PARAM.
+ * RULES_APPLY payload after the sequence number: 0 flags (bit 0: report every control transfer)
+ *   1 rule count n. The first n staged rules (the rest are forgotten) become the active table
+ *   without a COMMIT, and nothing held under the old table is kept: it goes to the USB stack as if
+ *   no rule had matched it. NAK_PARAM when n is more than the staged rules; NAK_STATE when an ANSWER
+ *   rule lacks its bytes, or an ANSWER_LAST_SENT rule names an endpoint that is not an IN endpoint
+ *   of the active configuration; NAK_BUSY when the board is answering a control transfer from the
+ *   active answer memory (try again). A COMMIT applies all the staged rules with the descriptors
+ *   (flag 0, nothing reported beyond what the rules say), under the same checks (NAK_STATE).
+ *   A board starts with no rules.
+ * RULE_DATA payload after the sequence number: 0 rule index  1.. bytes. Replaces the bytes of an
+ *   ACTIVE rule of action ANSWER, at most as many as the rule was staged with (the rule then
+ *   answers with that many); NAK_PARAM for another rule or a longer answer, NAK_BUSY when the
+ *   board is answering from that rule at the moment. The staged copy changes too, so a later
+ *   RULES_APPLY or COMMIT keeps it.
+ *
+ * Actions of a rule:
+ *   ANSWER            returns its bytes, cut to wLength, straight from the answer memory
+ *   ANSWER_LAST_SENT  returns the last transfer the board started on the endpoint (with the filter:
+ *                     the last whose first byte is the given one), cut to wLength; stalls when there
+ *                     is none. RULES_APPLY and COMMIT forget what the changed rules hold; RESET
+ *                     forgets all of it
+ *   ACCEPT            takes the data stage (up to MIMHID_CONTROL_DATA_MAX) and completes the
+ *                     transfer; the host is told with CONTROL_SETUP (flag accepted) and, when
+ *                     there was a data stage, CONTROL_DATA. Nothing is awaited
+ *   ASK               holds the transfer and asks the host (CONTROL_SETUP with the flag held),
+ *                     which answers with CONTROL_REPLY within the timeout
+ *   STALL             stalls
  *
  * EVENT CONTROL_SETUP payload: kind, token, flags, the 8 setup bytes as they came (little
  *   endian wValue, wIndex, wLength). flags: bit 0 held (a CONTROL_REPLY with this token is
- *   awaited), bit 1 too long (a host-to-device data stage longer than the board takes, not held),
- *   bit 2 fixed (SET_ADDRESS and SET_CONFIGURATION change the board's own USB state, so they are
- *   reported and never held), bit 3 lost (reports before this one were dropped: the board's queue
- *   was full).
+ *   awaited), bit 1 too long (a host-to-device data stage longer than the board takes, not held;
+ *   reported for an ACCEPT rule, and for any request when every transfer is reported), bit 2 fixed
+ *   (SET_ADDRESS and SET_CONFIGURATION change the board's own USB state, so they are reported and
+ *   never held), bit 3 lost (reports before this one were dropped: the board's queue was full),
+ *   bit 4 accepted (an ACCEPT rule took it; a CONTROL_DATA with this token follows when it has a
+ *   data stage). Rules other than ACCEPT and ASK are reported only when every transfer is.
  * EVENT CONTROL_DATA payload: kind, token, the bytes of the data stage. Sent after the board
- *   accepted a held host-to-device transfer with a data stage; the status stage waits for the
- *   second CONTROL_REPLY.
- * CONTROL_REPLY payload after the sequence number: 0 token  1 action  2.. the data stage of a
- *   device-to-host transfer (action ANSWER only; cut to wLength). Acknowledged when the board
- *   still waits for that token; a NAK with MIMHID_NAK_STATE says it no longer does.
+ *   accepted a held host-to-device transfer with a data stage (the status stage waits for the
+ *   second CONTROL_REPLY), or for an accepted one (nothing is awaited).
+ * CONTROL_REPLY payload after the sequence number: 0 token  1 action (MIMHID_REPLY_*)  2.. the data
+ *   stage of a device-to-host transfer (action ANSWER only; sent whole whatever wLength says).
+ *   Acknowledged when the board still waits for that token; a NAK with MIMHID_NAK_STATE says it no
+ *   longer does.
  *
  * A held transfer is answered by the host within its rule's timeout; after it the board does the
- * rule's action. USB 2.0 (9.2.6.4) asks a device to return the first data packet of a standard
- * request within 500 ms, and a control transfer is allowed 5 s in all (9.2.6.1); hosts may give
- * up earlier, and a request without a data stage may be held to a shorter time still.
+ * action the rule names (stall or drop). USB 2.0 (9.2.6.4) asks a device to return the first data
+ * packet of a standard request within 500 ms, and a control transfer is allowed 5 s in all
+ * (9.2.6.1); hosts may give up earlier, and a request without a data stage may be held to a shorter
+ * time still.
  */
-#define MIMHID_CONTROL_LEAVE 0  /* the board's own handling, as if the host had not been asked */
-#define MIMHID_CONTROL_ANSWER 1 /* the data (device to host) or an empty status (otherwise) */
-#define MIMHID_CONTROL_STALL 2
-#define MIMHID_CONTROL_DROP                                                                        \
+#define MIMHID_RULE_ANSWER 1
+#define MIMHID_RULE_ANSWER_LAST_SENT 2
+#define MIMHID_RULE_ACCEPT 3
+#define MIMHID_RULE_ASK 4
+#define MIMHID_RULE_STALL 5
+/* The actions of CONTROL_REPLY, and the one a held transfer gets when no reply came in time. */
+#define MIMHID_REPLY_LEAVE 0  /* the board's own handling, as if the host had not been asked */
+#define MIMHID_REPLY_ANSWER 1 /* the data (device to host) or an empty status (otherwise) */
+#define MIMHID_REPLY_STALL 2
+#define MIMHID_REPLY_DROP                                                                          \
     3 /* silent drop: do not stall, do not arm, keep NAKing until host aborts */
 /* USB 2.0 section 9.2.6.1: "USB sets an upper limit of 5 seconds as the upper limit for any
  * command to be processed." A rule may hold a request for that long and no longer. */
@@ -188,6 +240,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_CONTROL_F_TOO_LONG 0x02
 #define MIMHID_CONTROL_F_FIXED 0x04
 #define MIMHID_CONTROL_F_LOST 0x08
+#define MIMHID_CONTROL_F_ACCEPTED 0x10
 
 /*
  * Line rate. A board starts at the boot rate, the one rate both ends know, and the host asks for
@@ -242,27 +295,28 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 /*
  * PONG payload (all single bytes unless noted; every wider value is little endian):
  *   0 fw_major  1 fw_minor  2 fw_patch  3 ready
- *   4 reserved, zero  5 max_hid_interfaces  6 flags (bit 0: has chip unique id)
+ *   4 reserved, zero  5 reserved, zero  6 flags (bit 0: has chip unique id)
  *   7 chip  8 usb speed (0 full, 1 high)
  *   9..12 baud the board is on (u32)  13..16 max_baud, the fastest rate its UART can make (u32)
  *   17..20 uart flags (u32): bit 0 break detection works, bits 1.. reserved, zero
- *   21..22 max_descriptor_bytes  23..24 max_report_bytes  25..26 max_feature_bytes
+ *   21..22 reserved, zero  23..24 max_report_bytes  25..26 reserved, zero
  *   27..28 max_endpoint_bytes (the largest endpoint packet)  29..30 max_frame_payload
  *   31..32 max_control_data_bytes (the data stage of a control transfer the host may read or
- *   answer)  33 max_control_rules
+ *   answer)  33 max_control_rules (the table the host stages, Nodes' rules and the device's together)
  *   34 max_endpoint_number (the highest endpoint number the controller has; an endpoint address
  *   above it is refused)
  *   35 unique id length n (0..16)
- *   36 max_interfaces_any (interfaces of any class the board takes, HID ones included; byte 5 is
- *   the number of HID interfaces)  37..38 max_config_descriptor_bytes  39 max_strings (string
+ *   36 max_interfaces_any (interfaces of any class the board takes)  37..38 max_config_descriptor_bytes  39 max_strings (string
  *   descriptors, the board's own included)  40..41 max_transfer_bytes (the payload of one endpoint
  *   data frame)  42..43 endpoint_queue_slots (the slots of the pool the IN queues of the generic
  *   driver are cut from)  44 transfer_types (bit n set: the board has endpoints of transfer type
- *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)
- *   45.. the chip's unique id, n bytes
+ *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)  45..46
+ *   max_answer_bytes (the answer memory: the bytes of every ANSWER rule together, a HID report
+ *   descriptor and the answers to its Feature reads among them)
+ *   47.. the chip's unique id, n bytes
  * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN 45
+#define MIMHID_PONG_MIN_LEN 47
 #define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
@@ -283,15 +337,16 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *                                                       wTotalLength bytes
  *   MIMHID_DESC_STRING        1..255          LANGID    the string descriptor as on the bus:
  *                                                       bLength, 0x03, UTF-16LE (USB 2.0 9.6.7)
- *   MIMHID_DESC_HID_REPORT    interface no.   0         the report descriptor of that HID interface
+ *   MIMHID_DESC_ANSWER        rule index      0         the bytes of an ANSWER control rule
  *
  * String index 0 (the language list) is never sent: the board answers it with the language ids
  * of the strings it holds. With MIMHID_DESC_F_SERIAL_FROM_ID on a string, the total length is 0 and
  * the board makes the string from its chip id (the characters are the hexadecimal digits of the
  * id). All other flag bits are zero.
  *
- * MIMHID_DESC_HID_REPORT exists only while TinyUSB's HID driver serves the report descriptors
- * (tud_hid_descriptor_report_cb); it goes when HID moves to the board's own driver.
+ * The kind ANSWER names a rule staged with RULE (an ANSWER rule of length 0 has no bytes to send):
+ * DESC_BEGIN's total length must be the rule's length (NAK_PARAM otherwise), and DESC_DATA fills
+ * the rule's bytes in the same way as any other descriptor.
  *
  * A DESC_BEGIN repeated with the same kind, index, language, total length and flags is
  * acknowledged again, and so is a DESC_DATA repeated with the same offset and bytes, since the
@@ -301,15 +356,13 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR, the previous
  * configuration kept) unless it holds together: every descriptor complete, every bLength at least
  * 2 and inside the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only,
- * every interface of any class whose endpoints are interrupt or bulk (a HID interface also has
- * its HID descriptor, one interrupt IN endpoint and at most one interrupt OUT endpoint, and a
- * report descriptor of the length that HID descriptor says), interface association descriptors
- * only before a group of non-HID interfaces, endpoint numbers the controller has and no address
- * twice, packet sizes the board takes, every IN endpoint of the generic driver with an EP_CONFIG (docs/PROTOCOL.md has
- * the whole list).
+ * every interface, whatever its class (the board reads no class), with endpoints that are
+ * interrupt or bulk, the class descriptors between them as given, interface association
+ * descriptors that name the interfaces that follow, endpoint numbers the controller has and no
+ * address twice, packet sizes the board takes, every IN endpoint with an EP_CONFIG, every ANSWER
+ * rule with its bytes and every ANSWER_LAST_SENT rule on an IN endpoint of the configuration
+ * (docs/PROTOCOL.md has the whole list).
  *
- * FEATURE payload after the sequence number:
- *   0 interface number  1 report id  2.. bytes (without the report id), at most max_feature_bytes
  * EP_CONFIG payload after the sequence number:
  *   0 endpoint address  1 depth  2 policy
  *   The address is that of an IN endpoint of the staged configuration. The depth is how many
@@ -318,32 +371,28 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   that arrives, DROP_OLDEST drops the oldest that is not being sent, WAIT is DROP_NEWEST on the
  *   board (the host
  *   counts and does not send more than the depth; MIMHID_EV_EP_DONE is how it learns what the
- *   board finished). An HID endpoint takes DROP_NEWEST only in this release (NAK UNSUPPORTED).
- *   A queue of the generic driver is cut from the board's pool of endpoint queue slots (see
+ *   board finished). A queue is cut from the board's pool of endpoint queue slots (see
  *   docs/LIMITS.md for what each policy costs); more than the pool holds is NAK OVERFLOW. Every IN
- *   endpoint of the generic driver needs one before COMMIT (NAK STATE otherwise).
+ *   endpoint needs one before COMMIT (NAK STATE otherwise).
  * EP_STALL payload after the sequence number: 0 endpoint address  1 stall (1) or clear (0)
  *   Stalling sets the Halt feature of the endpoint (USB 2.0 9.4.5): the endpoint answers STALL
  *   until it is cleared, by this command or by the target. On an IN endpoint it drops what waits
- *   and the transfer being sent. NAK STATE when the address is not an endpoint of the generic
- *   driver in the active configuration (an HID endpoint is not).
+ *   and the transfer being sent. NAK STATE when the address is not an endpoint of the active
+ *   configuration.
  * EP_FLUSH payload after the sequence number: 0 endpoint address (IN). Drops what waits on the
  *   board for it; a transfer already given to the controller completes. NAK STATE as for
  *   EP_STALL, NAK PARAM for an OUT endpoint (nothing waits on one).
  *
  * Endpoint data frames. 0x40 | n (host to board): one transfer for IN endpoint n of the active
- * configuration. On a generic endpoint the payload is the whole transfer: at most
+ * configuration. The payload is the whole transfer: at most
  * max_transfer_bytes, and an empty payload is a zero-length packet (USB 2.0 5.8.3); a frame that
  * is not the last of a longer transfer is a multiple of the endpoint's packet size, so the target
- * sees one transfer. On an HID endpoint an empty payload is dropped. 0xC0 | n (board to host): a
+ * sees one transfer. 0xC0 | n (board to host): a
  * packet the target sent on OUT endpoint n, as it came. The board arms the endpoint for the next
  * packet only after it has written that frame, so a busy link holds the target with NAKs and
  * nothing is lost.
  *
  * EVENT payload: kind, then
- *   OUTPUT_REPORT  interface, length (two bytes), the report
- *   SET_REPORT     interface, report type, report id, the bytes the target sent (cut to what
- *                  the board holds)
  *   TRANSFER_LOST  endpoint address, count (two bytes)
  *   EP_DONE        endpoint address, transfers completed (two bytes) since the last EP_DONE of
  *                  that endpoint; at most one per endpoint per pass of the board's USB side
@@ -353,7 +402,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_DESC_DEVICE 1
 #define MIMHID_DESC_CONFIGURATION 2
 #define MIMHID_DESC_STRING 3
-#define MIMHID_DESC_HID_REPORT 4
+#define MIMHID_DESC_ANSWER 5 /* 4 was the HID report descriptor, which the board no longer knows */
 #define MIMHID_DESC_F_SERIAL_FROM_ID 0x01
 
 #define MIMHID_EP_FULL_DROP_NEWEST 1

@@ -11,7 +11,6 @@ idf_component_register(
         ${tusb_src}/common/tusb_fifo.c
         ${tusb_src}/device/usbd.c
         ${tusb_src}/device/usbd_control.c
-        ${tusb_src}/class/hid/hid_device.c
         ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
         ${tusb_src}/portable/synopsys/dwc2/dwc2_common.c
     INCLUDE_DIRS
@@ -23,14 +22,13 @@ idf_component_register(
 )
 
 # TinyUSB's ESP32-S3 controller table has ep_count 7 and ep_in_count 5, both with endpoint 0: the
-# endpoint numbers are 1 to 6 and four IN endpoints can be open, so the host packs nodes into four
-# interfaces (see core.h). Full speed only (the built-in PHY).
+# endpoint numbers are 1 to 6 and four IN endpoints can be open (see core.h). Full speed only (the
+# built-in PHY).
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CFG_TUSB_MCU=OPT_MCU_ESP32S3
     CFG_TUSB_OS=OPT_OS_NONE
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
     CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
-    MIMHID_HID_ITFS=4
     MIMHID_MAX_ENDPOINT_NUMBER=6
     MIMHID_MAX_ENDPOINT_BYTES=64
 )

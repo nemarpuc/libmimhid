@@ -182,17 +182,17 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         firmware/common/ep0.c
         firmware/common/usb_descriptors.c
         firmware/common/generic.c)
-    foreach(itfs 15 7 3)
+    foreach(itfs 15 7 3) # the highest endpoint number the simulated board has
         add_executable(mimhid_sim_${itfs}
             ${MIMHID_SIM_SOURCES}
             $<TARGET_OBJECTS:mimhid_test_objects>)
         target_include_directories(mimhid_sim_${itfs} PRIVATE
             include src proto tests tests/sim
             firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
-        # What a port's build states (firmware/common/core.h): the interfaces, the highest endpoint
-        # number (the same number here), the packet size and the speed.
+        # What a port's build states (firmware/common/core.h): the highest endpoint number, the
+        # packet size and the speed.
         target_compile_definitions(mimhid_sim_${itfs} PRIVATE
-            MIMHID_HID_ITFS=${itfs} SIM_HID_ITFS=${itfs}
+            SIM_ENDPOINTS=${itfs}
             MIMHID_MAX_ENDPOINT_NUMBER=${itfs} MIMHID_MAX_ENDPOINT_BYTES=64
             CFG_TUSB_OS=OPT_OS_NONE
             "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
@@ -210,7 +210,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         include src proto tests tests/sim
         firmware/tests firmware/common ${MIMHID_TINYUSB_PATH}/src)
     target_compile_definitions(mimhid_sim_hs PRIVATE
-        MIMHID_HID_ITFS=7 SIM_HID_ITFS=7 SIM_HIGH_SPEED
+        SIM_ENDPOINTS=7 SIM_HIGH_SPEED
         MIMHID_MAX_ENDPOINT_NUMBER=7 MIMHID_MAX_ENDPOINT_BYTES=1024
         CFG_TUSB_OS=OPT_OS_NONE
         CFG_TUSB_CONFIG_FILE="tusb_config.h"

@@ -31,10 +31,9 @@ target_include_directories(mimhid_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 
-# The nRF52840 has the endpoints EPIN1..7 and EPOUT1..7 (number 8 is the isochronous one), so the
-# host packs nodes into seven interfaces (see core.h). Full speed only.
+# The nRF52840 has the endpoints EPIN1..7 and EPOUT1..7 (number 8 is the isochronous one; see
+# core.h). Full speed only.
 set(MIMHID_DEFS
-    MIMHID_HID_ITFS=7
     MIMHID_MAX_ENDPOINT_NUMBER=7
     MIMHID_MAX_ENDPOINT_BYTES=64
     CFG_TUSB_OS=OPT_OS_NONE

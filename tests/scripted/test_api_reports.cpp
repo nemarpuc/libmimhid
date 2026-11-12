@@ -34,8 +34,9 @@ Opened open_keyboard(Board& board) {
     return o;
 }
 
-// mimhid_report_send passes the bytes as they are, as a report frame of the Node.
-void test_report_send() {
+// mimhid_node_endpoint_write passes the bytes as they are, as frames of the Node's IN endpoint (a
+// profile Node writes there too: its reports go the same way).
+void test_endpoint_write_of_a_profile_node() {
     Board board;
     if (!board.start())
         return;
@@ -44,20 +45,28 @@ void test_report_send() {
         return;
     board.clear();
     const std::uint8_t bytes[3] = {0xAA, 0xBB, 0xCC};
-    MIMHID_CHECK(mimhid_report_send(o.node, bytes, sizeof(bytes), kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, sizeof(bytes), kSendMs) == MIMHID_OK);
     Received r;
     MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.size() == 3U &&
                  r.payload[0] == 0xAA && r.payload[2] == 0xCC);
     // An empty report is a report too.
-    MIMHID_CHECK(mimhid_report_send(o.node, nullptr, 0, kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, nullptr, 0, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.empty());
 
+    // More than a packet is a transfer of two frames, as for every endpoint; one that would need
+    // more than 65535 frames is refused.
     std::array<std::uint8_t, 65> long_report{};
-    MIMHID_CHECK(mimhid_report_send(o.node, long_report.data(), long_report.size(), kSendMs) ==
+    board.clear();
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, long_report.data(), long_report.size(),
+                                            kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.size() == 64U);
+    MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.size() == 1U);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, 1U << 22, kSendMs) ==
                  MIMHID_ERR_OVERFLOW);
-    MIMHID_CHECK(mimhid_report_send(o.node, nullptr, 1, kSendMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_report_send(o.node, bytes, 1, 0) == MIMHID_ERR_UNSET_FIELD);
-    MIMHID_CHECK(mimhid_report_send(nullptr, bytes, 1, kSendMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, nullptr, 1, kSendMs) == MIMHID_ERR_PARAM);
+    // Only an IN endpoint of the Node is written to.
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x82, bytes, 1, kSendMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_endpoint_write(nullptr, 0x81, bytes, 1, kSendMs) == MIMHID_ERR_PARAM);
     // Input calls on a generated node, and the raw call refused on it.
     MIMHID_CHECK(mimhid_raw_submit(o.node, bytes, 1, kSendMs) == MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_submit(o.node, 0) == MIMHID_ERR_UNSET_FIELD);
@@ -88,7 +97,7 @@ void test_stalled_line() {
     std::array<std::uint8_t, 64> bytes{};
     mimhid_result r = MIMHID_OK;
     for (int i = 0; i < 100000 && r == MIMHID_OK; ++i)
-        r = mimhid_report_send(o.node, bytes.data(), bytes.size(), 5);
+        r = mimhid_node_endpoint_write(o.node, 0x81, bytes.data(), bytes.size(), 5);
     MIMHID_CHECK(r == MIMHID_ERR_TIMEOUT || r == MIMHID_ERR_SHORT_TRANSFER);
     // The line is full: a key press cannot go out, and stays pending.
     MIMHID_CHECK(mimhid_keyboard_key(o.node, 0x04, 1) == MIMHID_OK);
@@ -127,7 +136,7 @@ void test_link_lost() {
     }
     MIMHID_CHECK(mimhid_device_latched_error(o.device) == MIMHID_ERR_NO_DEVICE);
     const std::uint8_t bytes[1] = {0};
-    MIMHID_CHECK(mimhid_report_send(o.node, bytes, 1, kSendMs) == MIMHID_ERR_NO_DEVICE);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, 1, kSendMs) == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_device_control_reply(o.device, 1, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0,
                                              kSendMs) == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_device_wait_ready(o.device, 10) == MIMHID_ERR_NO_DEVICE);
@@ -137,9 +146,22 @@ void test_link_lost() {
     const mimhid_hid_node_config config = node_config(1);
     MIMHID_CHECK(mimhid_node_open_profile(o.device, o.spec, &config, &kCommit, &other) ==
                  MIMHID_ERR_NO_DEVICE);
-    const std::uint8_t descriptor[2] = {0x05, 0x01};
-    MIMHID_CHECK(mimhid_node_open_raw(o.device, descriptor, sizeof(descriptor), &config, &kCommit,
-                                      &other) == MIMHID_ERR_NO_DEVICE);
+    mimhid_usb_endpoint endpoint{};
+    endpoint.address = 0x82;
+    endpoint.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    endpoint.max_packet_size = 64;
+    endpoint.interval = 1;
+    endpoint.policy = {MIMHID_FULL_DROP_NEWEST, 4};
+    mimhid_usb_interface itf{};
+    itf.number = 1;
+    itf.class_code = 0xFF;
+    itf.endpoints = &endpoint;
+    itf.endpoint_count = 1;
+    mimhid_node_config generic;
+    mimhid_node_config_init(&generic);
+    generic.interfaces = &itf;
+    generic.interface_count = 1;
+    MIMHID_CHECK(mimhid_node_open(o.device, &generic, &kCommit, &other) == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_keyboard_key(o.node, 0x04, 1) == MIMHID_ERR_NO_DEVICE);
     mimhid_spec_release(o.spec);
     MIMHID_CHECK(mimhid_device_close(o.device, kControlMs, kDrainMs) == MIMHID_ERR_NO_DEVICE);
@@ -180,7 +202,7 @@ void test_scan_time() {
 
 void test_api_reports() {
     test_scan_time();
-    test_report_send();
+    test_endpoint_write_of_a_profile_node();
     test_stalled_line();
     test_link_lost();
 }

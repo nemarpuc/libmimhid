@@ -15,9 +15,11 @@ int main() {
         mimhid::device_commit(nullptr, 0U, nullptr) != MIMHID_ERR_PARAM ||
         mimhid::device_connect(nullptr, nullptr) != MIMHID_ERR_PARAM ||
         mimhid::device_disconnect(nullptr, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::node_open_raw(nullptr, nullptr, 0U, nullptr, nullptr, nullptr) !=
-            MIMHID_ERR_PARAM ||
-        mimhid::report_send(nullptr, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
+        mimhid::device_set_control_rules(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
+        mimhid::device_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
+        mimhid::node_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
+        mimhid::hid_descriptor_bytes(0x0111U, 0U, 0U, nullptr) != MIMHID_ERR_PARAM ||
+        mimhid::hid_descriptor_rule(0U, 0x22U, nullptr, 0U, nullptr) != MIMHID_ERR_PARAM ||
         mimhid::last_error() != mimhid_last_error()) {
         return 1;
     }

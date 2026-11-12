@@ -44,7 +44,8 @@ void test_device_arguments() {
     MIMHID_CHECK(refused(mimhid_device_board_info(nullptr, &info)));
     MIMHID_CHECK(refused(mimhid_device_limits(nullptr, &limits)));
     MIMHID_CHECK(refused(mimhid_device_link_counters(nullptr, 0, 100, &counters)));
-    MIMHID_CHECK(refused(mimhid_device_set_control_routing(nullptr, 0, nullptr, 0, 100)));
+    MIMHID_CHECK(refused(mimhid_device_set_control_rules(nullptr, 0, nullptr, 0, 100)));
+    MIMHID_CHECK(refused(mimhid_device_set_rule_data(nullptr, 0, nullptr, 0, 100)));
     MIMHID_CHECK(refused(
         mimhid_device_control_reply(nullptr, 1, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0, 10)));
     MIMHID_CHECK(refused(mimhid_device_set_loss_reporting(nullptr, 0, 0, 100)));
@@ -85,7 +86,10 @@ void test_node_arguments() {
     MIMHID_CHECK(refused(mimhid_digitizer_update(nullptr, nullptr)));
     MIMHID_CHECK(refused(mimhid_battery_update(nullptr, 50)));
     MIMHID_CHECK(refused(mimhid_raw_submit(nullptr, data, 1, 10)));
-    MIMHID_CHECK(refused(mimhid_report_send(nullptr, data, 1, 10)));
+    MIMHID_CHECK(refused(mimhid_node_set_rule_data(nullptr, 0, data, 1, 100)));
+    mimhid_control_rule rule{};
+    MIMHID_CHECK(refused(mimhid_hid_descriptor_rule(0, 0x22, nullptr, 1, &rule)));
+    MIMHID_CHECK(refused(mimhid_hid_descriptor_bytes(0x0111, 0, 0, nullptr)));
 }
 
 void test_spec_arguments() {

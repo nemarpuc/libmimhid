@@ -37,7 +37,7 @@ void test_commands_and_events() {
             return Reply::ack(std::vector<std::uint8_t>(20, 0xEE)); // more than the slot holds
         if (q.type == MIMHID_T_EP_CONFIG)
             return Reply::nak(MIMHID_NAK_OVERFLOW);
-        if (q.type == MIMHID_T_FEATURE)
+        if (q.type == MIMHID_T_RULE_DATA)
             return Reply::silent();
         return std::nullopt;
     });
@@ -45,9 +45,9 @@ void test_commands_and_events() {
     MIMHID_CHECK(r.ok() && r.data_length == 16 && r.data[15] == 0xEE);
     r = link.command(MIMHID_T_EP_CONFIG, payload, 2, 200, 1);
     MIMHID_CHECK(r.status == tr::CommandStatus::nak && r.nak_code == MIMHID_NAK_OVERFLOW && !r);
-    r = link.command(MIMHID_T_FEATURE, payload, 2, 20, 2);
+    r = link.command(MIMHID_T_RULE_DATA, payload, 2, 20, 2);
     MIMHID_CHECK(r.status == tr::CommandStatus::timeout);
-    MIMHID_CHECK(board.count(MIMHID_T_FEATURE) == 2U);
+    MIMHID_CHECK(board.count(MIMHID_T_RULE_DATA) == 2U);
     board.set_policy(nullptr);
 
     // A payload that cannot be framed is refused before anything is written.
@@ -75,18 +75,18 @@ void test_commands_and_events() {
     board.set_policy(nullptr);
     MIMHID_CHECK(link.counters(true, 200, &counters).ok() && counters.errors() == 0U);
 
-    // Mount and unmount set ready; Output and SET_REPORT events need three bytes to be handed on.
+    // Mount and unmount set ready; every event is handed on as it came (the library, not the link,
+    // judges what an event carries).
     MIMHID_CHECK(!link.ready());
     board.send_event(MIMHID_EV_MOUNTED, {});
     MIMHID_CHECK(link.wait_ready(500) && link.ready());
     board.send_event(MIMHID_EV_UNMOUNTED, {});
-    board.send_event(MIMHID_EV_OUTPUT_REPORT, {0, 1});
-    board.send_event(MIMHID_EV_SET_REPORT, {0});
-    board.send_event(MIMHID_EV_OUTPUT_REPORT, {0, 1, 0, 9});
+    board.send_event(MIMHID_EV_CONTROL_SETUP, {0, 0x10});
+    board.send_event(MIMHID_EV_SUSPEND, {0});
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-    while (events.load() < 3 && std::chrono::steady_clock::now() < deadline)
+    while (events.load() < 4 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    MIMHID_CHECK(events.load() == 3); // mounted, unmounted, the full Output report
+    MIMHID_CHECK(events.load() == 4); // mounted, unmounted, the two others
     MIMHID_CHECK(!link.ready());
     MIMHID_CHECK(!link.wait_ready(10));
     link.close();

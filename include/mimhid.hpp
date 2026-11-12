@@ -96,11 +96,32 @@ device_link_counters(mimhid_device* device, bool reset, uint32_t control_timeout
     return mimhid_device_link_counters(device, reset ? 1U : 0U, control_timeout_ms, out_counters);
 }
 [[nodiscard]] inline mimhid_result
-device_set_control_routing(mimhid_device* device, uint32_t report_all,
-                           const mimhid_control_rule* rules, size_t rule_count,
-                           uint32_t control_timeout_ms) noexcept {
-    return mimhid_device_set_control_routing(device, report_all, rules, rule_count,
-                                             control_timeout_ms);
+device_set_control_rules(mimhid_device* device, uint32_t report_all,
+                         const mimhid_control_rule* rules, size_t rule_count,
+                         uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_set_control_rules(device, report_all, rules, rule_count,
+                                           control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_set_rule_data(mimhid_device* device, size_t rule_index,
+                                                        const uint8_t* data, size_t length,
+                                                        uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_set_rule_data(device, rule_index, data, length, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result node_set_rule_data(mimhid_node* node, size_t rule_index,
+                                                      const uint8_t* data, size_t length,
+                                                      uint32_t control_timeout_ms) noexcept {
+    return mimhid_node_set_rule_data(node, rule_index, data, length, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result hid_descriptor_bytes(uint16_t bcd_hid, uint8_t country_code,
+                                                        size_t report_descriptor_length,
+                                                        uint8_t out[9]) noexcept {
+    return mimhid_hid_descriptor_bytes(bcd_hid, country_code, report_descriptor_length, out);
+}
+[[nodiscard]] inline mimhid_result hid_descriptor_rule(uint8_t interface_number,
+                                                       uint8_t descriptor_type,
+                                                       const uint8_t* bytes, size_t length,
+                                                       mimhid_control_rule* out_rule) noexcept {
+    return mimhid_hid_descriptor_rule(interface_number, descriptor_type, bytes, length, out_rule);
 }
 [[nodiscard]] inline mimhid_result device_set_loss_reporting(mimhid_device* device,
                                                              uint32_t enabled, uint32_t interval_ms,
@@ -214,13 +235,6 @@ inline void spec_release(mimhid_spec* spec) noexcept { mimhid_spec_release(spec)
                                                      mimhid_node** out_node) noexcept {
     return mimhid_node_open_profile(device, spec, config, timeouts, out_node);
 }
-[[nodiscard]] inline mimhid_result node_open_raw(mimhid_device* device, const uint8_t* descriptor,
-                                                 size_t descriptor_length,
-                                                 const mimhid_hid_node_config* config,
-                                                 const mimhid_commit_timeouts* timeouts,
-                                                 mimhid_node** out_node) noexcept {
-    return mimhid_node_open_raw(device, descriptor, descriptor_length, config, timeouts, out_node);
-}
 [[nodiscard]] inline mimhid_result node_close(mimhid_node* node,
                                               const mimhid_commit_timeouts* timeouts,
                                               uint32_t drain_timeout_ms) noexcept {
@@ -300,11 +314,6 @@ digitizer_update(mimhid_node* node, const mimhid_digitizer_sample* sample) noexc
 [[nodiscard]] inline mimhid_result raw_submit(mimhid_node* node, const uint8_t* report,
                                               size_t length, uint32_t send_timeout_ms) noexcept {
     return mimhid_raw_submit(node, report, length, send_timeout_ms);
-}
-[[nodiscard]] inline mimhid_result report_send(mimhid_node* node, const uint8_t* report_bytes,
-                                               size_t report_length,
-                                               uint32_t send_timeout_ms) noexcept {
-    return mimhid_report_send(node, report_bytes, report_length, send_timeout_ms);
 }
 
 // ---- Initialized options ----------------------------------------------------------------

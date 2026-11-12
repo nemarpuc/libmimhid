@@ -202,10 +202,10 @@ mimhid_result validate_hid_node_config(const mimhid_device* device,
                   "bcd_hid must be explicitly specified (e.g. 0x0111).");
         return MIMHID_ERR_UNSET_FIELD;
     }
-    if (effective.interface_number >= device->board.max_interfaces) {
+    if (effective.interface_number >= device->board.max_interfaces_any) {
         set_error(MIMHID_ERR_OVERFLOW, "node_config.interface_number",
-                  "The board has fewer HID interfaces.", 0, 0, 0, 0,
-                  static_cast<std::uint32_t>(device->board.max_interfaces) - 1U,
+                  "The board has fewer interfaces.", 0, 0, 0, 0,
+                  static_cast<std::uint32_t>(device->board.max_interfaces_any) - 1U,
                   effective.interface_number);
         return MIMHID_ERR_OVERFLOW;
     }
@@ -221,9 +221,8 @@ mimhid_result validate_hid_node_config(const mimhid_device* device,
                   "characters, or country_code > 35.");
         return MIMHID_ERR_PARAM;
     }
-    // HID 1.11 4.4: a HID interface's endpoints are interrupt endpoints. The IN endpoint's queue
-    // is the board's HID driver's, which drops the newest report when it is full; the other
-    // policies need the generic driver (a later release).
+    // HID 1.11 4.4: a HID interface's endpoints are interrupt endpoints. The IN endpoint is one of
+    // the generic driver's, with any of the three policies.
     const bool has_out = effective.ep_out.address != 0U || effective.ep_out.max_packet_size != 0U ||
                          effective.ep_out.transfer_type != 0U || effective.ep_out.interval != 0U;
     for (const mimhid_usb_endpoint* ep :
@@ -252,12 +251,6 @@ mimhid_result validate_hid_node_config(const mimhid_device* device,
         set_error(MIMHID_ERR_PARAM, "node_config.ep_in.policy",
                   "on_full is MIMHID_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.");
         return MIMHID_ERR_PARAM;
-    }
-    if (effective.ep_in.policy.on_full != MIMHID_FULL_DROP_NEWEST) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "node_config.ep_in.policy.on_full",
-                  "The IN endpoint of a HID Node takes MIMHID_FULL_DROP_NEWEST only in this "
-                  "release.");
-        return MIMHID_ERR_UNSUPPORTED;
     }
     if (device->board.usb_high_speed &&
         (effective.ep_in.interval > 16U || effective.ep_out.interval > 16U)) {
@@ -418,24 +411,22 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, const mimhid_n
     }
     node->generic = true;
     node->device = device;
+    if (const mimhid_result r = mimhid::detail::copy_control_rules(
+            device, config->rules, config->rule_count, "node_config.rules", &node->rules);
+        r != MIMHID_OK)
+        return r;
     if (config->association != nullptr)
         node->association.assign(config->association,
                                  config->association + config->association_length);
     for (std::size_t i = 0U; i < config->interface_count; ++i) {
         const mimhid_usb_interface& in = config->interfaces[i];
-        // The class is the caller's: the library reads it only for these two refusals. Class 0 is
+        // The class is the caller's: the library reads it only for this refusal. Class 0 is
         // "defined at the device level" (USB 2.0 9.6.5 / the class codes of the USB-IF), never an
-        // interface the caller forgot; HID is the board's HID driver's.
+        // interface the caller forgot.
         if (in.class_code == 0U) {
             set_error(MIMHID_ERR_UNSET_FIELD, "node_config.interfaces.class_code",
                       "class_code is required.", 0, 0, 0, 0, in.number, 0);
             return MIMHID_ERR_UNSET_FIELD;
-        }
-        if (in.class_code == 0x03U) {
-            set_error(MIMHID_ERR_UNSUPPORTED, "node_config.interfaces.class_code",
-                      "HID (0x03) goes through mimhid_node_open_profile in this release.", 0, 0, 0,
-                      0, in.number, 0);
-            return MIMHID_ERR_UNSUPPORTED;
         }
         if ((in.endpoints == nullptr && in.endpoint_count != 0U) ||
             (in.class_descriptors == nullptr && in.class_descriptors_length != 0U) ||
@@ -557,9 +548,9 @@ mimhid_result MIMHID_CALL mimhid_node_open_profile(mimhid_device* device, mimhid
     if (const mimhid_result v = validate_hid_node_config(device, effective); v != MIMHID_OK)
         return v;
 
-    if (spec->descriptor.empty() || spec->descriptor.size() > device->board.max_descriptor_bytes) {
+    if (spec->descriptor.empty() || spec->descriptor.size() > device->board.max_answer_bytes) {
         set_error(MIMHID_ERR_OVERFLOW, "spec.descriptor.board",
-                  "The descriptor exceeds the board's descriptor memory.");
+                  "The descriptor exceeds the board's answer memory.");
         return MIMHID_ERR_OVERFLOW;
     }
     struct Limit {
@@ -622,6 +613,14 @@ mimhid_result MIMHID_CALL mimhid_node_open_profile(mimhid_device* device, mimhid
     node->config.name = nullptr;
     node->node_id = node_id;
     node->iface = effective.interface_number;
+    {
+        // The IN endpoint is one of the generic driver's: it has a queue and a policy.
+        mimhid::detail::EndpointRuntime runtime;
+        runtime.address = effective.ep_in.address;
+        runtime.max_packet_size = effective.ep_in.max_packet_size;
+        runtime.policy = effective.ep_in.policy;
+        node->in_endpoints.push_back(runtime);
+    }
     collect_report_ids(spec->descriptor, &node->report_ids, &node->has_report_ids);
     if (const mimhid_result initialized = initialize_node_state(node.get());
         initialized != MIMHID_OK)
@@ -666,117 +665,16 @@ mimhid_result MIMHID_CALL mimhid_node_open_profile(mimhid_device* device, mimhid
 }
 MIMHID_C_RESULT_CATCH("node.open_profile")
 
-mimhid_result MIMHID_CALL mimhid_node_open_raw(mimhid_device* device, const uint8_t* descriptor,
-                                               size_t descriptor_length,
-                                               const mimhid_hid_node_config* config,
-                                               const mimhid_commit_timeouts* timeouts,
-                                               mimhid_node** out_node) try {
-    mimhid::detail::clear_error();
-    if (out_node == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "out_node",
-                  "A nonnull pointer to receive the Node is required.");
-        return MIMHID_ERR_PARAM;
-    }
-    *out_node = nullptr;
-    if (device == nullptr || descriptor == nullptr || descriptor_length == 0U) {
-        set_error(MIMHID_ERR_PARAM, "node.open_raw", "A live Device and descriptor are required.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "The Device handle was consumed by close.");
-        return MIMHID_ERR_PARAM;
-    }
-    if (device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
-        return MIMHID_ERR_NO_DEVICE;
-    }
-    CommitWaits waits;
-    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
-        return r;
-    if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
-                                      static_cast<std::uint32_t>(sizeof(mimhid_hid_node_config)),
-                                      "node_config")) {
-        return MIMHID_ERR_PARAM;
-    }
-    mimhid_hid_node_config effective = *config;
-    if (const mimhid_result v = validate_hid_node_config(device, effective); v != MIMHID_OK)
-        return v;
-
-    if (descriptor_length > device->board.max_descriptor_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "descriptor.board",
-                  "The descriptor exceeds the board's descriptor memory.");
-        return MIMHID_ERR_OVERFLOW;
-    }
-
-    auto spec = std::unique_ptr<mimhid_spec>(new (std::nothrow) mimhid_spec());
-    if (spec == nullptr) {
-        set_error(MIMHID_ERR_INTERNAL, "spec", "Memory allocation for the Spec failed.");
-        return MIMHID_ERR_INTERNAL;
-    }
-    spec->references.store(1U, std::memory_order_relaxed);
-    spec->kind = MIMHID_PROFILE_RAW;
-    spec->descriptor.assign(descriptor, descriptor + descriptor_length);
-
-    std::uint16_t node_id = 0U;
-    if (!mimhid::detail::free_node_id(device, &node_id)) {
-        set_error(MIMHID_ERR_OVERFLOW, "node.open_raw", "The Device holds no more Nodes.");
-        return MIMHID_ERR_OVERFLOW;
-    }
-
-    auto node = std::unique_ptr<mimhid_node>(new (std::nothrow) mimhid_node());
-    if (node == nullptr) {
-        set_error(MIMHID_ERR_INTERNAL, "node", "Memory allocation for the Node failed.");
-        return MIMHID_ERR_INTERNAL;
-    }
-    node->device = device;
-    node->spec = spec.release();
-    node->config = effective;
-    node->interface_string = effective.name != nullptr ? effective.name : "";
-    node->config.name = nullptr;
-    node->node_id = node_id;
-    node->iface = effective.interface_number;
-    collect_report_ids(node->spec->descriptor, &node->report_ids, &node->has_report_ids);
-    if (const mimhid_result initialized = initialize_node_state(node.get());
-        initialized != MIMHID_OK) {
-        mimhid::detail::release_spec(node->spec);
-        node->spec = nullptr;
-        return initialized;
-    }
-
-    mimhid_node* published = node.get();
-    mimhid::detail::publish_node(device, published);
-    device->dirty = true;
-    if (device->batch_open) {
-        published->staged_only = true;
-        *out_node = node.release();
-        return MIMHID_OK;
-    }
-    const mimhid_result committed = commit_device(device, 0U, waits);
-    if (committed != MIMHID_OK) {
-        mimhid::detail::unpublish_node(device, published);
-        mimhid::detail::release_spec(node->spec);
-        node->spec = nullptr;
-        if (device->configured) {
-            commit_device(device, 0U, waits);
-        }
-        return committed;
-    }
-    mimhid::detail::log_message(device, MIMHID_LOG_INFO, "raw node opened");
-    *out_node = node.release();
-    return MIMHID_OK;
-}
-MIMHID_C_RESULT_CATCH("node.open_raw")
-
 mimhid_result MIMHID_CALL mimhid_node_set_feature_response(
     mimhid_node* node, const uint8_t report_id,
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const uint8_t* data, const size_t length, const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
-    if (node == nullptr || node->closed || node->device == nullptr ||
-        (data == nullptr && length != 0U) || length > node->device->board.max_feature_bytes) {
+    if (node == nullptr || node->closed || node->device == nullptr || node->generic ||
+        (data == nullptr && length != 0U) || length > node->device->board.max_control_data_bytes) {
         set_error(MIMHID_ERR_PARAM, "node.feature",
-                  "A live Node and a response of at most the board's max_feature_bytes are "
-                  "required.");
+                  "A live profile Node and a response of at most the board's max_feature_bytes "
+                  "are required.");
         return MIMHID_ERR_PARAM;
     }
     if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
@@ -788,23 +686,127 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(
         if (existing.report_id == report_id)
             entry = &existing;
     }
+    const bool existed = entry != nullptr;
+    const std::size_t old_length = existed ? entry->data.size() : 0U;
     if (entry == nullptr) {
         node->features.push_back(mimhid_node::FeatureEntry{report_id, {}});
         entry = &node->features.back();
     }
     entry->data.assign(data, data + length);
-    if (!device->configured || device->batch_open || node->staged_only)
+    if (!device->configured || device->batch_open || node->staged_only) {
+        device->dirty = device->dirty || device->configured;
         return MIMHID_OK; // sent with the next commit
-    std::vector<std::uint8_t> payload;
-    payload.push_back(node->iface); // the interface number; the answer belongs to the interface
-    payload.push_back(report_id);
-    payload.insert(payload.end(), entry->data.begin(), entry->data.end());
-    return command_error(device->link.command(MIMHID_T_FEATURE, payload.data(), payload.size(),
-                                              control_timeout_ms, kCommandAttempts),
-                         "node.feature", "The board did not accept the Feature report answer.",
-                         MIMHID_T_FEATURE, public_node_id(node));
+    }
+    if (existed && old_length == length) {
+        // The rule exists with room for these bytes: only its bytes change. The target reads the
+        // Report ID first when there is one (HID 1.11 7.2.1 and 8.1).
+        std::vector<std::uint8_t> bytes;
+        if (report_id != 0U)
+            bytes.push_back(report_id);
+        bytes.insert(bytes.end(), entry->data.begin(), entry->data.end());
+        std::size_t index = device->table.size();
+        {
+            std::lock_guard<std::mutex> lock(device->rules_mutex);
+            for (std::size_t i = 0U; i < device->table.size(); ++i) {
+                const mimhid::usb::BoardRule& rule = device->table[i];
+                if (rule.role == mimhid::usb::BoardRule::Role::hid_other && rule.iface == node->iface &&
+                    rule.rule.action == MIMHID_CONTROL_ANSWER && rule.rule.request_value == 0x01U &&
+                    rule.rule.value_value == static_cast<std::uint16_t>(0x0300U | report_id))
+                    index = i;
+            }
+        }
+        if (index < device->table.size()) {
+            const mimhid_result sent =
+                mimhid::detail::send_rule_data(device, index, bytes.data(), bytes.size(),
+                                               control_timeout_ms);
+            if (sent == MIMHID_OK) {
+                std::lock_guard<std::mutex> lock(device->rules_mutex);
+                if (index < device->table.size())
+                    device->table[index].data = std::move(bytes);
+            }
+            return sent;
+        }
+    }
+    // A new Feature report or another length: the table is made again.
+    return mimhid::detail::rebuild_rules(device, control_timeout_ms);
 }
 MIMHID_C_RESULT_CATCH("node.set_feature_response")
+
+mimhid_result MIMHID_CALL mimhid_node_set_rule_data(mimhid_node* node, const size_t rule_index,
+                                                    const uint8_t* data, const size_t length,
+                                                    const uint32_t control_timeout_ms) try {
+    mimhid::detail::clear_error();
+    if (node == nullptr || node->closed || node->device == nullptr ||
+        node->device->closing.load(std::memory_order_acquire)) {
+        set_error(MIMHID_ERR_PARAM, "node", "A live Node is required.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMHID_OK)
+        return t;
+    return mimhid::detail::change_rule_data(node->device, node, rule_index, data, length,
+                                            control_timeout_ms);
+}
+MIMHID_C_RESULT_CATCH("node.set_rule_data")
+
+mimhid_result MIMHID_CALL mimhid_hid_descriptor_bytes(const uint16_t bcd_hid,
+                                                      const uint8_t country_code,
+                                                      const size_t report_descriptor_length,
+                                                      uint8_t out[9]) try {
+    mimhid::detail::clear_error();
+    if (out == nullptr || report_descriptor_length == 0U || report_descriptor_length > 0xFFFFU) {
+        set_error(MIMHID_ERR_PARAM, "report_descriptor_length",
+                  "out is required and the length is 1 to 65535.");
+        return MIMHID_ERR_PARAM;
+    }
+    if (bcd_hid == 0U) {
+        set_error(MIMHID_ERR_UNSET_FIELD, "bcd_hid", "bcd_hid must be given (e.g. 0x0111).");
+        return MIMHID_ERR_UNSET_FIELD;
+    }
+    // HID 1.11 6.2.1: bLength 9, bDescriptorType 0x21, bcdHID, bCountryCode, bNumDescriptors 1, and
+    // the report descriptor's type 0x22 with its length.
+    out[0] = 9U;
+    out[1] = 0x21U;
+    out[2] = static_cast<uint8_t>(bcd_hid & 0xFFU);
+    out[3] = static_cast<uint8_t>(bcd_hid >> 8U);
+    out[4] = country_code;
+    out[5] = 1U;
+    out[6] = 0x22U;
+    out[7] = static_cast<uint8_t>(report_descriptor_length & 0xFFU);
+    out[8] = static_cast<uint8_t>((report_descriptor_length >> 8U) & 0xFFU);
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("hid_descriptor_bytes")
+
+mimhid_result MIMHID_CALL mimhid_hid_descriptor_rule(const uint8_t interface_number,
+                                                     const uint8_t descriptor_type,
+                                                     const uint8_t* bytes, const size_t length,
+                                                     mimhid_control_rule* out_rule) try {
+    mimhid::detail::clear_error();
+    if (bytes == nullptr || out_rule == nullptr || length == 0U || length > 0xFFFFU ||
+        (descriptor_type != 0x22U && descriptor_type != 0x21U)) {
+        set_error(MIMHID_ERR_PARAM, "hid_descriptor_rule",
+                  "bytes and out_rule are required, the length is 1 to 65535, and the type 0x21 "
+                  "or 0x22.");
+        return MIMHID_ERR_PARAM;
+    }
+    // USB 2.0 9.4.3 GET_DESCRIPTOR: standard, device to host, interface; wValue's high byte is the
+    // type (HID 7.1.1), any index of descriptor; wIndex the interface.
+    *out_rule = mimhid_control_rule{};
+    out_rule->request_type_mask = 0xFFU;
+    out_rule->request_type_value = 0x81U;
+    out_rule->request_mask = 0xFFU;
+    out_rule->request_value = 0x06U;
+    out_rule->value_mask = 0xFF00U;
+    out_rule->value_value = static_cast<uint16_t>(descriptor_type << 8U);
+    out_rule->index_mask = 0xFFFFU;
+    out_rule->index_value = interface_number;
+    out_rule->action = MIMHID_CONTROL_ANSWER;
+    out_rule->data = bytes;
+    out_rule->length = length;
+    return MIMHID_OK;
+}
+MIMHID_C_RESULT_CATCH("hid_descriptor_rule")
 
 uint16_t MIMHID_CALL mimhid_node_id(const mimhid_node* node) try {
     mimhid::detail::clear_error();

@@ -21,7 +21,6 @@ MIMHID_CHIP_RP2040 = 1
 MIMHID_CHIP_RP2350 = 2
 MIMHID_CHIP_STM32F4 = 5
 MIMHID_CHIP_UNKNOWN = 0
-MIMHID_CONTROL_MAX_RULES = 8
 MIMHID_CONTROL_MAX_TIMEOUT_MS = 5000
 MIMHID_HOST_MAX_REPORT_BYTES = 1024
 MIMHID_LOSS_MAX_INTERVAL_MS = 60000
@@ -99,10 +98,16 @@ MIMHID_CONTROL_ACTION_LEAVE = 1
 MIMHID_CONTROL_ACTION_ANSWER = 2
 MIMHID_CONTROL_ACTION_STALL = 3
 MIMHID_CONTROL_ACTION_DROP = 4
+MIMHID_CONTROL_ANSWER = 1
+MIMHID_CONTROL_ANSWER_LAST_SENT = 2
+MIMHID_CONTROL_ACCEPT = 3
+MIMHID_CONTROL_ASK = 4
+MIMHID_CONTROL_STALL = 5
 MIMHID_CONTROL_FLAG_HELD = 1
 MIMHID_CONTROL_FLAG_TOO_LONG = 2
 MIMHID_CONTROL_FLAG_FIXED = 4
 MIMHID_CONTROL_FLAG_LOST = 8
+MIMHID_CONTROL_FLAG_ACCEPTED = 16
 MIMHID_TRANSFER_BULK = 2
 MIMHID_TRANSFER_INTERRUPT = 3
 MIMHID_FULL_DROP_NEWEST = 1
@@ -203,7 +208,7 @@ class BoardLimits(c.Structure):
         ("max_control_rules", c.c_uint32),
         ("max_endpoint_number", c.c_uint32),
         ("max_interfaces_any", c.c_uint32),
-        ("max_hid_interfaces", c.c_uint32),
+        ("max_answer_bytes", c.c_uint32),
         ("max_config_descriptor_bytes", c.c_uint32),
         ("max_strings", c.c_uint32),
         ("max_transfer_bytes", c.c_uint32),
@@ -317,6 +322,28 @@ class UsbEndpoint(c.Structure):
     ]
 
 
+class ControlRule(c.Structure):
+    _fields_ = [
+        ("request_type_mask", c.c_uint8),
+        ("request_type_value", c.c_uint8),
+        ("request_mask", c.c_uint8),
+        ("request_value", c.c_uint8),
+        ("value_mask", c.c_uint16),
+        ("value_value", c.c_uint16),
+        ("index_mask", c.c_uint16),
+        ("index_value", c.c_uint16),
+        ("action", c.c_int32),
+        ("data", c.POINTER(c.c_uint8)),
+        ("length", c.c_size_t),
+        ("endpoint_address", c.c_uint8),
+        ("first_byte_filter", c.c_uint8),
+        ("first_byte", c.c_uint8),
+        ("reserved8", c.c_uint8),
+        ("timeout_ms", c.c_uint32),
+        ("when_late", c.c_int32),
+    ]
+
+
 class UsbInterface(c.Structure):
     _fields_ = [
         ("number", c.c_uint8),
@@ -339,6 +366,8 @@ class NodeConfig(c.Structure):
         ("interface_count", c.c_size_t),
         ("association", c.POINTER(c.c_uint8)),
         ("association_length", c.c_size_t),
+        ("rules", c.POINTER(ControlRule)),
+        ("rule_count", c.c_size_t),
     ]
 
 
@@ -663,21 +692,6 @@ class DigitizerSample(c.Structure):
     ]
 
 
-class ControlRule(c.Structure):
-    _fields_ = [
-        ("request_type_mask", c.c_uint8),
-        ("request_type_value", c.c_uint8),
-        ("request_mask", c.c_uint8),
-        ("request_value", c.c_uint8),
-        ("value_mask", c.c_uint16),
-        ("value_value", c.c_uint16),
-        ("index_mask", c.c_uint16),
-        ("index_value", c.c_uint16),
-        ("timeout_ms", c.c_uint32),
-        ("when_late", c.c_int32),
-    ]
-
-
 ABI_STRUCTS = {
     "mimhid_error_detail": ErrorDetail,
     "mimhid_event": Event,
@@ -692,6 +706,7 @@ ABI_STRUCTS = {
     "mimhid_commit_timeouts": CommitTimeouts,
     "mimhid_endpoint_policy": EndpointPolicy,
     "mimhid_usb_endpoint": UsbEndpoint,
+    "mimhid_control_rule": ControlRule,
     "mimhid_usb_interface": UsbInterface,
     "mimhid_node_config": NodeConfig,
     "mimhid_hid_node_config": HidNodeConfig,
@@ -716,7 +731,6 @@ ABI_STRUCTS = {
     "mimhid_touchpad_extra": TouchpadExtra,
     "mimhid_pen_sample": PenSample,
     "mimhid_digitizer_sample": DigitizerSample,
-    "mimhid_control_rule": ControlRule,
 }
 
 
@@ -753,7 +767,11 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_device_board_info", [DeviceP, c.POINTER(DeviceInfo)], c.c_int32)
     declare("mimhid_device_limits", [DeviceP, c.POINTER(BoardLimits)], c.c_int32)
     declare("mimhid_device_link_counters", [DeviceP, c.c_uint32, c.c_uint32, c.POINTER(LinkCounters)], c.c_int32)
-    declare("mimhid_device_set_control_routing", [DeviceP, c.c_uint32, c.POINTER(ControlRule), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_device_set_control_rules", [DeviceP, c.c_uint32, c.POINTER(ControlRule), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_device_set_rule_data", [DeviceP, c.c_size_t, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_node_set_rule_data", [NodeP, c.c_size_t, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_hid_descriptor_bytes", [c.c_uint16, c.c_uint8, c.c_size_t, c.POINTER(c.c_uint8)], c.c_int32)
+    declare("mimhid_hid_descriptor_rule", [c.c_uint8, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(ControlRule)], c.c_int32)
     declare("mimhid_device_control_reply", [DeviceP, c.c_uint32, c.c_int32, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimhid_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
     declare("mimhid_device_add_string", [DeviceP, c.c_char_p, c.POINTER(c.c_uint8)], c.c_int32)
@@ -773,7 +791,6 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_spec_manifest", [SpecP, c.POINTER(CapabilityManifest)], c.c_int32)
     declare("mimhid_node_open", [DeviceP, c.POINTER(NodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
     declare("mimhid_node_open_profile", [DeviceP, SpecP, c.POINTER(HidNodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
-    declare("mimhid_node_open_raw", [DeviceP, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(HidNodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
     declare("mimhid_node_close", [NodeP, c.POINTER(CommitTimeouts), c.c_uint32], c.c_int32)
     declare("mimhid_node_id", [NodeP], c.c_uint16)
     declare("mimhid_node_set_feature_response", [NodeP, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
@@ -800,7 +817,6 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_digitizer_update", [NodeP, c.POINTER(DigitizerSample)], c.c_int32)
     declare("mimhid_battery_update", [NodeP, c.c_int32], c.c_int32)
     declare("mimhid_raw_submit", [NodeP, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
-    declare("mimhid_report_send", [NodeP, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     return library
 
 
@@ -830,6 +846,7 @@ __all__ += [
     "CommitTimeouts",
     "EndpointPolicy",
     "UsbEndpoint",
+    "ControlRule",
     "UsbInterface",
     "NodeConfig",
     "HidNodeConfig",
@@ -854,7 +871,6 @@ __all__ += [
     "TouchpadExtra",
     "PenSample",
     "DigitizerSample",
-    "ControlRule",
     "ABI_STRUCTS",
     "load",
 ]

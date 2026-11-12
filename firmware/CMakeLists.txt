@@ -55,7 +55,6 @@ target_include_directories(mimhid_firmware PRIVATE
 )
 
 target_compile_definitions(mimhid_firmware PRIVATE
-    MIMHID_HID_ITFS=15
     MIMHID_MAX_ENDPOINT_NUMBER=15
     MIMHID_MAX_ENDPOINT_BYTES=64
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"

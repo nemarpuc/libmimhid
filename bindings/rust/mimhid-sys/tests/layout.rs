@@ -18,7 +18,6 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_CHIP_RP2350".to_owned(), MIMHID_CHIP_RP2350 as i64);
     map.insert("MIMHID_CHIP_STM32F4".to_owned(), MIMHID_CHIP_STM32F4 as i64);
     map.insert("MIMHID_CHIP_UNKNOWN".to_owned(), MIMHID_CHIP_UNKNOWN as i64);
-    map.insert("MIMHID_CONTROL_MAX_RULES".to_owned(), MIMHID_CONTROL_MAX_RULES as i64);
     map.insert("MIMHID_CONTROL_MAX_TIMEOUT_MS".to_owned(), MIMHID_CONTROL_MAX_TIMEOUT_MS as i64);
     map.insert("MIMHID_HOST_MAX_REPORT_BYTES".to_owned(), MIMHID_HOST_MAX_REPORT_BYTES as i64);
     map.insert("MIMHID_LOSS_MAX_INTERVAL_MS".to_owned(), MIMHID_LOSS_MAX_INTERVAL_MS as i64);
@@ -96,10 +95,16 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMHID_CONTROL_ACTION_ANSWER".to_owned(), MIMHID_CONTROL_ACTION_ANSWER as i64);
     map.insert("MIMHID_CONTROL_ACTION_STALL".to_owned(), MIMHID_CONTROL_ACTION_STALL as i64);
     map.insert("MIMHID_CONTROL_ACTION_DROP".to_owned(), MIMHID_CONTROL_ACTION_DROP as i64);
+    map.insert("MIMHID_CONTROL_ANSWER".to_owned(), MIMHID_CONTROL_ANSWER as i64);
+    map.insert("MIMHID_CONTROL_ANSWER_LAST_SENT".to_owned(), MIMHID_CONTROL_ANSWER_LAST_SENT as i64);
+    map.insert("MIMHID_CONTROL_ACCEPT".to_owned(), MIMHID_CONTROL_ACCEPT as i64);
+    map.insert("MIMHID_CONTROL_ASK".to_owned(), MIMHID_CONTROL_ASK as i64);
+    map.insert("MIMHID_CONTROL_STALL".to_owned(), MIMHID_CONTROL_STALL as i64);
     map.insert("MIMHID_CONTROL_FLAG_HELD".to_owned(), MIMHID_CONTROL_FLAG_HELD as i64);
     map.insert("MIMHID_CONTROL_FLAG_TOO_LONG".to_owned(), MIMHID_CONTROL_FLAG_TOO_LONG as i64);
     map.insert("MIMHID_CONTROL_FLAG_FIXED".to_owned(), MIMHID_CONTROL_FLAG_FIXED as i64);
     map.insert("MIMHID_CONTROL_FLAG_LOST".to_owned(), MIMHID_CONTROL_FLAG_LOST as i64);
+    map.insert("MIMHID_CONTROL_FLAG_ACCEPTED".to_owned(), MIMHID_CONTROL_FLAG_ACCEPTED as i64);
     map.insert("MIMHID_TRANSFER_BULK".to_owned(), MIMHID_TRANSFER_BULK as i64);
     map.insert("MIMHID_TRANSFER_INTERRUPT".to_owned(), MIMHID_TRANSFER_INTERRUPT as i64);
     map.insert("MIMHID_FULL_DROP_NEWEST".to_owned(), MIMHID_FULL_DROP_NEWEST as i64);
@@ -160,7 +165,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_board_limits.max_control_rules".to_owned(), offset_of!(mimhid_board_limits, max_control_rules) as i64);
     map.insert("mimhid_board_limits.max_endpoint_number".to_owned(), offset_of!(mimhid_board_limits, max_endpoint_number) as i64);
     map.insert("mimhid_board_limits.max_interfaces_any".to_owned(), offset_of!(mimhid_board_limits, max_interfaces_any) as i64);
-    map.insert("mimhid_board_limits.max_hid_interfaces".to_owned(), offset_of!(mimhid_board_limits, max_hid_interfaces) as i64);
+    map.insert("mimhid_board_limits.max_answer_bytes".to_owned(), offset_of!(mimhid_board_limits, max_answer_bytes) as i64);
     map.insert("mimhid_board_limits.max_config_descriptor_bytes".to_owned(), offset_of!(mimhid_board_limits, max_config_descriptor_bytes) as i64);
     map.insert("mimhid_board_limits.max_strings".to_owned(), offset_of!(mimhid_board_limits, max_strings) as i64);
     map.insert("mimhid_board_limits.max_transfer_bytes".to_owned(), offset_of!(mimhid_board_limits, max_transfer_bytes) as i64);
@@ -235,6 +240,24 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_usb_endpoint.max_packet_size".to_owned(), offset_of!(mimhid_usb_endpoint, max_packet_size) as i64);
     map.insert("mimhid_usb_endpoint.reserved16".to_owned(), offset_of!(mimhid_usb_endpoint, reserved16) as i64);
     map.insert("mimhid_usb_endpoint.policy".to_owned(), offset_of!(mimhid_usb_endpoint, policy) as i64);
+    map.insert("mimhid_control_rule.size".to_owned(), size_of::<mimhid_control_rule>() as i64);
+    map.insert("mimhid_control_rule.request_type_mask".to_owned(), offset_of!(mimhid_control_rule, request_type_mask) as i64);
+    map.insert("mimhid_control_rule.request_type_value".to_owned(), offset_of!(mimhid_control_rule, request_type_value) as i64);
+    map.insert("mimhid_control_rule.request_mask".to_owned(), offset_of!(mimhid_control_rule, request_mask) as i64);
+    map.insert("mimhid_control_rule.request_value".to_owned(), offset_of!(mimhid_control_rule, request_value) as i64);
+    map.insert("mimhid_control_rule.value_mask".to_owned(), offset_of!(mimhid_control_rule, value_mask) as i64);
+    map.insert("mimhid_control_rule.value_value".to_owned(), offset_of!(mimhid_control_rule, value_value) as i64);
+    map.insert("mimhid_control_rule.index_mask".to_owned(), offset_of!(mimhid_control_rule, index_mask) as i64);
+    map.insert("mimhid_control_rule.index_value".to_owned(), offset_of!(mimhid_control_rule, index_value) as i64);
+    map.insert("mimhid_control_rule.action".to_owned(), offset_of!(mimhid_control_rule, action) as i64);
+    map.insert("mimhid_control_rule.data".to_owned(), offset_of!(mimhid_control_rule, data) as i64);
+    map.insert("mimhid_control_rule.length".to_owned(), offset_of!(mimhid_control_rule, length) as i64);
+    map.insert("mimhid_control_rule.endpoint_address".to_owned(), offset_of!(mimhid_control_rule, endpoint_address) as i64);
+    map.insert("mimhid_control_rule.first_byte_filter".to_owned(), offset_of!(mimhid_control_rule, first_byte_filter) as i64);
+    map.insert("mimhid_control_rule.first_byte".to_owned(), offset_of!(mimhid_control_rule, first_byte) as i64);
+    map.insert("mimhid_control_rule.reserved8".to_owned(), offset_of!(mimhid_control_rule, reserved8) as i64);
+    map.insert("mimhid_control_rule.timeout_ms".to_owned(), offset_of!(mimhid_control_rule, timeout_ms) as i64);
+    map.insert("mimhid_control_rule.when_late".to_owned(), offset_of!(mimhid_control_rule, when_late) as i64);
     map.insert("mimhid_usb_interface.size".to_owned(), size_of::<mimhid_usb_interface>() as i64);
     map.insert("mimhid_usb_interface.number".to_owned(), offset_of!(mimhid_usb_interface, number) as i64);
     map.insert("mimhid_usb_interface.class_code".to_owned(), offset_of!(mimhid_usb_interface, class_code) as i64);
@@ -252,6 +275,8 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_node_config.interface_count".to_owned(), offset_of!(mimhid_node_config, interface_count) as i64);
     map.insert("mimhid_node_config.association".to_owned(), offset_of!(mimhid_node_config, association) as i64);
     map.insert("mimhid_node_config.association_length".to_owned(), offset_of!(mimhid_node_config, association_length) as i64);
+    map.insert("mimhid_node_config.rules".to_owned(), offset_of!(mimhid_node_config, rules) as i64);
+    map.insert("mimhid_node_config.rule_count".to_owned(), offset_of!(mimhid_node_config, rule_count) as i64);
     map.insert("mimhid_hid_node_config.size".to_owned(), size_of::<mimhid_hid_node_config>() as i64);
     map.insert("mimhid_hid_node_config.struct_size".to_owned(), offset_of!(mimhid_hid_node_config, struct_size) as i64);
     map.insert("mimhid_hid_node_config.reserved".to_owned(), offset_of!(mimhid_hid_node_config, reserved) as i64);
@@ -485,17 +510,6 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_digitizer_sample.tilt_x".to_owned(), offset_of!(mimhid_digitizer_sample, tilt_x) as i64);
     map.insert("mimhid_digitizer_sample.tilt_y".to_owned(), offset_of!(mimhid_digitizer_sample, tilt_y) as i64);
     map.insert("mimhid_digitizer_sample.twist".to_owned(), offset_of!(mimhid_digitizer_sample, twist) as i64);
-    map.insert("mimhid_control_rule.size".to_owned(), size_of::<mimhid_control_rule>() as i64);
-    map.insert("mimhid_control_rule.request_type_mask".to_owned(), offset_of!(mimhid_control_rule, request_type_mask) as i64);
-    map.insert("mimhid_control_rule.request_type_value".to_owned(), offset_of!(mimhid_control_rule, request_type_value) as i64);
-    map.insert("mimhid_control_rule.request_mask".to_owned(), offset_of!(mimhid_control_rule, request_mask) as i64);
-    map.insert("mimhid_control_rule.request_value".to_owned(), offset_of!(mimhid_control_rule, request_value) as i64);
-    map.insert("mimhid_control_rule.value_mask".to_owned(), offset_of!(mimhid_control_rule, value_mask) as i64);
-    map.insert("mimhid_control_rule.value_value".to_owned(), offset_of!(mimhid_control_rule, value_value) as i64);
-    map.insert("mimhid_control_rule.index_mask".to_owned(), offset_of!(mimhid_control_rule, index_mask) as i64);
-    map.insert("mimhid_control_rule.index_value".to_owned(), offset_of!(mimhid_control_rule, index_value) as i64);
-    map.insert("mimhid_control_rule.timeout_ms".to_owned(), offset_of!(mimhid_control_rule, timeout_ms) as i64);
-    map.insert("mimhid_control_rule.when_late".to_owned(), offset_of!(mimhid_control_rule, when_late) as i64);
     map
 }
 

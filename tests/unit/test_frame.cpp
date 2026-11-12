@@ -64,7 +64,7 @@ void test_other_types_are_skipped() {
     // EVENT frame and are no frame types; host-to-board types are not taken from a board either.
     std::vector<std::uint8_t> bytes;
     for (const std::uint8_t type :
-         {std::uint8_t{MIMHID_EV_SET_REPORT}, std::uint8_t{MIMHID_EV_OUTPUT_REPORT},
+         {std::uint8_t{MIMHID_T_RULE}, std::uint8_t{MIMHID_T_RULES_APPLY},
           std::uint8_t{MIMHID_T_PING}, std::uint8_t{MIMHID_T_COMMIT},
           std::uint8_t{MIMHID_T_EP_IN_BASE}}) {
         const std::vector<std::uint8_t> frame = frame_bytes(type, {0x00U, 0x01U, 0x02U});
@@ -132,12 +132,12 @@ void test_pong_of_another_version_is_recognised() {
 // The patch number does not change the wire: a board with another patch is compatible.
 void test_pong_of_this_version_decodes_every_field() {
     std::vector<std::uint8_t> payload(MIMHID_PONG_MIN_LEN + 2U, 0U);
+    // The bytes the old HID driver filled (5, 21..22, 25..26) are reserved and read as zero.
     payload[0] = MIMHID_VERSION_MAJOR;
     payload[1] = MIMHID_VERSION_MINOR;
     payload[2] = static_cast<std::uint8_t>(MIMHID_VERSION_PATCH + 5U);
     payload[3] = 1;
     payload[4] = 0;    // reserved
-    payload[5] = 15;   // max_interfaces
     payload[6] = 1;    // has a unique id
     payload[7] = 2;    // chip
     payload[9] = 0xC0; // baud 3,000,000
@@ -155,6 +155,8 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[42] = 32;   // endpoint_queue_slots
     payload[43] = 0;
     payload[44] = 0x0C; // transfer types: bulk and interrupt
+    payload[45] = 0x00; // max_answer_bytes 4096
+    payload[46] = 0x10;
     payload[MIMHID_PONG_MIN_LEN] = 0xAB;
     payload[MIMHID_PONG_MIN_LEN + 1] = 0xCD;
     const std::vector<Frame> frames = parse(frame_bytes(MIMHID_T_PONG, payload));
@@ -162,7 +164,7 @@ void test_pong_of_this_version_decodes_every_field() {
     if (frames.size() == 1U) {
         mimhid::transport::BoardInfo info;
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
-                     info.max_interfaces == 15U && info.has_unique_id && info.chip == 2U &&
+                     info.max_answer_bytes == 4096U && info.has_unique_id && info.chip == 2U &&
                      info.baud == 3000000U && info.max_control_rules == 8U &&
                      info.max_endpoint_number == 6U && info.max_interfaces_any == 12U &&
                      info.max_config_descriptor_bytes == 1024U && info.max_strings == 24U &&
