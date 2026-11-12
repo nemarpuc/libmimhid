@@ -31,12 +31,6 @@ change of the minor number may change the API, the ABI or the wire protocol.
   (`hal_usb_clear_endpoint`). Seen on a board: four openings and closings of a UVC stream in a row,
   and a detach while streaming followed by three attaches, with no stop; before, the second opening
   stopped the board until it was unplugged.
-- A detach (`mimhid_device_close`, `mimhid_device_clear_descriptors`) on a board with isochronous
-  endpoints now closes every endpoint of the controller and tells the stack of a bus reset. The
-  RP2040 and RP2350 hand out their packet memory once per endpoint and take it back only at a bus
-  reset or when every endpoint is closed; a target that never saw the detach sends no bus reset,
-  and the next attach would then allocate on top of the old buffers until the driver's assertion
-  stopped the board. Not reproduced on a board: the reasoning is from the TinyUSB source.
 
 ### Changed
 

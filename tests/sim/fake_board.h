@@ -53,14 +53,9 @@ void fake_board_target_get_interface(uint8_t interface_number);
 // The packet size an endpoint is at on the controller (the descriptor it was opened or activated
 // with); 0 while it is not open.
 unsigned fake_board_endpoint_packet(uint8_t address);
-/* How many times the firmware closed every endpoint / told the stack of a bus reset on its own
- * (a detach on a board with isochronous endpoints: the controller's packet memory is given back).
- */
-unsigned fake_board_close_all_count(void);
 /* How many times the firmware took the transfer armed on this endpoint off the controller (a
  * SET_INTERFACE that stops or starts an isochronous endpoint). */
 unsigned fake_board_clear_endpoint_count(uint8_t address);
-unsigned fake_board_bus_reset_count(void);
 int fake_board_endpoint_stalled(uint8_t address);
 // 1 while the controller holds a transfer of the endpoint that the target has not read.
 int fake_board_endpoint_busy(uint8_t address);

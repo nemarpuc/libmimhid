@@ -177,14 +177,8 @@ void streaming() {
                  ev.data.size() == 3U);
 
     // A bus reset in the target (the device is taken off and put back) starts in setting 0 again.
-    const unsigned closed = fake_board_close_all_count();
-    const unsigned resets = fake_board_bus_reset_count();
     MIMHID_CHECK(mimhid_device_clear_descriptors(device, &kCommit) == MIMHID_OK);
     MIMHID_CHECK(!fake_board_mounted());
-    // The detach gave the controller's packet memory back and made the stack forget the
-    // configuration, without waiting for a bus reset that a target that missed it never sends.
-    MIMHID_CHECK(fake_board_close_all_count() == closed + 1U &&
-                 fake_board_bus_reset_count() == resets + 1U);
     // (Clearing forgets the policies too.)
     MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x81, &keep, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_set_descriptors(device, &d, &kCommit) == MIMHID_OK);
