@@ -29,6 +29,15 @@ session), the other boards.
   rule's bytes replaced, and an Output report on the OUT endpoint.
 - A composite device opened in one batch: a keyboard profile and a two-interface Node with an
   interface association.
+- A device given as bytes (`tests/hw/hw_bytes bytes`): the device, configuration and BOS descriptors and
+  two strings read back by Linux byte for byte, the vendor request answered by a rule of the Device,
+  bulk IN with its boundaries and a zero-length packet, bulk OUT as events of node 0 (a transfer of 70
+  bytes is two packets), Halt and clear. A composed Device with a BOS descriptor and `bcdUSB` 0x0210
+  (`hw_bytes bos`). The BOS of both names the Microsoft OS 2.0 capability, so the target asks for its
+  descriptor set and the Device has a rule that answers; without it, or with `bcdUSB` 0x0210 and no BOS,
+  the target did not enumerate the device. Not run: Windows.
+- `hw_bulk wait|newest|oldest`, `hw_control_rules` and `hw_composite` again on the same firmware; the
+  latency of ten runs in `docs/LATENCY.md`.
 - `mimhid_device_enter_bootloader`, used to write the firmware some forty times.
 
 ### Wire protocol

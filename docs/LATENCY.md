@@ -54,6 +54,8 @@ The unreleased 0.3.0 (every interface on the generic driver, endpoint 0 answered
 
 The two versions are not told apart by this: a run's median moves by some 0.3 ms from one enumeration to the next with the same firmware, more than the versions differ. Comparing single runs is misleading (two runs taken alone showed 0.3.0 slower by 0.3 ms, two others faster). What the earlier entry does not show, this one does not show either.
 
+Measured again the same day after the generic-device work (the byte device, the BOS descriptor, an answer's capacity, the refused second attach), same board, adapter, target and program, ten runs of 400 presses and 400 releases, the board re-enumerated for every run: the median of submit to key-down ran from 864 to 1281 µs, mean of the ten medians 1075 µs (0.3.0 before: 980 µs; 0.2.1: 1026 µs). That is 0.05 to 0.1 ms above the earlier means, less than the 0.3 ms by which a run's median moves between enumerations; the commit added nothing to the report path (no code in `endpoint_write`'s hot loop and nothing in the firmware's per-frame code changed), and this measurement does not tell it apart from the earlier ones. None lost; the link counters were not read in these runs.
+
 Throughput of a bulk endpoint on the same setup, with the wait policy and the target reading all the time: 262,100 bytes to the target in 1.38 s (about 190 kB/s), nothing lost; 200 packets of 64 bytes from the target in 47 to 63 ms (about 200 to 270 kB/s). Not characterized further: the target's USB stack is the guest's.
 
 ## How to measure

@@ -85,6 +85,8 @@ only one board may be connected.
 | `hw_bulk newest`, `hw_bulk oldest` | The two drop policies with a target that does not read: which transfers it then reads, and that the lost ones are reported. |
 | `hw_control_rules` | An HID interface written by hand: the report descriptor the kernel read, `ANSWER_LAST_SENT`, an `ANSWER` and its bytes replaced, `ACCEPT` with a data stage, `ASK`, a stall for a request no rule matches, an Output report on the OUT endpoint. |
 | `hw_composite` | A keyboard profile and a two-interface Node with an interface association, opened in one batch. |
+| `hw_bytes bytes` | A device given as bytes with a BOS descriptor: the target reads every descriptor and two strings back byte for byte, a vendor request is answered by a rule of the Device, bulk IN and OUT, Halt. |
+| `hw_bytes bos` | A composed Device with `bcdUSB` 0x0210 and a BOS given with `mimhid_device_set_bos`: the target reads it back. |
 | `hw_keyboard_latency [presses]` | Step 9: submit to evdev event for a keyboard profile, with the event device grabbed. Compare versions over several runs each: one run's median moves by some 0.3 ms from one enumeration to the next. |
 
 Each prints `PASSED` or what failed and returns nonzero on a failure. They do not replace the

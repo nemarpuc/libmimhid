@@ -21,7 +21,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 find_package(Threads REQUIRED)
 
-foreach(name hw_bulk hw_keyboard_latency hw_control_rules hw_composite)
+foreach(name hw_bulk hw_keyboard_latency hw_control_rules hw_composite hw_bytes)
     add_executable(${name} ${name}.c)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../examples/c)
     target_link_libraries(${name} PRIVATE mimhid::static PkgConfig::LIBUSB Threads::Threads)
