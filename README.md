@@ -9,7 +9,7 @@ and no agent: ready-made HID profiles (keyboard, mouse, gamepad, touchscreen, to
 media keys), interfaces of any other class from their descriptors, or a whole device given as
 bytes. Linux, Windows, and macOS hosts; usable from C, C++, Python, C#, and Rust. MIT licensed.
 
-> Version 0.4.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 0.5.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 `libmimusb` is a C++20 library with a stable C ABI. For the HID profiles you describe the USB device
 identity and each HID interface (ranges, bit widths, Report IDs, Usages,

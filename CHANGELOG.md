@@ -6,6 +6,15 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-12
+
+**Not hardware-verified.** Nothing of this release was run on a board: the simulated board (the
+firmware core on a fake HAL) and the scripted board cover it. The wire protocol and the firmware
+behaviour are unchanged from 0.4.0; the firmware images differ only in the version they report.
+The C ABI changes (`mimusb_usb_endpoint` is 12 bytes, `mimusb_usb_interface` has `settings`), so a
+program built against 0.4.0 needs the changes below, and the shared library keeps SOVERSION 0
+while the version is 0.x.
+
 ### Added
 
 - `mimusb_cdc_acm_descriptors_make` and `mimusb_cdc_acm_rules`: the class descriptors, the
