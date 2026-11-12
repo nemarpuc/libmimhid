@@ -6,7 +6,9 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
-**Version 0.3.0, not released. Not hardware-verified as `tests/hw/README.md` defines it; what was run
+## [0.3.0] - 2026-11-12
+
+**Not hardware-verified as `tests/hw/README.md` defines it; what was run
 on a board is listed under "Run on a board" below.** The wire protocol and the C ABI change: a
 0.2.1 board and this library do not talk to each other. The board becomes a generic USB device: the
 host composes every descriptor, or is given them as bytes, and the firmware has no HID driver.
