@@ -231,7 +231,7 @@ static int run_bos(mimusb_device* device, const char* port, uint32_t baud) {
         mimusb_device_set_control_rules(device, 0, &rule, 1, 500);
     }
     mimusb_node* node = NULL;
-    r = mimusb_node_open(device, &nc, &to, &node);
+    r = example_node_open_interfaces(device, &nc, &to, &node);
     CHECK(r == MIMUSB_OK, "node_open with bcdUSB 0x0210: %s %s", mimusb_result_name(r),
           mimusb_last_error()->reason);
     if (r != MIMUSB_OK)

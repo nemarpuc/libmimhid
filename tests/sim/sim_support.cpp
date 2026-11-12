@@ -108,6 +108,7 @@ mimusb_device* open_device(const mimusb_device_config& options) {
 mimusb_spec* keyboard_spec(std::uint8_t report_id) {
     mimusb_keyboard_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.report_id = {report_id != 0 ? 1U : 0U, report_id, {0, 0, 0}};
     o.usage_minimum = 0x04;
     o.usage_maximum = 0x65;
@@ -119,6 +120,7 @@ mimusb_spec* keyboard_spec(std::uint8_t report_id) {
 mimusb_spec* mouse_spec(std::uint8_t report_id) {
     mimusb_mouse_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.report_id = {report_id != 0 ? 1U : 0U, report_id, {0, 0, 0}};
     o.button_count = 3;
     o.x = {-32767, 32767, 16, {}};
@@ -131,6 +133,7 @@ mimusb_spec* mouse_spec(std::uint8_t report_id) {
 mimusb_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature) {
     mimusb_touchscreen_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.report_id = {report_id != 0 ? 1U : 0U, report_id, {0, 0, 0}};
     o.maximum_contacts = 3;
     o.contacts_per_report = 3;
@@ -147,6 +150,7 @@ mimusb_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature) {
 mimusb_spec* pen_spec(std::uint8_t report_id) {
     mimusb_pen_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.report_id = {report_id != 0 ? 1U : 0U, report_id, {0, 0, 0}};
     o.x = {0, 32767, 16, {}};
     o.y = {0, 32767, 16, {}};
@@ -161,16 +165,24 @@ constexpr std::uint8_t kRawDescriptorNoId[] = {0x05, 0x01, 0x09, 0x06, 0xA1, 0x0
                                                0x09, 0x01, 0x81, 0x02, 0xC0};
 } // namespace
 
-mimusb_spec* raw_spec_no_id() {
+mimusb_result create_raw_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out) {
     static const mimusb_raw_report report{{0, 0, {}}, 1};
     mimusb_raw_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.descriptor = kRawDescriptorNoId;
     o.descriptor_length = sizeof(kRawDescriptorNoId);
     o.reports = &report;
     o.report_count = 1;
+    o.function = function;
+    return mimusb_spec_create_raw(&o, out);
+}
+
+mimusb_spec* raw_spec_no_id() {
+    mimusb_hid_function function;
+    test_fill_function(&function);
     mimusb_spec* spec = nullptr;
-    MIMUSB_CHECK(mimusb_spec_create_raw(&o, &spec) == MIMUSB_OK);
+    MIMUSB_CHECK(create_raw_spec_no_id(function, &spec) == MIMUSB_OK);
     return spec;
 }
 
@@ -184,6 +196,7 @@ mimusb_spec* raw_spec_io() {
     static const mimusb_raw_report report{{1, 5, {}}, 2};
     mimusb_raw_options o{};
     o.struct_size = sizeof(o);
+    o.function.bcd_hid = 0x0111;
     o.descriptor = kRawDescriptorIo;
     o.descriptor_length = sizeof(kRawDescriptorIo);
     o.reports = &report;
@@ -196,12 +209,12 @@ mimusb_spec* raw_spec_io() {
 }
 
 mimusb_node* open_node(mimusb_device* device, mimusb_spec* spec,
-                       const mimusb_hid_node_config* options) {
-    mimusb_hid_node_config defaults{};
+                       const test_hid_node_config* options) {
+    test_hid_node_config defaults{};
     test_fill_node_config(&defaults, 0);
     mimusb_node* node = nullptr;
-    const mimusb_result r = mimusb_node_open_profile(
-        device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
+    const mimusb_result r =
+        test_node_open_hid(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
     if (r != MIMUSB_OK) {
         std::fprintf(stderr, "node_open: %s (%s)\n", mimusb_result_name(r),
                      mimusb_last_error()->reason);
@@ -232,7 +245,7 @@ mimusb_node* open_vendor_node(mimusb_device* device, const mimusb_control_rule* 
     config.rules = rules;
     config.rule_count = rule_count;
     mimusb_node* node = nullptr;
-    const mimusb_result r = mimusb_node_open(device, &config, &kCommit, &node);
+    const mimusb_result r = test_node_open_interfaces(device, &config, &kCommit, &node);
     if (r != MIMUSB_OK) {
         std::fprintf(stderr, "node_open: %s (%s)\n", mimusb_result_name(r),
                      mimusb_last_error()->reason);

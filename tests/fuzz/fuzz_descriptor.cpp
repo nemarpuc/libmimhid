@@ -55,6 +55,7 @@ void fuzz_builder(const std::uint8_t* data, const std::size_t size) {
 void fuzz_serializer(const std::uint8_t* data, const std::size_t size) {
     mimusb_mouse_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.button_count = 8U;
     options.x = {-32767, 32767, 16U, {}};
     options.y = {-32767, 32767, 16U, {}};

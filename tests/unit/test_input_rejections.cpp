@@ -53,6 +53,7 @@ void test_keyboard_and_mouse() {
 
     mimusb_mouse_options mouse{};
     mouse.struct_size = static_cast<std::uint32_t>(sizeof(mouse));
+    mouse.function.bcd_hid = 0x0111;
     mouse.button_count = 2U;
     mouse.x = {-127, 127, 8U, {}};
     mouse.y = {-127, 127, 8U, {}};
@@ -89,6 +90,7 @@ void test_toggle_and_gamepad() {
     static const std::array<const char*, 1> codes{"TEST_CODE"};
     mimusb_toggle_options toggle{};
     toggle.struct_size = static_cast<std::uint32_t>(sizeof(toggle));
+    toggle.function.bcd_hid = 0x0111;
     toggle.application_page = mimusb::hid::usage::page_consumer;
     toggle.application_usage = mimusb::hid::usage::consumer_control;
     toggle.field_page = mimusb::hid::usage::page_consumer;
@@ -122,6 +124,7 @@ void test_toggle_and_gamepad() {
     axes[1] = {MIMUSB_AXIS_Y, 0x01U, 0x31U, {-127, 127, 8U, {}}, 0, "ABS_Y"};
     mimusb_gamepad_options gamepad{};
     gamepad.struct_size = static_cast<std::uint32_t>(sizeof(gamepad));
+    gamepad.function.bcd_hid = 0x0111;
     gamepad.axes = axes.data();
     gamepad.axis_count = axes.size();
     gamepad.button_count = 2U;
@@ -187,6 +190,7 @@ void test_touch_and_pen() {
     static const std::array<std::uint16_t, 1> barrels{0x44U};
     mimusb_pen_options pen{};
     pen.struct_size = static_cast<std::uint32_t>(sizeof(pen));
+    pen.function.bcd_hid = 0x0111;
     pen.x = {0, 1000, 16U, {}};
     pen.y = {0, 1000, 16U, {}};
     pen.barrel_usages = barrels.data();

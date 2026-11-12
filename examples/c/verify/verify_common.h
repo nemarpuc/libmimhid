@@ -108,10 +108,10 @@ VERIFY_MAYBE_UNUSED static mimusb_result verify_open_node(mimusb_device* device,
                                                           mimusb_node** out_node) {
     mimusb_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimusb_hid_node_config node_config;
-    example_fill_node_config(&node_config, interface_number);
+    example_placement node_placement;
+    example_fill_placement(&node_placement, interface_number);
     mimusb_result result =
-        mimusb_node_open_profile(device, spec, &node_config, &timeouts, out_node);
+        mimusb_node_open(device, spec, &node_placement.placement, &timeouts, out_node);
     if (result == MIMUSB_OK)
         result = mimusb_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS);
     return result;

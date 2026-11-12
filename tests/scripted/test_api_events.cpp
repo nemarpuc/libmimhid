@@ -96,13 +96,14 @@ void test_event_kinds() {
     mimusb_device* device = open_on(board, o);
     if (device == nullptr)
         return;
-    mimusb_hid_node_config config = node_config();
+    test_hid_node_config config = node_config();
     config.ep_out.address = 0x01;
     config.ep_out.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     config.ep_out.interval = 1;
     config.ep_out.max_packet_size = 64;
     mimusb_raw_options options;
     mimusb_raw_options_init(&options);
+    options.function.bcd_hid = 0x0111;
     options.descriptor = kTwoIds;
     options.descriptor_length = sizeof(kTwoIds);
     options.requires_output = 1;
@@ -115,7 +116,7 @@ void test_event_kinds() {
     mimusb_spec* spec = nullptr;
     MIMUSB_CHECK(mimusb_spec_create_raw(&options, &spec) == MIMUSB_OK);
     mimusb_node* raw = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &raw) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &raw) == MIMUSB_OK);
     Seen s{};
     MIMUSB_CHECK(next(&s) && s.kind == MIMUSB_EVENT_MOUNTED);
     MIMUSB_CHECK(mimusb_device_is_ready(device) == 1);

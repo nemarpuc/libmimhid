@@ -70,7 +70,7 @@ void test_hand_written_hid_sends_the_rule() {
     HandWritten hid(kDescriptor, sizeof(kDescriptor), 0);
     mimusb_node* node = nullptr;
     board.clear();
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
     // The rule goes as RULE (seq, index, masks and values, action, capacity), then its bytes as
     // DESC_BEGIN (seq, kind, index, language (2), total length (2), flags) and DESC_DATA (seq,
     // kind, index, language (2), offset (2), bytes) of the kind ANSWER, the index being the rule's.
@@ -122,15 +122,19 @@ void test_hand_written_arguments() {
         return;
     HandWritten hid(kDescriptor, sizeof(kDescriptor), 0);
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, &kCommit, nullptr) == MIMUSB_ERR_PARAM);
-    MIMUSB_CHECK(mimusb_node_open(nullptr, &hid.config, &kCommit, &node) == MIMUSB_ERR_PARAM);
-    MIMUSB_CHECK(mimusb_node_open(device, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, nullptr, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, &kCommit, nullptr) ==
+                 MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(nullptr, &hid.config, &kCommit, &node) ==
+                 MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, nullptr, &node) ==
+                 MIMUSB_ERR_PARAM);
     mimusb_control_rule none = hid.rule;
     mimusb_node_config unset = hid.config;
     none.action = static_cast<mimusb_control_rule_action>(0);
     unset.rules = &none;
-    MIMUSB_CHECK(mimusb_node_open(device, &unset, &kCommit, &node) == MIMUSB_ERR_UNSET_FIELD);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &unset, &kCommit, &node) ==
+                 MIMUSB_ERR_UNSET_FIELD);
     // The helper refuses what it cannot make.
     mimusb_control_rule made{};
     MIMUSB_CHECK(mimusb_hid_descriptor_rule(0, 0x23, kDescriptor, sizeof(kDescriptor), &made) ==
@@ -141,7 +145,8 @@ void test_hand_written_arguments() {
     // More answer bytes than the board holds.
     const std::vector<std::uint8_t> big(33, 0x00);
     HandWritten too_big(big.data(), big.size(), 0);
-    MIMUSB_CHECK(mimusb_node_open(device, &too_big.config, &kCommit, &node) == MIMUSB_ERR_OVERFLOW);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &too_big.config, &kCommit, &node) ==
+                 MIMUSB_ERR_OVERFLOW);
     MIMUSB_CHECK(node == nullptr);
 
     // A refused commit gives the slot back; the board then holds its one interface.
@@ -150,15 +155,17 @@ void test_hand_written_arguments() {
             return Reply::nak(MIMUSB_NAK_PARAM);
         return std::nullopt;
     });
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, &kCommit, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, &kCommit, &node) ==
+                 MIMUSB_ERR_PARAM);
     board.set_policy(nullptr);
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
     mimusb_node* second = nullptr;
     HandWritten other(kDescriptor, sizeof(kDescriptor), 1);
-    MIMUSB_CHECK(mimusb_node_open(device, &other.config, &kCommit, &second) == MIMUSB_ERR_OVERFLOW);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &other.config, &kCommit, &second) ==
+                 MIMUSB_ERR_OVERFLOW);
     mimusb_spec* spec = keyboard_spec();
-    const mimusb_hid_node_config profile = node_config(1);
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &profile, &kCommit, &second) ==
+    const test_hid_node_config profile = node_config(1);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &profile, &kCommit, &second) ==
                  MIMUSB_ERR_OVERFLOW);
     mimusb_spec_release(spec);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
@@ -175,7 +182,7 @@ void test_hand_written_in_a_batch() {
     mimusb_node* node = nullptr;
     MIMUSB_CHECK(mimusb_device_batch_begin(device) == MIMUSB_OK);
     board.clear();
-    MIMUSB_CHECK(mimusb_node_open(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &hid.config, &kCommit, &node) == MIMUSB_OK);
     MIMUSB_CHECK(board.count(MIMUSB_T_DESC_BEGIN) == 0U && board.count(MIMUSB_T_RULE) == 0U);
     const std::uint8_t report[2] = {0x04, 0x01};
     MIMUSB_CHECK(mimusb_node_endpoint_write(node, 0x81, report, sizeof(report), kSendMs) ==
@@ -204,6 +211,7 @@ mimusb_spec* raw_spec(const std::uint8_t id) {
     report.wire_length = 2;
     mimusb_raw_options options;
     mimusb_raw_options_init(&options);
+    options.function.bcd_hid = 0x0111;
     options.descriptor = keep.back().data();
     options.descriptor_length = keep.back().size();
     options.reports = &report;
@@ -226,10 +234,11 @@ void test_interface_numbers_are_real() {
     HandWritten h0(kDescriptor, sizeof(kDescriptor), 0);
     HandWritten h1(kDescriptor, sizeof(kDescriptor), 1);
     HandWritten h2(kDescriptor, sizeof(kDescriptor), 2);
-    MIMUSB_CHECK(mimusb_node_open(device, &h0.config, &kCommit, &nodes[0]) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &h0.config, &kCommit, &nodes[0]) == MIMUSB_OK);
     board.clear();
     mimusb_node* refused = nullptr;
-    MIMUSB_CHECK(mimusb_node_open(device, &h2.config, &kCommit, &refused) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &h2.config, &kCommit, &refused) ==
+                 MIMUSB_ERR_PARAM);
     const mimusb_error_detail* e = mimusb_last_error();
     MIMUSB_CHECK(refused == nullptr &&
                  std::strcmp(e->field, "node_config.interfaces.number") == 0 && e->offset == 1U);
@@ -241,8 +250,8 @@ void test_interface_numbers_are_real() {
     }
     MIMUSB_CHECK(!sent_interface_2);
     // The refused Node left no slot taken.
-    MIMUSB_CHECK(mimusb_node_open(device, &h1.config, &kCommit, &nodes[1]) == MIMUSB_OK);
-    MIMUSB_CHECK(mimusb_node_open(device, &h2.config, &kCommit, &nodes[2]) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &h1.config, &kCommit, &nodes[1]) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &h2.config, &kCommit, &nodes[2]) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_node_id(nodes[2]) == 3U);
 
     // Closing the middle one would leave 0 and 2: the Node is closed, the commit is refused.
@@ -268,14 +277,14 @@ void test_more_than_sixteen_nodes() {
     mimusb_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    const mimusb_hid_node_config config = node_config(0);
+    const test_hid_node_config config = node_config(0);
     std::vector<mimusb_node*> nodes;
     std::vector<mimusb_spec*> specs;
     for (std::uint8_t id = 1; id <= 20; ++id) {
         mimusb_spec* spec = raw_spec(id);
         specs.push_back(spec);
         mimusb_node* node = nullptr;
-        MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+        MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
         nodes.push_back(node);
     }
     MIMUSB_CHECK(nodes.size() == 20U && mimusb_node_id(nodes.back()) == 20U);
@@ -301,14 +310,14 @@ void test_queue_depth_is_the_least_of_the_interface() {
     mimusb_device* device = open_on(board, board_options());
     if (device == nullptr)
         return;
-    mimusb_hid_node_config config = node_config(0);
+    test_hid_node_config config = node_config(0);
     config.ep_in.policy.depth = 15; // what the Nodes ask for until one of them sets another
     mimusb_spec* sa = raw_spec(1);
     mimusb_spec* sb = raw_spec(2);
     mimusb_node* a = nullptr;
     mimusb_node* b = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, sa, &config, &kCommit, &a) == MIMUSB_OK);
-    MIMUSB_CHECK(mimusb_node_open_profile(device, sb, &config, &kCommit, &b) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, sa, &config, &kCommit, &a) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, sb, &config, &kCommit, &b) == MIMUSB_OK);
     const auto set_depth = [](mimusb_node* node, std::uint8_t depth) {
         const mimusb_endpoint_policy policy{MIMUSB_FULL_DROP_NEWEST, depth};
         return mimusb_node_endpoint_set_policy(node, 0x81, &policy, kControlMs);

@@ -23,6 +23,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_touchpad_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     options.contact_id = mimusb_integer_field_make(0, 15, 4U);
     options.x = mimusb_integer_field_make(0, 32767, 16U);
     options.y = options.x;

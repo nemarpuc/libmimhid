@@ -54,6 +54,7 @@ MIMUSB_PROFILE_DIGITIZER = 6
 MIMUSB_PROFILE_GAMEPAD = 7
 MIMUSB_PROFILE_TOGGLE = 8
 MIMUSB_PROFILE_RAW = 9
+MIMUSB_PROFILE_INTERFACES = 10
 MIMUSB_AXIS_X = 1
 MIMUSB_AXIS_Y = 2
 MIMUSB_AXIS_Z = 3
@@ -104,6 +105,8 @@ MIMUSB_CONTROL_ANSWER_LAST_SENT = 2
 MIMUSB_CONTROL_ACCEPT = 3
 MIMUSB_CONTROL_ASK = 4
 MIMUSB_CONTROL_STALL = 5
+MIMUSB_HID_ROLE_IN = 1
+MIMUSB_HID_ROLE_OUT = 2
 MIMUSB_CONTROL_FLAG_HELD = 1
 MIMUSB_CONTROL_FLAG_TOO_LONG = 2
 MIMUSB_CONTROL_FLAG_FIXED = 4
@@ -401,19 +404,40 @@ class NodeConfig(c.Structure):
     ]
 
 
-class HidNodeConfig(c.Structure):
+class RoleInfo(c.Structure):
+    _fields_ = [
+        ("role", c.c_int32),
+        ("required", c.c_uint32),
+    ]
+
+
+class PlacedEndpoint(c.Structure):
+    _fields_ = [
+        ("role", c.c_int32),
+        ("reserved", c.c_uint32),
+        ("endpoint", UsbEndpoint),
+    ]
+
+
+class NodePlacement(c.Structure):
     _fields_ = [
         ("struct_size", c.c_uint32),
         ("reserved", c.c_uint32),
-        ("interface_number", c.c_uint8),
+        ("first_interface", c.c_uint8),
+        ("reserved8", c.c_uint8 * 7),
+        ("name", c.c_char_p),
+        ("endpoints", c.POINTER(PlacedEndpoint)),
+        ("endpoint_count", c.c_size_t),
+    ]
+
+
+class HidFunction(c.Structure):
+    _fields_ = [
+        ("bcd_hid", c.c_uint16),
         ("subclass", c.c_uint8),
         ("protocol", c.c_uint8),
         ("country_code", c.c_uint8),
-        ("bcd_hid", c.c_uint16),
-        ("reserved16", c.c_uint16),
-        ("name", c.c_char_p),
-        ("ep_in", UsbEndpoint),
-        ("ep_out", UsbEndpoint),
+        ("reserved8", c.c_uint8 * 3),
     ]
 
 
@@ -473,6 +497,7 @@ class KeyboardOptions(c.Structure):
         ("usage_maximum", c.c_uint16),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -490,6 +515,7 @@ class MouseOptions(c.Structure):
         ("pan", IntegerField),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -509,6 +535,7 @@ class ToggleOptions(c.Structure):
         ("expected_linux_codes", c.POINTER(c.c_char_p)),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -538,6 +565,7 @@ class GamepadOptions(c.Structure):
         ("hat_bit_width", c.c_uint32),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -567,6 +595,7 @@ class TouchscreenOptions(c.Structure):
         ("enable_multi_packet_frames", c.c_uint32),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -597,6 +626,7 @@ class TouchpadOptions(c.Structure):
         ("button_count", c.c_uint32),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -620,6 +650,7 @@ class PenOptions(c.Structure):
         ("enable_hover", c.c_uint32),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -643,6 +674,7 @@ class DigitizerOptions(c.Structure):
         ("enable_hover", c.c_uint32),
         ("enable_battery", c.c_uint32),
         ("battery", BatteryReport),
+        ("function", HidFunction),
     ]
 
 
@@ -663,6 +695,7 @@ class RawOptions(c.Structure):
         ("report_count", c.c_size_t),
         ("requires_output", c.c_uint32),
         ("requires_feature_response", c.c_uint32),
+        ("function", HidFunction),
     ]
 
 
@@ -764,7 +797,10 @@ ABI_STRUCTS = {
     "mimusb_usb_setting": UsbSetting,
     "mimusb_usb_interface": UsbInterface,
     "mimusb_node_config": NodeConfig,
-    "mimusb_hid_node_config": HidNodeConfig,
+    "mimusb_role_info": RoleInfo,
+    "mimusb_placed_endpoint": PlacedEndpoint,
+    "mimusb_node_placement": NodePlacement,
+    "mimusb_hid_function": HidFunction,
     "mimusb_device_descriptors": DeviceDescriptors,
     "mimusb_physical_properties": PhysicalProperties,
     "mimusb_integer_field": IntegerField,
@@ -854,12 +890,13 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimusb_spec_create_pen", [c.POINTER(PenOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_create_digitizer", [c.POINTER(DigitizerOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_create_raw", [c.POINTER(RawOptions), c.POINTER(SpecP)], c.c_int32)
+    declare("mimusb_spec_create_interfaces", [c.POINTER(NodeConfig), c.POINTER(SpecP)], c.c_int32)
+    declare("mimusb_spec_roles", [SpecP, c.POINTER(RoleInfo), c.c_size_t, c.POINTER(c.c_size_t)], c.c_int32)
     declare("mimusb_spec_retain", [SpecP], None)
     declare("mimusb_spec_release", [SpecP], None)
     declare("mimusb_spec_descriptor", [SpecP, c.POINTER(c.POINTER(c.c_uint8)), c.POINTER(c.c_size_t)], c.c_int32)
     declare("mimusb_spec_manifest", [SpecP, c.POINTER(CapabilityManifest)], c.c_int32)
-    declare("mimusb_node_open", [DeviceP, c.POINTER(NodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
-    declare("mimusb_node_open_profile", [DeviceP, SpecP, c.POINTER(HidNodeConfig), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
+    declare("mimusb_node_open", [DeviceP, SpecP, c.POINTER(NodePlacement), c.POINTER(CommitTimeouts), c.POINTER(NodeP)], c.c_int32)
     declare("mimusb_node_close", [NodeP, c.POINTER(CommitTimeouts), c.c_uint32], c.c_int32)
     declare("mimusb_node_id", [NodeP], c.c_uint16)
     declare("mimusb_node_set_feature_response", [NodeP, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
@@ -920,7 +957,10 @@ __all__ += [
     "UsbSetting",
     "UsbInterface",
     "NodeConfig",
-    "HidNodeConfig",
+    "RoleInfo",
+    "PlacedEndpoint",
+    "NodePlacement",
+    "HidFunction",
     "DeviceDescriptors",
     "PhysicalProperties",
     "IntegerField",

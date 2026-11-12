@@ -19,6 +19,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_keyboard_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     /* Every key from Keyboard a (0x04) to Keypad Hexadecimal (0xDD). */
     options.usage_minimum = 0x04U;
     options.usage_maximum = 0xDDU;

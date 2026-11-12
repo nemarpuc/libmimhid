@@ -58,6 +58,7 @@ void test_pen_away_coordinates() {
     const std::array<std::uint16_t, 1> barrels{0x44U};
     mimusb_pen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.x = {0, 1000, 16U, {}};
     options.y = {0, 1000, 16U, {}};
@@ -105,6 +106,7 @@ void test_pen_switch() {
     const std::array<std::uint16_t, 1> barrels{0x44U};
     mimusb_pen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.x = {0, 1000, 16U, {}};
     options.y = {0, 1000, 16U, {}};
@@ -210,6 +212,7 @@ void test_pen_switch() {
 
     mimusb_digitizer_options digitizer{};
     digitizer.struct_size = static_cast<std::uint32_t>(sizeof(digitizer));
+    digitizer.function.bcd_hid = 0x0111;
     digitizer.report_id = options.report_id;
     digitizer.x = options.x;
     digitizer.y = options.y;

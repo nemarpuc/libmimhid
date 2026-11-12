@@ -113,7 +113,7 @@ int main(void) {
     mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
     mimusb_node* node = NULL;
-    r = mimusb_node_open(device, &nc, &to, &node);
+    r = example_node_open_interfaces(device, &nc, &to, &node);
     if (r != MIMUSB_OK) {
         printf("node_open: %s %s\n", mimusb_result_name(r), mimusb_last_error()->reason);
         return 1;

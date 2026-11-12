@@ -86,7 +86,16 @@ int main(void) {
     mimusb_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
     mimusb_node* node = NULL;
-    if ((r = mimusb_node_open(device, &node_config, &timeouts, &node)) != MIMUSB_OK)
+    // The interfaces are a Spec like any other; they carry their own numbers and endpoints, so the
+    // placement is empty. The Node keeps its own reference to the Spec.
+    mimusb_spec* spec = NULL;
+    if ((r = mimusb_spec_create_interfaces(&node_config, &spec)) != MIMUSB_OK)
+        return fail("spec_create_interfaces", r);
+    mimusb_node_placement placement;
+    mimusb_node_placement_init(&placement);
+    r = mimusb_node_open(device, spec, &placement, &timeouts, &node);
+    mimusb_spec_release(spec);
+    if (r != MIMUSB_OK)
         return fail("node_open", r);
     if ((r = mimusb_device_wait_ready(device, 5000)) != MIMUSB_OK)
         return fail("wait_ready", r);

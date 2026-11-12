@@ -15,6 +15,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_mouse_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     options.button_count = 5U;
     options.x = mimusb_integer_field_make(-32767, 32767, 16U);
     options.y = options.x;

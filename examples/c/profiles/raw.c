@@ -23,6 +23,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_raw_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     options.descriptor = k_descriptor;
     options.descriptor_length = sizeof k_descriptor;
     options.reports = k_reports;

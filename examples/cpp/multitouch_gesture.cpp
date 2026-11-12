@@ -48,11 +48,11 @@ int main() {
 
     mimusb_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimusb_hid_node_config node_config;
-    example_fill_node_config(&node_config, 0);
+    example_placement node_placement;
+    example_fill_placement(&node_placement, 0);
     mimusb_node* node = nullptr;
     if (created != MIMUSB_OK ||
-        mimusb::node_open_profile(device, spec.get(), &node_config, &timeouts, &node) !=
+        mimusb::node_open(device, spec.get(), &node_placement.placement, &timeouts, &node) !=
             MIMUSB_OK ||
         mimusb::device_wait_ready(device, 5000) != MIMUSB_OK) {
         std::fprintf(stderr, "setup failed: %s\n", mimusb::last_error()->reason);

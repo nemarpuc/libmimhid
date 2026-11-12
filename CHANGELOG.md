@@ -6,6 +6,30 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+The C ABI changes: one way to open a Node. A Spec says what a function is, a placement says where
+it goes on a Device. The wire protocol and the firmware are unchanged.
+
+### Changed
+
+- `mimusb_node_open(device, spec, placement, timeouts, &node)` is the only way to open a Node. It
+  replaces `mimusb_node_open_profile` and the old `mimusb_node_open(device, node_config, ...)`.
+- `mimusb_node_placement` (interface number, string, the endpoints of the Spec's roles) replaces
+  `mimusb_hid_node_config`, which is gone together with `mimusb_hid_node_config_init`.
+  `mimusb_node_placement_init` and `mimusb_placed_endpoint` are new.
+- The HID descriptor and Interface descriptor values (`bcd_hid`, `subclass`, `protocol`,
+  `country_code`) moved from the Node's config to the Spec: every HID options structure ends with a
+  required `mimusb_hid_function function`. A zero `bcd_hid` is `MIMUSB_ERR_UNSET_FIELD`.
+- Any class of Node is a Spec too: `mimusb_spec_create_interfaces(mimusb_node_config*)` copies the
+  interfaces, items and rules into a Spec of kind `MIMUSB_PROFILE_INTERFACES`, which is opened with
+  an empty placement.
+
+### Added
+
+- `mimusb_spec_roles` lists the endpoint roles of a Spec (`MIMUSB_HID_ROLE_IN`, required;
+  `MIMUSB_HID_ROLE_OUT`, optional), so a caller sees what its placement must give.
+- Refusals with the field named in `mimusb_error_detail`: a role given twice or one the Spec does not
+  have, a nonzero reserved field, a missing IN role, a non-empty placement for a Spec of interfaces.
+
 ## [0.5.0] - 2026-11-12
 
 **Hardware-verified on 2026-11-13 (see "Run on a board") for the parts listed there.** The wire

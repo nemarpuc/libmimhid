@@ -56,9 +56,17 @@ _Static_assert(offsetof(mimusb_usb_interface, name) == 8, "usb_interface.name");
 _Static_assert(offsetof(mimusb_usb_interface, settings) == 16, "usb_interface.settings");
 _Static_assert(offsetof(mimusb_usb_interface, setting_count) == 24, "usb_interface.setting_count");
 
-_Static_assert(sizeof(mimusb_hid_node_config) == 48, "hid_node_config layout");
-_Static_assert(offsetof(mimusb_hid_node_config, bcd_hid) == 12, "hid_node_config.bcd_hid");
-_Static_assert(offsetof(mimusb_hid_node_config, ep_in) == 24, "hid_node_config.ep_in");
+_Static_assert(sizeof(mimusb_node_placement) == 40, "node_placement layout");
+_Static_assert(offsetof(mimusb_node_placement, first_interface) == 8,
+               "node_placement.first_interface");
+_Static_assert(offsetof(mimusb_node_placement, name) == 16, "node_placement.name");
+_Static_assert(offsetof(mimusb_node_placement, endpoints) == 24, "node_placement.endpoints");
+_Static_assert(offsetof(mimusb_node_placement, endpoint_count) == 32,
+               "node_placement.endpoint_count");
+_Static_assert(sizeof(mimusb_placed_endpoint) == 20, "placed_endpoint layout");
+_Static_assert(offsetof(mimusb_placed_endpoint, endpoint) == 8, "placed_endpoint.endpoint");
+_Static_assert(sizeof(mimusb_hid_function) == 8, "hid_function layout");
+_Static_assert(offsetof(mimusb_hid_function, country_code) == 4, "hid_function.country_code");
 
 _Static_assert(offsetof(mimusb_usb_config, configuration_value) == 0,
                "usb_config.configuration_value");

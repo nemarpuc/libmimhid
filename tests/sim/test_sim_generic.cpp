@@ -69,7 +69,7 @@ struct Vendor {
 
 mimusb_result open_vendor(mimusb_device* device, Vendor* v, mimusb_node** node) {
     v->refresh();
-    return mimusb_node_open(device, &v->config, &kCommit, node);
+    return test_node_open_interfaces(device, &v->config, &kCommit, node);
 }
 
 std::vector<std::uint8_t> bytes(const fake_transfer_t& t) {
@@ -386,8 +386,8 @@ void open_checks() {
         return Vendor({endpoint(0x81, MIMUSB_TRANSFER_BULK), endpoint(0x01, MIMUSB_TRANSFER_BULK)});
     };
 
-    MIMUSB_CHECK(mimusb_node_open(device, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
-    MIMUSB_CHECK(mimusb_node_open(nullptr, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(device, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_interfaces(nullptr, nullptr, &kCommit, &node) == MIMUSB_ERR_PARAM);
     {
         Vendor v = base();
         v.config.struct_size = 4;
@@ -399,8 +399,10 @@ void open_checks() {
         v.config.interface_count = 0;
         expect(v, MIMUSB_ERR_PARAM);
         v = base();
-        MIMUSB_CHECK(mimusb_node_open(device, &v.config, nullptr, &node) == MIMUSB_ERR_PARAM);
-        MIMUSB_CHECK(mimusb_node_open(device, &v.config, &kCommit, nullptr) == MIMUSB_ERR_PARAM);
+        MIMUSB_CHECK(test_node_open_interfaces(device, &v.config, nullptr, &node) ==
+                     MIMUSB_ERR_PARAM);
+        MIMUSB_CHECK(test_node_open_interfaces(device, &v.config, &kCommit, nullptr) ==
+                     MIMUSB_ERR_PARAM);
     }
     // Class: 0 is unset; any other is the caller's.
     {
@@ -603,7 +605,7 @@ void association_beside_hid() {
         return;
     mimusb_spec* kbd = keyboard_spec(0);
     mimusb_spec* mouse = mouse_spec(0);
-    mimusb_hid_node_config nc{};
+    test_hid_node_config nc{};
     test_fill_node_config(&nc, 0);
     mimusb_node* k = open_node(device, kbd, &nc);
     test_fill_node_config(&nc, 1);
@@ -648,7 +650,8 @@ void association_beside_hid() {
     config.rules = cdc_rules;
     config.rule_count = 3;
     mimusb_node* cdc = nullptr;
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &cdc) == MIMUSB_OK && cdc != nullptr);
+    MIMUSB_CHECK(test_node_open_interfaces(device, &config, &kCommit, &cdc) == MIMUSB_OK &&
+                 cdc != nullptr);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
     EventRecord ev;
     MIMUSB_CHECK(wait_event(MIMUSB_EVENT_MOUNTED, &ev));

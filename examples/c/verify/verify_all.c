@@ -281,26 +281,26 @@ int main(void) {
     {
         mimusb_commit_timeouts timeouts;
         example_fill_commit_timeouts(&timeouts);
-        mimusb_hid_node_config touch_config;
-        example_fill_node_config(&touch_config, 0);
-        mimusb_hid_node_config keyboard_config;
-        example_fill_node_config(&keyboard_config, 1);
-        mimusb_hid_node_config mouse_config;
-        example_fill_node_config(&mouse_config, 2);
+        example_placement touch_placement;
+        example_fill_placement(&touch_placement, 0);
+        example_placement keyboard_placement;
+        example_fill_placement(&keyboard_placement, 1);
+        example_placement mouse_placement;
+        example_fill_placement(&mouse_placement, 2);
 
         mimusb_device_batch_begin(device);
-        if ((result = mimusb_node_open_profile(device, touch_spec, &touch_config, &timeouts,
-                                               &touch_node)) != MIMUSB_OK) {
+        if ((result = mimusb_node_open(device, touch_spec, &touch_placement.placement, &timeouts,
+                                       &touch_node)) != MIMUSB_OK) {
             exit_code = verify_fail("touchscreen node open", result);
             goto cleanup;
         }
-        if ((result = mimusb_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
-                                               &keyboard_node)) != MIMUSB_OK) {
+        if ((result = mimusb_node_open(device, keyboard_spec, &keyboard_placement.placement,
+                                       &timeouts, &keyboard_node)) != MIMUSB_OK) {
             exit_code = verify_fail("keyboard node open", result);
             goto cleanup;
         }
-        if ((result = mimusb_node_open_profile(device, mouse_spec, &mouse_config, &timeouts,
-                                               &mouse_node)) != MIMUSB_OK) {
+        if ((result = mimusb_node_open(device, mouse_spec, &mouse_placement.placement, &timeouts,
+                                       &mouse_node)) != MIMUSB_OK) {
             exit_code = verify_fail("mouse node open", result);
             goto cleanup;
         }

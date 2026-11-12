@@ -26,6 +26,7 @@ void test_hat_domain() {
     axes[1] = {MIMUSB_AXIS_Y, 0x01U, 0x31U, {-127, 127, 8U, {}}, 0, "ABS_Y"};
     mimusb_gamepad_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.axes = axes.data();
     options.axis_count = axes.size();
@@ -89,6 +90,7 @@ void test_controller_dpad_and_extended_axes() {
             MIMUSB_AXIS_SIMULATION_THROTTLE, 0x02U, 0xBBU, {0, 255, 8U, {}}, 0, "TEST"}};
     mimusb_gamepad_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.axes = axes.data();
     options.axis_count = axes.size();
     options.button_count = 1U;

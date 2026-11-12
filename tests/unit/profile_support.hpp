@@ -54,6 +54,7 @@ inline bool has_sequence(const std::vector<std::uint8_t>& descriptor,
 inline mimusb_keyboard_options keyboard_options() {
     mimusb_keyboard_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.reserved = 0U;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.usage_minimum = 0x04U;
@@ -100,6 +101,7 @@ void check_battery_variant(Options options,
 inline mimusb_touchscreen_options touchscreen_options() {
     mimusb_touchscreen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.maximum_contacts = 3U;
     options.contacts_per_report = 2U;
@@ -124,6 +126,7 @@ inline mimusb_touchscreen_options touchscreen_options() {
 inline mimusb_touchpad_options touchpad_options() {
     mimusb_touchpad_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.maximum_contacts = 3U;
     options.contacts_per_report = 2U;

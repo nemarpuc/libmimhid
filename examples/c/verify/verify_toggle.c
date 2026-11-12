@@ -80,6 +80,7 @@ int main(void) {
 
     mimusb_toggle_options options;
     mimusb_toggle_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     /* Consumer Control: the Application Collection and the Usage Page of the allowed Usages. */
     options.application_page = 0x0CU;
     options.application_usage = 0x01U;

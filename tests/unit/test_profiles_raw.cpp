@@ -98,7 +98,8 @@ void test_raw_report_table_report_id_rules() {
     // The raw spec reports the table back through the manifest unchanged.
     const mimusb_raw_report report{{1U, 1U, {}}, 2U};
     const mimusb_raw_options options{
-        sizeof(mimusb_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U};
+        sizeof(mimusb_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U,
+        {0x0111U, 0U, 0U, 0U, {}}};
     mimusb_spec* spec = nullptr;
     MIMUSB_CHECK(mimusb_spec_create_raw(&options, &spec) == MIMUSB_OK);
     if (spec != nullptr) {
@@ -120,6 +121,7 @@ void test_raw_factory_bounds_before_allocation() {
     const mimusb_raw_report report{};
     mimusb_raw_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.descriptor = descriptor.data();
     options.descriptor_length = descriptor.size();
     options.reports = &report;

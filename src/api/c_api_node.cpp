@@ -191,35 +191,18 @@ namespace {
 // What only a HID Node has to satisfy; the endpoints themselves (addresses, packet sizes, ...) are
 // checked by the composer, which sees every endpoint of the device.
 mimusb_result validate_hid_node_config(const mimusb_device* device,
-                                       const mimusb_hid_node_config& effective) noexcept {
-    if (!reserved_is_zero(effective.reserved, "node_config.reserved"))
-        return MIMUSB_ERR_PARAM;
-    if (effective.reserved16 != 0U) {
-        set_error(MIMUSB_ERR_PARAM, "node_config.reserved16", "The reserved field must be zero.");
-        return MIMUSB_ERR_PARAM;
-    }
-    if (effective.bcd_hid == 0U) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "node_config.bcd_hid",
-                  "bcd_hid must be explicitly specified (e.g. 0x0111).");
-        return MIMUSB_ERR_UNSET_FIELD;
-    }
+                                       const mimusb::usb::HidNodeConfig& effective) noexcept {
     if (effective.interface_number >= device->board.max_interfaces_any) {
-        set_error(MIMUSB_ERR_OVERFLOW, "node_config.interface_number",
+        set_error(MIMUSB_ERR_OVERFLOW, "placement.first_interface",
                   "The board has fewer interfaces.", 0, 0, 0, 0,
                   static_cast<std::uint32_t>(device->board.max_interfaces_any) - 1U,
                   effective.interface_number);
         return MIMUSB_ERR_OVERFLOW;
     }
-    if (effective.subclass > 1U || effective.protocol > 2U) {
-        // HID 1.11 4.2 and 4.3: subclass 0 or 1; protocol 0 (none), 1 (keyboard) or 2 (mouse).
-        set_error(MIMUSB_ERR_PARAM, "node_config",
-                  "subclass is 0 or 1 and protocol 0, 1 or 2 (HID 1.11 4.2, 4.3).");
-        return MIMUSB_ERR_PARAM;
-    }
-    if (effective.country_code > 35U || !valid_usb_string(effective.name)) {
-        set_error(MIMUSB_ERR_PARAM, "node_config",
+    if (!valid_usb_string(effective.name)) {
+        set_error(MIMUSB_ERR_PARAM, "placement.name",
                   "A string is not UTF-8 text of at most 126 UTF-16 code units without control "
-                  "characters, or country_code > 35.");
+                  "characters.");
         return MIMUSB_ERR_PARAM;
     }
     // HID 1.11 4.4: a HID interface's endpoints are interrupt endpoints. The IN endpoint is one of
@@ -230,8 +213,8 @@ mimusb_result validate_hid_node_config(const mimusb_device* device,
          {&effective.ep_in, has_out ? &effective.ep_out : nullptr}) {
         if (ep == nullptr)
             continue;
-        const char* field = ep == &effective.ep_in ? "node_config.ep_in.transfer_type"
-                                                   : "node_config.ep_out.transfer_type";
+        const char* field = ep == &effective.ep_in ? "placement.ep_in.transfer_type"
+                                                   : "placement.ep_out.transfer_type";
         if (ep->transfer_type == 0U) {
             set_error(MIMUSB_ERR_UNSET_FIELD, field,
                       "transfer_type is required: a HID endpoint is MIMUSB_TRANSFER_INTERRUPT.");
@@ -244,30 +227,30 @@ mimusb_result validate_hid_node_config(const mimusb_device* device,
         }
     }
     if (effective.ep_in.policy.on_full == 0U || effective.ep_in.policy.depth == 0U) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "node_config.ep_in.policy",
+        set_error(MIMUSB_ERR_UNSET_FIELD, "placement.ep_in.policy",
                   "The IN endpoint needs a policy: on_full and depth are required.");
         return MIMUSB_ERR_UNSET_FIELD;
     }
     if (effective.ep_in.policy.on_full > MIMUSB_FULL_WAIT) {
-        set_error(MIMUSB_ERR_PARAM, "node_config.ep_in.policy",
+        set_error(MIMUSB_ERR_PARAM, "placement.ep_in.policy",
                   "on_full is MIMUSB_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.");
         return MIMUSB_ERR_PARAM;
     }
     if (device->board.usb_high_speed &&
         (effective.ep_in.interval > 16U || effective.ep_out.interval > 16U)) {
         // USB 2.0 9.6.6: at high speed bInterval of an interrupt endpoint is an exponent, 1 to 16.
-        set_error(MIMUSB_ERR_PARAM, "node_config.ep_in.interval",
+        set_error(MIMUSB_ERR_PARAM, "placement.ep_in.interval",
                   "A high-speed board takes a bInterval of 1 to 16 (USB 2.0 9.6.6).");
         return MIMUSB_ERR_PARAM;
     }
     // The IN endpoint is checked for the board's limits and USB's rules like any other.
     if (effective.ep_in.address == 0U || (effective.ep_in.address & 0x80U) == 0U) {
-        set_error(MIMUSB_ERR_PARAM, "node_config.ep_in.address",
+        set_error(MIMUSB_ERR_PARAM, "placement.ep_in.address",
                   "ep_in.address is 0x81 to 0x8F: bit 7 set, endpoint number 1 to 15.");
         return MIMUSB_ERR_PARAM;
     }
     if (has_out && (effective.ep_out.address & 0x80U) != 0U) {
-        set_error(MIMUSB_ERR_PARAM, "node_config.ep_out.address",
+        set_error(MIMUSB_ERR_PARAM, "placement.ep_out.address",
                   "ep_out.address is 0x01 to 0x0F: bit 7 clear, endpoint number 1 to 15.");
         return MIMUSB_ERR_PARAM;
     }
@@ -366,9 +349,9 @@ extern "C" {
 
 // ---- nodes -----------------------------------------------------------------------------
 
-mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_node_config* config,
-                                           const mimusb_commit_timeouts* timeouts,
-                                           mimusb_node** out_node) try {
+static mimusb_result open_interfaces(mimusb_device* device, const mimusb_node_config* config,
+                                     const mimusb_commit_timeouts* timeouts,
+                                     mimusb_node** out_node) try {
     mimusb::detail::clear_error();
     if (out_node == nullptr) {
         set_error(MIMUSB_ERR_PARAM, "out_node", "The output pointer is null.");
@@ -575,10 +558,9 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, const mimusb_n
 }
 MIMUSB_C_RESULT_CATCH("node.open")
 
-mimusb_result MIMUSB_CALL mimusb_node_open_profile(mimusb_device* device, mimusb_spec* spec,
-                                                   const mimusb_hid_node_config* config,
-                                                   const mimusb_commit_timeouts* timeouts,
-                                                   mimusb_node** out_node) try {
+static mimusb_result open_hid(mimusb_device* device, mimusb_spec* spec,
+                              const mimusb::usb::HidNodeConfig& config,
+                              const mimusb_commit_timeouts* timeouts, mimusb_node** out_node) try {
     mimusb::detail::clear_error();
     if (out_node == nullptr) {
         set_error(MIMUSB_ERR_PARAM, "out_node", "The output pointer is null.");
@@ -606,12 +588,7 @@ mimusb_result MIMUSB_CALL mimusb_node_open_profile(mimusb_device* device, mimusb
     CommitWaits waits;
     if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
         return r;
-    if (!mimusb::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
-                                      static_cast<std::uint32_t>(sizeof(mimusb_hid_node_config)),
-                                      "node_config")) {
-        return MIMUSB_ERR_PARAM;
-    }
-    mimusb_hid_node_config effective = *config;
+    mimusb::usb::HidNodeConfig effective = config;
     if (const mimusb_result v = validate_hid_node_config(device, effective); v != MIMUSB_OK)
         return v;
 
@@ -730,7 +707,97 @@ mimusb_result MIMUSB_CALL mimusb_node_open_profile(mimusb_device* device, mimusb
     *out_node = node.release();
     return MIMUSB_OK;
 }
-MIMUSB_C_RESULT_CATCH("node.open_profile")
+MIMUSB_C_RESULT_CATCH("node.open_hid")
+
+mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* spec,
+                                           const mimusb_node_placement* placement,
+                                           const mimusb_commit_timeouts* timeouts,
+                                           mimusb_node** out_node) try {
+    mimusb::detail::clear_error();
+    if (out_node == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "out_node", "The output pointer is null.");
+        return MIMUSB_ERR_PARAM;
+    }
+    *out_node = nullptr;
+    if (device == nullptr || spec == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "node.open", "A live Device and a Spec are required.");
+        return MIMUSB_ERR_PARAM;
+    }
+    {
+        CommitWaits waits;
+        if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
+            return r;
+    }
+    if (!mimusb::detail::valid_struct(placement, placement == nullptr ? 0U : placement->struct_size,
+                                      static_cast<std::uint32_t>(sizeof(mimusb_node_placement)),
+                                      "placement")) {
+        return MIMUSB_ERR_PARAM;
+    }
+    bool reserved_zero = placement->reserved == 0U;
+    for (const std::uint8_t byte : placement->reserved8)
+        reserved_zero = reserved_zero && byte == 0U;
+    if (!reserved_zero) {
+        set_error(MIMUSB_ERR_PARAM, "placement.reserved", "The reserved fields must be zero.");
+        return MIMUSB_ERR_PARAM;
+    }
+    if ((placement->endpoints == nullptr) != (placement->endpoint_count == 0U) ||
+        placement->endpoint_count > 64U) {
+        set_error(MIMUSB_ERR_PARAM, "placement.endpoints",
+                  "endpoints is null exactly when endpoint_count is 0, and there are at most 64.");
+        return MIMUSB_ERR_PARAM;
+    }
+    if (spec->kind == MIMUSB_PROFILE_INTERFACES) {
+        // The Spec carries its own interface numbers, names and endpoints.
+        if (placement->first_interface != 0U || placement->name != nullptr ||
+            placement->endpoint_count != 0U) {
+            set_error(MIMUSB_ERR_PARAM, "placement",
+                      "A Spec of mimusb_spec_create_interfaces carries its own interface numbers, "
+                      "names and endpoints: first_interface, name and endpoints are zero.");
+            return MIMUSB_ERR_PARAM;
+        }
+        return open_interfaces(device, &spec->interfaces->view, timeouts, out_node);
+    }
+    // A HID Spec: the function is the Spec's, the interface and the endpoints of its roles are
+    // the placement's.
+    mimusb::usb::HidNodeConfig config;
+    config.interface_number = placement->first_interface;
+    config.subclass = spec->function.subclass;
+    config.protocol = spec->function.protocol;
+    config.country_code = spec->function.country_code;
+    config.bcd_hid = spec->function.bcd_hid;
+    config.name = placement->name;
+    bool have_in = false;
+    bool have_out = false;
+    for (std::size_t i = 0U; i < placement->endpoint_count; ++i) {
+        const mimusb_placed_endpoint& placed = placement->endpoints[i];
+        if (placed.reserved != 0U) {
+            set_error(MIMUSB_ERR_PARAM, "placement.endpoints.reserved",
+                      "The reserved field must be zero.", 0, 0, 0, 0, static_cast<std::uint32_t>(i),
+                      0);
+            return MIMUSB_ERR_PARAM;
+        }
+        bool* seen = placed.role == MIMUSB_HID_ROLE_IN    ? &have_in
+                     : placed.role == MIMUSB_HID_ROLE_OUT ? &have_out
+                                                          : nullptr;
+        if (seen == nullptr || *seen) {
+            set_error(MIMUSB_ERR_PARAM, "placement.endpoints.role",
+                      seen == nullptr ? "The Spec has no such role (mimusb_spec_roles)."
+                                      : "A role is given once.",
+                      0, 0, 0, 0, static_cast<std::uint32_t>(i),
+                      static_cast<std::uint32_t>(placed.role));
+            return MIMUSB_ERR_PARAM;
+        }
+        *seen = true;
+        (placed.role == MIMUSB_HID_ROLE_IN ? config.ep_in : config.ep_out) = placed.endpoint;
+    }
+    if (!have_in) {
+        set_error(MIMUSB_ERR_UNSET_FIELD, "placement.endpoints",
+                  "MIMUSB_HID_ROLE_IN is required: the Node's interrupt IN endpoint.");
+        return MIMUSB_ERR_UNSET_FIELD;
+    }
+    return open_hid(device, spec, config, timeouts, out_node);
+}
+MIMUSB_C_RESULT_CATCH("node.open")
 
 mimusb_result MIMUSB_CALL mimusb_node_set_feature_response(
     mimusb_node* node, const uint8_t report_id,

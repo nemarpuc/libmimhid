@@ -24,6 +24,7 @@ namespace {
 void test_mouse_delta_splitting_and_consumption() {
     mimusb_mouse_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.button_count = 1U;
     options.x = {-127, 127, 8U, {}};
     options.y = {-127, 127, 8U, {}};
@@ -90,6 +91,7 @@ void test_mouse_delta_splitting_and_consumption() {
 void test_physical_properties_and_reset() {
     mimusb_mouse_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.button_count = 1U;
     options.x = {-127, 127, 8U, {1U, -10, 10, -2, 0x11U}};
     options.y = {-127, 127, 8U, {}};
@@ -127,6 +129,7 @@ void test_field_span_padding() {
     // X ends mid-byte, so a 32-bit Y right behind it would touch five bytes.
     mimusb_mouse_options mouse{};
     mouse.struct_size = static_cast<std::uint32_t>(sizeof(mouse));
+    mouse.function.bcd_hid = 0x0111;
     mouse.button_count = 1U;
     mouse.x = {-1073741823, 1073741823, 31U, {}};
     mouse.y = {-2147483647, 2147483647, 32U, {}};
@@ -155,6 +158,7 @@ void test_field_span_padding() {
     // A 4-bit Contact Identifier followed by a 31-bit X.
     mimusb_touchscreen_options touch{};
     touch.struct_size = static_cast<std::uint32_t>(sizeof(touch));
+    touch.function.bcd_hid = 0x0111;
     touch.maximum_contacts = 1U;
     touch.contacts_per_report = 1U;
     touch.contact_id = {0, 15, 4U, {}};

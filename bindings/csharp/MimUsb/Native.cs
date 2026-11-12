@@ -40,6 +40,7 @@ public enum ProfileKind : int
     Gamepad = 7,
     Toggle = 8,
     Raw = 9,
+    Interfaces = 10,
 }
 
 public enum AxisRole : int
@@ -104,6 +105,8 @@ public enum ControlRuleAction : int
     Ask = 4,
     Stall = 5,
 }
+
+public enum EndpointRole : int { In = 1, Out = 2 }
 
 [StructLayout(LayoutKind.Sequential)]
 public struct ErrorDetail
@@ -356,19 +359,40 @@ public struct NodeConfig
 }
 
 [StructLayout(LayoutKind.Sequential)]
-public struct HidNodeConfig
+public struct RoleInfo
+{
+    public EndpointRole Role;
+    public uint Required;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct PlacedEndpoint
+{
+    public EndpointRole Role;
+    public uint Reserved;
+    public UsbEndpoint Endpoint;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct NodePlacement
 {
     public uint StructSize;
     public uint Reserved;
-    public byte InterfaceNumber;
+    public byte FirstInterface;
+    public fixed byte Reserved8[7];
+    public nint Name;
+    public nint Endpoints;
+    public nuint EndpointCount;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct HidFunction
+{
+    public ushort BcdHid;
     public byte Subclass;
     public byte Protocol;
     public byte CountryCode;
-    public ushort BcdHid;
-    public ushort Reserved16;
-    public nint Name;
-    public UsbEndpoint EpIn;
-    public UsbEndpoint EpOut;
+    public fixed byte Reserved8[3];
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -428,6 +452,7 @@ public struct KeyboardOptions
     public ushort UsageMaximum;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -445,6 +470,7 @@ public struct MouseOptions
     public IntegerField Pan;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -464,6 +490,7 @@ public struct ToggleOptions
     public nint ExpectedLinuxCodes;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -493,6 +520,7 @@ public struct GamepadOptions
     public uint HatBitWidth;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -522,6 +550,7 @@ public struct TouchscreenOptions
     public uint EnableMultiPacketFrames;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -552,6 +581,7 @@ public struct TouchpadOptions
     public uint ButtonCount;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -575,6 +605,7 @@ public struct PenOptions
     public uint EnableHover;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -598,6 +629,7 @@ public struct DigitizerOptions
     public uint EnableHover;
     public uint EnableBattery;
     public BatteryReport Battery;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -618,6 +650,7 @@ public struct RawOptions
     public nuint ReportCount;
     public uint RequiresOutput;
     public uint RequiresFeatureResponse;
+    public HidFunction Function;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -745,6 +778,7 @@ public static class Native
     public const int MIMUSB_PROFILE_GAMEPAD = 7;
     public const int MIMUSB_PROFILE_TOGGLE = 8;
     public const int MIMUSB_PROFILE_RAW = 9;
+    public const int MIMUSB_PROFILE_INTERFACES = 10;
     public const int MIMUSB_AXIS_X = 1;
     public const int MIMUSB_AXIS_Y = 2;
     public const int MIMUSB_AXIS_Z = 3;
@@ -795,6 +829,8 @@ public static class Native
     public const int MIMUSB_CONTROL_ACCEPT = 3;
     public const int MIMUSB_CONTROL_ASK = 4;
     public const int MIMUSB_CONTROL_STALL = 5;
+    public const int MIMUSB_HID_ROLE_IN = 1;
+    public const int MIMUSB_HID_ROLE_OUT = 2;
     public const int MIMUSB_CONTROL_FLAG_HELD = 1;
     public const int MIMUSB_CONTROL_FLAG_TOO_LONG = 2;
     public const int MIMUSB_CONTROL_FLAG_FIXED = 4;
@@ -837,7 +873,10 @@ public static class Native
             ["mimusb_usb_setting"] = typeof(UsbSetting),
             ["mimusb_usb_interface"] = typeof(UsbInterface),
             ["mimusb_node_config"] = typeof(NodeConfig),
-            ["mimusb_hid_node_config"] = typeof(HidNodeConfig),
+            ["mimusb_role_info"] = typeof(RoleInfo),
+            ["mimusb_placed_endpoint"] = typeof(PlacedEndpoint),
+            ["mimusb_node_placement"] = typeof(NodePlacement),
+            ["mimusb_hid_function"] = typeof(HidFunction),
             ["mimusb_device_descriptors"] = typeof(DeviceDescriptors),
             ["mimusb_physical_properties"] = typeof(PhysicalProperties),
             ["mimusb_integer_field"] = typeof(IntegerField),
@@ -907,6 +946,7 @@ public static class Native
             ["MIMUSB_PROFILE_GAMEPAD"] = 7,
             ["MIMUSB_PROFILE_TOGGLE"] = 8,
             ["MIMUSB_PROFILE_RAW"] = 9,
+            ["MIMUSB_PROFILE_INTERFACES"] = 10,
             ["MIMUSB_AXIS_X"] = 1,
             ["MIMUSB_AXIS_Y"] = 2,
             ["MIMUSB_AXIS_Z"] = 3,
@@ -957,6 +997,8 @@ public static class Native
             ["MIMUSB_CONTROL_ACCEPT"] = 3,
             ["MIMUSB_CONTROL_ASK"] = 4,
             ["MIMUSB_CONTROL_STALL"] = 5,
+            ["MIMUSB_HID_ROLE_IN"] = 1,
+            ["MIMUSB_HID_ROLE_OUT"] = 2,
             ["MIMUSB_CONTROL_FLAG_HELD"] = 1,
             ["MIMUSB_CONTROL_FLAG_TOO_LONG"] = 2,
             ["MIMUSB_CONTROL_FLAG_FIXED"] = 4,
@@ -1135,6 +1177,14 @@ public static class Native
     public static extern Result SpecCreateRaw(in RawOptions options, out nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_create_raw", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecCreateRaw(nint options, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_interfaces", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateInterfaces(in NodeConfig config, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_interfaces", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateInterfaces(nint config, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_roles", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecRoles(nint spec, ref RoleInfo roles, nuint capacity, out nuint count);
+    [DllImport(Library, EntryPoint = "mimusb_spec_roles", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecRoles(nint spec, nint roles, nuint capacity, out nuint count);
     [DllImport(Library, EntryPoint = "mimusb_spec_retain", ExactSpelling = true, CallingConvention = Call)]
     public static extern void SpecRetain(nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_release", ExactSpelling = true, CallingConvention = Call)]
@@ -1146,13 +1196,9 @@ public static class Native
     [DllImport(Library, EntryPoint = "mimusb_spec_manifest", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecManifest(nint spec, nint manifest);
     [DllImport(Library, EntryPoint = "mimusb_node_open", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpen(nint device, in NodeConfig config, in CommitTimeouts timeouts, out nint node);
+    public static extern Result NodeOpen(nint device, nint spec, in NodePlacement placement, in CommitTimeouts timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimusb_node_open", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpen(nint device, nint config, nint timeouts, out nint node);
-    [DllImport(Library, EntryPoint = "mimusb_node_open_profile", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpenProfile(nint device, nint spec, in HidNodeConfig config, in CommitTimeouts timeouts, out nint node);
-    [DllImport(Library, EntryPoint = "mimusb_node_open_profile", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result NodeOpenProfile(nint device, nint spec, nint config, nint timeouts, out nint node);
+    public static extern Result NodeOpen(nint device, nint spec, nint placement, nint timeouts, out nint node);
     [DllImport(Library, EntryPoint = "mimusb_node_close", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeClose(nint node, in CommitTimeouts timeouts, uint drainTimeoutMs);
     [DllImport(Library, EntryPoint = "mimusb_node_close", ExactSpelling = true, CallingConvention = Call)]

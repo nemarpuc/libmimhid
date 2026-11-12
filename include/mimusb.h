@@ -15,15 +15,16 @@
  *   Spec      an immutable HID report descriptor and report layout, built by a factory
  *             (mimusb_spec_create_*). It needs no board and is reference counted.
  *   Node      the interfaces one function presents to the target. mimusb_node_open opens any
- *             class from its interfaces, endpoints and class descriptors, and the caller reads
- *             and writes its endpoints (mimusb_node_endpoint_write, MIMUSB_EVENT_ENDPOINT_DATA).
- *             The board runs every interface the same way, whatever its class, and what a class
- *             does on endpoint 0 (descriptors, GET_REPORT, SET_IDLE, ...) is a list of control
- *             rules the Node brings (mimusb_control_rule). mimusb_node_open_profile opens a Spec
- *             as one HID collection: the library writes the HID rules and the state its input
- *             calls change (mimusb_keyboard_key, ...); it sends a report when it is submitted.
- *             A HID interface of the caller's own is a mimusb_node_open with class 0x03, its
- *             HID descriptor, mimusb_hid_descriptor_rule and the rules it needs.
+ *             Spec at a placement (interface numbers, endpoints), whatever its class, and the
+ *             caller reads and writes its endpoints (mimusb_node_endpoint_write,
+ *             MIMUSB_EVENT_ENDPOINT_DATA). The board runs every interface the same way, and what
+ *             a class does on endpoint 0 (descriptors, GET_REPORT, SET_IDLE, ...) is a list of
+ *             control rules the Node brings (mimusb_control_rule). A HID profile Spec makes one
+ *             HID collection: the library writes the HID rules and the state its input calls
+ *             change (mimusb_keyboard_key, ...); it sends a report when it is submitted. A
+ *             Spec of mimusb_spec_create_interfaces is any class written out interface by
+ *             interface; a HID interface of the caller's own is one of class 0x03 with its HID
+ *             descriptor, mimusb_hid_descriptor_rule and the rules it needs.
  *             A Device can instead be given whole as bytes, with no Node
  *             (mimusb_device_set_descriptors), to present a copy of a real device.
  *   Discovery a snapshot of the boards found on the serial ports.
@@ -137,7 +138,8 @@ enum {
     MIMUSB_PROFILE_DIGITIZER = 6,
     MIMUSB_PROFILE_GAMEPAD = 7,
     MIMUSB_PROFILE_TOGGLE = 8, /* one-bit controls on a page of the caller's choice */
-    MIMUSB_PROFILE_RAW = 9
+    MIMUSB_PROFILE_RAW = 9,
+    MIMUSB_PROFILE_INTERFACES = 10 /* mimusb_spec_create_interfaces: not HID */
 };
 
 typedef int32_t mimusb_axis_role;
@@ -212,7 +214,7 @@ enum {
     MIMUSB_EVENT_SUSPEND = 3, /* value: 1 when the target enabled remote wakeup */
     MIMUSB_EVENT_RESUME = 4,
     /* The target sent an Output report (a keyboard's LEDs, for example) or a Feature report to a
-     * profile Node (mimusb_node_open_profile), on its OUT endpoint or with SET_REPORT; and set the
+     * HID Node (mimusb_node_open), on its OUT endpoint or with SET_REPORT; and set the
      * protocol or the idle rate of its interface. The library makes these events from the
      * control rules and the packets it wrote for the Node (they are not CONTROL_SETUP events). */
     MIMUSB_EVENT_OUTPUT_REPORT = 5,
@@ -655,24 +657,54 @@ typedef struct mimusb_node_config {
     size_t rule_count;
 } mimusb_node_config;
 
-/* The interface and endpoints of a HID profile Node (mimusb_node_open_profile).
- * Nodes with the same interface_number share one interface, and must then
- * all have Report IDs, all different, and the same interface and endpoint settings. Both endpoints
- * are interrupt endpoints. The IN endpoint's policy is any of the three; its depth is how many
- * reports may wait on the board, at most what the board's queues hold (MIMUSB_ERR_OVERFLOW). */
-typedef struct mimusb_hid_node_config {
+/* What a Spec says about the endpoints it needs: each is a role, and the caller gives the address,
+ * interval, packet size and policy of every role in the Node's placement. The roles of a Spec are
+ * listed by mimusb_spec_roles and, per kind, in docs/API.md. */
+typedef int32_t mimusb_endpoint_role;
+enum {
+    MIMUSB_HID_ROLE_IN = 1, /* the interrupt IN endpoint of a HID Spec: required, with a policy */
+    MIMUSB_HID_ROLE_OUT = 2 /* its interrupt OUT endpoint: optional */
+};
+
+/* One role of a Spec and whether the placement must give it. */
+typedef struct mimusb_role_info {
+    mimusb_endpoint_role role;
+    uint32_t required; /* 1: required; 0: optional */
+} mimusb_role_info;
+
+/* The endpoint the caller puts in one role of a Spec. */
+typedef struct mimusb_placed_endpoint {
+    mimusb_endpoint_role role;
+    uint32_t reserved; /* zero */
+    mimusb_usb_endpoint endpoint;
+} mimusb_placed_endpoint;
+
+/* Where a Node goes: the bus numbers and the endpoints of its roles (mimusb_node_open). For a HID
+ * Spec: first_interface is the bInterfaceNumber; Nodes with the same number share one interface
+ * and must then all have Report IDs, all different, and the same name and endpoints; both
+ * endpoints are interrupt endpoints; the IN endpoint's policy is any of the three and its depth
+ * is how many reports may wait on the board, at most what the board's queues hold
+ * (MIMUSB_ERR_OVERFLOW). A Spec made with mimusb_spec_create_interfaces carries its own interface
+ * numbers, names and endpoints: its placement has all of these zero or null. */
+typedef struct mimusb_node_placement {
     uint32_t struct_size;
     uint32_t reserved;
-    uint8_t interface_number; /* as mimusb_usb_interface.number */
-    uint8_t subclass;         /* 0 none, 1 boot interface */
-    uint8_t protocol;         /* 0 none, 1 keyboard, 2 mouse (HID 1.11 4.3) */
-    uint8_t country_code;     /* 0 when the hardware is not localized, up to 35 */
-    uint16_t bcd_hid;         /* nonzero, e.g. 0x0111 */
-    uint16_t reserved16;      /* zero */
-    const char* name;
-    mimusb_usb_endpoint ep_in;  /* required */
-    mimusb_usb_endpoint ep_out; /* all zero for none */
-} mimusb_hid_node_config;
+    uint8_t first_interface; /* bInterfaceNumber of the Spec's first interface */
+    uint8_t reserved8[7];    /* zero */
+    const char* name;        /* the interface's string, or null for none */
+    const mimusb_placed_endpoint* endpoints;
+    size_t endpoint_count;
+} mimusb_node_placement;
+
+/* The HID function a Spec describes (HID 1.11 6.2.1, 4.2, 4.3): what the HID descriptor and the
+ * Interface descriptor of the Node say. Every HID Spec's options carry one. */
+typedef struct mimusb_hid_function {
+    uint16_t bcd_hid;     /* required, e.g. 0x0111 */
+    uint8_t subclass;     /* 0 none, 1 boot interface */
+    uint8_t protocol;     /* 0 none, 1 keyboard, 2 mouse */
+    uint8_t country_code; /* 0 when the hardware is not localized, up to 35 */
+    uint8_t reserved8[3]; /* zero */
+} mimusb_hid_function;
 
 /* A whole USB device as the bytes the target reads (mimusb_device_set_descriptors), to present a
  * copy of a real device. Nothing is changed in them and nothing is filled in. */
@@ -736,6 +768,7 @@ typedef struct mimusb_keyboard_options {
     uint16_t usage_maximum;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_keyboard_options;
 
 /* X, Y, wheel and pan are relative; their ranges must hold negative and positive values. */
@@ -752,6 +785,7 @@ typedef struct mimusb_mouse_options {
     mimusb_integer_field pan;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_mouse_options;
 
 /* One-bit controls on any HUT page: Consumer, System Control, Camera Control, Telephony, ...
@@ -775,6 +809,7 @@ typedef struct mimusb_toggle_options {
     const char* const* expected_linux_codes;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_toggle_options;
 
 /* One axis. usage_page and usage must be the ones of role (docs/PROFILES.md); neutral_value is the
@@ -806,6 +841,7 @@ typedef struct mimusb_gamepad_options {
     uint32_t hat_bit_width;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_gamepad_options;
 
 /* Fixed-slot Multi-Touch under the Digitizers / Touch Screen Application Collection. */
@@ -835,6 +871,7 @@ typedef struct mimusb_touchscreen_options {
     uint32_t enable_multi_packet_frames;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_touchscreen_options;
 
 /* The touchscreen report under the Digitizers / Touch Pad Application Collection, plus
@@ -865,6 +902,7 @@ typedef struct mimusb_touchpad_options {
     uint32_t button_count;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_touchpad_options;
 
 /* A stylus under the Digitizers / Pen Application Collection (a direct, on-screen pen). */
@@ -891,6 +929,7 @@ typedef struct mimusb_pen_options {
     uint32_t enable_hover; /* 1 lets a sample be in range without touching */
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_pen_options;
 
 /* The pen report under the Digitizers / Digitizer Application Collection (an indirect tablet). */
@@ -913,6 +952,7 @@ typedef struct mimusb_digitizer_options {
     uint32_t enable_hover;
     uint32_t enable_battery;
     mimusb_battery_report battery;
+    mimusb_hid_function function; /* required */
 } mimusb_digitizer_options;
 
 /* An Input report a Raw Node may send: its Report ID and its exact length on the wire. */
@@ -933,6 +973,7 @@ typedef struct mimusb_raw_options {
     size_t report_count;
     uint32_t requires_output;
     uint32_t requires_feature_response;
+    mimusb_hid_function function; /* required */
 } mimusb_raw_options;
 
 typedef struct mimusb_report_capability {
@@ -1056,8 +1097,8 @@ static inline void mimusb_node_config_init(mimusb_node_config* config) {
     mimusb_struct_init(config, sizeof(*config));
 }
 
-static inline void mimusb_hid_node_config_init(mimusb_hid_node_config* config) {
-    mimusb_struct_init(config, sizeof(*config));
+static inline void mimusb_node_placement_init(mimusb_node_placement* placement) {
+    mimusb_struct_init(placement, sizeof(*placement));
 }
 
 static inline void mimusb_board_limits_init(mimusb_board_limits* limits) {
@@ -1637,7 +1678,7 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_device_set_bos(mimusb_device* device
 /* ---- A Device given as bytes -------------------------------------------------------------
  * To present a copy of a real device, the descriptors can be given as the bytes the target reads
  * instead of being composed from Nodes. The two are exclusive on a Device: while descriptors are
- * set, mimusb_node_open and mimusb_node_open_profile return MIMUSB_ERR_BUSY, and
+ * set, mimusb_node_open returns MIMUSB_ERR_BUSY, and
  * mimusb_device_set_descriptors with a Node open does. Its endpoints are then named by their
  * address on the Device (mimusb_device_endpoint_*). The OUT data of its endpoints arrives as
  * MIMUSB_EVENT_ENDPOINT_DATA with node_id 0 and the interface of the endpoint in
@@ -1866,6 +1907,38 @@ mimusb_spec_create_digitizer(const mimusb_digitizer_options* options, mimusb_spe
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_raw(const mimusb_raw_options* options,
                                                             mimusb_spec** out_spec);
 
+/* mimusb_spec_create_interfaces
+ * Ownership: Copies config and everything it points to (interfaces, settings, items, descriptor
+ * bytes, names, the association, the rules and their bytes). The caller owns the returned
+ * reference and releases it with mimusb_spec_release.
+ * Blocking: None.
+ * Synchronization: Any thread.
+ * Makes a Spec of any class from interfaces written out: for a CDC, audio, video, MIDI, storage or
+ * vendor function, or a HID interface of the caller's own (a report descriptor copied from a
+ * device, nothing checked). The Spec carries its own interface numbers, endpoints and rules, so
+ * its placement is empty. The values are checked when a Node is opened with mimusb_node_open,
+ * against the Device it goes on.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null pointer, a wrong struct_size, a nonzero reserved
+ * field, an interface list or setting that is null with a count, or an association that is null
+ * with a length; MIMUSB_ERR_OVERFLOW for a count of interfaces, settings, items or rules above
+ * 255, 255, 255 and 65535. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_interfaces(const mimusb_node_config* config,
+                                                                   mimusb_spec** out_spec);
+
+/* mimusb_spec_roles
+ * Ownership: Writes into the caller's array.
+ * Blocking: None.
+ * Synchronization: Any thread.
+ * Lists the endpoint roles of a Spec in order and whether each is required, so a caller sees what
+ * its placement must give. A HID Spec has MIMUSB_HID_ROLE_IN (required) and MIMUSB_HID_ROLE_OUT
+ * (optional); a Spec of mimusb_spec_create_interfaces has none. *out_count is the number of roles
+ * the Spec has, also when capacity is smaller (only capacity are written).
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null Spec or out_count, or a null out_roles with a
+ * nonzero capacity. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_roles(const mimusb_spec* spec,
+                                                       mimusb_role_info* out_roles, size_t capacity,
+                                                       size_t* out_count);
+
 /* mimusb_spec_retain
  * Ownership: Adds a reference for the caller, who must already hold one.
  * Blocking: None.
@@ -1902,14 +1975,24 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_manifest(const mimusb_spec* spe
 /* ---- Node ------------------------------------------------------------------------------- */
 
 /* mimusb_node_open
- * Ownership: Copies config and everything it points to.
+ * Ownership: Copies placement and everything it points to; retains spec until the Node closes.
  * Blocking: As mimusb_device_commit: the whole configuration of the Device is sent and the board
  * enumerates again. Inside a batch the Node is only staged and committed with the batch.
  * Synchronization: Device domain.
- * Opens a Node of any class made of the interfaces, endpoints, class descriptors, optional
- * association and control rules of config. Nothing is read from class_code except that 0 is
- * unset. What the class does on endpoint 0 (the HID report descriptor, GET_REPORT, SET_IDLE, ...)
- * is in config.rules: a request that no rule of any Node or of the Device matches is stalled.
+ * Opens a Node of any class: spec says what it is (a HID profile Spec, or the interfaces of
+ * mimusb_spec_create_interfaces), placement says where it goes. The call, its errors, its events
+ * and its limits are the same for every Spec.
+ * A HID Spec's Node is interface class 0x03 with the HID descriptor, one interrupt IN endpoint and
+ * at most one interrupt OUT endpoint. The library writes the control rules that make it behave as
+ * HID 1.11 asks (GET_DESCRIPTOR of the HID and report descriptors, GET_REPORT from the last report
+ * sent and from mimusb_node_set_feature_response, SET_REPORT, GET/SET_IDLE and GET/SET_PROTOCOL)
+ * and the events that follow from them (MIMUSB_EVENT_OUTPUT_REPORT, _FEATURE_REPORT,
+ * _SET_IDLE, _SET_PROTOCOL). The profile calls (mimusb_keyboard_key, ...) and mimusb_node_submit
+ * work on it. The rules for Nodes sharing an interface are in mimusb_node_placement.
+ * A Spec made with mimusb_spec_create_interfaces is opened as its interfaces, endpoints, class
+ * descriptors, optional association and control rules say. Nothing is read from class_code except
+ * that 0 is unset. What the class does on endpoint 0 is in the Spec's rules: a request that no rule
+ * of any Node or of the Device matches is stalled.
  * Checked without knowing the class: interface numbers (0, 1, 2, ... over all Nodes, no gap);
  * every endpoint address valid (USB 2.0 9.6.6), unique across the device, with a number the board's
  * controller has; transfer_type one the board has; max_packet_size within the board's
@@ -1918,42 +2001,18 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_manifest(const mimusb_spec* spe
  * and none on an OUT endpoint; the bLength of each class descriptor; the association; and the
  * totals against mimusb_board_limits. The details name the field and the offending number.
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null argument, a wrong struct_size, a bad value, a
- * gap in the interface numbers (mimusb_error_detail.offset is the missing number), a repeated
- * endpoint address or interface number, an association that does not match the interfaces;
- * MIMUSB_ERR_UNSET_FIELD for a required field left zero (class_code, transfer_type,
- * max_packet_size, interval of an interrupt endpoint, a policy of an IN endpoint, the action of a
- * rule) or a zero timeout; MIMUSB_ERR_UNSUPPORTED for a transfer type the board does not have;
- * MIMUSB_ERR_OVERFLOW when a size, count or limit of the board is exceeded; the results of
- * mimusb_device_commit. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device,
-                                                      const mimusb_node_config* config,
+ * role the Spec does not have or one given twice, a gap in the interface numbers
+ * (mimusb_error_detail.offset is the missing number; nothing is sent), a repeated endpoint address
+ * or interface number, Nodes sharing an interface that do not follow the rules of
+ * mimusb_node_placement, an association that does not match the interfaces;
+ * MIMUSB_ERR_UNSET_FIELD for a required field, a required role or a timeout left zero;
+ * MIMUSB_ERR_UNSUPPORTED for a transfer type the board does not have (for a HID Spec: other than
+ * interrupt); MIMUSB_ERR_OVERFLOW when a size, count or limit of the board is exceeded, or a HID
+ * Spec exceeds maximum_report_bytes or a linux_hid limit; the results of mimusb_device_commit. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* spec,
+                                                      const mimusb_node_placement* placement,
                                                       const mimusb_commit_timeouts* timeouts,
                                                       mimusb_node** out_node);
-
-/* mimusb_node_open_profile
- * Ownership: Copies config, retains spec.
- * Blocking: As mimusb_node_open.
- * Synchronization: Device domain.
- * Opens a HID Node whose report descriptor is the Spec's: interface class 0x03, the HID
- * descriptor, one interrupt IN endpoint and at most one interrupt OUT endpoint. The library writes
- * the control rules that make it behave as HID 1.11 asks (GET_DESCRIPTOR of the HID and report
- * descriptors, GET_REPORT from the last report sent and from mimusb_node_set_feature_response,
- * SET_REPORT, GET/SET_IDLE and GET/SET_PROTOCOL) and the events that follow from them
- * (MIMUSB_EVENT_OUTPUT_REPORT, _FEATURE_REPORT, _SET_IDLE, _SET_PROTOCOL). The profile calls
- * (mimusb_keyboard_key, ...) and mimusb_node_submit work on it. The rules for Nodes sharing an
- * interface (all with Report IDs, all different, the same interface and endpoint settings) are of
- * this call. Both endpoints are interrupt endpoints.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null argument, a wrong struct_size, a bad value,
- * Nodes sharing an interface that do not follow the rules above, or interface numbers that leave
- * a gap (mimusb_error_detail.offset is the missing number; nothing is sent);
- * MIMUSB_ERR_UNSET_FIELD for a required field or timeout left zero; MIMUSB_ERR_UNSUPPORTED for a
- * transfer type other than interrupt;
- * MIMUSB_ERR_OVERFLOW when the board has no room for the Node, its interface or its descriptor, or
- * the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of
- * mimusb_device_commit. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_open_profile(
-    mimusb_device* device, mimusb_spec* spec, const mimusb_hid_node_config* config,
-    const mimusb_commit_timeouts* timeouts, mimusb_node** out_node);
 
 /* mimusb_node_close
  * Ownership: Follows the "Closing" rule.

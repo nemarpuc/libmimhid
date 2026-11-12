@@ -44,12 +44,12 @@ void test_high_speed_rules() {
     std::strncpy(port.port_name, g_slave.c_str(), sizeof(port.port_name) - 1);
 
     mimusb_spec* spec = keyboard_spec(1);
-    mimusb_hid_node_config nc{};
+    test_hid_node_config nc{};
     mimusb_node* node = nullptr;
     for (const std::uint8_t interval : {0, 17, 255}) {
         test_fill_node_config(&nc, 0);
         nc.ep_in.interval = interval;
-        MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &nc, &kCommit, &node) ==
+        MIMUSB_CHECK(test_node_open_hid(device, spec, &nc, &kCommit, &node) ==
                      (interval == 0 ? MIMUSB_ERR_UNSET_FIELD : MIMUSB_ERR_PARAM));
     }
     test_fill_node_config(&nc, 0);
@@ -58,7 +58,7 @@ void test_high_speed_rules() {
     nc.ep_out.max_packet_size = 8;
     nc.ep_out.interval = 17;
     nc.ep_out.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &nc, &kCommit, &node) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &nc, &kCommit, &node) == MIMUSB_ERR_PARAM);
     test_fill_node_config(&nc, 0);
     nc.ep_in.interval = 16;
     nc.ep_in.max_packet_size = 1024; // the packet of a high-speed interrupt endpoint (5.7.3)

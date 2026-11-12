@@ -101,12 +101,12 @@ int main(int argc, char** argv) {
         printf("spec: %s\n", mimusb_result_name(r));
         return 1;
     }
-    mimusb_hid_node_config nc;
-    example_fill_node_config(&nc, 0);
+    example_placement nc;
+    example_fill_placement(&nc, 0);
     mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
     mimusb_node* node = NULL;
-    if ((r = mimusb_node_open_profile(device, spec, &nc, &to, &node)) != MIMUSB_OK) {
+    if ((r = mimusb_node_open(device, spec, &nc.placement, &to, &node)) != MIMUSB_OK) {
         printf("node_open: %s %s\n", mimusb_result_name(r), mimusb_last_error()->reason);
         return 1;
     }

@@ -52,6 +52,17 @@ Numeric fields in profile options use `mimusb_integer_field` (and the helper
   Report ID prefixes every wire report of that layout.
 - `report_id.reserved8[0..2]` must always be `0`.
 
+### The HID function (`mimusb_hid_function`)
+
+Every HID options structure ends with a `function` that says what the HID descriptor and the
+Interface descriptor of the Node carry (HID 1.11 6.2.1, 4.2, 4.3): `bcd_hid` (required, for example
+`0x0111`), `subclass` (0 none, 1 boot interface), `protocol` (0 none, 1 keyboard, 2 mouse) and
+`country_code` (0 to 35; 0 when the hardware is not localized). It belongs to the Spec because it
+describes the function, not where the function sits on a Device. A zero `bcd_hid` is
+`MIMUSB_ERR_UNSET_FIELD`; a subclass above 1, a protocol above 2, a country code above 35 or a
+nonzero reserved byte is `MIMUSB_ERR_PARAM`. Where it goes (interface number, endpoint addresses,
+intervals, packet sizes, policies) is the `mimusb_node_placement` given to `mimusb_node_open`.
+
 ### Byte padding between caller-sized fields
 
 HID 1.11 section 8.4 forbids a single field from spanning more than four bytes.

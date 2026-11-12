@@ -13,6 +13,7 @@
 #include "transport/link.hpp"
 #include "usb/board_rule.hpp"
 #include "usb/descriptor_composer.hpp"
+#include "usb/hid_node_config.hpp"
 
 #include <array>
 #include <atomic>
@@ -23,6 +24,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -281,9 +283,31 @@ struct EndpointRuntime {
 
 } // namespace mimusb::detail
 
+namespace mimusb::detail {
+
+// The interfaces of a Spec made with mimusb_spec_create_interfaces: the caller's configuration
+// copied into storage the Spec owns. The containers never move their elements, so `view` points
+// into them for as long as the Spec lives.
+struct InterfacesSpec {
+    std::vector<mimusb_usb_interface> interfaces;
+    std::deque<std::vector<mimusb_usb_setting>> settings;
+    std::deque<std::vector<mimusb_usb_item>> items;
+    std::deque<std::vector<std::uint8_t>> bytes; // descriptors, rule data
+    std::deque<std::string> names;
+    std::vector<std::uint8_t> association;
+    std::vector<mimusb_control_rule> rules;
+    mimusb_node_config view{};
+};
+
+} // namespace mimusb::detail
+
 struct mimusb_spec {
     std::atomic<std::uint32_t> references{1U};
     mimusb_profile_kind kind{};
+    // The HID function of a HID Spec (mimusb_hid_function in its options).
+    mimusb_hid_function function{};
+    // A Spec of mimusb_spec_create_interfaces.
+    std::unique_ptr<mimusb::detail::InterfacesSpec> interfaces;
     std::vector<std::uint8_t> descriptor;
     mimusb::hid::ReportLayout layout;
     mimusb::hid::DescriptorRequirements requirements;
@@ -406,7 +430,7 @@ struct mimusb_node {
     std::vector<std::uint8_t> association;
     std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
     std::vector<mimusb::usb::BoardRule> rules; // a Node opened with mimusb_node_open: its own
-    mimusb_hid_node_config config{};
+    mimusb::usb::HidNodeConfig config{};
     std::string interface_string;
     std::uint16_t node_id{};
     std::uint8_t iface{}; // config.interface_number: the bInterfaceNumber the Node has on the bus

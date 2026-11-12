@@ -114,7 +114,7 @@ HidNodeInput make_node(std::uint8_t number, std::uint8_t sub, std::uint8_t proto
                        const std::vector<std::uint8_t>* descriptor, const char* name,
                        bool has_ids = false, std::uint8_t report_id = 0) {
     HidNodeInput n;
-    mimusb_hid_node_config& c = n.config;
+    mimusb::usb::HidNodeConfig& c = n.config;
     c.interface_number = number;
     c.subclass = sub;
     c.protocol = proto;

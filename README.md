@@ -90,11 +90,12 @@ static int failed(const char* call, mimusb_result result) {
 
 int main(void) {
     mimusb_device_config dev_cfg;
-    mimusb_hid_node_config node_cfg;
+    mimusb_node_placement place;
+    mimusb_placed_endpoint in_ep;
     mimusb_commit_timeouts waits;
     mimusb_keyboard_options kb_opts;
     mimusb_device_config_init(&dev_cfg);
-    mimusb_hid_node_config_init(&node_cfg);
+    mimusb_node_placement_init(&place);
     mimusb_commit_timeouts_init(&waits);
     mimusb_keyboard_options_init(&kb_opts);
 
@@ -111,11 +112,14 @@ int main(void) {
     dev_cfg.usb_config.configuration_value = 1;
     dev_cfg.usb_config.bm_attributes = 0x80;
     dev_cfg.usb_config.bmax_power = 50;
-    node_cfg.bcd_hid = 0x0111;
-    node_cfg.ep_in = (mimusb_usb_endpoint){0x81, MIMUSB_TRANSFER_INTERRUPT, 1, 0, 64, 0,
-                                           {MIMUSB_FULL_DROP_NEWEST, 7}};
+    in_ep = (mimusb_placed_endpoint){MIMUSB_HID_ROLE_IN, 0,
+                                     {0x81, MIMUSB_TRANSFER_INTERRUPT, 1, 0, 64, 0,
+                                      {MIMUSB_FULL_DROP_NEWEST, 7}}};
+    place.endpoints = &in_ep; /* the Spec's roles: mimusb_spec_roles */
+    place.endpoint_count = 1;
     waits.control_timeout_ms = 500;
     waits.reconnect_timeout_ms = 3000;
+    kb_opts.function.bcd_hid = 0x0111; /* HID 1.11: the Spec says what the function is */
     kb_opts.usage_minimum = 0x04;
     kb_opts.usage_maximum = 0xDD;
 
@@ -128,8 +132,8 @@ int main(void) {
     int status = 1;
     if ((r = mimusb_spec_create_keyboard(&kb_opts, &spec)) != MIMUSB_OK) {
         failed("mimusb_spec_create_keyboard", r);
-    } else if ((r = mimusb_node_open_profile(dev, spec, &node_cfg, &waits, &kb)) != MIMUSB_OK) {
-        failed("mimusb_node_open_profile", r);
+    } else if ((r = mimusb_node_open(dev, spec, &place, &waits, &kb)) != MIMUSB_OK) {
+        failed("mimusb_node_open", r);
     } else if ((r = mimusb_device_wait_ready(dev, 5000)) != MIMUSB_OK) {
         failed("mimusb_device_wait_ready", r);
     } else if ((r = mimusb_keyboard_key(kb, 0x04, 1)) != MIMUSB_OK || /* Keyboard a */
@@ -195,7 +199,7 @@ Both libraries share the profile `Spec` factories, the report state machines,
 and the input calls (`aoahid_keyboard_key` and `mimusb_keyboard_key`, and so
 on). They differ where the hardware differs: `libmimusb` has no `Context`
 handle, takes a serial port name and the full USB and endpoint descriptors
-(`mimusb_device_config`, `mimusb_node_config`, `mimusb_hid_node_config`), uses `mimusb_commit_timeouts` on
+(`mimusb_device_config`, `mimusb_node_config`, `mimusb_node_placement`), uses `mimusb_commit_timeouts` on
 calls that re-enumerate the board, and carries two-way HID traffic (Output
 reports, Feature answers, bus connect and disconnect, endpoint 0 control
 transfer routing). Three differences change code that is moved across:

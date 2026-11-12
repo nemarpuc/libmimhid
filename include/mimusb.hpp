@@ -282,17 +282,19 @@ inline void spec_release(mimusb_spec* spec) noexcept { mimusb_spec_release(spec)
                                                  mimusb_capability_manifest* manifest) noexcept {
     return mimusb_spec_manifest(spec, manifest);
 }
-[[nodiscard]] inline mimusb_result node_open(mimusb_device* device,
-                                             const mimusb_node_config* config,
+[[nodiscard]] inline mimusb_result spec_create_interfaces(const mimusb_node_config* config,
+                                                          mimusb_spec** out_spec) noexcept {
+    return mimusb_spec_create_interfaces(config, out_spec);
+}
+[[nodiscard]] inline mimusb_result spec_roles(const mimusb_spec* spec, mimusb_role_info* out_roles,
+                                              size_t capacity, size_t* out_count) noexcept {
+    return mimusb_spec_roles(spec, out_roles, capacity, out_count);
+}
+[[nodiscard]] inline mimusb_result node_open(mimusb_device* device, mimusb_spec* spec,
+                                             const mimusb_node_placement* placement,
                                              const mimusb_commit_timeouts* timeouts,
                                              mimusb_node** out_node) noexcept {
-    return mimusb_node_open(device, config, timeouts, out_node);
-}
-[[nodiscard]] inline mimusb_result node_open_profile(mimusb_device* device, mimusb_spec* spec,
-                                                     const mimusb_hid_node_config* config,
-                                                     const mimusb_commit_timeouts* timeouts,
-                                                     mimusb_node** out_node) noexcept {
-    return mimusb_node_open_profile(device, spec, config, timeouts, out_node);
+    return mimusb_node_open(device, spec, placement, timeouts, out_node);
 }
 [[nodiscard]] inline mimusb_result node_close(mimusb_node* node,
                                               const mimusb_commit_timeouts* timeouts,
@@ -394,9 +396,9 @@ digitizer_update(mimusb_node* node, const mimusb_digitizer_sample* sample) noexc
     mimusb_node_config_init(&value);
     return value;
 }
-[[nodiscard]] inline mimusb_hid_node_config hid_node_config() noexcept {
-    mimusb_hid_node_config value;
-    mimusb_hid_node_config_init(&value);
+[[nodiscard]] inline mimusb_node_placement node_placement() noexcept {
+    mimusb_node_placement value;
+    mimusb_node_placement_init(&value);
     return value;
 }
 [[nodiscard]] inline mimusb_board_limits board_limits() noexcept {

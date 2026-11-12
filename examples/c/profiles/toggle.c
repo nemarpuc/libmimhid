@@ -31,6 +31,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_toggle_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     /* Consumer Control. For System Control set the three pages to 0x01/0x80/0x01; for Camera keys
      * keep 0x0C/0x01 and set field_page to 0x90 (Auto-focus 0x20 and Shutter 0x21 only); for
      * Telephony keys 0x0B/0x01/0x0B. */

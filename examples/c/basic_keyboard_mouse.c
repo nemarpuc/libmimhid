@@ -56,16 +56,16 @@ int main(void) {
     // One interface each, opened in one batch so the board enumerates once.
     mimusb_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimusb_hid_node_config keyboard_config;
-    example_fill_node_config(&keyboard_config, 0);
-    mimusb_hid_node_config mouse_config;
-    example_fill_node_config(&mouse_config, 1);
+    example_placement keyboard_placement;
+    example_fill_placement(&keyboard_placement, 0);
+    example_placement mouse_placement;
+    example_fill_placement(&mouse_placement, 1);
     mimusb_node* keyboard = NULL;
     mimusb_node* mouse = NULL;
     mimusb_device_batch_begin(device);
-    if ((r = mimusb_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
-                                      &keyboard)) != MIMUSB_OK ||
-        (r = mimusb_node_open_profile(device, mouse_spec, &mouse_config, &timeouts, &mouse)) !=
+    if ((r = mimusb_node_open(device, keyboard_spec, &keyboard_placement.placement, &timeouts,
+                              &keyboard)) != MIMUSB_OK ||
+        (r = mimusb_node_open(device, mouse_spec, &mouse_placement.placement, &timeouts, &mouse)) !=
             MIMUSB_OK)
         return fail("node_open", r);
     mimusb_spec_release(keyboard_spec); // each Node keeps its own reference

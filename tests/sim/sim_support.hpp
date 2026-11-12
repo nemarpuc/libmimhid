@@ -6,6 +6,7 @@
 #pragma once
 
 #include "fake_board.h"
+#include "fill_values.h"
 #include "mimusb.h"
 #include "test.hpp"
 
@@ -71,10 +72,12 @@ mimusb_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature);
 mimusb_spec* pen_spec(std::uint8_t report_id);
 // A raw spec with one 1-byte Input report and no Report ID.
 mimusb_spec* raw_spec_no_id();
+// The same Spec with the HID function given; the result of mimusb_spec_create_raw.
+mimusb_result create_raw_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out);
 // A raw spec with an Output and a Feature report, both under Report ID 5.
 mimusb_spec* raw_spec_io();
 mimusb_node* open_node(mimusb_device* device, mimusb_spec* spec,
-                       const mimusb_hid_node_config* options = nullptr);
+                       const test_hid_node_config* options = nullptr);
 // A Node of one vendor interface (number 0, class 0xFF) with an interrupt IN endpoint 0x81 and the
 // rules given, committed; the Device is waited on until the target has it mounted. The smallest
 // thing that gives the Device a USB configuration to hold rules in.
@@ -93,6 +96,7 @@ void test_keep_attached_and_discovery();
 void test_filled_values();
 void test_init_fills_nothing();
 void test_shared_interfaces();
+void test_placement_and_roles();
 // test_sim_arguments.cpp
 void test_bad_arguments();
 // test_sim_line_rate.cpp

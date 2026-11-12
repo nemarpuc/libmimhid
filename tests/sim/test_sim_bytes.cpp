@@ -76,9 +76,9 @@ struct Given {
 };
 
 mimusb_result open_profile(mimusb_device* device, mimusb_spec* spec, mimusb_node** node) {
-    mimusb_hid_node_config config{};
+    test_hid_node_config config{};
     test_fill_node_config(&config, 0);
-    return mimusb_node_open_profile(device, spec, &config, &kCommit, node);
+    return test_node_open_hid(device, spec, &config, &kCommit, node);
 }
 
 mimusb_endpoint_policy policy(std::uint8_t on_full, std::uint8_t depth) {
@@ -201,7 +201,7 @@ void bytes_end_to_end() {
     itf.class_code = 0xFF;
     none.interfaces = &itf;
     none.interface_count = 1;
-    MIMUSB_CHECK(mimusb_node_open(device, &none, &kCommit, &node) == MIMUSB_ERR_BUSY &&
+    MIMUSB_CHECK(test_node_open_interfaces(device, &none, &kCommit, &node) == MIMUSB_ERR_BUSY &&
                  node == nullptr);
     mimusb_spec* spec = keyboard_spec(0);
     MIMUSB_CHECK(open_profile(device, spec, &node) == MIMUSB_ERR_BUSY);

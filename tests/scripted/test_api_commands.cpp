@@ -38,7 +38,7 @@ void test_nak_codes() {
     if (device == nullptr)
         return;
     mimusb_spec* spec = keyboard_spec();
-    const mimusb_hid_node_config config = node_config();
+    const test_hid_node_config config = node_config();
     for (const Case& c : cases) {
         const std::uint8_t code = c.nak;
         board.set_policy([code](const Received& r) -> std::optional<Reply> {
@@ -47,7 +47,7 @@ void test_nak_codes() {
             return std::nullopt;
         });
         mimusb_node* node = nullptr;
-        MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == c.result);
+        MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == c.result);
         MIMUSB_CHECK(node == nullptr);
         const mimusb_error_detail* e = mimusb_last_error();
         MIMUSB_CHECK(e->code == c.result && e->transport_status == code &&
@@ -57,7 +57,7 @@ void test_nak_codes() {
     // The refused opens left no slot taken: with the board answering again, the node opens.
     board.set_policy(nullptr);
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_node_id(node) == 1);
     mimusb_spec_release(spec);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
@@ -79,10 +79,9 @@ void test_retry_and_timeout() {
     });
     board.clear();
     mimusb_spec* spec = keyboard_spec();
-    const mimusb_hid_node_config config = node_config();
+    const test_hid_node_config config = node_config();
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) ==
-                 MIMUSB_ERR_TIMEOUT);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_ERR_TIMEOUT);
     MIMUSB_CHECK(mimusb_last_error()->frame_type == MIMUSB_T_DESC_RESET);
     std::vector<Received> sent;
     for (const Received& r : board.received()) {
@@ -101,7 +100,7 @@ void test_retry_and_timeout() {
             return Reply::silent();
         return std::nullopt;
     });
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
     MIMUSB_CHECK(attempts->load() == 2);
     mimusb_spec_release(spec);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
@@ -154,10 +153,9 @@ void test_commit_connect_disconnect() {
     MIMUSB_CHECK(mimusb_device_connect(device, &kCommit) == MIMUSB_OK);
     MIMUSB_CHECK(board.count(MIMUSB_T_DESC_RESET) == 0U && board.count(MIMUSB_T_COMMIT) == 0U);
     mimusb_spec* keyboard = keyboard_spec();
-    const mimusb_hid_node_config first = node_config();
+    const test_hid_node_config first = node_config();
     mimusb_node* attached = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, keyboard, &first, &kCommit, &attached) ==
-                 MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, keyboard, &first, &kCommit, &attached) == MIMUSB_OK);
     mimusb_spec_release(keyboard);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 1000) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_device_is_ready(device) == 1);
@@ -198,9 +196,9 @@ void test_commit_connect_disconnect() {
     MIMUSB_CHECK(mimusb_device_batch_begin(device) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_device_batch_begin(device) == MIMUSB_ERR_BUSY);
     mimusb_spec* spec = keyboard_spec();
-    const mimusb_hid_node_config config = node_config(1);
+    const test_hid_node_config config = node_config(1);
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_keyboard_key(node, 0x04, 1) == MIMUSB_ERR_BUSY); // staged only
     board.set_policy([](const Received& q) -> std::optional<Reply> {
         if (q.type == MIMUSB_T_DESC_DATA)
@@ -451,9 +449,9 @@ void test_set_usb_identity() {
     if (device == nullptr)
         return;
     mimusb_spec* spec = keyboard_spec();
-    const mimusb_hid_node_config config = node_config();
+    const test_hid_node_config config = node_config();
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
     mimusb_spec_release(spec);
     mimusb_device_config o = board_options();
     o.usb_device.product_id = 0x0002;

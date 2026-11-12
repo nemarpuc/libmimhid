@@ -112,9 +112,9 @@ void test_events_and_raw() {
     MIMUSB_CHECK(mimusb_node_close(node, nullptr, kDrainMs) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_node_close(node, &kCommit, 0) == MIMUSB_ERR_UNSET_FIELD);
     mimusb_node* refused = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, raw, nullptr, &no_control, &refused) ==
+    MIMUSB_CHECK(test_node_open_hid(device, raw, nullptr, &no_control, &refused) ==
                  MIMUSB_ERR_UNSET_FIELD);
-    MIMUSB_CHECK(mimusb_node_open(device, nullptr, &no_reconnect, &refused) ==
+    MIMUSB_CHECK(test_node_open_hid(device, raw, nullptr, &no_reconnect, &refused) ==
                  MIMUSB_ERR_UNSET_FIELD);
     MIMUSB_CHECK(mimusb_device_commit(device, 0, &no_control) == MIMUSB_ERR_UNSET_FIELD);
     MIMUSB_CHECK(mimusb_device_commit(device, 0, &no_reconnect) == MIMUSB_ERR_UNSET_FIELD);

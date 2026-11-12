@@ -54,6 +54,7 @@ int main(void) {
     CONSTANT(MIMUSB_PROFILE_GAMEPAD);
     CONSTANT(MIMUSB_PROFILE_TOGGLE);
     CONSTANT(MIMUSB_PROFILE_RAW);
+    CONSTANT(MIMUSB_PROFILE_INTERFACES);
     CONSTANT(MIMUSB_AXIS_X);
     CONSTANT(MIMUSB_AXIS_Y);
     CONSTANT(MIMUSB_AXIS_Z);
@@ -104,6 +105,8 @@ int main(void) {
     CONSTANT(MIMUSB_CONTROL_ACCEPT);
     CONSTANT(MIMUSB_CONTROL_ASK);
     CONSTANT(MIMUSB_CONTROL_STALL);
+    CONSTANT(MIMUSB_HID_ROLE_IN);
+    CONSTANT(MIMUSB_HID_ROLE_OUT);
     CONSTANT(MIMUSB_CONTROL_FLAG_HELD);
     CONSTANT(MIMUSB_CONTROL_FLAG_TOO_LONG);
     CONSTANT(MIMUSB_CONTROL_FLAG_FIXED);
@@ -302,18 +305,27 @@ int main(void) {
     OFFSET(mimusb_node_config, association_length);
     OFFSET(mimusb_node_config, rules);
     OFFSET(mimusb_node_config, rule_count);
-    SIZE(mimusb_hid_node_config);
-    OFFSET(mimusb_hid_node_config, struct_size);
-    OFFSET(mimusb_hid_node_config, reserved);
-    OFFSET(mimusb_hid_node_config, interface_number);
-    OFFSET(mimusb_hid_node_config, subclass);
-    OFFSET(mimusb_hid_node_config, protocol);
-    OFFSET(mimusb_hid_node_config, country_code);
-    OFFSET(mimusb_hid_node_config, bcd_hid);
-    OFFSET(mimusb_hid_node_config, reserved16);
-    OFFSET(mimusb_hid_node_config, name);
-    OFFSET(mimusb_hid_node_config, ep_in);
-    OFFSET(mimusb_hid_node_config, ep_out);
+    SIZE(mimusb_role_info);
+    OFFSET(mimusb_role_info, role);
+    OFFSET(mimusb_role_info, required);
+    SIZE(mimusb_placed_endpoint);
+    OFFSET(mimusb_placed_endpoint, role);
+    OFFSET(mimusb_placed_endpoint, reserved);
+    OFFSET(mimusb_placed_endpoint, endpoint);
+    SIZE(mimusb_node_placement);
+    OFFSET(mimusb_node_placement, struct_size);
+    OFFSET(mimusb_node_placement, reserved);
+    OFFSET(mimusb_node_placement, first_interface);
+    OFFSET(mimusb_node_placement, reserved8);
+    OFFSET(mimusb_node_placement, name);
+    OFFSET(mimusb_node_placement, endpoints);
+    OFFSET(mimusb_node_placement, endpoint_count);
+    SIZE(mimusb_hid_function);
+    OFFSET(mimusb_hid_function, bcd_hid);
+    OFFSET(mimusb_hid_function, subclass);
+    OFFSET(mimusb_hid_function, protocol);
+    OFFSET(mimusb_hid_function, country_code);
+    OFFSET(mimusb_hid_function, reserved8);
     SIZE(mimusb_device_descriptors);
     OFFSET(mimusb_device_descriptors, struct_size);
     OFFSET(mimusb_device_descriptors, reserved);
@@ -349,6 +361,7 @@ int main(void) {
     OFFSET(mimusb_keyboard_options, usage_maximum);
     OFFSET(mimusb_keyboard_options, enable_battery);
     OFFSET(mimusb_keyboard_options, battery);
+    OFFSET(mimusb_keyboard_options, function);
     SIZE(mimusb_mouse_options);
     OFFSET(mimusb_mouse_options, struct_size);
     OFFSET(mimusb_mouse_options, reserved);
@@ -362,6 +375,7 @@ int main(void) {
     OFFSET(mimusb_mouse_options, pan);
     OFFSET(mimusb_mouse_options, enable_battery);
     OFFSET(mimusb_mouse_options, battery);
+    OFFSET(mimusb_mouse_options, function);
     SIZE(mimusb_toggle_options);
     OFFSET(mimusb_toggle_options, struct_size);
     OFFSET(mimusb_toggle_options, reserved);
@@ -377,6 +391,7 @@ int main(void) {
     OFFSET(mimusb_toggle_options, expected_linux_codes);
     OFFSET(mimusb_toggle_options, enable_battery);
     OFFSET(mimusb_toggle_options, battery);
+    OFFSET(mimusb_toggle_options, function);
     SIZE(mimusb_gamepad_axis_option);
     OFFSET(mimusb_gamepad_axis_option, role);
     OFFSET(mimusb_gamepad_axis_option, usage_page);
@@ -398,6 +413,7 @@ int main(void) {
     OFFSET(mimusb_gamepad_options, hat_bit_width);
     OFFSET(mimusb_gamepad_options, enable_battery);
     OFFSET(mimusb_gamepad_options, battery);
+    OFFSET(mimusb_gamepad_options, function);
     SIZE(mimusb_touchscreen_options);
     OFFSET(mimusb_touchscreen_options, struct_size);
     OFFSET(mimusb_touchscreen_options, reserved);
@@ -423,6 +439,7 @@ int main(void) {
     OFFSET(mimusb_touchscreen_options, enable_multi_packet_frames);
     OFFSET(mimusb_touchscreen_options, enable_battery);
     OFFSET(mimusb_touchscreen_options, battery);
+    OFFSET(mimusb_touchscreen_options, function);
     SIZE(mimusb_touchpad_options);
     OFFSET(mimusb_touchpad_options, struct_size);
     OFFSET(mimusb_touchpad_options, reserved);
@@ -449,6 +466,7 @@ int main(void) {
     OFFSET(mimusb_touchpad_options, button_count);
     OFFSET(mimusb_touchpad_options, enable_battery);
     OFFSET(mimusb_touchpad_options, battery);
+    OFFSET(mimusb_touchpad_options, function);
     SIZE(mimusb_pen_options);
     OFFSET(mimusb_pen_options, struct_size);
     OFFSET(mimusb_pen_options, reserved);
@@ -468,6 +486,7 @@ int main(void) {
     OFFSET(mimusb_pen_options, enable_hover);
     OFFSET(mimusb_pen_options, enable_battery);
     OFFSET(mimusb_pen_options, battery);
+    OFFSET(mimusb_pen_options, function);
     SIZE(mimusb_digitizer_options);
     OFFSET(mimusb_digitizer_options, struct_size);
     OFFSET(mimusb_digitizer_options, reserved);
@@ -487,6 +506,7 @@ int main(void) {
     OFFSET(mimusb_digitizer_options, enable_hover);
     OFFSET(mimusb_digitizer_options, enable_battery);
     OFFSET(mimusb_digitizer_options, battery);
+    OFFSET(mimusb_digitizer_options, function);
     SIZE(mimusb_raw_report);
     OFFSET(mimusb_raw_report, report_id);
     OFFSET(mimusb_raw_report, wire_length);
@@ -499,6 +519,7 @@ int main(void) {
     OFFSET(mimusb_raw_options, report_count);
     OFFSET(mimusb_raw_options, requires_output);
     OFFSET(mimusb_raw_options, requires_feature_response);
+    OFFSET(mimusb_raw_options, function);
     SIZE(mimusb_report_capability);
     OFFSET(mimusb_report_capability, report_id);
     OFFSET(mimusb_report_capability, wire_length);

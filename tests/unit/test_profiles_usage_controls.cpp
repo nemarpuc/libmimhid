@@ -45,6 +45,7 @@ void test_usage_control_semantics() {
 
     mimusb_toggle_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.application_page = mimusb::hid::usage::page_consumer;
     options.application_usage = mimusb::hid::usage::consumer_control;
@@ -188,6 +189,7 @@ void test_usage_control_semantics() {
     std::array<const char*, 2U> duplicate_codes{"TEST_EVENT_CODE", "TEST_EVENT_CODE"};
     invalid = {};
     invalid.struct_size = static_cast<std::uint32_t>(sizeof(invalid));
+    invalid.function.bcd_hid = 0x0111;
     invalid.application_page = mimusb::hid::usage::page_consumer;
     invalid.application_usage = mimusb::hid::usage::consumer_control;
     invalid.field_page = mimusb::hid::usage::page_consumer;

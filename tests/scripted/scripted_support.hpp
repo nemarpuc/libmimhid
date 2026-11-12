@@ -47,8 +47,8 @@ inline mimusb_spec* keyboard_spec() {
     return spec;
 }
 
-inline mimusb_hid_node_config node_config(std::uint8_t interface_number = 0) {
-    mimusb_hid_node_config c{};
+inline test_hid_node_config node_config(std::uint8_t interface_number = 0) {
+    test_hid_node_config c{};
     test_fill_node_config(&c, interface_number);
     return c;
 }
@@ -77,7 +77,7 @@ inline mimusb_node* open_vendor_node(mimusb_device* device,
     config.rules = rules;
     config.rule_count = rule_count;
     mimusb_node* node = nullptr;
-    const mimusb_result r = mimusb_node_open(device, &config, &kCommit, &node);
+    const mimusb_result r = test_node_open_interfaces(device, &config, &kCommit, &node);
     MIMUSB_CHECK(r == MIMUSB_OK);
     return node;
 }

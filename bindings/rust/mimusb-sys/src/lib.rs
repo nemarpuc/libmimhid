@@ -24,6 +24,7 @@ pub type mimusb_usage_semantic = i32;
 pub type mimusb_event_kind = i32;
 pub type mimusb_control_action = i32;
 pub type mimusb_control_rule_action = i32;
+pub type mimusb_endpoint_role = i32;
 
 pub const MIMUSB_BAUD_FASTEST: u32 = 4294967295;
 pub const MIMUSB_BOOT_BAUD: u32 = 115200;
@@ -66,6 +67,7 @@ pub const MIMUSB_PROFILE_DIGITIZER: i32 = 6;
 pub const MIMUSB_PROFILE_GAMEPAD: i32 = 7;
 pub const MIMUSB_PROFILE_TOGGLE: i32 = 8;
 pub const MIMUSB_PROFILE_RAW: i32 = 9;
+pub const MIMUSB_PROFILE_INTERFACES: i32 = 10;
 pub const MIMUSB_AXIS_X: i32 = 1;
 pub const MIMUSB_AXIS_Y: i32 = 2;
 pub const MIMUSB_AXIS_Z: i32 = 3;
@@ -116,6 +118,8 @@ pub const MIMUSB_CONTROL_ANSWER_LAST_SENT: i32 = 2;
 pub const MIMUSB_CONTROL_ACCEPT: i32 = 3;
 pub const MIMUSB_CONTROL_ASK: i32 = 4;
 pub const MIMUSB_CONTROL_STALL: i32 = 5;
+pub const MIMUSB_HID_ROLE_IN: i32 = 1;
+pub const MIMUSB_HID_ROLE_OUT: i32 = 2;
 pub const MIMUSB_CONTROL_FLAG_HELD: i32 = 1;
 pub const MIMUSB_CONTROL_FLAG_TOO_LONG: i32 = 2;
 pub const MIMUSB_CONTROL_FLAG_FIXED: i32 = 4;
@@ -373,18 +377,36 @@ pub struct mimusb_node_config {
 }
 
 #[repr(C)]
-pub struct mimusb_hid_node_config {
+pub struct mimusb_role_info {
+    pub role: mimusb_endpoint_role,
+    pub required: u32,
+}
+
+#[repr(C)]
+pub struct mimusb_placed_endpoint {
+    pub role: mimusb_endpoint_role,
+    pub reserved: u32,
+    pub endpoint: mimusb_usb_endpoint,
+}
+
+#[repr(C)]
+pub struct mimusb_node_placement {
     pub struct_size: u32,
     pub reserved: u32,
-    pub interface_number: u8,
+    pub first_interface: u8,
+    pub reserved8: [u8; 7],
+    pub name: *const c_char,
+    pub endpoints: *const mimusb_placed_endpoint,
+    pub endpoint_count: usize,
+}
+
+#[repr(C)]
+pub struct mimusb_hid_function {
+    pub bcd_hid: u16,
     pub subclass: u8,
     pub protocol: u8,
     pub country_code: u8,
-    pub bcd_hid: u16,
-    pub reserved16: u16,
-    pub name: *const c_char,
-    pub ep_in: mimusb_usb_endpoint,
-    pub ep_out: mimusb_usb_endpoint,
+    pub reserved8: [u8; 3],
 }
 
 #[repr(C)]
@@ -438,6 +460,7 @@ pub struct mimusb_keyboard_options {
     pub usage_maximum: u16,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -454,6 +477,7 @@ pub struct mimusb_mouse_options {
     pub pan: mimusb_integer_field,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -472,6 +496,7 @@ pub struct mimusb_toggle_options {
     pub expected_linux_codes: *const *const c_char,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -499,6 +524,7 @@ pub struct mimusb_gamepad_options {
     pub hat_bit_width: u32,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -527,6 +553,7 @@ pub struct mimusb_touchscreen_options {
     pub enable_multi_packet_frames: u32,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -556,6 +583,7 @@ pub struct mimusb_touchpad_options {
     pub button_count: u32,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -578,6 +606,7 @@ pub struct mimusb_pen_options {
     pub enable_hover: u32,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -600,6 +629,7 @@ pub struct mimusb_digitizer_options {
     pub enable_hover: u32,
     pub enable_battery: u32,
     pub battery: mimusb_battery_report,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -618,6 +648,7 @@ pub struct mimusb_raw_options {
     pub report_count: usize,
     pub requires_output: u32,
     pub requires_feature_response: u32,
+    pub function: mimusb_hid_function,
 }
 
 #[repr(C)]
@@ -747,12 +778,13 @@ extern "C" {
     pub fn mimusb_spec_create_pen(options: *const mimusb_pen_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_create_digitizer(options: *const mimusb_digitizer_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_create_raw(options: *const mimusb_raw_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
+    pub fn mimusb_spec_create_interfaces(config: *const mimusb_node_config, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
+    pub fn mimusb_spec_roles(spec: *const mimusb_spec, out_roles: *mut mimusb_role_info, capacity: usize, out_count: *mut usize) -> mimusb_result;
     pub fn mimusb_spec_retain(spec: *mut mimusb_spec);
     pub fn mimusb_spec_release(spec: *mut mimusb_spec);
     pub fn mimusb_spec_descriptor(spec: *const mimusb_spec, bytes: *const *const u8, length: *mut usize) -> mimusb_result;
     pub fn mimusb_spec_manifest(spec: *const mimusb_spec, manifest: *mut mimusb_capability_manifest) -> mimusb_result;
-    pub fn mimusb_node_open(device: *mut mimusb_device, config: *const mimusb_node_config, timeouts: *const mimusb_commit_timeouts, out_node: *mut *mut mimusb_node) -> mimusb_result;
-    pub fn mimusb_node_open_profile(device: *mut mimusb_device, spec: *mut mimusb_spec, config: *const mimusb_hid_node_config, timeouts: *const mimusb_commit_timeouts, out_node: *mut *mut mimusb_node) -> mimusb_result;
+    pub fn mimusb_node_open(device: *mut mimusb_device, spec: *mut mimusb_spec, placement: *const mimusb_node_placement, timeouts: *const mimusb_commit_timeouts, out_node: *mut *mut mimusb_node) -> mimusb_result;
     pub fn mimusb_node_close(node: *mut mimusb_node, timeouts: *const mimusb_commit_timeouts, drain_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_node_id(node: *const mimusb_node) -> u16;
     pub fn mimusb_node_set_feature_response(node: *mut mimusb_node, report_id: u8, data: *const u8, length: usize, control_timeout_ms: u32) -> mimusb_result;

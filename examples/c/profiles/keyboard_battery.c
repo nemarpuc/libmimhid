@@ -23,6 +23,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_keyboard_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     options.usage_minimum = 0x04U;
     options.usage_maximum = 0xDDU;
     /* Both reports need a Report ID, and the two must differ. */

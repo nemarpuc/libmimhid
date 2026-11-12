@@ -204,6 +204,7 @@ bool emit_descriptor(const std::filesystem::path& directory, const char* name,
 mimusb_keyboard_options keyboard_options() noexcept {
     mimusb_keyboard_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.usage_minimum = 0x04U;
     options.usage_maximum = 0x65U;
     return options;
@@ -212,6 +213,7 @@ mimusb_keyboard_options keyboard_options() noexcept {
 mimusb_touchscreen_options fixed_touchscreen_options() noexcept {
     mimusb_touchscreen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
+    options.function.bcd_hid = 0x0111;
     options.maximum_contacts = 3U;
     options.contacts_per_report = 3U;
     options.contact_id = {0, 15, 4U, {}};
@@ -278,6 +280,7 @@ int main(const int argc, char** argv) {
 
     mimusb_mouse_options mouse{};
     mouse.struct_size = static_cast<std::uint32_t>(sizeof(mouse));
+    mouse.function.bcd_hid = 0x0111;
     mouse.button_count = 5U;
     mouse.x = {-32767, 32767, 16U, {}};
     mouse.y = {-32767, 32767, 16U, {}};
@@ -303,6 +306,7 @@ int main(const int argc, char** argv) {
         "TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE"};
     mimusb_toggle_options controls{};
     controls.struct_size = static_cast<std::uint32_t>(sizeof(controls));
+    controls.function.bcd_hid = 0x0111;
     controls.application_page = mimusb::hid::usage::page_consumer;
     controls.application_usage = mimusb::hid::usage::consumer_control;
     controls.field_page = mimusb::hid::usage::page_consumer;
@@ -386,6 +390,7 @@ int main(const int argc, char** argv) {
                                    "ABS_Y"}};
     mimusb_gamepad_options controller{};
     controller.struct_size = static_cast<std::uint32_t>(sizeof(controller));
+    controller.function.bcd_hid = 0x0111;
     controller.axes = axes.data();
     controller.axis_count = axes.size();
     controller.button_count = 12U;
@@ -407,6 +412,7 @@ int main(const int argc, char** argv) {
 
     mimusb_touchpad_options touchpad{};
     touchpad.struct_size = static_cast<std::uint32_t>(sizeof(touchpad));
+    touchpad.function.bcd_hid = 0x0111;
     touchpad.report_id = touch.report_id;
     touchpad.maximum_contacts = touch.maximum_contacts;
     touchpad.contacts_per_report = touch.contacts_per_report;
@@ -438,6 +444,7 @@ int main(const int argc, char** argv) {
         mimusb::hid::usage::barrel_switch, mimusb::hid::usage::secondary_barrel_switch};
     mimusb_pen_options pen{};
     pen.struct_size = static_cast<std::uint32_t>(sizeof(pen));
+    pen.function.bcd_hid = 0x0111;
     pen.x = {0, 32767, 16U, {}};
     pen.y = {0, 32767, 16U, {}};
     pen.enable_pressure = 1U;
@@ -454,6 +461,7 @@ int main(const int argc, char** argv) {
     spec = nullptr;
     mimusb_digitizer_options digitizer{};
     digitizer.struct_size = static_cast<std::uint32_t>(sizeof(digitizer));
+    digitizer.function.bcd_hid = 0x0111;
     digitizer.x = pen.x;
     digitizer.y = pen.y;
     digitizer.enable_pressure = pen.enable_pressure;
@@ -482,7 +490,8 @@ int main(const int argc, char** argv) {
                                  &raw_report,
                                  1U,
                                  0U,
-                                 0U};
+                                 0U,
+                                 {0x0111U, 0U, 0U, 0U, {}}};
     ok = emit_descriptor(output_directory, "raw-validated", mimusb_spec_create_raw(&raw, &spec),
                          spec) &&
          ok;

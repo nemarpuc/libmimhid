@@ -23,8 +23,8 @@ bool same_endpoint(const mimusb_usb_endpoint& a, const mimusb_usb_endpoint& b) {
 }
 
 bool same_settings(const HidNodeInput& a, const HidNodeInput& b) {
-    const mimusb_hid_node_config& x = a.config;
-    const mimusb_hid_node_config& y = b.config;
+    const mimusb::usb::HidNodeConfig& x = a.config;
+    const mimusb::usb::HidNodeConfig& y = b.config;
     return x.subclass == y.subclass && x.protocol == y.protocol && x.bcd_hid == y.bcd_hid &&
            x.country_code == y.country_code && a.name == b.name &&
            same_endpoint(x.ep_in, y.ep_in) && same_endpoint(x.ep_out, y.ep_out);
@@ -74,7 +74,7 @@ std::vector<std::uint8_t> joined_descriptor(const std::vector<const HidNodeInput
 
 // The HID descriptor (HID 1.11 6.2.1): bLength 9, type, bcdHID, bCountryCode, one descriptor (the
 // report descriptor) and its length.
-std::vector<std::uint8_t> hid_descriptor(const mimusb_hid_node_config& config,
+std::vector<std::uint8_t> hid_descriptor(const mimusb::usb::HidNodeConfig& config,
                                          const std::size_t report_length) {
     return {9,
             kTypeHid,

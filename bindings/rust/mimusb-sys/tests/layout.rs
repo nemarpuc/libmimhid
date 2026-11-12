@@ -51,6 +51,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMUSB_PROFILE_GAMEPAD".to_owned(), MIMUSB_PROFILE_GAMEPAD as i64);
     map.insert("MIMUSB_PROFILE_TOGGLE".to_owned(), MIMUSB_PROFILE_TOGGLE as i64);
     map.insert("MIMUSB_PROFILE_RAW".to_owned(), MIMUSB_PROFILE_RAW as i64);
+    map.insert("MIMUSB_PROFILE_INTERFACES".to_owned(), MIMUSB_PROFILE_INTERFACES as i64);
     map.insert("MIMUSB_AXIS_X".to_owned(), MIMUSB_AXIS_X as i64);
     map.insert("MIMUSB_AXIS_Y".to_owned(), MIMUSB_AXIS_Y as i64);
     map.insert("MIMUSB_AXIS_Z".to_owned(), MIMUSB_AXIS_Z as i64);
@@ -101,6 +102,8 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("MIMUSB_CONTROL_ACCEPT".to_owned(), MIMUSB_CONTROL_ACCEPT as i64);
     map.insert("MIMUSB_CONTROL_ASK".to_owned(), MIMUSB_CONTROL_ASK as i64);
     map.insert("MIMUSB_CONTROL_STALL".to_owned(), MIMUSB_CONTROL_STALL as i64);
+    map.insert("MIMUSB_HID_ROLE_IN".to_owned(), MIMUSB_HID_ROLE_IN as i64);
+    map.insert("MIMUSB_HID_ROLE_OUT".to_owned(), MIMUSB_HID_ROLE_OUT as i64);
     map.insert("MIMUSB_CONTROL_FLAG_HELD".to_owned(), MIMUSB_CONTROL_FLAG_HELD as i64);
     map.insert("MIMUSB_CONTROL_FLAG_TOO_LONG".to_owned(), MIMUSB_CONTROL_FLAG_TOO_LONG as i64);
     map.insert("MIMUSB_CONTROL_FLAG_FIXED".to_owned(), MIMUSB_CONTROL_FLAG_FIXED as i64);
@@ -299,18 +302,27 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_node_config.association_length".to_owned(), offset_of!(mimusb_node_config, association_length) as i64);
     map.insert("mimusb_node_config.rules".to_owned(), offset_of!(mimusb_node_config, rules) as i64);
     map.insert("mimusb_node_config.rule_count".to_owned(), offset_of!(mimusb_node_config, rule_count) as i64);
-    map.insert("mimusb_hid_node_config.size".to_owned(), size_of::<mimusb_hid_node_config>() as i64);
-    map.insert("mimusb_hid_node_config.struct_size".to_owned(), offset_of!(mimusb_hid_node_config, struct_size) as i64);
-    map.insert("mimusb_hid_node_config.reserved".to_owned(), offset_of!(mimusb_hid_node_config, reserved) as i64);
-    map.insert("mimusb_hid_node_config.interface_number".to_owned(), offset_of!(mimusb_hid_node_config, interface_number) as i64);
-    map.insert("mimusb_hid_node_config.subclass".to_owned(), offset_of!(mimusb_hid_node_config, subclass) as i64);
-    map.insert("mimusb_hid_node_config.protocol".to_owned(), offset_of!(mimusb_hid_node_config, protocol) as i64);
-    map.insert("mimusb_hid_node_config.country_code".to_owned(), offset_of!(mimusb_hid_node_config, country_code) as i64);
-    map.insert("mimusb_hid_node_config.bcd_hid".to_owned(), offset_of!(mimusb_hid_node_config, bcd_hid) as i64);
-    map.insert("mimusb_hid_node_config.reserved16".to_owned(), offset_of!(mimusb_hid_node_config, reserved16) as i64);
-    map.insert("mimusb_hid_node_config.name".to_owned(), offset_of!(mimusb_hid_node_config, name) as i64);
-    map.insert("mimusb_hid_node_config.ep_in".to_owned(), offset_of!(mimusb_hid_node_config, ep_in) as i64);
-    map.insert("mimusb_hid_node_config.ep_out".to_owned(), offset_of!(mimusb_hid_node_config, ep_out) as i64);
+    map.insert("mimusb_role_info.size".to_owned(), size_of::<mimusb_role_info>() as i64);
+    map.insert("mimusb_role_info.role".to_owned(), offset_of!(mimusb_role_info, role) as i64);
+    map.insert("mimusb_role_info.required".to_owned(), offset_of!(mimusb_role_info, required) as i64);
+    map.insert("mimusb_placed_endpoint.size".to_owned(), size_of::<mimusb_placed_endpoint>() as i64);
+    map.insert("mimusb_placed_endpoint.role".to_owned(), offset_of!(mimusb_placed_endpoint, role) as i64);
+    map.insert("mimusb_placed_endpoint.reserved".to_owned(), offset_of!(mimusb_placed_endpoint, reserved) as i64);
+    map.insert("mimusb_placed_endpoint.endpoint".to_owned(), offset_of!(mimusb_placed_endpoint, endpoint) as i64);
+    map.insert("mimusb_node_placement.size".to_owned(), size_of::<mimusb_node_placement>() as i64);
+    map.insert("mimusb_node_placement.struct_size".to_owned(), offset_of!(mimusb_node_placement, struct_size) as i64);
+    map.insert("mimusb_node_placement.reserved".to_owned(), offset_of!(mimusb_node_placement, reserved) as i64);
+    map.insert("mimusb_node_placement.first_interface".to_owned(), offset_of!(mimusb_node_placement, first_interface) as i64);
+    map.insert("mimusb_node_placement.reserved8".to_owned(), offset_of!(mimusb_node_placement, reserved8) as i64);
+    map.insert("mimusb_node_placement.name".to_owned(), offset_of!(mimusb_node_placement, name) as i64);
+    map.insert("mimusb_node_placement.endpoints".to_owned(), offset_of!(mimusb_node_placement, endpoints) as i64);
+    map.insert("mimusb_node_placement.endpoint_count".to_owned(), offset_of!(mimusb_node_placement, endpoint_count) as i64);
+    map.insert("mimusb_hid_function.size".to_owned(), size_of::<mimusb_hid_function>() as i64);
+    map.insert("mimusb_hid_function.bcd_hid".to_owned(), offset_of!(mimusb_hid_function, bcd_hid) as i64);
+    map.insert("mimusb_hid_function.subclass".to_owned(), offset_of!(mimusb_hid_function, subclass) as i64);
+    map.insert("mimusb_hid_function.protocol".to_owned(), offset_of!(mimusb_hid_function, protocol) as i64);
+    map.insert("mimusb_hid_function.country_code".to_owned(), offset_of!(mimusb_hid_function, country_code) as i64);
+    map.insert("mimusb_hid_function.reserved8".to_owned(), offset_of!(mimusb_hid_function, reserved8) as i64);
     map.insert("mimusb_device_descriptors.size".to_owned(), size_of::<mimusb_device_descriptors>() as i64);
     map.insert("mimusb_device_descriptors.struct_size".to_owned(), offset_of!(mimusb_device_descriptors, struct_size) as i64);
     map.insert("mimusb_device_descriptors.reserved".to_owned(), offset_of!(mimusb_device_descriptors, reserved) as i64);
@@ -346,6 +358,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_keyboard_options.usage_maximum".to_owned(), offset_of!(mimusb_keyboard_options, usage_maximum) as i64);
     map.insert("mimusb_keyboard_options.enable_battery".to_owned(), offset_of!(mimusb_keyboard_options, enable_battery) as i64);
     map.insert("mimusb_keyboard_options.battery".to_owned(), offset_of!(mimusb_keyboard_options, battery) as i64);
+    map.insert("mimusb_keyboard_options.function".to_owned(), offset_of!(mimusb_keyboard_options, function) as i64);
     map.insert("mimusb_mouse_options.size".to_owned(), size_of::<mimusb_mouse_options>() as i64);
     map.insert("mimusb_mouse_options.struct_size".to_owned(), offset_of!(mimusb_mouse_options, struct_size) as i64);
     map.insert("mimusb_mouse_options.reserved".to_owned(), offset_of!(mimusb_mouse_options, reserved) as i64);
@@ -359,6 +372,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_mouse_options.pan".to_owned(), offset_of!(mimusb_mouse_options, pan) as i64);
     map.insert("mimusb_mouse_options.enable_battery".to_owned(), offset_of!(mimusb_mouse_options, enable_battery) as i64);
     map.insert("mimusb_mouse_options.battery".to_owned(), offset_of!(mimusb_mouse_options, battery) as i64);
+    map.insert("mimusb_mouse_options.function".to_owned(), offset_of!(mimusb_mouse_options, function) as i64);
     map.insert("mimusb_toggle_options.size".to_owned(), size_of::<mimusb_toggle_options>() as i64);
     map.insert("mimusb_toggle_options.struct_size".to_owned(), offset_of!(mimusb_toggle_options, struct_size) as i64);
     map.insert("mimusb_toggle_options.reserved".to_owned(), offset_of!(mimusb_toggle_options, reserved) as i64);
@@ -374,6 +388,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_toggle_options.expected_linux_codes".to_owned(), offset_of!(mimusb_toggle_options, expected_linux_codes) as i64);
     map.insert("mimusb_toggle_options.enable_battery".to_owned(), offset_of!(mimusb_toggle_options, enable_battery) as i64);
     map.insert("mimusb_toggle_options.battery".to_owned(), offset_of!(mimusb_toggle_options, battery) as i64);
+    map.insert("mimusb_toggle_options.function".to_owned(), offset_of!(mimusb_toggle_options, function) as i64);
     map.insert("mimusb_gamepad_axis_option.size".to_owned(), size_of::<mimusb_gamepad_axis_option>() as i64);
     map.insert("mimusb_gamepad_axis_option.role".to_owned(), offset_of!(mimusb_gamepad_axis_option, role) as i64);
     map.insert("mimusb_gamepad_axis_option.usage_page".to_owned(), offset_of!(mimusb_gamepad_axis_option, usage_page) as i64);
@@ -395,6 +410,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_gamepad_options.hat_bit_width".to_owned(), offset_of!(mimusb_gamepad_options, hat_bit_width) as i64);
     map.insert("mimusb_gamepad_options.enable_battery".to_owned(), offset_of!(mimusb_gamepad_options, enable_battery) as i64);
     map.insert("mimusb_gamepad_options.battery".to_owned(), offset_of!(mimusb_gamepad_options, battery) as i64);
+    map.insert("mimusb_gamepad_options.function".to_owned(), offset_of!(mimusb_gamepad_options, function) as i64);
     map.insert("mimusb_touchscreen_options.size".to_owned(), size_of::<mimusb_touchscreen_options>() as i64);
     map.insert("mimusb_touchscreen_options.struct_size".to_owned(), offset_of!(mimusb_touchscreen_options, struct_size) as i64);
     map.insert("mimusb_touchscreen_options.reserved".to_owned(), offset_of!(mimusb_touchscreen_options, reserved) as i64);
@@ -420,6 +436,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_touchscreen_options.enable_multi_packet_frames".to_owned(), offset_of!(mimusb_touchscreen_options, enable_multi_packet_frames) as i64);
     map.insert("mimusb_touchscreen_options.enable_battery".to_owned(), offset_of!(mimusb_touchscreen_options, enable_battery) as i64);
     map.insert("mimusb_touchscreen_options.battery".to_owned(), offset_of!(mimusb_touchscreen_options, battery) as i64);
+    map.insert("mimusb_touchscreen_options.function".to_owned(), offset_of!(mimusb_touchscreen_options, function) as i64);
     map.insert("mimusb_touchpad_options.size".to_owned(), size_of::<mimusb_touchpad_options>() as i64);
     map.insert("mimusb_touchpad_options.struct_size".to_owned(), offset_of!(mimusb_touchpad_options, struct_size) as i64);
     map.insert("mimusb_touchpad_options.reserved".to_owned(), offset_of!(mimusb_touchpad_options, reserved) as i64);
@@ -446,6 +463,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_touchpad_options.button_count".to_owned(), offset_of!(mimusb_touchpad_options, button_count) as i64);
     map.insert("mimusb_touchpad_options.enable_battery".to_owned(), offset_of!(mimusb_touchpad_options, enable_battery) as i64);
     map.insert("mimusb_touchpad_options.battery".to_owned(), offset_of!(mimusb_touchpad_options, battery) as i64);
+    map.insert("mimusb_touchpad_options.function".to_owned(), offset_of!(mimusb_touchpad_options, function) as i64);
     map.insert("mimusb_pen_options.size".to_owned(), size_of::<mimusb_pen_options>() as i64);
     map.insert("mimusb_pen_options.struct_size".to_owned(), offset_of!(mimusb_pen_options, struct_size) as i64);
     map.insert("mimusb_pen_options.reserved".to_owned(), offset_of!(mimusb_pen_options, reserved) as i64);
@@ -465,6 +483,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_pen_options.enable_hover".to_owned(), offset_of!(mimusb_pen_options, enable_hover) as i64);
     map.insert("mimusb_pen_options.enable_battery".to_owned(), offset_of!(mimusb_pen_options, enable_battery) as i64);
     map.insert("mimusb_pen_options.battery".to_owned(), offset_of!(mimusb_pen_options, battery) as i64);
+    map.insert("mimusb_pen_options.function".to_owned(), offset_of!(mimusb_pen_options, function) as i64);
     map.insert("mimusb_digitizer_options.size".to_owned(), size_of::<mimusb_digitizer_options>() as i64);
     map.insert("mimusb_digitizer_options.struct_size".to_owned(), offset_of!(mimusb_digitizer_options, struct_size) as i64);
     map.insert("mimusb_digitizer_options.reserved".to_owned(), offset_of!(mimusb_digitizer_options, reserved) as i64);
@@ -484,6 +503,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_digitizer_options.enable_hover".to_owned(), offset_of!(mimusb_digitizer_options, enable_hover) as i64);
     map.insert("mimusb_digitizer_options.enable_battery".to_owned(), offset_of!(mimusb_digitizer_options, enable_battery) as i64);
     map.insert("mimusb_digitizer_options.battery".to_owned(), offset_of!(mimusb_digitizer_options, battery) as i64);
+    map.insert("mimusb_digitizer_options.function".to_owned(), offset_of!(mimusb_digitizer_options, function) as i64);
     map.insert("mimusb_raw_report.size".to_owned(), size_of::<mimusb_raw_report>() as i64);
     map.insert("mimusb_raw_report.report_id".to_owned(), offset_of!(mimusb_raw_report, report_id) as i64);
     map.insert("mimusb_raw_report.wire_length".to_owned(), offset_of!(mimusb_raw_report, wire_length) as i64);
@@ -496,6 +516,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimusb_raw_options.report_count".to_owned(), offset_of!(mimusb_raw_options, report_count) as i64);
     map.insert("mimusb_raw_options.requires_output".to_owned(), offset_of!(mimusb_raw_options, requires_output) as i64);
     map.insert("mimusb_raw_options.requires_feature_response".to_owned(), offset_of!(mimusb_raw_options, requires_feature_response) as i64);
+    map.insert("mimusb_raw_options.function".to_owned(), offset_of!(mimusb_raw_options, function) as i64);
     map.insert("mimusb_report_capability.size".to_owned(), size_of::<mimusb_report_capability>() as i64);
     map.insert("mimusb_report_capability.report_id".to_owned(), offset_of!(mimusb_report_capability, report_id) as i64);
     map.insert("mimusb_report_capability.wire_length".to_owned(), offset_of!(mimusb_report_capability, wire_length) as i64);

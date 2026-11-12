@@ -226,7 +226,7 @@ void test_batch_and_packing() {
     MIMUSB_CHECK(mimusb_device_batch_begin(device) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_device_batch_begin(device) == MIMUSB_ERR_BUSY);
     for (int i = 0; i < 4; ++i) {
-        mimusb_hid_node_config opt{};
+        test_hid_node_config opt{};
         test_fill_node_config(&opt, static_cast<uint8_t>(i % SIM_ENDPOINTS));
         nodes[i] = open_node(device, specs[i], &opt);
     }
@@ -292,11 +292,11 @@ void test_limits() {
     const unsigned limit = SIM_ENDPOINTS;
     for (unsigned i = 0; i < limit + 1; ++i) {
         specs.push_back(raw_spec_no_id());
-        mimusb_hid_node_config no{};
+        test_hid_node_config no{};
         test_fill_node_config(&no, static_cast<uint8_t>(i));
         no.ep_in.policy.depth = 1; // the queues of all the IN endpoints share the board's pool
         mimusb_node* node = nullptr;
-        last = mimusb_node_open_profile(device, specs.back(), &no, &kCommit, &node);
+        last = test_node_open_hid(device, specs.back(), &no, &kCommit, &node);
         if (last != MIMUSB_OK)
             break;
         nodes.push_back(node);
@@ -328,10 +328,10 @@ void test_interface_numbers() {
     mimusb_node* nodes[3] = {};
     for (unsigned i : {0U, 2U, 1U, 2U}) {
         specs.push_back(raw_spec_no_id());
-        mimusb_hid_node_config c{};
+        test_hid_node_config c{};
         test_fill_node_config(&c, static_cast<uint8_t>(i));
         mimusb_node* node = nullptr;
-        const mimusb_result r = mimusb_node_open_profile(device, specs.back(), &c, &kCommit, &node);
+        const mimusb_result r = test_node_open_hid(device, specs.back(), &c, &kCommit, &node);
         if (i == 2U && nodes[1] == nullptr) {
             MIMUSB_CHECK(r == MIMUSB_ERR_PARAM && node == nullptr &&
                          mimusb_last_error()->offset == 1U);

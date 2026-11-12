@@ -58,6 +58,7 @@ Every call that can wait takes its time as an explicit parameter, and the librar
 
 ```c
 #include <mimusb.h>
+#include <string.h>
 
 enum { CONTROL_MS = 500, SEND_MS = 500, DRAIN_MS = 1000, RECONNECT_MS = 3000 };
 
@@ -67,18 +68,28 @@ static void fill_timeouts(mimusb_commit_timeouts* commit_timeouts) {
     commit_timeouts->reconnect_timeout_ms = RECONNECT_MS;
 }
 
-/* A HID interface with bInterfaceNumber n, polled every 1 ms through IN endpoint 0x81 + n with 64-byte packets,
- * and no OUT endpoint: every field is set here, none by mimusb_hid_node_config_init. */
-static void fill_node(mimusb_hid_node_config* config, uint8_t n) {
-    mimusb_hid_node_config_init(config);
-    config->interface_number = n;
-    config->bcd_hid = 0x0111;
-    config->ep_in.address = (uint8_t)(0x81 + n);
-    config->ep_in.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    config->ep_in.interval = 1;
-    config->ep_in.max_packet_size = 64;
-    config->ep_in.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
-    config->ep_in.policy.depth = 7;
+/* The placement of a HID Spec: bInterfaceNumber n, polled every 1 ms through IN endpoint 0x81 + n with
+ * 64-byte packets, and no OUT endpoint: every field is set here, none by mimusb_node_placement_init.
+ * The placement points at in_endpoint, so keep both together. What the function is (bcd_hid, boot
+ * protocol, country) is the Spec's: options.function.bcd_hid = 0x0111 when the Spec is created. */
+typedef struct placement {
+    mimusb_node_placement node;
+    mimusb_placed_endpoint in_endpoint;
+} placement;
+
+static void fill_placement(placement* p, uint8_t n) {
+    mimusb_node_placement_init(&p->node);
+    p->node.first_interface = n;
+    p->node.endpoints = &p->in_endpoint;
+    p->node.endpoint_count = 1;
+    memset(&p->in_endpoint, 0, sizeof(p->in_endpoint));
+    p->in_endpoint.role = MIMUSB_HID_ROLE_IN; /* mimusb_spec_roles lists the roles of a Spec */
+    p->in_endpoint.endpoint.address = (uint8_t)(0x81 + n);
+    p->in_endpoint.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+    p->in_endpoint.endpoint.interval = 1;
+    p->in_endpoint.endpoint.max_packet_size = 64;
+    p->in_endpoint.endpoint.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
+    p->in_endpoint.endpoint.policy.depth = 7;
 }
 ```
 
@@ -93,24 +104,13 @@ static void open_two_nodes_in_batch(mimusb_device* device,
                                     const mimusb_commit_timeouts* commit_timeouts,
                                     mimusb_node** keyboard,
                                     mimusb_node** mouse) {
-    mimusb_hid_node_config kbd_node;
-    mimusb_hid_node_config_init(&kbd_node);
-    kbd_node.interface_number = 0;
-    kbd_node.bcd_hid = 0x0111;
-    kbd_node.ep_in.address = 0x81;
-    kbd_node.ep_in.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    kbd_node.ep_in.interval = 1;
-    kbd_node.ep_in.max_packet_size = 64;
-    kbd_node.ep_in.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
-    kbd_node.ep_in.policy.depth = 7;
-
-    mimusb_hid_node_config mouse_node = kbd_node;
-    mouse_node.interface_number = 1;
-    mouse_node.ep_in.address = 0x82;
+    placement kbd_node, mouse_node;
+    fill_placement(&kbd_node, 0);
+    fill_placement(&mouse_node, 1);
 
     mimusb_device_batch_begin(device);
-    mimusb_node_open_profile(device, keyboard_spec, &kbd_node, commit_timeouts, keyboard);
-    mimusb_node_open_profile(device, mouse_spec, &mouse_node, commit_timeouts, mouse);
+    mimusb_node_open(device, keyboard_spec, &kbd_node.node, commit_timeouts, keyboard);
+    mimusb_node_open(device, mouse_spec, &mouse_node.node, commit_timeouts, mouse);
     mimusb_device_batch_end(device, commit_timeouts); /* one re-enumeration for both nodes */
     mimusb_device_wait_ready(device, 5000);
 }
@@ -118,7 +118,7 @@ static void open_two_nodes_in_batch(mimusb_device* device,
 
 ### Share one interface between two nodes
 
-Both need Report IDs, all different, and the same `mimusb_hid_node_config`:
+Both need Report IDs, all different, and the same placement:
 
 ```c
 #include <mimusb.h>
@@ -129,7 +129,7 @@ static void enable_distinct_report_ids(mimusb_keyboard_options* keyboard_options
     keyboard_options->report_id.value = 1;
     mouse_options->report_id.enabled = 1;
     mouse_options->report_id.value = 2;
-    /* Create the Specs, then open both with the same mimusb_hid_node_config. */
+    /* Create the Specs, then open both with the same mimusb_node_placement. */
 }
 ```
 
@@ -138,50 +138,45 @@ static void enable_distinct_report_ids(mimusb_keyboard_options* keyboard_options
 ```c
 #include <mimusb.h>
 
-static void configure_interface_with_out_endpoint(mimusb_hid_node_config* node_config) {
-    mimusb_hid_node_config_init(node_config);
-    node_config->interface_number = 0;
-    node_config->bcd_hid = 0x0111;
-    node_config->name = "Keys";
-    node_config->ep_in.address = 0x81;
-    node_config->ep_in.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    node_config->ep_in.interval = 4;
-    node_config->ep_in.max_packet_size = 64;
-    node_config->ep_in.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
-    node_config->ep_in.policy.depth = 7;
-    node_config->ep_out.address = 0x01;
-    node_config->ep_out.transfer_type = MIMUSB_TRANSFER_INTERRUPT;       /* an OUT endpoint: the target's Output reports reach event_sink */
-    node_config->ep_out.max_packet_size = 64;
-    node_config->ep_out.interval = 1;
+static void configure_interface_with_out_endpoint(placement* p, mimusb_placed_endpoint* out) {
+    fill_placement(p, 0);
+    p->node.name = "Keys";
+    p->in_endpoint.endpoint.interval = 4;
+    memset(out, 0, sizeof(*out));
+    out->role = MIMUSB_HID_ROLE_OUT; /* the target's Output reports reach event_sink */
+    out->endpoint.address = 0x01;
+    out->endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+    out->endpoint.max_packet_size = 64;
+    out->endpoint.interval = 1;
+    /* The placement lists both roles: an array of in_endpoint and *out, endpoint_count = 2. */
 }
 ```
 
 ### Send reports of a raw Spec
 
-`mimusb_spec_create_raw` builds a Spec from a caller's report descriptor, with a report table the library checks reports against; it is opened with `mimusb_node_open_profile` like any other Spec.
+`mimusb_spec_create_raw` builds a Spec from a caller's report descriptor, with a report table the library checks reports against; it is opened with `mimusb_node_open` like any other Spec.
 
 ```c
 #include <mimusb.h>
 
 static mimusb_result send_raw_report(mimusb_device* device,
                                      mimusb_spec* raw_spec,
-                                     const mimusb_hid_node_config* raw_config,
+                                     const mimusb_node_placement* raw_placement,
                                      const mimusb_commit_timeouts* commit_timeouts,
                                      const uint8_t* report,
                                      size_t report_len) {
     mimusb_node* raw_node = NULL;
-    mimusb_result r = mimusb_node_open_profile(device, raw_spec, raw_config, commit_timeouts,
-                                               &raw_node);
+    mimusb_result r = mimusb_node_open(device, raw_spec, raw_placement, commit_timeouts, &raw_node);
     if (r != MIMUSB_OK) return r;
     return mimusb_raw_submit(raw_node, report, report_len, 500); /* Report ID included, checked */
 }
 ```
 
-For a HID interface with no Spec at all (a descriptor copied from a real device, nothing checked), see `examples/c/hid_interface.c`: the interface is a `mimusb_node_open` Node of class 0x03 with its own control rules, and its reports go out with `mimusb_node_endpoint_write`.
+For a HID interface with no Spec at all (a descriptor copied from a real device, nothing checked), see `examples/c/hid_interface.c`: the interface is a Node of a `mimusb_spec_create_interfaces` Spec, class 0x03, with its own control rules, and its reports go out with `mimusb_node_endpoint_write`.
 
 ### Present a vendor-class bulk device
 
-`mimusb_node_open` takes interfaces of any class, HID included. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimusb_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMUSB_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
+A `mimusb_spec_create_interfaces` Spec takes interfaces of any class, HID included. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimusb_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMUSB_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
 
 ```c
 mimusb_usb_endpoint in = {0};
@@ -193,7 +188,8 @@ mimusb_usb_item items[2] = {mimusb_usb_item_make_endpoint(&in),
                             mimusb_usb_item_make_endpoint(&out)};
 mimusb_usb_setting setting = {items, 2};
 /* interface.class_code = 0xFF; interface.settings = &setting; interface.setting_count = 1; */
-/* mimusb_node_open(device, &node_config, &timeouts, &node);
+/* mimusb_spec_create_interfaces(&node_config, &spec);  an empty placement:
+   mimusb_node_open(device, spec, &placement, &timeouts, &node);
    mimusb_node_endpoint_write(node, 0x81, data, length, 1000); */
 ```
 

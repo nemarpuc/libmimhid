@@ -82,10 +82,12 @@ void test_error_fields_name_their_profile() {
     MIMUSB_CHECK(field_starts_with("touchpad"));
     mimusb_pen_options pen{};
     pen.struct_size = static_cast<std::uint32_t>(sizeof(pen));
+    pen.function.bcd_hid = 0x0111;
     MIMUSB_CHECK(mimusb_spec_create_pen(&pen, &spec) != MIMUSB_OK);
     MIMUSB_CHECK(field_starts_with("pen"));
     mimusb_digitizer_options digitizer{};
     digitizer.struct_size = static_cast<std::uint32_t>(sizeof(digitizer));
+    digitizer.function.bcd_hid = 0x0111;
     MIMUSB_CHECK(mimusb_spec_create_digitizer(&digitizer, &spec) != MIMUSB_OK);
     MIMUSB_CHECK(field_starts_with("digitizer"));
 }

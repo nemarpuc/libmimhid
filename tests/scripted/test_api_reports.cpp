@@ -28,9 +28,8 @@ Opened open_keyboard(Board& board) {
     if (o.device == nullptr)
         return o;
     o.spec = keyboard_spec();
-    const mimusb_hid_node_config config = node_config();
-    MIMUSB_CHECK(mimusb_node_open_profile(o.device, o.spec, &config, &kCommit, &o.node) ==
-                 MIMUSB_OK);
+    const test_hid_node_config config = node_config();
+    MIMUSB_CHECK(test_node_open_hid(o.device, o.spec, &config, &kCommit, &o.node) == MIMUSB_OK);
     MIMUSB_CHECK(mimusb_device_wait_ready(o.device, 1000) == MIMUSB_OK);
     return o;
 }
@@ -146,8 +145,8 @@ void test_link_lost() {
     MIMUSB_CHECK(mimusb_device_set_loss_reporting(o.device, 0, 0, kControlMs) ==
                  MIMUSB_ERR_NO_DEVICE);
     mimusb_node* other = nullptr;
-    const mimusb_hid_node_config config = node_config(1);
-    MIMUSB_CHECK(mimusb_node_open_profile(o.device, o.spec, &config, &kCommit, &other) ==
+    const test_hid_node_config config = node_config(1);
+    MIMUSB_CHECK(test_node_open_hid(o.device, o.spec, &config, &kCommit, &other) ==
                  MIMUSB_ERR_NO_DEVICE);
     mimusb_usb_endpoint endpoint{};
     endpoint.address = 0x82;
@@ -166,7 +165,8 @@ void test_link_lost() {
     mimusb_node_config_init(&generic);
     generic.interfaces = &itf;
     generic.interface_count = 1;
-    MIMUSB_CHECK(mimusb_node_open(o.device, &generic, &kCommit, &other) == MIMUSB_ERR_NO_DEVICE);
+    MIMUSB_CHECK(test_node_open_interfaces(o.device, &generic, &kCommit, &other) ==
+                 MIMUSB_ERR_NO_DEVICE);
     MIMUSB_CHECK(mimusb_keyboard_key(o.node, 0x04, 1) == MIMUSB_ERR_NO_DEVICE);
     mimusb_spec_release(o.spec);
     MIMUSB_CHECK(mimusb_device_close(o.device, kControlMs, kDrainMs) == MIMUSB_ERR_NO_DEVICE);
@@ -184,9 +184,9 @@ void test_scan_time() {
     mimusb_touchscreen_options options = mimusb_test::touchscreen_options();
     mimusb_spec* spec = nullptr;
     MIMUSB_CHECK(mimusb_spec_create_touchscreen(&options, &spec) == MIMUSB_OK);
-    const mimusb_hid_node_config config = node_config();
+    const test_hid_node_config config = node_config();
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &config, &kCommit, &node) == MIMUSB_OK);
     mimusb_spec_release(spec);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 1000) == MIMUSB_OK);
     board.clear();

@@ -16,7 +16,7 @@ The API has four opaque handle types:
 | `mimusb_discovery*` | `mimusb_discover` | `mimusb_discovery_destroy` | A snapshot of the `mimusb_device_info` records found by one search. Independent of any Device. |
 | `mimusb_spec*` | `mimusb_spec_create_*` | `mimusb_spec_release` | An immutable, reference-counted HID report descriptor and report layout. Independent of any Device; one Spec may be used by several Nodes and threads. |
 | `mimusb_device*` | `mimusb_device_open` | `mimusb_device_close` | One board on one serial port: the port, the reader thread, and the USB device the board presents. Closing it closes its Nodes. |
-| `mimusb_node*` | `mimusb_node_open`, `mimusb_node_open_profile` | `mimusb_node_close` or `mimusb_device_close` | The interfaces one function presents to the target: any class from its interfaces, endpoints, class descriptors and control rules (`mimusb_node_open`; a HID interface of the caller's own is class 0x03 with its HID descriptor and rules), or one HID collection from a Spec (`mimusb_node_open_profile`, for which the library writes the control rules HID needs). A Node opened from a Spec holds a reference to it. After `mimusb_device_close` its Nodes are gone and their handles must not be used. |
+| `mimusb_node*` | `mimusb_node_open` | `mimusb_node_close` or `mimusb_device_close` | The interfaces one function presents to the target, always opened from a Spec and a placement (`mimusb_node_open`): one HID collection from a HID Spec (the library writes the control rules HID needs), or any class from a `mimusb_spec_create_interfaces` Spec (interfaces, endpoints, class descriptors and control rules; a HID interface of the caller's own is class 0x03 with its HID descriptor and rules). A Node holds a reference to its Spec. After `mimusb_device_close` its Nodes are gone and their handles must not be used. |
 
 ## Rules every function follows
 
@@ -60,7 +60,7 @@ A `NAK` from the board becomes a result like this (`command_error` in
 
 Every options or output structure with `struct_size` has a static inline
 `mimusb_<type>_init` in `mimusb.h` (`mimusb_device_config_init`,
-`mimusb_commit_timeouts_init`, `mimusb_node_config_init`, `mimusb_hid_node_config_init`,
+`mimusb_commit_timeouts_init`, `mimusb_node_config_init`, `mimusb_node_placement_init`,
 `mimusb_board_limits_init`, `mimusb_link_counters_init`,
 `mimusb_keyboard_options_init`, `mimusb_mouse_options_init`,
 `mimusb_toggle_options_init`, `mimusb_gamepad_options_init`,
@@ -82,7 +82,8 @@ Every options or output structure with `struct_size` has a static inline
 | `mimusb_usb_config` | `configuration_value` (must be 1), `bm_attributes` (bit 7 set, bits 4..0 clear) | `bmax_power` (0 to 250, in 2 mA units), `string` |
 | `mimusb_commit_timeouts` | `control_timeout_ms`, `reconnect_timeout_ms` | — |
 | `mimusb_node_config` | `interfaces`, `interface_count` (at least 1); per interface: `class_code` (never 0; 0x03 is accepted), `settings` and `setting_count` (at least 1); per endpoint item `address`, `transfer_type`, `max_packet_size`, `interval` (interrupt and isochronous), and on an IN endpoint `policy.on_full` and `policy.depth`; per descriptor item `descriptor` and `descriptor_length` | `number` (0 is the same as unset: the numbers in use must be 0, 1, 2, ... anyway), `subclass`, `protocol`, `name`, the items of each setting (a setting may have none), `audio_form`, `refresh`, `synch_address`, `sync_type` and `usage_type` of an endpoint, `association`, `rules` and `rule_count` (this Node's control rules) |
-| `mimusb_hid_node_config` | `bcd_hid`, `ep_in.address` (`0x81` to `0x8F`), `ep_in.transfer_type` (`MIMUSB_TRANSFER_INTERRUPT`), `ep_in.interval`, `ep_in.max_packet_size`, `ep_in.policy` (`on_full`, any of the three, and a depth) | `interface_number`, `subclass`, `protocol`, `country_code`, `name`, `ep_out` (all zero when there is no OUT endpoint) |
+| `mimusb_node_placement` (of a HID Spec) | `endpoints` with `MIMUSB_HID_ROLE_IN`: `endpoint.address` (`0x81` to `0x8F`), `endpoint.transfer_type` (`MIMUSB_TRANSFER_INTERRUPT`), `endpoint.interval`, `endpoint.max_packet_size`, `endpoint.policy` (`on_full`, any of the three, and a depth) | `first_interface`, `name`, an endpoint with `MIMUSB_HID_ROLE_OUT` (none when there is no OUT endpoint). Empty (all zero or null) for a Spec of `mimusb_spec_create_interfaces` |
+| `mimusb_hid_function` (`function` of every HID options structure) | `bcd_hid` | `subclass`, `protocol`, `country_code` |
 | `mimusb_control_rule` | `action` (`MIMUSB_CONTROL_ANSWER`, `_ANSWER_LAST_SENT`, `_ACCEPT`, `_ASK` or `_STALL`); for `ANSWER` `data` and `length`; for `ANSWER_LAST_SENT` `endpoint_address` (an IN address); for `ASK` `timeout_ms` (1 to `MIMUSB_CONTROL_MAX_TIMEOUT_MS`) and `when_late` (`MIMUSB_CONTROL_ACTION_STALL` or `_DROP`) | the masks and values of `bmRequestType`, `bRequest`, `wValue`, and `wIndex`; `first_byte_filter` and `first_byte` of `ANSWER_LAST_SENT` |
 
 ### The close rule
@@ -126,7 +127,7 @@ USB `D+` pull-up stays off (`0 V`): the target sees no USB device.
 
 ### 2. Opening Nodes and committing
 
-`mimusb_node_open`, `mimusb_node_open_profile`, `mimusb_node_close`,
+`mimusb_node_open`, `mimusb_node_close`,
 `mimusb_device_set_usb_identity`, `mimusb_device_batch_end`, and
 `mimusb_device_commit` commit (`commit_device` in `src/api/device_ops.cpp`):
 
@@ -169,17 +170,17 @@ target.
   together are at most `max_control_rules`, their answer bytes at most
   `max_answer_bytes`.
 - The interface number (`mimusb_usb_interface.number`,
-  `mimusb_hid_node_config.interface_number`) is the `bInterfaceNumber` the
+  `mimusb_node_placement.first_interface`) is the `bInterfaceNumber` the
   target sees. The numbers in use, over all Nodes, must be 0, 1, 2, ... without
   a gap, or the commit fails with `MIMUSB_ERR_PARAM` and the missing number in
   `mimusb_error_detail.offset`; nothing is renumbered, so open the Nodes in
   number order (or in one batch) and close the highest number first.
-- Profile Nodes (`mimusb_node_open_profile`) with the
+- HID Nodes (`mimusb_node_open` of a HID Spec) with the
   **same** interface number share one USB HID interface: their interface and
   endpoint settings must match (the queue depth excepted: the board gets the
   least depth any of them set), and each must have a Report ID, all different.
   The rules for sharing live in the HID layer (`src/usb/hid_layer.cpp`), not in
-  the composer and not in `mimusb_node_open`.
+  the composer.
 - Every endpoint address is used by one endpoint on the whole device (USB 2.0
   9.6.6; IN and OUT of one number are two addresses), with a number from 1 to
   the board's `max_endpoint_number`.
@@ -643,6 +644,28 @@ mimusb_result mimusb_spec_create_raw(const mimusb_raw_options* options, mimusb_s
 - **Synchronization:** Any thread.
 - **Returns:** As every factory, `MIMUSB_OK` through `MIMUSB_ERR_OVERFLOW`; `MIMUSB_ERR_PARAM` also for a descriptor that does not parse or does not match the report table; `MIMUSB_ERR_UNSUPPORTED` for Output or Feature items without the matching requires_* flag, a long item, or a construct the parser does not handle.
 
+#### `mimusb_spec_create_interfaces`
+
+```c
+mimusb_result mimusb_spec_create_interfaces(const mimusb_node_config* config, mimusb_spec** out_spec);
+```
+
+- **Ownership:** Deep-copies config and everything it points to (interfaces, settings, items, descriptors, names, association, rules).
+- **Blocking:** None.
+- **Synchronization:** Any thread.
+- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null argument, a wrong struct_size, a nonzero reserved field, an interface list or setting that is null with a count, or a descriptor that is null with a length; `MIMUSB_ERR_UNSET_FIELD` for a `class_code` of 0 or a rule action left zero; `MIMUSB_ERR_OVERFLOW` for more than 255 interfaces, settings or items, or more than 65535 rules. What depends on the Device (addresses it has, the board's limits) is checked when the Spec is opened.
+
+#### `mimusb_spec_roles`
+
+```c
+mimusb_result mimusb_spec_roles(const mimusb_spec* spec, mimusb_role_info* out_roles, size_t capacity, size_t* out_count);
+```
+
+- **Ownership:** Writes up to capacity entries; nothing is retained.
+- **Blocking:** None.
+- **Synchronization:** Any thread.
+- **Returns:** `MIMUSB_OK`, with `*out_count` the number of roles the Spec has (also when capacity is smaller; only capacity are written). A HID Spec has `MIMUSB_HID_ROLE_IN` (required) and `MIMUSB_HID_ROLE_OUT` (optional); a Spec of interfaces has none. `MIMUSB_ERR_PARAM` for a null Spec or `out_count`, or a null `out_roles` with a nonzero capacity.
+
 #### `mimusb_spec_retain`
 
 ```c
@@ -692,24 +715,16 @@ mimusb_result mimusb_spec_manifest(const mimusb_spec* spec, mimusb_capability_ma
 #### `mimusb_node_open`
 
 ```c
-mimusb_result mimusb_node_open(mimusb_device* device, const mimusb_node_config* config, const mimusb_commit_timeouts* timeouts, mimusb_node** out_node);
+mimusb_result mimusb_node_open(mimusb_device* device, mimusb_spec* spec, const mimusb_node_placement* placement, const mimusb_commit_timeouts* timeouts, mimusb_node** out_node);
 ```
 
-- **Ownership:** Copies config and everything it points to.
+- **Ownership:** Copies placement and what it points to; the Node keeps a reference to spec until it closes.
 - **Blocking:** Sends the configuration of every Node and commits (see [Lifecycle and USB bus behavior](#lifecycle-and-usb-bus-behavior)), waiting as timeouts says, so the target sees the board's USB device unplugged and plugged in again and every other Node is briefly away. Inside a batch it only stages the Node; timeouts is still required.
-- **Synchronization:** Device domain. Opens a Node of any class from its interfaces, endpoints, class descriptors and optional association. Nothing is read from `class_code` except that 0 is unset. What the class does on endpoint 0 (a HID interface's report descriptor, `GET_REPORT`, `SET_IDLE`, ...) is in `config.rules`: a request that no rule of any Node or of the Device matches is stalled; `mimusb_node_open_profile` writes those rules for a Spec. Checked without knowing the class: interface numbers (0, 1, 2, ... without a gap over all Nodes), every endpoint address (USB 2.0 9.6.6, unique on the device, a number the controller has), the transfer type (bulk or interrupt; the board has no others), the packet size (within `max_endpoint_bytes`; bulk 8, 16, 32 or 64 at full speed, 512 at high speed, USB 2.0 5.8.3), the interval of an interrupt endpoint (1 to 255, at high speed 1 to 16), a policy on every IN endpoint and none on an OUT endpoint, the `bLength` of each class descriptor, the association (8 bytes, type 0x0B, naming this Node's consecutive interfaces), the rules and the totals against `mimusb_board_limits`.
-- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, a gap in the interface numbers (`mimusb_error_detail.offset` is the missing number), a repeated endpoint address or interface number, or an association that does not match; `MIMUSB_ERR_UNSET_FIELD` for a required field left zero (`class_code`, `transfer_type`, `max_packet_size`, the interval of an interrupt endpoint, the policy of an IN endpoint, the action of a rule) or a zero timeout; `MIMUSB_ERR_UNSUPPORTED` for a transfer type the board does not have; `MIMUSB_ERR_OVERFLOW` when a size, count or limit of the board is exceeded; the results of `mimusb_device_commit`.
-
-#### `mimusb_node_open_profile`
-
-```c
-mimusb_result mimusb_node_open_profile(mimusb_device* device, mimusb_spec* spec, const mimusb_hid_node_config* config, const mimusb_commit_timeouts* timeouts, mimusb_node** out_node);
-```
-
-- **Ownership:** Copies config; the Node keeps a reference to spec until it closes.
-- **Blocking:** As `mimusb_node_open`.
-- **Synchronization:** Device domain. Opens a HID Node whose report descriptor is the Spec's: interface class 0x03, the HID descriptor, one interrupt IN endpoint and at most one interrupt OUT endpoint, all on the board's generic driver. The library writes the control rules that make it behave as HID 1.11 asks (`GET_DESCRIPTOR` of the HID and report descriptors, `GET_REPORT` of the last Input report sent and of a Feature answer, `SET_REPORT`, `GET_IDLE`/`SET_IDLE`, `GET_PROTOCOL`/`SET_PROTOCOL`) and the events that follow from them (`MIMUSB_EVENT_OUTPUT_REPORT`, `_FEATURE_REPORT`, `_SET_IDLE`, `_SET_PROTOCOL`). The profile calls and `mimusb_node_submit` work on it, and so does `mimusb_node_endpoint_write` on its IN endpoint. The IN endpoint's policy is any of the three (`MIMUSB_FULL_DROP_NEWEST`, `_DROP_OLDEST`, `_WAIT`).
-- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, Nodes sharing an interface that do not follow the rules, or interface numbers that leave a gap (`mimusb_error_detail.offset` is the missing number; nothing is sent); `MIMUSB_ERR_UNSET_FIELD` for a required field or timeout left zero; `MIMUSB_ERR_UNSUPPORTED` for a transfer type other than interrupt; `MIMUSB_ERR_OVERFLOW` when the board has no room for the Node, its interface or its descriptor, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimusb_device_commit`.
+- **Synchronization:** Device domain. A Spec says what a function is; the placement says where it goes on this Device (interface number, string, and the address, interval, packet size and policy of each endpoint role). `mimusb_spec_roles` lists the roles of a Spec.
+  - **A HID Spec** (any `mimusb_spec_create_*` but interfaces): the Node's report descriptor is the Spec's, with interface class 0x03, the HID descriptor (`function.bcd_hid`, `country_code`), the interface's `subclass` and `protocol`, one interrupt IN endpoint (role `MIMUSB_HID_ROLE_IN`, required) and at most one interrupt OUT endpoint (`MIMUSB_HID_ROLE_OUT`), all on the board's generic driver. The library writes the control rules that make it behave as HID 1.11 asks (`GET_DESCRIPTOR` of the HID and report descriptors, `GET_REPORT` of the last Input report sent and of a Feature answer, `SET_REPORT`, `GET_IDLE`/`SET_IDLE`, `GET_PROTOCOL`/`SET_PROTOCOL`) and the events that follow from them (`MIMUSB_EVENT_OUTPUT_REPORT`, `_FEATURE_REPORT`, `_SET_IDLE`, `_SET_PROTOCOL`). The profile calls and `mimusb_node_submit` work on it, and so does `mimusb_node_endpoint_write` on its IN endpoint. The IN endpoint's policy is any of the three (`MIMUSB_FULL_DROP_NEWEST`, `_DROP_OLDEST`, `_WAIT`).
+  - **A Spec of `mimusb_spec_create_interfaces`** (kind `MIMUSB_PROFILE_INTERFACES`): any class from its interfaces, endpoints, class descriptors and optional association. It carries its own interface numbers, names and endpoints, so the placement is empty (`mimusb_node_placement_init`, nothing set). Nothing is read from `class_code` except that 0 is unset. What the class does on endpoint 0 (a HID interface's report descriptor, `GET_REPORT`, `SET_IDLE`, ...) is in the Spec's `rules`: a request that no rule of any Node or of the Device matches is stalled.
+  - Checked without knowing the class: interface numbers (0, 1, 2, ... without a gap over all Nodes), every endpoint address (USB 2.0 9.6.6, unique on the device, a number the controller has), the transfer type (bulk or interrupt for a general Node; the board has no others for a HID Node), the packet size (within `max_endpoint_bytes`; bulk 8, 16, 32 or 64 at full speed, 512 at high speed, USB 2.0 5.8.3), the interval of an interrupt endpoint (1 to 255, at high speed 1 to 16), a policy on every IN endpoint and none on an OUT endpoint, the `bLength` of each class descriptor, the association (8 bytes, type 0x0B, naming this Node's consecutive interfaces), the rules and the totals against `mimusb_board_limits`.
+- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for a null argument, a wrong struct_size, a bad value, a role the Spec does not have or given twice, a nonzero reserved field, a non-empty placement for a Spec of interfaces, Nodes sharing an interface that do not follow the rules, a gap in the interface numbers (`mimusb_error_detail.offset` is the missing number; nothing is sent), a repeated endpoint address or interface number, or an association that does not match; `MIMUSB_ERR_UNSET_FIELD` for a required field left zero (the IN role of a HID Spec, `class_code`, `transfer_type`, `max_packet_size`, the interval of an interrupt endpoint, the policy of an IN endpoint, the action of a rule) or a zero timeout; `MIMUSB_ERR_UNSUPPORTED` for a transfer type the board does not have; `MIMUSB_ERR_OVERFLOW` when a size, count or limit of the board is exceeded, or the Spec exceeds maximum_report_bytes or a linux_hid limit; the results of `mimusb_device_commit`.
 
 #### `mimusb_node_close`
 

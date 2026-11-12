@@ -53,10 +53,10 @@ int main(void) {
     example_fill_keyboard_options(&ko);
     mimusb_spec* spec = NULL;
     mimusb_spec_create_keyboard(&ko, &spec);
-    mimusb_hid_node_config hc;
-    example_fill_node_config(&hc, 0);
+    example_placement hc;
+    example_fill_placement(&hc, 0);
     mimusb_node* kbd = NULL;
-    r = mimusb_node_open_profile(device, spec, &hc, &to, &kbd);
+    r = mimusb_node_open(device, spec, &hc.placement, &to, &kbd);
     CHECK(r == MIMUSB_OK, "keyboard profile staged: %s", mimusb_result_name(r));
 
     mimusb_usb_endpoint e1[1], e2[2];
@@ -101,7 +101,7 @@ int main(void) {
     nc.association = iad;
     nc.association_length = 8;
     mimusb_node* dat = NULL;
-    r = mimusb_node_open(device, &nc, &to, &dat);
+    r = example_node_open_interfaces(device, &nc, &to, &dat);
     CHECK(r == MIMUSB_OK, "two-interface Node staged: %s %s", mimusb_result_name(r),
           r ? mimusb_last_error()->reason : "");
     r = mimusb_device_batch_end(device, &to);

@@ -26,14 +26,14 @@ int main() {
 
     const mimusb_device_config config = mimusb::device_config();
     const mimusb_commit_timeouts timeouts = mimusb::commit_timeouts();
-    const mimusb_hid_node_config node = mimusb::hid_node_config();
+    const mimusb_node_placement node = mimusb::node_placement();
     // The wrappers return what the C *_init functions do: struct_size set, every other byte zero.
     if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0 ||
         config.usb_device.product_id != 0 || config.usb_device.bcd_usb != 0 ||
         config.transport.baud_rate != 0 || config.usb_device.manufacturer != nullptr ||
         timeouts.struct_size != sizeof(timeouts) || timeouts.control_timeout_ms != 0 ||
         timeouts.reconnect_timeout_ms != 0 || node.struct_size != sizeof(node) ||
-        node.ep_in.address != 0 || node.ep_in.max_packet_size != 0 || node.bcd_hid != 0) {
+        node.first_interface != 0 || node.endpoint_count != 0 || node.name != nullptr) {
         return 1;
     }
 

@@ -218,11 +218,11 @@ void refusals() {
     config.interfaces = &itf;
     config.interface_count = 1;
     mimusb_node* node = nullptr;
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &node) == MIMUSB_ERR_PARAM &&
+    MIMUSB_CHECK(test_node_open_interfaces(device, &config, &kCommit, &node) == MIMUSB_ERR_PARAM &&
                  node == nullptr);
     itf.settings = with_alternate;
     itf.setting_count = 2;
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &node) == MIMUSB_OK &&
+    MIMUSB_CHECK(test_node_open_interfaces(device, &config, &kCommit, &node) == MIMUSB_OK &&
                  node != nullptr);
     if (node != nullptr)
         MIMUSB_CHECK(mimusb_node_close(node, &kCommit, kDrainMs) == MIMUSB_OK);
@@ -239,7 +239,7 @@ void node_streaming() {
     if (device == nullptr)
         return;
     mimusb_spec* kbd = keyboard_spec(0);
-    mimusb_hid_node_config nc{};
+    test_hid_node_config nc{};
     test_fill_node_config(&nc, 0);
     mimusb_node* keyboard = open_node(device, kbd, &nc);
 
@@ -287,7 +287,7 @@ void node_streaming() {
     config.interfaces = itfs;
     config.interface_count = 2;
     mimusb_node* audio = nullptr;
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &audio) == MIMUSB_OK &&
+    MIMUSB_CHECK(test_node_open_interfaces(device, &config, &kCommit, &audio) == MIMUSB_OK &&
                  audio != nullptr);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
     EventRecord ev;

@@ -60,6 +60,7 @@ void expect_refusals(const Options& base, Factory<Options> factory,
 void test_mouse() {
     mimusb_mouse_options base{};
     base.struct_size = static_cast<std::uint32_t>(sizeof(base));
+    base.function.bcd_hid = 0x0111;
     base.button_count = 1U;
     base.x = {-127, 127, 8U, {}};
     base.y = {-127, 127, 8U, {}};
@@ -102,6 +103,7 @@ void test_toggle() {
     static const std::array<const char*, 2> empty_type{"", "TEST_TYPE"};
     mimusb_toggle_options base{};
     base.struct_size = static_cast<std::uint32_t>(sizeof(base));
+    base.function.bcd_hid = 0x0111;
     base.application_page = mimusb::hid::usage::page_consumer;
     base.application_usage = mimusb::hid::usage::consumer_control;
     base.field_page = mimusb::hid::usage::page_consumer;
@@ -149,6 +151,7 @@ void test_gamepad() {
     two_x[1].role = MIMUSB_AXIS_X;
     mimusb_gamepad_options base{};
     base.struct_size = static_cast<std::uint32_t>(sizeof(base));
+    base.function.bcd_hid = 0x0111;
     base.axes = axes.data();
     base.axis_count = axes.size();
     base.button_count = 1U;
@@ -234,6 +237,7 @@ void test_pen() {
     static const std::array<std::uint16_t, 2> twice{0x44U, 0x44U};
     mimusb_pen_options base{};
     base.struct_size = static_cast<std::uint32_t>(sizeof(base));
+    base.function.bcd_hid = 0x0111;
     base.x = {0, 1000, 16U, {}};
     base.y = {0, 1000, 16U, {}};
     base.enable_pressure = 1U;
@@ -283,7 +287,8 @@ void test_raw() {
     static const mimusb_raw_report report{{1U, 1U, {}}, 2U};
     static const mimusb_raw_report wrong_length{{1U, 1U, {}}, 5U};
     const mimusb_raw_options base{
-        sizeof(mimusb_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U};
+        sizeof(mimusb_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U,
+        {0x0111U, 0U, 0U, 0U, {}}};
     expect_refusals<mimusb_raw_options>(
         base, &mimusb_spec_create_raw,
         {

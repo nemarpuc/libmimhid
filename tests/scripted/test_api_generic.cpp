@@ -102,7 +102,7 @@ void test_generic_frames() {
     config.interface_count = 1;
     mimusb_node* node = nullptr;
     board.clear();
-    MIMUSB_CHECK(mimusb_node_open(device, &config, &kCommit, &node) == MIMUSB_OK &&
+    MIMUSB_CHECK(test_node_open_interfaces(device, &config, &kCommit, &node) == MIMUSB_OK &&
                  node != nullptr);
     if (node == nullptr)
         return;
@@ -244,10 +244,10 @@ void test_generic_frames() {
 
     // A profile Node has the same endpoint calls: its IN endpoint is one of the generic driver's.
     mimusb_spec* spec = keyboard_spec();
-    mimusb_hid_node_config hid = node_config(1);
+    test_hid_node_config hid = node_config(1);
     hid.ep_in.address = 0x85; // 0x82 is the vendor Node's
     mimusb_node* keys = nullptr;
-    MIMUSB_CHECK(mimusb_node_open_profile(device, spec, &hid, &kCommit, &keys) == MIMUSB_OK);
+    MIMUSB_CHECK(test_node_open_hid(device, spec, &hid, &kCommit, &keys) == MIMUSB_OK);
     if (keys != nullptr) {
         // A write goes out as a data frame of the endpoint; another Node's endpoint is refused.
         board.clear();

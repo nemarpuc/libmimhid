@@ -21,6 +21,7 @@ int main(void) {
     mimusb_result result;
 
     mimusb_gamepad_options_init(&options);
+    options.function.bcd_hid = 0x0111; /* HID 1.11 */
     options.axes = axes;
     options.axis_count = sizeof axes / sizeof axes[0];
     options.button_count = 12U;

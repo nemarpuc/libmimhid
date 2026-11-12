@@ -10,6 +10,8 @@
 
 #include "mimusb.h"
 
+#include <string.h>
+
 #include <stdint.h>
 
 /* Waits that suit a board on a USB serial adapter, in milliseconds. */
@@ -55,26 +57,53 @@ static inline void example_fill_commit_timeouts(mimusb_commit_timeouts* timeouts
     timeouts->reconnect_timeout_ms = EXAMPLE_RECONNECT_TIMEOUT_MS;
 }
 
-/* A HID interface (HID 1.11, no boot protocol) with bInterfaceNumber interface_number, polled every
- * 1 ms through IN endpoint 0x81 + interface_number with 64-byte packets, and no OUT endpoint. The
- * numbers in use must be 0, 1, 2, ... without a gap (open them in that order, or in one batch). Two
- * Nodes with the same number share an interface: give each Node its own unless you mean that. */
-static inline void example_fill_node_config(mimusb_hid_node_config* config,
-                                            uint8_t interface_number) {
-    mimusb_hid_node_config_init(config);
-    config->interface_number = interface_number;
-    config->bcd_hid = 0x0111U;
-    config->ep_in.address = (uint8_t)(0x81U + interface_number);
-    config->ep_in.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    config->ep_in.interval = 1U;
-    config->ep_in.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
-    config->ep_in.policy.depth = 7U;
-    config->ep_in.max_packet_size = 64U;
+/* The placement of a HID Spec: bInterfaceNumber interface_number, polled every 1 ms through IN
+ * endpoint 0x81 + interface_number with 64-byte packets, and no OUT endpoint. The numbers in use
+ * must be 0, 1, 2, ... without a gap (open them in that order, or in one batch). Two Nodes with the
+ * same number share an interface: give each Node its own unless you mean that. The placement
+ * points at the endpoint inside the same structure: use it where it is filled, do not copy it. */
+typedef struct example_placement {
+    mimusb_node_placement placement;
+    mimusb_placed_endpoint in_endpoint;
+} example_placement;
+
+static inline void example_fill_placement(example_placement* p, uint8_t interface_number) {
+    mimusb_node_placement_init(&p->placement);
+    memset(&p->in_endpoint, 0, sizeof(p->in_endpoint));
+    p->in_endpoint.role = MIMUSB_HID_ROLE_IN;
+    p->in_endpoint.endpoint.address = (uint8_t)(0x81U + interface_number);
+    p->in_endpoint.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+    p->in_endpoint.endpoint.interval = 1U;
+    p->in_endpoint.endpoint.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
+    p->in_endpoint.endpoint.policy.depth = 7U;
+    p->in_endpoint.endpoint.max_packet_size = 64U;
+    p->placement.first_interface = interface_number;
+    p->placement.endpoints = &p->in_endpoint;
+    p->placement.endpoint_count = 1U;
+}
+
+/* Opens the interfaces of a mimusb_node_config as one Node: a Spec of the kind
+ * MIMUSB_PROFILE_INTERFACES with an empty placement (the interfaces carry their own numbers and
+ * endpoints). The Node keeps its own reference to the Spec. */
+static inline mimusb_result example_node_open_interfaces(mimusb_device* device,
+                                                         const mimusb_node_config* config,
+                                                         const mimusb_commit_timeouts* timeouts,
+                                                         mimusb_node** out_node) {
+    mimusb_spec* spec = NULL;
+    mimusb_node_placement placement;
+    mimusb_result result = mimusb_spec_create_interfaces(config, &spec);
+    if (result != MIMUSB_OK)
+        return result;
+    mimusb_node_placement_init(&placement);
+    result = mimusb_node_open(device, spec, &placement, timeouts, out_node);
+    mimusb_spec_release(spec);
+    return result;
 }
 
 /* Every key from Keyboard a (0x04) to Keypad Hexadecimal (0xDD). */
 static inline void example_fill_keyboard_options(mimusb_keyboard_options* options) {
     mimusb_keyboard_options_init(options);
+    options->function.bcd_hid = 0x0111U; /* HID 1.11 */
     options->usage_minimum = 0x04U;
     options->usage_maximum = 0xDDU;
 }
@@ -82,6 +111,7 @@ static inline void example_fill_keyboard_options(mimusb_keyboard_options* option
 /* Five buttons, 16-bit X and Y, and an 8-bit wheel and pan. */
 static inline void example_fill_mouse_options(mimusb_mouse_options* options) {
     mimusb_mouse_options_init(options);
+    options->function.bcd_hid = 0x0111U; /* HID 1.11 */
     options->button_count = 5U;
     options->x = mimusb_integer_field_make(-32767, 32767, 16U);
     options->y = options->x;
@@ -94,6 +124,7 @@ static inline void example_fill_mouse_options(mimusb_mouse_options* options) {
 /* Ten contacts in one report, X and Y from 0 to 32767, and no optional field. */
 static inline void example_fill_touchscreen_options(mimusb_touchscreen_options* options) {
     mimusb_touchscreen_options_init(options);
+    options->function.bcd_hid = 0x0111U; /* HID 1.11 */
     options->maximum_contacts = 10U;
     options->contacts_per_report = 10U;
     options->contact_id = mimusb_integer_field_make(0, 15, 4U);

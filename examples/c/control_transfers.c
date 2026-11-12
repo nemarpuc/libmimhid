@@ -70,10 +70,10 @@ int main(void) {
 
     mimusb_commit_timeouts timeouts;
     example_fill_commit_timeouts(&timeouts);
-    mimusb_hid_node_config node_config;
-    example_fill_node_config(&node_config, 0);
+    example_placement node_placement;
+    example_fill_placement(&node_placement, 0);
     mimusb_node* keyboard = NULL;
-    r = mimusb_node_open_profile(device, keyboard_spec, &node_config, &timeouts, &keyboard);
+    r = mimusb_node_open(device, keyboard_spec, &node_placement.placement, &timeouts, &keyboard);
     mimusb_spec_release(keyboard_spec);
     if (r != MIMUSB_OK || (r = mimusb_device_wait_ready(device, 5000)) != MIMUSB_OK)
         return fail("enumeration", r);

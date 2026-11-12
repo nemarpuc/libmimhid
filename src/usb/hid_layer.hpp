@@ -12,13 +12,14 @@
 
 #include "usb/board_rule.hpp"
 #include "usb/descriptor_composer.hpp"
+#include "usb/hid_node_config.hpp"
 
 #include <bitset>
 
 namespace mimusb::usb {
 
 struct HidNodeInput {
-    mimusb_hid_node_config config{}; // config.name is not read; name is
+    mimusb::usb::HidNodeConfig config{}; // config.name is not read; name is
     std::u16string name;
     const std::vector<std::uint8_t>* report_descriptor{};
     bool has_report_ids{};

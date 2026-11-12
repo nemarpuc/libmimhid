@@ -549,6 +549,43 @@ mimusb_result abi_spec_factory(mimusb_spec** out_spec, const char* field,
     return abi_result(field, std::forward<Function>(function));
 }
 
+// The HID function every HID Spec's options carry (HID 1.11 6.2.1, 4.2, 4.3). Checked before the
+// Spec is built; a valid one is stored in the Spec when it was made.
+mimusb_result check_hid_function(const mimusb_hid_function& f) noexcept {
+    if (f.reserved8[0] != 0U || f.reserved8[1] != 0U || f.reserved8[2] != 0U) {
+        set_error(MIMUSB_ERR_PARAM, "options.function.reserved8",
+                  "The reserved bytes must be zero.");
+        return MIMUSB_ERR_PARAM;
+    }
+    if (f.bcd_hid == 0U) {
+        set_error(MIMUSB_ERR_UNSET_FIELD, "options.function.bcd_hid",
+                  "bcd_hid must be explicitly specified (e.g. 0x0111).");
+        return MIMUSB_ERR_UNSET_FIELD;
+    }
+    if (f.subclass > 1U || f.protocol > 2U || f.country_code > 35U) {
+        // HID 1.11 4.2, 4.3 and 6.2.1: subclass 0 or 1; protocol 0 (none), 1 (keyboard) or 2
+        // (mouse); country code 0 to 35.
+        set_error(MIMUSB_ERR_PARAM, "options.function",
+                  "subclass is 0 or 1, protocol 0, 1 or 2 and country_code 0 to 35 (HID 1.11 4.2, "
+                  "4.3, 6.2.1).");
+        return MIMUSB_ERR_PARAM;
+    }
+    return MIMUSB_OK;
+}
+
+// Makes a HID Spec through `impl` once the options' function checks out, and keeps the function.
+template <typename Options, typename Impl>
+mimusb_result create_hid_spec(const Options* options, mimusb_spec** out_spec, Impl&& impl) {
+    if (options != nullptr && options->struct_size == static_cast<std::uint32_t>(sizeof(Options))) {
+        if (const mimusb_result r = check_hid_function(options->function); r != MIMUSB_OK)
+            return r;
+    }
+    const mimusb_result result = impl();
+    if (result == MIMUSB_OK && *out_spec != nullptr)
+        (*out_spec)->function = options->function;
+    return result;
+}
+
 template <typename Function> void abi_void(const char* field, Function&& function) noexcept {
     try {
         function();
@@ -1743,56 +1780,204 @@ static mimusb_result mimusb_spec_manifest_impl(const mimusb_spec* spec,
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_keyboard(const mimusb_keyboard_options* options,
                                                       mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_keyboard",
-                            [&] { return mimusb_spec_create_keyboard_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_keyboard", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_keyboard_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_mouse(const mimusb_mouse_options* options,
                                                    mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_mouse",
-                            [&] { return mimusb_spec_create_mouse_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_mouse", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_mouse_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_toggle(const mimusb_toggle_options* options,
                                                     mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_toggle",
-                            [&] { return mimusb_spec_create_toggle_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_toggle", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_toggle_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_gamepad(const mimusb_gamepad_options* options,
                                                      mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_gamepad",
-                            [&] { return mimusb_spec_create_gamepad_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_gamepad", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_gamepad_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_touchscreen(const mimusb_touchscreen_options* options,
                                                          mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_touchscreen",
-                            [&] { return mimusb_spec_create_touchscreen_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_touchscreen", [&] {
+        return create_hid_spec(options, out_spec, [&] {
+            return mimusb_spec_create_touchscreen_impl(options, out_spec);
+        });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_touchpad(const mimusb_touchpad_options* options,
                                                       mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_touchpad",
-                            [&] { return mimusb_spec_create_touchpad_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_touchpad", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_touchpad_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_pen(const mimusb_pen_options* options,
                                                  mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_pen",
-                            [&] { return mimusb_spec_create_pen_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_pen", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_pen_impl(options, out_spec); });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_digitizer(const mimusb_digitizer_options* options,
                                                        mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_digitizer",
-                            [&] { return mimusb_spec_create_digitizer_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_digitizer", [&] {
+        return create_hid_spec(options, out_spec, [&] {
+            return mimusb_spec_create_digitizer_impl(options, out_spec);
+        });
+    });
 }
 
 mimusb_result MIMUSB_CALL mimusb_spec_create_raw(const mimusb_raw_options* options,
                                                  mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_raw",
-                            [&] { return mimusb_spec_create_raw_impl(options, out_spec); });
+    return abi_spec_factory(out_spec, "spec.create_raw", [&] {
+        return create_hid_spec(options, out_spec,
+                               [&] { return mimusb_spec_create_raw_impl(options, out_spec); });
+    });
+}
+
+mimusb_result MIMUSB_CALL mimusb_spec_create_interfaces(const mimusb_node_config* config,
+                                                        mimusb_spec** out_spec) {
+    return abi_spec_factory(out_spec, "spec.create_interfaces", [&] {
+        if (!mimusb::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
+                                          static_cast<std::uint32_t>(sizeof(mimusb_node_config)),
+                                          "node_config")) {
+            return MIMUSB_ERR_PARAM;
+        }
+        if (config->reserved != 0U) {
+            set_error(MIMUSB_ERR_PARAM, "node_config.reserved", "The reserved field must be zero.");
+            return MIMUSB_ERR_PARAM;
+        }
+        if ((config->interfaces == nullptr) != (config->interface_count == 0U) ||
+            (config->association == nullptr) != (config->association_length == 0U) ||
+            (config->rules == nullptr) != (config->rule_count == 0U)) {
+            set_error(MIMUSB_ERR_PARAM, "node_config",
+                      "A pointer is null with a count, or a count is zero with a pointer.");
+            return MIMUSB_ERR_PARAM;
+        }
+        if (config->interface_count > 255U || config->rule_count > 65535U ||
+            config->association_length > 65535U) {
+            set_error(MIMUSB_ERR_OVERFLOW, "node_config",
+                      "At most 255 interfaces, 65535 rules and an association of 65535 bytes.");
+            return MIMUSB_ERR_OVERFLOW;
+        }
+        auto spec = std::make_unique<mimusb_spec>();
+        spec->kind = MIMUSB_PROFILE_INTERFACES;
+        auto owned = std::make_unique<mimusb::detail::InterfacesSpec>();
+        const auto keep_bytes = [&](const std::uint8_t* data, const std::size_t length) {
+            owned->bytes.emplace_back(data, data + length);
+            return owned->bytes.back().data();
+        };
+        owned->interfaces.reserve(config->interface_count);
+        for (std::size_t i = 0U; i < config->interface_count; ++i) {
+            mimusb_usb_interface itf = config->interfaces[i];
+            if ((itf.settings == nullptr) != (itf.setting_count == 0U) ||
+                itf.setting_count > 255U) {
+                set_error(MIMUSB_ERR_PARAM, "node_config.interfaces.settings",
+                          "An interface has 1 to 255 settings, and settings is not null.", 0, 0, 0,
+                          0, itf.number, static_cast<std::uint32_t>(itf.setting_count));
+                return MIMUSB_ERR_PARAM;
+            }
+            if (itf.name != nullptr) {
+                owned->names.emplace_back(itf.name);
+                itf.name = owned->names.back().c_str();
+            }
+            std::vector<mimusb_usb_setting> settings;
+            settings.reserve(itf.setting_count);
+            for (std::size_t k = 0U; k < itf.setting_count; ++k) {
+                mimusb_usb_setting setting = itf.settings[k];
+                if ((setting.items == nullptr) != (setting.item_count == 0U) ||
+                    setting.item_count > 255U) {
+                    set_error(MIMUSB_ERR_PARAM, "node_config.interfaces.settings.items",
+                              "A setting has 0 to 255 items, and items is not null with a count.",
+                              0, 0, 0, 0, itf.number, static_cast<std::uint32_t>(k));
+                    return MIMUSB_ERR_PARAM;
+                }
+                std::vector<mimusb_usb_item> items;
+                items.reserve(setting.item_count);
+                for (std::size_t j = 0U; j < setting.item_count; ++j) {
+                    mimusb_usb_item item = setting.items[j];
+                    if (item.descriptor != nullptr || item.descriptor_length != 0U) {
+                        if (item.descriptor == nullptr || item.descriptor_length == 0U ||
+                            item.descriptor_length > 65535U) {
+                            set_error(MIMUSB_ERR_PARAM,
+                                      "node_config.interfaces.settings.items.descriptor",
+                                      "A descriptor is not null and 1 to 65535 bytes, or both are "
+                                      "zero.",
+                                      0, 0, 0, 0, itf.number, static_cast<std::uint32_t>(j));
+                            return MIMUSB_ERR_PARAM;
+                        }
+                        item.descriptor = keep_bytes(item.descriptor, item.descriptor_length);
+                    }
+                    items.push_back(item);
+                }
+                owned->items.push_back(std::move(items));
+                setting.items = owned->items.back().empty() ? nullptr : owned->items.back().data();
+                settings.push_back(setting);
+            }
+            owned->settings.push_back(std::move(settings));
+            itf.settings = owned->settings.back().data();
+            owned->interfaces.push_back(itf);
+        }
+        if (config->association != nullptr)
+            owned->association.assign(config->association,
+                                      config->association + config->association_length);
+        owned->rules.reserve(config->rule_count);
+        for (std::size_t i = 0U; i < config->rule_count; ++i) {
+            mimusb_control_rule rule = config->rules[i];
+            if (rule.data != nullptr && rule.length != 0U)
+                rule.data = keep_bytes(rule.data, rule.length);
+            owned->rules.push_back(rule);
+        }
+        owned->view = *config;
+        owned->view.interfaces = owned->interfaces.empty() ? nullptr : owned->interfaces.data();
+        owned->view.association = owned->association.empty() ? nullptr : owned->association.data();
+        owned->view.rules = owned->rules.empty() ? nullptr : owned->rules.data();
+        spec->interfaces = std::move(owned);
+        *out_spec = spec.release();
+        mimusb::detail::clear_error();
+        return MIMUSB_OK;
+    });
+}
+
+mimusb_result MIMUSB_CALL mimusb_spec_roles(const mimusb_spec* spec, mimusb_role_info* out_roles,
+                                            const std::size_t capacity, std::size_t* out_count) {
+    return abi_result("spec.roles", [&] {
+        mimusb::detail::clear_error();
+        if (spec == nullptr || out_count == nullptr || (out_roles == nullptr && capacity != 0U)) {
+            set_error(MIMUSB_ERR_PARAM, "spec.roles",
+                      "spec and out_count are required, and out_roles with a capacity.");
+            return MIMUSB_ERR_PARAM;
+        }
+        std::size_t count = 0U;
+        const auto add = [&](const mimusb_endpoint_role role, const std::uint32_t required) {
+            if (count < capacity)
+                out_roles[count] = mimusb_role_info{role, required};
+            ++count;
+        };
+        if (spec->kind != MIMUSB_PROFILE_INTERFACES) {
+            add(MIMUSB_HID_ROLE_IN, 1U);
+            add(MIMUSB_HID_ROLE_OUT, 0U);
+        }
+        *out_count = count;
+        return MIMUSB_OK;
+    });
 }
 
 void MIMUSB_CALL mimusb_spec_retain(mimusb_spec* spec) {
