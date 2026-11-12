@@ -6,8 +6,29 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
-**Version 0.3.0, not released and not hardware-verified.** The wire protocol and the C ABI change: a
+**Version 0.3.0, not released. Not hardware-verified as `tests/hw/README.md` defines it; what was run
+on a board is listed under "Run on a board" below.** The wire protocol and the C ABI change: a
 0.2.1 board and this library do not talk to each other.
+
+### Run on a board
+
+2026-11-12, a Raspberry Pi Pico (RP2040), a Prolific PL2303 adapter, the target the same Linux
+machine (a VMware guest, both USB devices passed through). Not run: a second machine as the target,
+Windows or macOS, the `mimhid_verify_*` programs (they type into the target, which here is the
+session), the other boards.
+
+- Discovery and the rate search (7,812,500 baud, no errors on the link counters in any run).
+- A keyboard profile Node: enumerated by Linux, 10 runs of 400 presses and 400 releases with the
+  event device grabbed, none lost; latency in `docs/LATENCY.md`, not different from 0.2.1.
+- A vendor Node with bulk IN and OUT: transfers of 1 to 292 bytes with their boundaries, a
+  zero-length packet, 262,100 bytes without loss under the wait policy, 200 packets from the target,
+  the drop-newest and drop-oldest policies with a target that does not read, stall and clear.
+- An HID interface written by hand: every control rule action answered to the host (`ANSWER`,
+  `ANSWER_LAST_SENT`, `ACCEPT` with a data stage, `ASK`, a stall for a request no rule matches), a
+  rule's bytes replaced, and an Output report on the OUT endpoint.
+- A composite device opened in one batch: a keyboard profile and a two-interface Node with an
+  interface association.
+- `mimhid_device_enter_bootloader`, used to write the firmware some forty times.
 
 ### A board a program left attached
 

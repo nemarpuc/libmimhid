@@ -41,6 +41,21 @@ Recorded as follows (the setup and the table are kept as they were written): 202
 
 What this does not show: a real second machine as the target (the target's USB stack here is virtual), the time until an application receives the event, adapters other than this one (an FT232H, with 125 µs microframes, is expected to be faster; not measured), or how the numbers move with load. Treat them as one data point, not a specification.
 
+## Measured, 2026-11-12 {#measured-2026-11-12}
+
+The unreleased 0.3.0 (every interface on the generic driver, endpoint 0 answered from control rules) on a Raspberry Pi Pico (RP2040), a Prolific PL2303 USB-UART adapter (USB Full-Speed), the program and the target on the same Linux machine, which is a VMware guest with both USB devices passed through. Method (b) below: a keyboard profile Node with a 29-byte report, the event device grabbed, 8.1 to 9.3 ms between edges, the time from just before `mimhid_node_submit` to the kernel's evdev timestamp. The link ran at 7,812,500 baud, the rate the search chose. Ten runs of 400 presses and 400 releases each; the board was re-enumerated for every run. No edge was lost in any run and the board's link counters stayed zero. The same day, same board, same program, 0.2.1 was measured the same way by writing its firmware in between.
+
+| submit to key-down event, per run of 400 | min | median | p90 |
+|---|---|---|---|
+| 0.3.0, lowest and highest of ten runs | 272 to 586 µs | 818 to 1140 µs | 1236 to 1550 µs |
+| 0.3.0, mean of ten runs | 371 µs | 980 µs | 1378 µs |
+| 0.2.1, lowest and highest of ten runs | 267 to 565 µs | 871 to 1208 µs | 1228 to 1573 µs |
+| 0.2.1, mean of ten runs | 368 µs | 1026 µs | 1402 µs |
+
+The two versions are not told apart by this: a run's median moves by some 0.3 ms from one enumeration to the next with the same firmware, more than the versions differ. Comparing single runs is misleading (two runs taken alone showed 0.3.0 slower by 0.3 ms, two others faster). What the earlier entry does not show, this one does not show either.
+
+Throughput of a bulk endpoint on the same setup, with the wait policy and the target reading all the time: 262,100 bytes to the target in 1.38 s (about 190 kB/s), nothing lost; 200 packets of 64 bytes from the target in 47 to 63 ms (about 200 to 270 kB/s). Not characterized further: the target's USB stack is the guest's.
+
 ## How to measure
 
 Three distinct measurements answer three different questions. Keep them separate so host CPU overhead, USB frame phase, and cross-machine clock offsets are never conflated.

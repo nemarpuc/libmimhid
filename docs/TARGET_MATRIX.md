@@ -6,7 +6,7 @@ Only what has actually been run is marked as verified. "Builds" means the firmwa
 
 | Board (CI build) | Interfaces | Status |
 |---|---|---|
-| Raspberry Pi Pico (RP2040; `PICO_BOARD=pico`) | 15 (max) | Builds, and the firmware core passes the simulated-board tests; not hardware-verified. `CHANGELOG.md` `[0.1.0]` records that an earlier firmware ran on a Raspberry Pi Pico. |
+| Raspberry Pi Pico (RP2040; `PICO_BOARD=pico`) | 15 (max) | Builds, and the firmware core passes the simulated-board tests. The unreleased 0.3.0 ran on one against a Linux target on 2026-11-12 (what was run: `CHANGELOG.md`, "Run on a board"); not hardware-verified as [VERIFICATION.md](VERIFICATION.md) defines it. `CHANGELOG.md` `[0.1.0]` records that an earlier firmware ran on a Raspberry Pi Pico. |
 | Raspberry Pi Pico 2 (RP2350; `PICO_BOARD=pico2`) | 15 (max) | Builds, and the firmware core passes the simulated-board tests; not verified on hardware. |
 | nRF52840 (`-DBOARD=pca10056`, the DK) | 7 (max) | Builds; not run on hardware. |
 | STM32F4 (`-DBOARD=stm32f411blackpill`) | 3 (max; 5 on the F412 boards) | Builds; not run on hardware. |
