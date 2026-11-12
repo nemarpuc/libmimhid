@@ -524,7 +524,7 @@ The board reads no class, so a HID interface that is not made from a `Spec`
 is an ordinary `mimusb_node_open` Node of class 0x03: any report descriptor
 (a captured physical device's, with vendor collections, Output LED items or
 non-standard item sequences; nothing is parsed or checked against
-`transport.linux_hid`), the HID descriptor in `class_descriptors`
+`transport.linux_hid`), the HID descriptor as a descriptor item of the setting
 (`mimusb_hid_descriptor_bytes`), and the control rules that make it answer
 (`mimusb_node_config.rules`: `mimusb_hid_descriptor_rule` for the report
 descriptor and the HID descriptor, `MIMUSB_CONTROL_ANSWER_LAST_SENT` for

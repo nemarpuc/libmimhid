@@ -8,6 +8,17 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ### Changed
 
+- **An interface of a Node is a list of alternate settings, and a setting is a sequence of
+  items** (`mimusb_usb_interface.settings`, `mimusb_usb_setting`, `mimusb_usb_item`): an endpoint
+  or one whole descriptor, in bus order. This replaces `class_descriptors`, `endpoints` and
+  `endpoint_count`, and takes class descriptors that sit between or after endpoints (CDC, audio,
+  video, MIDI). `mimusb_usb_endpoint` is 12 bytes: it gains `audio_form`, `refresh`,
+  `synch_address`, `sync_type` and `usage_type` for the 9-byte audio endpoint form and the
+  isochronous synchronization and usage types.
+- A Node can carry isochronous endpoints, in a setting other than 0; `INTERFACE_ALTERNATE` names
+  the Node that owns the interface (`node_id`). Nodes and Devices given as bytes share one
+  endpoint check.
+
 - **Renamed from libmimhid to libmimusb**, because the library is no longer about HID alone. Every
   public name changes with it: the `mimhid_` prefix is `mimusb_`, `MIMHID_` is `MIMUSB_`, the
   headers are `mimusb.h` and `mimusb.hpp`, the CMake package is `mimusb` (targets `mimusb::mimusb`,

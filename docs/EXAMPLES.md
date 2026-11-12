@@ -184,10 +184,15 @@ For a HID interface with no Spec at all (a descriptor copied from a real device,
 `mimusb_node_open` takes interfaces of any class, HID included. The library places the class bytes it is given and reads none of them. `examples/c/vendor_bulk.c` is the whole program: one interface of class `0xFF`, a bulk IN endpoint that makes `mimusb_node_endpoint_write` wait while four transfers are unfinished, and a bulk OUT endpoint whose packets arrive as `MIMUSB_EVENT_ENDPOINT_DATA` events. It builds with the other examples and needs a board and a target, so it is not a ctest case.
 
 ```c
-mimusb_usb_endpoint endpoints[2] = {
-    {0x81, MIMUSB_TRANSFER_BULK, 0, 0, 64, 0, {MIMUSB_FULL_WAIT, 4}},
-    {0x01, MIMUSB_TRANSFER_BULK, 0, 0, 64, 0, {0, 0}}};
-/* interface_config.class_code = 0xFF; .endpoints = endpoints; .endpoint_count = 2; */
+mimusb_usb_endpoint in = {0};
+in.address = 0x81; in.transfer_type = MIMUSB_TRANSFER_BULK; in.max_packet_size = 64;
+in.policy.on_full = MIMUSB_FULL_WAIT; in.policy.depth = 4;
+mimusb_usb_endpoint out = {0};
+out.address = 0x01; out.transfer_type = MIMUSB_TRANSFER_BULK; out.max_packet_size = 64;
+mimusb_usb_item items[2] = {mimusb_usb_item_make_endpoint(&in),
+                            mimusb_usb_item_make_endpoint(&out)};
+mimusb_usb_setting setting = {items, 2};
+/* interface.class_code = 0xFF; interface.settings = &setting; interface.setting_count = 1; */
 /* mimusb_node_open(device, &node_config, &timeouts, &node);
    mimusb_node_endpoint_write(node, 0x81, data, length, 1000); */
 ```
