@@ -129,8 +129,7 @@ void reset_endpoint_counts(mimhid_device* device);
 
 // The checks of the composer on the interfaces of one Node alone (partial: no gap rule), made
 // before the Node is staged. MIMHID_OK, or the error, recorded.
-mimhid_result precheck_groups(const mimhid_device* device,
-                              std::vector<usb::ComposerGroup> groups);
+mimhid_result precheck_groups(const mimhid_device* device, std::vector<usb::ComposerGroup> groups);
 
 // A wait the caller passed to a call has no default: zero is refused.
 mimhid_result require_timeout(std::uint32_t timeout_ms, const char* field) noexcept;

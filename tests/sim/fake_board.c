@@ -176,7 +176,7 @@ static struct {
     uint8_t* buffer;
     uint16_t length;
 } g_ep[2][16]; // [0] OUT, [1] IN
-#define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr) & 0x0F]
+#define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr)&0x0F]
 
 bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
     (void)rhport;
@@ -611,7 +611,13 @@ size_t fake_board_string(uint8_t index, char* out, size_t capacity) {
 // when it is not 0.
 size_t fake_board_feature(uint8_t iface, uint8_t report_id, uint8_t* out, size_t capacity) {
     fake_control_result_t r;
-    const uint8_t setup[8] = {0xA1, 0x01, report_id, 0x03, iface, 0x00, (uint8_t)(capacity & 0xFF),
+    const uint8_t setup[8] = {0xA1,
+                              0x01,
+                              report_id,
+                              0x03,
+                              iface,
+                              0x00,
+                              (uint8_t)(capacity & 0xFF),
                               (uint8_t)(capacity >> 8)};
     if (!control_in(setup, &r) || r.outcome != FAKE_CONTROL_ANSWERED)
         return 0;
@@ -620,11 +626,11 @@ size_t fake_board_feature(uint8_t iface, uint8_t report_id, uint8_t* out, size_t
 }
 
 // A class request of the target to an interface with its data stage, played out silently.
-static void silent_class_request(uint8_t request, uint16_t value, uint8_t iface, const uint8_t* data,
-                                 size_t length) {
+static void silent_class_request(uint8_t request, uint16_t value, uint8_t iface,
+                                 const uint8_t* data, size_t length) {
     action_t a = {6, 1, 0, 0, {0}, 0};
-    const uint8_t setup[8] = {0x21, request, (uint8_t)(value & 0xFF), (uint8_t)(value >> 8), iface,
-                              0x00, (uint8_t)(length & 0xFF), (uint8_t)(length >> 8)};
+    const uint8_t setup[8] = {0x21,  request, (uint8_t)(value & 0xFF),  (uint8_t)(value >> 8),
+                              iface, 0x00,    (uint8_t)(length & 0xFF), (uint8_t)(length >> 8)};
     memcpy(a.data, setup, 8);
     if (length > sizeof(a.data) - 8)
         length = sizeof(a.data) - 8;
@@ -646,7 +652,8 @@ void fake_board_target_set_report(uint8_t iface, uint8_t report_type, uint8_t re
         length = sizeof(stage) - n;
     if (length)
         memcpy(stage + n, data, length);
-    silent_class_request(0x09, (uint16_t)((report_type << 8) | report_id), iface, stage, n + length);
+    silent_class_request(0x09, (uint16_t)((report_type << 8) | report_id), iface, stage,
+                         n + length);
 }
 void fake_board_target_control(const uint8_t setup[8], const uint8_t* out_data, size_t out_length) {
     action_t a = {6, 0, 0, 0, {0}, 8};
@@ -688,7 +695,8 @@ void fake_board_target_resume(void) {
     action_t a = {3, 0, 0, 0, {0}, 0};
     post(a);
 }
-// SET_PROTOCOL (HID 1.11 7.2.6): the protocol is wValue. SET_IDLE (7.2.4): the rate is the high byte.
+// SET_PROTOCOL (HID 1.11 7.2.6): the protocol is wValue. SET_IDLE (7.2.4): the rate is the high
+// byte.
 void fake_board_target_set_protocol(uint8_t iface, uint8_t protocol) {
     silent_class_request(0x0B, protocol, iface, NULL, 0);
 }

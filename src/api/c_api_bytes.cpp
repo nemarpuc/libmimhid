@@ -96,10 +96,10 @@ mimhid_result stall_command(mimhid_device* device, const std::uint8_t address, c
     if (const mimhid_result r = link_ready(device, field); r != MIMHID_OK)
         return r;
     const std::uint8_t payload[2] = {address, stall ? std::uint8_t{1} : std::uint8_t{0}};
-    const mimhid_result r = command_error(
-        device->link.command(MIMHID_T_EP_STALL, payload, sizeof(payload), timeout_ms,
-                             kCommandAttempts),
-        field, "The board did not accept the request.", MIMHID_T_EP_STALL);
+    const mimhid_result r =
+        command_error(device->link.command(MIMHID_T_EP_STALL, payload, sizeof(payload), timeout_ms,
+                                           kCommandAttempts),
+                      field, "The board did not accept the request.", MIMHID_T_EP_STALL);
     if (r == MIMHID_OK) {
         if (EndpointRuntime* ep = runtime_of(device, address))
             reset_count(device, ep);
@@ -176,8 +176,8 @@ mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device, const uin
     }
     if (length != 0U) {
         usb::ComposerError error;
-        if (usb::check_bos(bytes, length, mimhid::detail::composer_limits(device), "bos",
-                           &error) != MIMHID_OK) {
+        if (usb::check_bos(bytes, length, mimhid::detail::composer_limits(device), "bos", &error) !=
+            MIMHID_OK) {
             report(error);
             return error.result;
         }
@@ -188,9 +188,9 @@ mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device, const uin
 }
 MIMHID_C_RESULT_CATCH("device.set_bos")
 
-mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
-    mimhid_device* device, const mimhid_device_descriptors* descriptors,
-    const mimhid_commit_timeouts* timeouts) try {
+mimhid_result MIMHID_CALL
+mimhid_device_set_descriptors(mimhid_device* device, const mimhid_device_descriptors* descriptors,
+                              const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     const char* field = "device.set_descriptors";
     if (const mimhid_result r = live_device(device, field); r != MIMHID_OK)
@@ -283,9 +283,9 @@ mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
         device->bytes = mimhid_device::ByteDevice{};
         device->bytes.device.assign(descriptors->device,
                                     descriptors->device + descriptors->device_length);
-        device->bytes.configuration.assign(
-            descriptors->configuration,
-            descriptors->configuration + descriptors->configuration_length);
+        device->bytes.configuration.assign(descriptors->configuration,
+                                           descriptors->configuration +
+                                               descriptors->configuration_length);
         if (descriptors->bos_length != 0U)
             device->bytes.bos.assign(descriptors->bos, descriptors->bos + descriptors->bos_length);
         device->bytes.interface_of = std::move(interface_of);
@@ -312,8 +312,8 @@ mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
 }
 MIMHID_C_RESULT_CATCH("device.set_descriptors")
 
-mimhid_result MIMHID_CALL mimhid_device_clear_descriptors(
-    mimhid_device* device, const mimhid_commit_timeouts* timeouts) try {
+mimhid_result MIMHID_CALL
+mimhid_device_clear_descriptors(mimhid_device* device, const mimhid_commit_timeouts* timeouts) try {
     mimhid::detail::clear_error();
     if (const mimhid_result r = live_device(device, "device.clear_descriptors"); r != MIMHID_OK)
         return r;
@@ -338,9 +338,10 @@ mimhid_result MIMHID_CALL mimhid_device_clear_descriptors(
 }
 MIMHID_C_RESULT_CATCH("device.clear_descriptors")
 
-mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(
-    mimhid_device* device, const uint8_t address, const mimhid_endpoint_policy* policy,
-    const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(mimhid_device* device,
+                                                            const uint8_t address,
+                                                            const mimhid_endpoint_policy* policy,
+                                                            const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     const char* field = "device.endpoint.set_policy";
     if (const mimhid_result r = live_device(device, field); r != MIMHID_OK)
@@ -373,10 +374,10 @@ mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(
                       !device->batch_open && !device->reconfiguring.load(std::memory_order_acquire);
     if (live) {
         const std::array<std::uint8_t, 3> payload{address, policy->depth, policy->on_full};
-        const mimhid_result r = command_error(
-            device->link.command(MIMHID_T_EP_CONFIG, payload.data(), payload.size(),
-                                 control_timeout_ms, kCommandAttempts),
-            field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG);
+        const mimhid_result r =
+            command_error(device->link.command(MIMHID_T_EP_CONFIG, payload.data(), payload.size(),
+                                               control_timeout_ms, kCommandAttempts),
+                          field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG);
         if (r != MIMHID_OK)
             return r;
     }
@@ -425,11 +426,11 @@ MIMHID_C_RESULT_CATCH("device.endpoint.stall")
 
 mimhid_result MIMHID_CALL mimhid_device_endpoint_clear_stall(
     mimhid_device* device, const uint8_t address, const uint32_t control_timeout_ms) try {
-    return stall_command(device, address, false, control_timeout_ms,
-                         "device.endpoint.clear_stall");
+    return stall_command(device, address, false, control_timeout_ms, "device.endpoint.clear_stall");
 }
 MIMHID_C_RESULT_CATCH("device.endpoint.clear_stall")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimhid_result MIMHID_CALL mimhid_device_endpoint_flush(mimhid_device* device, const uint8_t address,
                                                        const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
@@ -438,9 +439,8 @@ mimhid_result MIMHID_CALL mimhid_device_endpoint_flush(mimhid_device* device, co
         return r;
     EndpointRuntime* ep = runtime_of(device, address);
     if (ep == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field,
-                  "The address must be an IN endpoint of the descriptors.", 0, 0, 0, 0, address,
-                  0);
+        set_error(MIMHID_ERR_PARAM, field, "The address must be an IN endpoint of the descriptors.",
+                  0, 0, 0, 0, address, 0);
         return MIMHID_ERR_PARAM;
     }
     if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
@@ -449,10 +449,10 @@ mimhid_result MIMHID_CALL mimhid_device_endpoint_flush(mimhid_device* device, co
     if (const mimhid_result r = link_ready(device, field); r != MIMHID_OK)
         return r;
     const std::uint8_t payload[1] = {address};
-    const mimhid_result r = command_error(
-        device->link.command(MIMHID_T_EP_FLUSH, payload, sizeof(payload), control_timeout_ms,
-                             kCommandAttempts),
-        field, "The board did not accept the request.", MIMHID_T_EP_FLUSH);
+    const mimhid_result r =
+        command_error(device->link.command(MIMHID_T_EP_FLUSH, payload, sizeof(payload),
+                                           control_timeout_ms, kCommandAttempts),
+                      field, "The board did not accept the request.", MIMHID_T_EP_FLUSH);
     if (r == MIMHID_OK)
         reset_count(device, ep);
     return r;

@@ -6,8 +6,8 @@
  * What only HID needs when the interfaces of the profile Nodes become interfaces for the composer
  * (descriptor_composer.hpp): Nodes sharing an interface join their report descriptors, and so every
  * Report ID must be unique on it; the interface is described from its first Node, so the others
- * must agree; the HID descriptor (HID 1.11 6.2.1) is the interface's class descriptor and the report
- * descriptor goes along on the side. Pure: no I/O.
+ * must agree; the HID descriptor (HID 1.11 6.2.1) is the interface's class descriptor and the
+ * report descriptor goes along on the side. Pure: no I/O.
  */
 
 #include "usb/board_rule.hpp"

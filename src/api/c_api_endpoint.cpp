@@ -159,6 +159,7 @@ EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
 // path of the generic Nodes and of the reports of the profile Nodes.
 mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
                              EndpointRuntime* ep, const std::uint8_t address,
+                             // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                              const std::uint8_t* data, const std::size_t length,
                              const std::uint32_t timeout_ms) {
     const bool waits = ep->policy.on_full == MIMHID_FULL_WAIT;
@@ -176,8 +177,8 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
     const std::size_t frames = length == 0U ? 1U : (length + chunk - 1U) / chunk;
     if (frames > 65535U) {
         set_error(MIMHID_ERR_OVERFLOW, "node.endpoint.write",
-                  "The transfer needs more than 65535 frames.", 0, 0, node_id, 0,
-                  65535U, static_cast<std::uint32_t>(std::min<std::size_t>(frames, 0xFFFFFFFFU)));
+                  "The transfer needs more than 65535 frames.", 0, 0, node_id, 0, 65535U,
+                  static_cast<std::uint32_t>(std::min<std::size_t>(frames, 0xFFFFFFFFU)));
         return MIMHID_ERR_OVERFLOW;
     }
 
@@ -219,8 +220,7 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
                 set_error(r, "node.endpoint.write",
                           "The endpoint was flushed, stalled, reconfigured or unmounted while "
                           "the write waited; the rest was not sent.",
-                          0, 0, node_id, 0, address,
-                          static_cast<std::uint32_t>(offset));
+                          0, 0, node_id, 0, address, static_cast<std::uint32_t>(offset));
                 return r;
             }
             ++ep->outstanding;
@@ -257,8 +257,7 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
             break;
         }
         set_error(r, "node.endpoint.write", "The serial write of a frame did not complete.",
-                  os_error, 0, node_id, 0, address,
-                  static_cast<std::uint32_t>(offset));
+                  os_error, 0, node_id, 0, address, static_cast<std::uint32_t>(offset));
         return r;
     }
     return MIMHID_OK;
@@ -295,12 +294,13 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* node, const ui
 }
 MIMHID_C_RESULT_CATCH("node.endpoint.stall")
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(
-    mimhid_node* node, const uint8_t address, const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(mimhid_node* node, const uint8_t address,
+                                                           const uint32_t control_timeout_ms) try {
     return stall_command(node, address, false, control_timeout_ms, "node.endpoint.clear_stall");
 }
 MIMHID_C_RESULT_CATCH("node.endpoint.clear_stall")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimhid_result MIMHID_CALL mimhid_node_endpoint_flush(mimhid_node* node, const uint8_t address,
                                                      const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
@@ -329,9 +329,9 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_flush(mimhid_node* node, const ui
 }
 MIMHID_C_RESULT_CATCH("node.endpoint.flush")
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
-    mimhid_node* node, const uint8_t address, const mimhid_endpoint_policy* policy,
-    const uint32_t control_timeout_ms) try {
+mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(mimhid_node* node, const uint8_t address,
+                                                          const mimhid_endpoint_policy* policy,
+                                                          const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     const char* field = "node.endpoint.set_policy";
     if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
@@ -365,11 +365,10 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
         EndpointRuntime* ep = runtime_of(node, address);
         if (live) {
             const mimhid_result r = command_error(
-                device->link.command(MIMHID_T_EP_CONFIG,
-                                     std::array<std::uint8_t, 3>{address, policy->depth,
-                                                                 policy->on_full}
-                                         .data(),
-                                     3, control_timeout_ms, kCommandAttempts),
+                device->link.command(
+                    MIMHID_T_EP_CONFIG,
+                    std::array<std::uint8_t, 3>{address, policy->depth, policy->on_full}.data(), 3,
+                    control_timeout_ms, kCommandAttempts),
                 field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
                 public_node_id(node));
             if (r != MIMHID_OK)
@@ -398,11 +397,11 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
     if (live) {
         const std::uint8_t depth = mimhid::detail::hid_interface_depth(device, node->iface);
         const std::uint8_t payload[3] = {address, depth, policy->on_full};
-        const mimhid_result r = command_error(
-            device->link.command(MIMHID_T_EP_CONFIG, payload, sizeof(payload), control_timeout_ms,
-                                 kCommandAttempts),
-            field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
-            public_node_id(node));
+        const mimhid_result r =
+            command_error(device->link.command(MIMHID_T_EP_CONFIG, payload, sizeof(payload),
+                                               control_timeout_ms, kCommandAttempts),
+                          field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
+                          public_node_id(node));
         if (r != MIMHID_OK) {
             node->config.ep_in.policy = previous; // the board keeps the policy it had
             return r;

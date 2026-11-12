@@ -29,7 +29,8 @@ Opened open_keyboard(Board& board) {
         return o;
     o.spec = keyboard_spec();
     const mimhid_hid_node_config config = node_config();
-    MIMHID_CHECK(mimhid_node_open_profile(o.device, o.spec, &config, &kCommit, &o.node) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(o.device, o.spec, &config, &kCommit, &o.node) ==
+                 MIMHID_OK);
     MIMHID_CHECK(mimhid_device_wait_ready(o.device, 1000) == MIMHID_OK);
     return o;
 }
@@ -45,7 +46,8 @@ void test_endpoint_write_of_a_profile_node() {
         return;
     board.clear();
     const std::uint8_t bytes[3] = {0xAA, 0xBB, 0xCC};
-    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, sizeof(bytes), kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, sizeof(bytes), kSendMs) ==
+                 MIMHID_OK);
     Received r;
     MIMHID_CHECK(board.take((MIMHID_T_EP_IN_BASE | 1), &r) && r.payload.size() == 3U &&
                  r.payload[0] == 0xAA && r.payload[2] == 0xCC);
@@ -136,7 +138,8 @@ void test_link_lost() {
     }
     MIMHID_CHECK(mimhid_device_latched_error(o.device) == MIMHID_ERR_NO_DEVICE);
     const std::uint8_t bytes[1] = {0};
-    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, 1, kSendMs) == MIMHID_ERR_NO_DEVICE);
+    MIMHID_CHECK(mimhid_node_endpoint_write(o.node, 0x81, bytes, 1, kSendMs) ==
+                 MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_device_control_reply(o.device, 1, MIMHID_CONTROL_ACTION_LEAVE, nullptr, 0,
                                              kSendMs) == MIMHID_ERR_NO_DEVICE);
     MIMHID_CHECK(mimhid_device_wait_ready(o.device, 10) == MIMHID_ERR_NO_DEVICE);

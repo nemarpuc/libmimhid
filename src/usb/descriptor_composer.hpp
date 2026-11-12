@@ -27,8 +27,8 @@ struct ComposerInterface {
     std::uint8_t class_code{};
     std::uint8_t subclass{};
     std::uint8_t protocol{};
-    std::u16string name;                          // empty: the interface has no string
-    std::vector<std::uint8_t> class_descriptors;  // placed after the Interface descriptor as given
+    std::u16string name;                         // empty: the interface has no string
+    std::vector<std::uint8_t> class_descriptors; // placed after the Interface descriptor as given
     std::vector<mimhid_usb_endpoint> endpoints;
 };
 
@@ -41,16 +41,16 @@ struct ComposerGroup {
 
 // What the board takes (its PONG).
 struct ComposerLimits {
-    std::size_t max_interfaces{};          // of any class
+    std::size_t max_interfaces{}; // of any class
     std::size_t max_endpoint_number{};
     std::size_t max_endpoint_bytes{};
     std::size_t max_config_bytes{};
     std::size_t max_bos_bytes{};
     std::size_t max_strings{};
     std::size_t endpoint_queue_slots{};
-    std::uint32_t transfer_types{};        // bit n: transfer type n
+    std::uint32_t transfer_types{}; // bit n: transfer type n
     bool high_speed{};
-    bool has_unique_id{};                  // the board can make the serial number string
+    bool has_unique_id{}; // the board can make the serial number string
 };
 
 struct ComposerInput {
@@ -62,7 +62,7 @@ struct ComposerInput {
     std::u16string configuration;
     // Strings the caller added (mimhid_device_add_string), by index (5 or more).
     std::map<std::uint8_t, std::u16string> user_strings;
-    std::vector<ComposerGroup> groups;     // in node order
+    std::vector<ComposerGroup> groups; // in node order
     ComposerLimits limits;
     // True when `groups` are the interfaces of one Node about to join others: every check that
     // looks at that Node alone is made, and the interface numbers need not start at 0 or be free

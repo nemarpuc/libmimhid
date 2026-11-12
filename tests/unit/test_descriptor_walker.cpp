@@ -33,29 +33,40 @@ ComposerLimits limits(bool high_speed = false) {
 }
 
 Bytes device_bytes(std::uint16_t bcd = 0x0210) {
-    return {18, 1, static_cast<std::uint8_t>(bcd), static_cast<std::uint8_t>(bcd >> 8), 0, 0, 0,
-            64, 0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1};
+    return {18,
+            1,
+            static_cast<std::uint8_t>(bcd),
+            static_cast<std::uint8_t>(bcd >> 8),
+            0,
+            0,
+            0,
+            64,
+            0x09,
+            0x12,
+            0x01,
+            0x00,
+            0x00,
+            0x01,
+            1,
+            2,
+            3,
+            1};
 }
 
 // One interface (class 0xFF) with a bulk IN 0x81 and a bulk OUT 0x01: 9 + 9 + 7 + 7 bytes.
 Bytes config_bytes() {
-    return {9, 2, 32, 0, 1, 1, 0, 0x80, 50,
-            9, 4, 0, 0, 2, 0xFF, 1, 2, 0,
-            7, 5, 0x81, 2, 64, 0, 0,
-            7, 5, 0x01, 2, 64, 0, 0};
+    return {9, 2, 32, 0, 1,    1, 0,  0x80, 50, 9, 4, 0,    0, 2,  0xFF, 1,
+            2, 0, 7,  5, 0x81, 2, 64, 0,    0,  7, 5, 0x01, 2, 64, 0,    0};
 }
 
-Bytes bos_bytes() {
-    return {5, 0x0F, 12, 0, 1, 7, 0x10, 0x02, 0x02, 0, 0, 0};
-}
+Bytes bos_bytes() { return {5, 0x0F, 12, 0, 1, 7, 0x10, 0x02, 0x02, 0, 0, 0}; }
 
 mimhid_result walk(const Bytes& d, const Bytes& c, const Bytes* bos, ComposerError* e,
                    WalkedDescriptors* out = nullptr, bool high_speed = false) {
     WalkedDescriptors local;
-    return mimhid::usb::walk_descriptors(d.data(), d.size(), c.data(), c.size(),
-                                         bos == nullptr ? nullptr : bos->data(),
-                                         bos == nullptr ? 0U : bos->size(), limits(high_speed),
-                                         out != nullptr ? out : &local, e);
+    return mimhid::usb::walk_descriptors(
+        d.data(), d.size(), c.data(), c.size(), bos == nullptr ? nullptr : bos->data(),
+        bos == nullptr ? 0U : bos->size(), limits(high_speed), out != nullptr ? out : &local, e);
 }
 
 // The result and offset of the refusal of a configuration with one byte changed.
@@ -87,12 +98,14 @@ void test_accepted() {
     Bytes c = config_bytes();
     c.insert(c.begin() + 18, {9, 0x21, 0x11, 0x01, 0, 1, 0x22, 4, 0});
     c[2] = static_cast<std::uint8_t>(c.size());
-    MIMHID_CHECK(walk(device_bytes(), c, nullptr, &e, &w) == MIMHID_OK && w.endpoints[0].offset == 27U);
+    MIMHID_CHECK(walk(device_bytes(), c, nullptr, &e, &w) == MIMHID_OK &&
+                 w.endpoints[0].offset == 27U);
     // An association over two interfaces.
-    Bytes two = {9, 2, 0, 0, 2, 1, 0, 0x80, 50, 8, 0x0B, 0, 2, 0xFF, 1, 2, 0,
-                 9, 4, 0, 0, 0, 0xFF, 1, 2, 0, 9, 4, 1, 0, 0, 0xFF, 1, 2, 0};
+    Bytes two = {9, 2, 0, 0, 2,    1, 0, 0x80, 50, 8, 0x0B, 0, 2, 0xFF, 1, 2, 0, 9,
+                 4, 0, 0, 0, 0xFF, 1, 2, 0,    9,  4, 1,    0, 0, 0xFF, 1, 2, 0};
     two[2] = static_cast<std::uint8_t>(two.size());
-    MIMHID_CHECK(walk(device_bytes(), two, nullptr, &e, &w) == MIMHID_OK && w.interface_count == 2U);
+    MIMHID_CHECK(walk(device_bytes(), two, nullptr, &e, &w) == MIMHID_OK &&
+                 w.interface_count == 2U);
 }
 
 void test_device_refused() {
@@ -100,8 +113,8 @@ void test_device_refused() {
     Bytes d = device_bytes();
     const Bytes c = config_bytes();
     d.pop_back();
-    MIMHID_CHECK(walk(d, c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == 0U &&
-                 e.length == 17U && std::strcmp(e.field, "descriptors.device") == 0);
+    MIMHID_CHECK(walk(d, c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == 0U && e.length == 17U &&
+                 std::strcmp(e.field, "descriptors.device") == 0);
     d = device_bytes();
     d[0] = 17;
     MIMHID_CHECK(walk(d, c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == 0U);
@@ -121,7 +134,8 @@ void test_device_refused() {
     MIMHID_CHECK(walk(d, c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == 17U);
     WalkedDescriptors w;
     MIMHID_CHECK(mimhid::usb::walk_descriptors(nullptr, 0, c.data(), c.size(), nullptr, 0, limits(),
-                                               &w, &e) == MIMHID_ERR_PARAM && e.offset == 0U);
+                                               &w, &e) == MIMHID_ERR_PARAM &&
+                 e.offset == 0U);
 }
 
 void test_configuration_refused() {
@@ -131,25 +145,26 @@ void test_configuration_refused() {
     config_refused(1, 3, MIMHID_ERR_PARAM, 1);
     config_refused(2, 33, MIMHID_ERR_PARAM, 2); // wTotalLength
     config_refused(2, 31, MIMHID_ERR_PARAM, 2);
-    config_refused(4, 2, MIMHID_ERR_PARAM, 4);  // bNumInterfaces
-    config_refused(5, 2, MIMHID_ERR_PARAM, 5);  // bConfigurationValue
+    config_refused(4, 2, MIMHID_ERR_PARAM, 4);    // bNumInterfaces
+    config_refused(5, 2, MIMHID_ERR_PARAM, 5);    // bConfigurationValue
     config_refused(7, 0x00, MIMHID_ERR_PARAM, 7); // D7 clear
     config_refused(7, 0x81, MIMHID_ERR_PARAM, 7); // reserved bits
     // The interface.
-    config_refused(9, 8, MIMHID_ERR_PARAM, 9);    // bLength
-    config_refused(11, 1, MIMHID_ERR_PARAM, 11);  // number must be 0
+    config_refused(9, 8, MIMHID_ERR_PARAM, 9);         // bLength
+    config_refused(11, 1, MIMHID_ERR_PARAM, 11);       // number must be 0
     config_refused(12, 1, MIMHID_ERR_UNSUPPORTED, 12); // alternate setting
-    config_refused(13, 1, MIMHID_ERR_PARAM, 25);  // one declared: the second endpoint is one too many
-    config_refused(13, 3, MIMHID_ERR_PARAM, 13);  // three declared, two follow (at the interface)
+    config_refused(13, 1, MIMHID_ERR_PARAM,
+                   25); // one declared: the second endpoint is one too many
+    config_refused(13, 3, MIMHID_ERR_PARAM, 13); // three declared, two follow (at the interface)
     // The endpoints.
-    config_refused(18, 6, MIMHID_ERR_PARAM, 18);  // bLength of an endpoint
-    config_refused(20, 0x91, MIMHID_ERR_PARAM, 20);  // bits 6..4
-    config_refused(20, 0x80, MIMHID_ERR_PARAM, 20);  // number 0
+    config_refused(18, 6, MIMHID_ERR_PARAM, 18);       // bLength of an endpoint
+    config_refused(20, 0x91, MIMHID_ERR_PARAM, 20);    // bits 6..4
+    config_refused(20, 0x80, MIMHID_ERR_PARAM, 20);    // number 0
     config_refused(20, 0x88, MIMHID_ERR_OVERFLOW, 20); // above the controller
-    config_refused(20, 0x01, MIMHID_ERR_PARAM, 27); // the second endpoint reuses the address
+    config_refused(20, 0x01, MIMHID_ERR_PARAM, 27);    // the second endpoint reuses the address
     config_refused(21, 1, MIMHID_ERR_UNSUPPORTED, 21); // isochronous
     config_refused(21, 0, MIMHID_ERR_UNSUPPORTED, 21); // control
-    config_refused(22, 63, MIMHID_ERR_PARAM, 20);  // bulk packet size
+    config_refused(22, 63, MIMHID_ERR_PARAM, 20);      // bulk packet size
     config_refused(22, 0, MIMHID_ERR_UNSET_FIELD, 20); // zero packet size
     // A descriptor that does not fit, and one with nothing to hold it.
     {
@@ -204,10 +219,11 @@ void test_configuration_refused() {
     }
     // An association that names interfaces that are not there, or not the next one.
     {
-        Bytes c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 8, 0x0B, 0, 2, 0xFF, 1, 2, 0,
-                   9, 4, 0, 0, 0, 0xFF, 1, 2, 0};
+        Bytes c = {9,    2, 0, 0, 1, 1, 0, 0x80, 50, 8,    0x0B, 0, 2,
+                   0xFF, 1, 2, 0, 9, 4, 0, 0,    0,  0xFF, 1,    2, 0};
         c[2] = static_cast<std::uint8_t>(c.size());
-        MIMHID_CHECK(walk(device_bytes(), c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == c.size());
+        MIMHID_CHECK(walk(device_bytes(), c, nullptr, &e) == MIMHID_ERR_PARAM &&
+                     e.offset == c.size());
         c[11] = 1; // bFirstInterface is not the next interface
         MIMHID_CHECK(walk(device_bytes(), c, nullptr, &e) == MIMHID_ERR_PARAM && e.offset == 11U);
         c[11] = 0;
@@ -234,7 +250,9 @@ void test_bos() {
         b[m.at] = m.value;
         MIMHID_CHECK(walk(device_bytes(), c, &b, &e) == MIMHID_ERR_PARAM &&
                      std::strcmp(e.field, "descriptors.bos") == 0);
-        MIMHID_CHECK(e.offset == (m.at == 0 || m.at == 1 || m.at == 2 || m.at == 4 ? m.at : 5 + (m.at == 6 ? 1 : 0)));
+        MIMHID_CHECK(
+            e.offset ==
+            (m.at == 0 || m.at == 1 || m.at == 2 || m.at == 4 ? m.at : 5 + (m.at == 6 ? 1 : 0)));
     }
     // Only a header; only part of one; too long for the board.
     const Bytes empty = {5, 0x0F, 5, 0, 0};
@@ -251,7 +269,8 @@ void test_bos() {
     MIMHID_CHECK(walk(device_bytes(), c, &big, &e) == MIMHID_ERR_OVERFLOW && e.offset == 64U &&
                  e.length == 65U);
     // check_bos on its own, with the caller's field.
-    MIMHID_CHECK(mimhid::usb::check_bos(good.data(), good.size(), limits(), "bos", &e) == MIMHID_OK);
+    MIMHID_CHECK(mimhid::usb::check_bos(good.data(), good.size(), limits(), "bos", &e) ==
+                 MIMHID_OK);
     MIMHID_CHECK(mimhid::usb::check_bos(nullptr, 0, limits(), "bos", &e) == MIMHID_ERR_PARAM &&
                  std::strcmp(e.field, "bos") == 0);
 }

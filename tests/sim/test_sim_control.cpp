@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Control transfers from the target: the rules (ASK, ANSWER, ANSWER_LAST_SENT, ACCEPT, STALL), their
- * order, changing them while the target is attached, held transfers and the replies to them. */
+/* Control transfers from the target: the rules (ASK, ANSWER, ANSWER_LAST_SENT, ACCEPT, STALL),
+ * their order, changing them while the target is attached, held transfers and the replies to them.
+ */
 #include "sim_support.hpp"
 
 #include "fill_values.h"
@@ -96,8 +97,7 @@ void test_control() {
     MIMHID_CHECK(MIMHID_CONTROL_MAX_TIMEOUT_MS == 5000);
     mimhid_control_rule longest = good;
     longest.timeout_ms = 5000;
-    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &longest, 1, kControlMs) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &longest, 1, kControlMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &good, 1, kControlMs) == MIMHID_OK);
     mimhid_control_rule bad = good;
     bad.timeout_ms = 0;
@@ -219,8 +219,7 @@ void test_control() {
 
     // A request without a data stage: ANSWER is an acknowledgement.
     const mimhid_control_rule no_data = control_rule(0x00, 3, 500, MIMHID_CONTROL_ACTION_STALL);
-    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &no_data, 1, kControlMs) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &no_data, 1, kControlMs) == MIMHID_OK);
     target_control(0x00, 3, 1, 0, 0);
     MIMHID_CHECK(wait_setup(&ev, 0x00, 3));
     MIMHID_CHECK(mimhid_device_control_reply(device, ev.token, MIMHID_CONTROL_ACTION_ANSWER,
@@ -266,8 +265,7 @@ void test_control() {
     }
     target_control(0x80, 6, 0x0100, 0, 18);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_LEFT);
-    MIMHID_CHECK(mimhid_device_set_control_rules(device, 1, &std_get, 1, kControlMs) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_set_control_rules(device, 1, &std_get, 1, kControlMs) == MIMHID_OK);
     (void)node; // closed with the Device
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     device = open_device(base_options());
@@ -349,7 +347,8 @@ void test_control_rules() {
     target_control(0xC0, 0x51, 0, 0, 8);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_STALLED);
     const std::uint8_t first[3] = {0x01, 0x02, 0x03};
-    MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, first, sizeof(first), kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, first, sizeof(first), kSendMs) ==
+                 MIMHID_OK);
     fake_transfer_t t;
     MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 2000) && t.length == 3);
     target_control(0xC0, 0x51, 0, 0, 8);
@@ -369,7 +368,8 @@ void test_control_rules() {
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 2 &&
                  std::memcmp(r.data, second, 2) == 0);
 
-    // ACCEPT without a data stage: acknowledged, and the program hears of it with the ACCEPTED flag.
+    // ACCEPT without a data stage: acknowledged, and the program hears of it with the ACCEPTED
+    // flag.
     target_control(0x40, 0x40, 7, 0, 0);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ACKED);
     MIMHID_CHECK(wait_setup(&ev, 0x40, 0x40) && ev.flags == MIMHID_CONTROL_FLAG_ACCEPTED &&
@@ -404,8 +404,9 @@ void test_control_rules() {
     MIMHID_CHECK(mimhid_node_set_rule_data(node, 9, changed, sizeof(changed), kControlMs) ==
                  MIMHID_ERR_PARAM);
 
-    // The Device's rules come after the Node's: the first match wins, so a Device rule for a request
-    // the Node answers is never reached; one for another request is. They change while attached.
+    // The Device's rules come after the Node's: the first match wins, so a Device rule for a
+    // request the Node answers is never reached; one for another request is. They change while
+    // attached.
     mimhid_control_rule device_rules[2]{};
     for (auto& rule : device_rules) {
         rule.request_type_mask = 0xFF;
@@ -421,7 +422,8 @@ void test_control_rules() {
     MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, device_rules, 2, kControlMs) ==
                  MIMHID_OK);
     target_control(0xC0, 0x50, 0, 0, 8);
-    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 2); // the Node's
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED &&
+                 r.length == 2); // the Node's
     target_control(0xC0, 0x60, 0, 0, 8);
     MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == 3 &&
                  std::memcmp(r.data, answer_bytes, 3) == 0);
@@ -471,8 +473,8 @@ void test_control_rules() {
     heavy.length = big.size();
     MIMHID_CHECK(mimhid_device_set_control_rules(device, 0, &heavy, 1, kControlMs) == MIMHID_OK);
     target_control(0xC0, 0x70, 0, 0, 5000);
-    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED &&
-                 r.length == big.size() && r.data[0] == 0x5A);
+    MIMHID_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == big.size() &&
+                 r.data[0] == 0x5A);
 
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);

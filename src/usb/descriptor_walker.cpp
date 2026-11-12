@@ -135,8 +135,8 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
     const auto total = static_cast<std::uint32_t>(configuration_length);
     if (c[0] != 9U || c[1] != kTypeConfiguration)
         return refuse(error, MIMHID_ERR_PARAM, kConfig,
-                      "The configuration descriptor starts with bLength 9 and type 2.", c[0] != 9U ? 0U : 1U,
-                      c[0] != 9U ? c[0] : c[1]);
+                      "The configuration descriptor starts with bLength 9 and type 2.",
+                      c[0] != 9U ? 0U : 1U, c[0] != 9U ? c[0] : c[1]);
     if (le16(&c[2]) != configuration_length)
         return refuse(error, MIMHID_ERR_PARAM, kConfig,
                       "wTotalLength is the length of all of the configuration descriptor.", 2,
@@ -152,7 +152,7 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
     // The interfaces, their endpoints and the descriptors between them.
     std::set<std::uint8_t> addresses;
     std::uint32_t pos = 9U;
-    bool inside = false;      // after an interface descriptor
+    bool inside = false;       // after an interface descriptor
     std::uint8_t declared = 0; // bNumEndpoints of the interface
     std::uint8_t seen = 0;
     std::uint32_t itf_at = 0;
@@ -215,7 +215,8 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
                 return refuse(error, MIMHID_ERR_OVERFLOW, kConfig,
                               "The interfaces exceed the board's maximum interfaces "
                               "(mimhid_board_limits.max_interfaces_any).",
-                              static_cast<std::uint32_t>(lim.max_interfaces), out->interface_count + 1U);
+                              static_cast<std::uint32_t>(lim.max_interfaces),
+                              out->interface_count + 1U);
             if (group_left != 0U)
                 --group_left;
             group_pending = false;
@@ -252,10 +253,9 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
                 return refuse(error, MIMHID_ERR_PARAM, kConfig,
                               "Two endpoints use the same address; the address is in length.",
                               pos + 2U, ep.address);
-            out->endpoints.push_back(WalkedEndpoint{ep.address, ep.transfer_type, ep.interval,
-                                                    ep.max_packet_size,
-                                                    static_cast<std::uint8_t>(out->interface_count - 1U),
-                                                    pos});
+            out->endpoints.push_back(
+                WalkedEndpoint{ep.address, ep.transfer_type, ep.interval, ep.max_packet_size,
+                               static_cast<std::uint8_t>(out->interface_count - 1U), pos});
             break;
         }
         default:
@@ -278,8 +278,8 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
                       "An interface association names interfaces that are not all there.", total,
                       group_left);
     if (out->interface_count == 0U)
-        return refuse(error, MIMHID_ERR_PARAM, kConfig,
-                      "The configuration has no interface.", 9, 0);
+        return refuse(error, MIMHID_ERR_PARAM, kConfig, "The configuration has no interface.", 9,
+                      0);
     if (c[4] != out->interface_count)
         return refuse(error, MIMHID_ERR_PARAM, kConfig,
                       "bNumInterfaces is not the number of interfaces the configuration holds; "

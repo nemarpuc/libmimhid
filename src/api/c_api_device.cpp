@@ -407,7 +407,8 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
         std::size_t kept = 0U;
         {
             std::lock_guard<std::mutex> lock(device->rules_mutex);
-            kept = device->table.size() - std::min(device->table.size(), device->device_rules.size());
+            kept =
+                device->table.size() - std::min(device->table.size(), device->device_rules.size());
         }
         const std::uint8_t apply[2] = {0U, static_cast<std::uint8_t>(kept)};
         (void)device->link.command(MIMHID_T_RULES_APPLY, apply, sizeof(apply), control_timeout_ms,
@@ -689,8 +690,8 @@ mimhid_result MIMHID_CALL mimhid_device_add_string(mimhid_device* device, const 
         ++index;
     if (index > 255U || device->user_strings.size() + 4U >= device->board.max_strings) {
         set_error(MIMHID_ERR_OVERFLOW, "device.add_string",
-                  "The board's string descriptors (max_strings) or the index space are used up.",
-                  0, 0, 0, 0, device->board.max_strings, 0);
+                  "The board's string descriptors (max_strings) or the index space are used up.", 0,
+                  0, 0, 0, device->board.max_strings, 0);
         return MIMHID_ERR_OVERFLOW;
     }
     device->user_strings[static_cast<std::uint8_t>(index)] = utf8;
@@ -764,8 +765,8 @@ mimhid_result MIMHID_CALL mimhid_device_set_control_rules(
 MIMHID_C_RESULT_CATCH("device.set_control_rules")
 
 mimhid_result MIMHID_CALL mimhid_device_set_rule_data(mimhid_device* device,
-                                                      const size_t rule_index,
-                                                      const uint8_t* data, const size_t length,
+                                                      const size_t rule_index, const uint8_t* data,
+                                                      const size_t length,
                                                       const uint32_t control_timeout_ms) try {
     mimhid::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {

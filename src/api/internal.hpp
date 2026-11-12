@@ -19,8 +19,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
-#include <deque>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>

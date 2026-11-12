@@ -21,8 +21,7 @@ constexpr Suite kSuites[] = {
     {"handshaker", test_handshaker},     {"ports_linux", test_ports_linux},
     {"api_open", test_api_open},         {"api_commands", test_api_commands},
     {"api_reports", test_api_reports},   {"api_events", test_api_events},
-    {"api_raw_node", test_api_raw_node},
-    {"api_generic", test_api_generic},
+    {"api_raw_node", test_api_raw_node}, {"api_generic", test_api_generic},
 };
 } // namespace
 

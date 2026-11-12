@@ -56,7 +56,8 @@ void test_high_speed_rules() {
     nc.ep_in.interval = 1;
     nc.ep_out.address = 0x01;
     nc.ep_out.max_packet_size = 8;
-    nc.ep_out.interval = 17; nc.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    nc.ep_out.interval = 17;
+    nc.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
     MIMHID_CHECK(mimhid_node_open_profile(device, spec, &nc, &kCommit, &node) == MIMHID_ERR_PARAM);
     test_fill_node_config(&nc, 0);
     nc.ep_in.interval = 16;

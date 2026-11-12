@@ -55,7 +55,8 @@ inline mimhid_hid_node_config node_config(std::uint8_t interface_number = 0) {
 
 // A Node of one vendor interface (class 0xFF) with an interrupt IN endpoint and the rules given,
 // committed: the smallest thing that gives the Device a USB configuration to hold rules in.
-inline mimhid_node* open_vendor_node(mimhid_device* device, const mimhid_control_rule* rules = nullptr,
+inline mimhid_node* open_vendor_node(mimhid_device* device,
+                                     const mimhid_control_rule* rules = nullptr,
                                      std::size_t rule_count = 0) {
     mimhid_usb_endpoint ep{};
     ep.address = 0x81;

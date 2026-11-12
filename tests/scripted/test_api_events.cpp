@@ -61,18 +61,23 @@ void clear() {
 
 // A raw Node on interface 0 with Output reports under Report IDs 2 and 3.
 // (An Input report under ID 2 too: a raw Spec needs the table of the Input reports it sends.)
-constexpr std::uint8_t kTwoIds[] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x02, 0x15,
-                                    0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x01, 0x09, 0x01,
-                                    0x81, 0x02, 0x09, 0x02, 0x91, 0x02, 0x85, 0x03, 0x09, 0x03,
-                                    0x91, 0x02, 0xC0};
+constexpr std::uint8_t kTwoIds[] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x02,
+                                    0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x01,
+                                    0x09, 0x01, 0x81, 0x02, 0x09, 0x02, 0x91, 0x02, 0x85,
+                                    0x03, 0x09, 0x03, 0x91, 0x02, 0xC0};
 
 // The setup packet of a HID class request to interface `itf` (HID 1.11 7.2): SET_REPORT 0x09,
 // SET_IDLE 0x0A, SET_PROTOCOL 0x0B, host to device, class, interface.
 std::vector<std::uint8_t> class_setup(const std::uint8_t request, const std::uint16_t value,
                                       const std::uint8_t itf, const std::uint16_t length) {
-    return {0x21, request, static_cast<std::uint8_t>(value & 0xFFU),
-            static_cast<std::uint8_t>(value >> 8U), itf, 0,
-            static_cast<std::uint8_t>(length & 0xFFU), static_cast<std::uint8_t>(length >> 8U)};
+    return {0x21,
+            request,
+            static_cast<std::uint8_t>(value & 0xFFU),
+            static_cast<std::uint8_t>(value >> 8U),
+            itf,
+            0,
+            static_cast<std::uint8_t>(length & 0xFFU),
+            static_cast<std::uint8_t>(length >> 8U)};
 }
 
 // CONTROL_SETUP of a transfer an ACCEPT rule took: token, flags (ACCEPTED, 0x10), the setup packet.
@@ -139,9 +144,9 @@ void test_event_kinds() {
     // A zero-length packet is an Output report of no bytes.
     board.send_frame(out_frame, nullptr, 0);
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_OUTPUT_REPORT && s.data.empty());
-    // SET_REPORT is taken by the library's ACCEPT rule; its type and Report ID are in wValue and the
-    // data stage follows as CONTROL_DATA of the same token (HID 1.11 7.2.2). Type 3 is a Feature
-    // report, type 2 an Output report; the Report ID the data starts with is not repeated.
+    // SET_REPORT is taken by the library's ACCEPT rule; its type and Report ID are in wValue and
+    // the data stage follows as CONTROL_DATA of the same token (HID 1.11 7.2.2). Type 3 is a
+    // Feature report, type 2 an Output report; the Report ID the data starts with is not repeated.
     send_accepted(board, 5, class_setup(0x09, 0x0302, 0, 2));
     MIMHID_CHECK(!next(&s, 30)); // nothing until the data stage
     board.send_event(MIMHID_EV_CONTROL_DATA, {5, 2, 0x77});
@@ -163,9 +168,9 @@ void test_event_kinds() {
     send_accepted(board, 8, class_setup(0x09, 0x0203, 5, 0));
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_CONTROL_SETUP &&
                  (s.flags & MIMHID_CONTROL_FLAG_ACCEPTED) != 0U && s.token == 8);
-    // SET_PROTOCOL and SET_IDLE: the value is in wValue, and the library keeps the answers of GET_PROTOCOL
-    // and GET_IDLE (HID 1.11 7.2.3 to 7.2.6): it tells the board with RULE_DATA, which comes after the
-    // event (the reader thread does not wait for the board).
+    // SET_PROTOCOL and SET_IDLE: the value is in wValue, and the library keeps the answers of
+    // GET_PROTOCOL and GET_IDLE (HID 1.11 7.2.3 to 7.2.6): it tells the board with RULE_DATA, which
+    // comes after the event (the reader thread does not wait for the board).
     board.clear();
     send_accepted(board, 9, class_setup(0x0B, 0, 0, 0));
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_SET_PROTOCOL && s.value == 0 &&
@@ -182,7 +187,8 @@ void test_event_kinds() {
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_TRANSFER_LOST && s.value == 0x1234 &&
                  s.node_id == mimhid_node_id(raw));
     board.send_event(MIMHID_EV_TRANSFER_LOST, {0x85, 0x01, 0x00});
-    MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_TRANSFER_LOST && s.value == 1 && s.node_id == 0);
+    MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_TRANSFER_LOST && s.value == 1 &&
+                 s.node_id == 0);
     board.send_event(MIMHID_EV_CONTROL_SETUP, {7, 1, 0xC0, 1, 0, 0, 0, 0, 4, 0});
     MIMHID_CHECK(next(&s) && s.kind == MIMHID_EVENT_CONTROL_SETUP && s.token == 7 && s.flags == 1 &&
                  s.data.size() == 8U && s.data[0] == 0xC0);

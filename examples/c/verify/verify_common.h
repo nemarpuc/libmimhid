@@ -110,7 +110,8 @@ VERIFY_MAYBE_UNUSED static mimhid_result verify_open_node(mimhid_device* device,
     example_fill_commit_timeouts(&timeouts);
     mimhid_hid_node_config node_config;
     example_fill_node_config(&node_config, interface_number);
-    mimhid_result result = mimhid_node_open_profile(device, spec, &node_config, &timeouts, out_node);
+    mimhid_result result =
+        mimhid_node_open_profile(device, spec, &node_config, &timeouts, out_node);
     if (result == MIMHID_OK)
         result = mimhid_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS);
     return result;

@@ -109,8 +109,10 @@ void vendor_bulk() {
     const std::uint8_t b[] = {1, 2, 3};
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, a, sizeof(a), kSendMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, b, sizeof(b), kSendMs) == MIMHID_OK);
-    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) && bytes(t) == std::vector<std::uint8_t>(a, a + 5));
-    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) && bytes(t) == std::vector<std::uint8_t>(b, b + 3));
+    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) &&
+                 bytes(t) == std::vector<std::uint8_t>(a, a + 5));
+    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) &&
+                 bytes(t) == std::vector<std::uint8_t>(b, b + 3));
 
     // A zero-length packet (USB 2.0 5.8.3).
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, nullptr, 0, kSendMs) == MIMHID_OK);
@@ -181,7 +183,8 @@ void vendor_bulk() {
     // after it; either way the endpoint works again).
     fake_board_clear_transfers();
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x81, b, sizeof(b), kSendMs) == MIMHID_OK);
-    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) && bytes(t) == std::vector<std::uint8_t>(b, b + 3));
+    MIMHID_CHECK(fake_board_wait_transfer(0x81, &t, 1000) &&
+                 bytes(t) == std::vector<std::uint8_t>(b, b + 3));
     // OUT endpoint: stalled, then accepting again.
     MIMHID_CHECK(mimhid_node_endpoint_stall(node, 0x01, kControlMs) == MIMHID_OK &&
                  fake_board_endpoint_stalled(0x01));
@@ -272,8 +275,8 @@ void policies() {
     }
     sleep_ms(100);
     fake_board_hold_reports(0);
-    MIMHID_CHECK(drain(0x81) == "ABC");  // the newest, D and E, were dropped
-    MIMHID_CHECK(drain(0x82) == "ADE");  // the oldest that was not being sent, B then C, dropped
+    MIMHID_CHECK(drain(0x81) == "ABC"); // the newest, D and E, were dropped
+    MIMHID_CHECK(drain(0x82) == "ADE"); // the oldest that was not being sent, B then C, dropped
     // The losses are reported with the endpoint.
     unsigned lost81 = 0, lost82 = 0;
     while (wait_event(MIMHID_EVENT_TRANSFER_LOST, &ev, 300)) {
@@ -298,7 +301,8 @@ void policies() {
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x83, c.data(), 1, 0) == MIMHID_ERR_UNSET_FIELD);
     // A blocked writer is woken by a flush and gets BUSY, with nothing sent.
     mimhid_result blocked = MIMHID_OK;
-    std::thread writer([&] { blocked = mimhid_node_endpoint_write(node, 0x83, c.data(), 1, 5000); });
+    std::thread writer(
+        [&] { blocked = mimhid_node_endpoint_write(node, 0x83, c.data(), 1, 5000); });
     sleep_ms(150);
     MIMHID_CHECK(mimhid_node_endpoint_flush(node, 0x83, kControlMs) == MIMHID_OK);
     writer.join();
@@ -313,7 +317,8 @@ void policies() {
     mimhid_result burst = MIMHID_OK;
     std::thread burst_writer([&] {
         for (unsigned i = 0; i < kBurst && burst == MIMHID_OK; ++i) {
-            const std::uint8_t d[4] = {static_cast<std::uint8_t>(i), static_cast<std::uint8_t>(i >> 8), 0, 0};
+            const std::uint8_t d[4] = {static_cast<std::uint8_t>(i),
+                                       static_cast<std::uint8_t>(i >> 8), 0, 0};
             burst = mimhid_node_endpoint_write(node, 0x83, d, sizeof(d), 5000);
         }
     });
@@ -328,16 +333,19 @@ void policies() {
 
     // Changing a policy: refused when the queue cannot hold it, accepted when it can.
     mimhid_endpoint_policy p{MIMHID_FULL_DROP_NEWEST, 255};
-    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) ==
+                 MIMHID_ERR_OVERFLOW);
     p = {MIMHID_FULL_DROP_OLDEST, 1};
     MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) == MIMHID_OK);
     p = {0, 1};
-    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) ==
+                 MIMHID_ERR_UNSET_FIELD);
     p = {4, 1};
     MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, kControlMs) == MIMHID_ERR_PARAM);
     p = {MIMHID_FULL_WAIT, 1};
     MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x01, &p, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_node_endpoint_set_policy(nullptr, 0x81, &p, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_endpoint_set_policy(nullptr, 0x81, &p, kControlMs) ==
+                 MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x81, &p, 0) == MIMHID_ERR_UNSET_FIELD);
 
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
@@ -357,7 +365,8 @@ void open_checks() {
         MIMHID_CHECK(r == want && (want == MIMHID_OK || node == nullptr));
         if (r != want)
             std::fprintf(stderr, "open check at line %d: %s, wanted %s (%s)\n", line,
-                         mimhid_result_name(r), mimhid_result_name(want), mimhid_last_error()->reason);
+                         mimhid_result_name(r), mimhid_result_name(want),
+                         mimhid_last_error()->reason);
         if (field != nullptr && r != MIMHID_OK)
             MIMHID_CHECK(std::strstr(mimhid_last_error()->field, field) != nullptr);
         if (node != nullptr)
@@ -559,8 +568,10 @@ void strings() {
     mimhid_node* node = nullptr;
     MIMHID_CHECK(open_vendor(device, &v, &node) == MIMHID_OK);
     char text[64];
-    MIMHID_CHECK(fake_board_string(5, text, sizeof(text)) && std::strcmp(text, "Control Interface") == 0);
-    MIMHID_CHECK(fake_board_string(6, text, sizeof(text)) && std::strcmp(text, "Ünï \xF0\x9F\x98\x80") == 0);
+    MIMHID_CHECK(fake_board_string(5, text, sizeof(text)) &&
+                 std::strcmp(text, "Control Interface") == 0);
+    MIMHID_CHECK(fake_board_string(6, text, sizeof(text)) &&
+                 std::strcmp(text, "Ünï \xF0\x9F\x98\x80") == 0);
     std::uint16_t length = 0;
     const std::uint8_t* c = fake_board_config_descriptor(&length);
     // The Interface descriptor's iInterface is the next free index; the class descriptor the
@@ -603,9 +614,11 @@ void association_beside_hid() {
     for (const auto* d : {header, call, onion})
         comm_class.insert(comm_class.end(), d, d + 5);
     comm_class.insert(comm_class.end(), acm, acm + 4);
-    const mimhid_usb_endpoint comm_eps[] = {endpoint(0x83, MIMHID_TRANSFER_INTERRUPT, MIMHID_FULL_DROP_NEWEST, 2)};
-    const mimhid_usb_endpoint data_eps[] = {endpoint(0x84, MIMHID_TRANSFER_BULK, MIMHID_FULL_WAIT, 4),
-                                            endpoint(0x04, MIMHID_TRANSFER_BULK)};
+    const mimhid_usb_endpoint comm_eps[] = {
+        endpoint(0x83, MIMHID_TRANSFER_INTERRUPT, MIMHID_FULL_DROP_NEWEST, 2)};
+    const mimhid_usb_endpoint data_eps[] = {
+        endpoint(0x84, MIMHID_TRANSFER_BULK, MIMHID_FULL_WAIT, 4),
+        endpoint(0x04, MIMHID_TRANSFER_BULK)};
     mimhid_usb_interface itfs[2] = {};
     itfs[0].number = 2;
     itfs[0].class_code = 0x02;
@@ -639,14 +652,16 @@ void association_beside_hid() {
     bool found = false;
     for (std::uint16_t i = 9; i < length; i += c[i]) {
         if (c[i + 1] == 0x0B) {
-            found = std::memcmp(c + i, association, 8) == 0 && c[i + 8 + 1] == 4 && c[i + 8 + 2] == 2;
+            found =
+                std::memcmp(c + i, association, 8) == 0 && c[i + 8 + 1] == 4 && c[i + 8 + 2] == 2;
         }
     }
     MIMHID_CHECK(found && fake_board_interface_count() == 4);
 
     // The HID Nodes work as before; the CDC Node moves data both ways.
     fake_board_clear_reports();
-    MIMHID_CHECK(mimhid_keyboard_key(k, 0x04, 1) == MIMHID_OK && mimhid_node_submit(k, kSendMs) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_keyboard_key(k, 0x04, 1) == MIMHID_OK &&
+                 mimhid_node_submit(k, kSendMs) == MIMHID_OK);
     fake_report_t r;
     MIMHID_CHECK(next_report(&r) && r.iface == 0);
     const std::uint8_t line[] = {0xA1, 0x20, 0, 0, 2, 0, 0, 0};

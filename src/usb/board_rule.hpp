@@ -17,8 +17,8 @@ namespace mimhid::usb {
 
 struct BoardRule {
     enum class Role : std::uint8_t {
-        user,       // a rule of the caller (a Node's or the Device's)
-        hid_other,  // a rule the library wrote for a profile interface
+        user,      // a rule of the caller (a Node's or the Device's)
+        hid_other, // a rule the library wrote for a profile interface
         hid_set_report,
         hid_set_idle,
         hid_set_protocol,

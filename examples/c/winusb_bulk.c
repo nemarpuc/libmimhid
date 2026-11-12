@@ -32,33 +32,32 @@
 
 static int fail(const char* what, mimhid_result r) {
     const mimhid_error_detail* d = mimhid_last_error();
-    fprintf(stderr, "%s: %s (%s: %s, offset %u)\n", what, mimhid_result_name(r), d->field, d->reason,
-            (unsigned)d->offset);
+    fprintf(stderr, "%s: %s (%s: %s, offset %u)\n", what, mimhid_result_name(r), d->field,
+            d->reason, (unsigned)d->offset);
     return 1;
 }
 
 // The MS OS 2.0 descriptor set: a 10-byte set header (wLength 10, type 0 MS_OS_20_SET_HEADER_
 // DESCRIPTOR, dwWindowsVersion 0x06030000 = Windows 8.1, wTotalLength 30) and a 20-byte compatible
 // ID feature descriptor (wLength 20, type 3, CompatibleID "WINUSB", SubCompatibleID empty).
-static const uint8_t kDescriptorSet[30] = {
-    10, 0, 0, 0, 0x00, 0x00, 0x03, 0x06, 30, 0,
-    20, 0, 3, 0, 'W', 'I', 'N', 'U', 'S', 'B', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static const uint8_t kDescriptorSet[30] = {10, 0, 0, 0, 0x00, 0x00, 0x03, 0x06, 30,  0,
+                                           20, 0, 3, 0, 'W',  'I',  'N',  'U',  'S', 'B',
+                                           0,  0, 0, 0, 0,    0,    0,    0,    0,   0};
 
 // The BOS descriptor: the 5-byte header and one 28-byte platform capability descriptor (bLength 28,
 // type 0x10 device capability, capability type 5 platform, reserved 0, the UUID in little-endian
 // byte order, dwWindowsVersion, the length of the descriptor set, the vendor code, 0 for
 // bAltEnumCode).
-static const uint8_t kBos[33] = {
-    5, 0x0F, 33, 0, 1,
-    28, 0x10, 0x05, 0,
-    0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64, 0x8A, 0x9F,
-    0x00, 0x00, 0x03, 0x06, 30, 0, VENDOR_CODE, 0};
+static const uint8_t kBos[33] = {5,    0x0F, 33,   0,    1,           28,   0x10, 0x05, 0,
+                                 0xDF, 0x60, 0xDD, 0xD8, 0x89,        0x45, 0xC7, 0x4C, 0x9C,
+                                 0xD2, 0x65, 0x9D, 0x9E, 0x64,        0x8A, 0x9F, 0x00, 0x00,
+                                 0x03, 0x06, 30,   0,    VENDOR_CODE, 0};
 
-static const uint8_t kDevice[18] = {18,   1,    0x10, 0x02, 0,    0,    0,    64,  0x09,
-                                    0x12, 0x01, 0x00, 0x00, 0x01, 1,    2,    0,   1};
-static const uint8_t kConfiguration[32] = {
-    9, 2, 32, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 2, 0xFF, 1, 2, 0,
-    7, 5, 0x81, 2, 64, 0, 0, 7, 5, 0x01, 2, 64, 0, 0};
+static const uint8_t kDevice[18] = {18,   1,    0x10, 0x02, 0,    0, 0, 64, 0x09,
+                                    0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 0,  1};
+static const uint8_t kConfiguration[32] = {9,  2, 32, 0,    1, 1,    0, 0x80, 50, 9,    4,
+                                           0,  0, 2,  0xFF, 1, 2,    0, 7,    5,  0x81, 2,
+                                           64, 0, 0,  7,    5, 0x01, 2, 64,   0,  0};
 static const uint16_t kManufacturer[] = {'A', 'c', 'm', 'e'};
 static const uint16_t kProduct[] = {'W', 'i', 'n', 'U', 'S', 'B'};
 
@@ -93,8 +92,8 @@ int main(void) {
     mimhid_endpoint_policy policy;
     policy.on_full = MIMHID_FULL_WAIT;
     policy.depth = 4;
-    if ((r = mimhid_device_endpoint_set_policy(device, 0x81, &policy, EXAMPLE_CONTROL_TIMEOUT_MS)) !=
-        MIMHID_OK)
+    if ((r = mimhid_device_endpoint_set_policy(device, 0x81, &policy,
+                                               EXAMPLE_CONTROL_TIMEOUT_MS)) != MIMHID_OK)
         return fail("endpoint_set_policy", r);
 
     // The rule of the Device that answers the vendor request with the descriptor set. The board

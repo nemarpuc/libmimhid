@@ -200,8 +200,8 @@ mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
     mimhid_hid_node_config defaults{};
     test_fill_node_config(&defaults, 0);
     mimhid_node* node = nullptr;
-    const mimhid_result r =
-        mimhid_node_open_profile(device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
+    const mimhid_result r = mimhid_node_open_profile(
+        device, spec, options != nullptr ? options : &defaults, &kCommit, &node);
     if (r != MIMHID_OK) {
         std::fprintf(stderr, "node_open: %s (%s)\n", mimhid_result_name(r),
                      mimhid_last_error()->reason);

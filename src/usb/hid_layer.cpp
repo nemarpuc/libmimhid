@@ -87,6 +87,7 @@ std::vector<std::uint8_t> hid_descriptor(const mimhid_hid_node_config& config,
             static_cast<std::uint8_t>((report_length >> 8U) & 0xFFU)};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 BoardRule make_rule(const BoardRule::Role role, const std::uint8_t iface,
                     const std::uint8_t request_type, const std::uint8_t request,
                     const std::uint16_t value_mask, const std::uint16_t value,
@@ -180,9 +181,9 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
 
         // GET_DESCRIPTOR of the report descriptor and of the HID descriptor (HID 1.11 7.1.1): the
         // type in the high byte of wValue, any index.
-        BoardRule r = make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor,
-                                0xFF00U, static_cast<std::uint16_t>(kTypeHidReport << 8U),
-                                MIMHID_CONTROL_ANSWER);
+        BoardRule r =
+            make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
+                      static_cast<std::uint16_t>(kTypeHidReport << 8U), MIMHID_CONTROL_ANSWER);
         r.data = report_descriptor;
         out.push_back(r);
         r = make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
@@ -223,11 +224,10 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         // there is one (it is the first byte of the data stage, as of an Input report).
         for (const HidNodeInput* node : group) {
             for (const HidNodeInput::Feature& feature : node->features) {
-                BoardRule rule = make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport,
-                                           0xFFFFU,
-                                           static_cast<std::uint16_t>(kFeatureReport |
-                                                                      feature.report_id),
-                                           MIMHID_CONTROL_ANSWER);
+                BoardRule rule =
+                    make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport, 0xFFFFU,
+                              static_cast<std::uint16_t>(kFeatureReport | feature.report_id),
+                              MIMHID_CONTROL_ANSWER);
                 if (feature.report_id != 0U)
                     rule.data.push_back(feature.report_id);
                 rule.data.insert(rule.data.end(), feature.data.begin(), feature.data.end());
@@ -238,12 +238,12 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         // SET_REPORT, SET_IDLE and SET_PROTOCOL (7.2.2, 7.2.4, 7.2.6): taken, and reported to the
         // program by the library. Any value: the report type and ID, the idle rate and the
         // protocol are in wValue, and are read from the setup packet that is reported.
-        out.push_back(make_rule(Role::hid_set_report, iface, kClassInterfaceOut, kSetReport, 0U,
-                                0U, MIMHID_CONTROL_ACCEPT));
+        out.push_back(make_rule(Role::hid_set_report, iface, kClassInterfaceOut, kSetReport, 0U, 0U,
+                                MIMHID_CONTROL_ACCEPT));
         out.push_back(make_rule(Role::hid_set_idle, iface, kClassInterfaceOut, kSetIdle, 0U, 0U,
                                 MIMHID_CONTROL_ACCEPT));
-        out.push_back(make_rule(Role::hid_set_protocol, iface, kClassInterfaceOut, kSetProtocol,
-                                0U, 0U, MIMHID_CONTROL_ACCEPT));
+        out.push_back(make_rule(Role::hid_set_protocol, iface, kClassInterfaceOut, kSetProtocol, 0U,
+                                0U, MIMHID_CONTROL_ACCEPT));
 
         // GET_IDLE and GET_PROTOCOL (7.2.3, 7.2.5): one byte each, kept by the library as the
         // target sets them. HID 1.11 7.2.4: the idle rate is 0 until the host sets it; 7.2.6: the

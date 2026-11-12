@@ -67,11 +67,11 @@ mimhid_result write_report(mimhid_node* node, const std::uint8_t* report, std::s
     // The same path as a generic Node's write, so the wait policy counts the report.
     mimhid::detail::EndpointRuntime* ep =
         mimhid::detail::write_runtime(node, node->config.ep_in.address);
-    mimhid_result result = ep == nullptr ? MIMHID_ERR_INTERNAL
-                                         : mimhid::detail::endpoint_write(
-                                               device, public_node_id(node), ep,
-                                               node->config.ep_in.address, report, length,
-                                               send_timeout_ms);
+    mimhid_result result = ep == nullptr
+                               ? MIMHID_ERR_INTERNAL
+                               : mimhid::detail::endpoint_write(device, public_node_id(node), ep,
+                                                                node->config.ep_in.address, report,
+                                                                length, send_timeout_ms);
     std::int32_t native = 0;
     switch (result) {
     case MIMHID_OK:

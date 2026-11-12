@@ -83,8 +83,8 @@ void test_hand_written_hid_sends_the_rule() {
         if (r.type == MIMHID_T_RULE)
             rule = r;
     }
-    MIMHID_CHECK(rule.payload.size() > 1U && rule.payload[1] == 0U &&
-                 rule.payload.back() == 0U && rule.payload[rule.payload.size() - 2U] == sizeof(kDescriptor));
+    MIMHID_CHECK(rule.payload.size() > 1U && rule.payload[1] == 0U && rule.payload.back() == 0U &&
+                 rule.payload[rule.payload.size() - 2U] == sizeof(kDescriptor));
     MIMHID_CHECK(data.payload.size() == 7U + sizeof(kDescriptor) && data.payload[7] == 0x05);
     MIMHID_CHECK(begin.payload.size() == 8U && begin.payload[2] == 0U &&
                  begin.payload[5] == sizeof(kDescriptor) && begin.payload[6] == 0U);
@@ -186,8 +186,8 @@ void test_hand_written_in_a_batch() {
 
 // A report descriptor with one Report ID, for Nodes that share an interface.
 std::vector<std::uint8_t> descriptor_with_id(const std::uint8_t id) {
-    return {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, id, 0x09, 0x02,
-            0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02, 0xC0};
+    return {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, id,   0x09, 0x02, 0x15,
+            0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02, 0xC0};
 }
 
 // A raw Spec of such a descriptor: its one Input report is the Report ID and a byte.
@@ -227,8 +227,8 @@ void test_interface_numbers_are_real() {
     mimhid_node* refused = nullptr;
     MIMHID_CHECK(mimhid_node_open(device, &h2.config, &kCommit, &refused) == MIMHID_ERR_PARAM);
     const mimhid_error_detail* e = mimhid_last_error();
-    MIMHID_CHECK(refused == nullptr && std::strcmp(e->field, "node_config.interfaces.number") == 0 &&
-                 e->offset == 1U);
+    MIMHID_CHECK(refused == nullptr &&
+                 std::strcmp(e->field, "node_config.interfaces.number") == 0 && e->offset == 1U);
     // The refused Node's interface was never sent to the board: nothing of its endpoint 0x83.
     bool sent_interface_2 = false;
     for (const Received& q : board.received()) {

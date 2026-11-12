@@ -228,8 +228,9 @@ enum {
     MIMHID_EVENT_CONTROL_DATA = 10,
     /* The board's queue of an IN endpoint was full and it dropped transfers: value is how many
      * since the last event of this kind, at most 65535; endpoint_address names the endpoint. On a
-     * HID Node a key-up may be among them: send the current state again. With MIMHID_FULL_DROP_OLDEST
-     * the dropped ones are the oldest. Only after mimhid_device_set_loss_reporting. */
+     * HID Node a key-up may be among them: send the current state again. With
+     * MIMHID_FULL_DROP_OLDEST the dropped ones are the oldest. Only after
+     * mimhid_device_set_loss_reporting. */
     MIMHID_EVENT_TRANSFER_LOST = 11,
     /* The target sent a packet on an OUT endpoint of a Node opened with mimhid_node_open, or of a
      * Device given as bytes (node_id 0; mimhid_device_set_descriptors): data and length are the
@@ -260,10 +261,10 @@ typedef struct mimhid_event {
     uint32_t value;
     const uint8_t* data; /* OUTPUT_REPORT and FEATURE_REPORT: the report without its Report ID */
     size_t length;
-    uint32_t control_token; /* CONTROL_SETUP and CONTROL_DATA: 1 to 255 */
-    uint32_t control_flags; /* MIMHID_CONTROL_FLAG_* */
-    uint32_t endpoint_address; /* TRANSFER_LOST, ENDPOINT_DATA, ENDPOINT_HALT: 0x81 to 0x8F or 0x01 to
-                                  0x0F; otherwise 0 */
+    uint32_t control_token;    /* CONTROL_SETUP and CONTROL_DATA: 1 to 255 */
+    uint32_t control_flags;    /* MIMHID_CONTROL_FLAG_* */
+    uint32_t endpoint_address; /* TRANSFER_LOST, ENDPOINT_DATA, ENDPOINT_HALT: 0x81 to 0x8F or 0x01
+                                  to 0x0F; otherwise 0 */
     uint32_t interface_number; /* ENDPOINT_DATA and the HID events: the bInterfaceNumber the event
                                   belongs to; otherwise 0 */
 } mimhid_event;
@@ -333,19 +334,19 @@ typedef struct mimhid_board_limits {
     uint32_t max_control_data_bytes; /* largest data stage the host may read or answer */
     uint32_t max_control_rules;      /* control rules the board holds: those of every Node and of
                                         mimhid_device_set_control_rules together */
-    uint32_t max_endpoint_number; /* highest endpoint number of an endpoint's address */
-    uint32_t max_interfaces_any;  /* interfaces of every class together, HID ones included */
-    uint32_t max_answer_bytes;    /* the bytes of every ANSWER control rule together */
+    uint32_t max_endpoint_number;    /* highest endpoint number of an endpoint's address */
+    uint32_t max_interfaces_any;     /* interfaces of every class together, HID ones included */
+    uint32_t max_answer_bytes;       /* the bytes of every ANSWER control rule together */
     uint32_t max_config_descriptor_bytes; /* the whole Configuration descriptor */
-    uint32_t max_strings;         /* string descriptors, the four of the Device included */
-    uint32_t max_transfer_bytes;  /* largest payload of one frame to an endpoint of a Node opened
-                                     with mimhid_node_open; a longer write is split */
+    uint32_t max_strings;                 /* string descriptors, the four of the Device included */
+    uint32_t max_transfer_bytes;   /* largest payload of one frame to an endpoint of a Node opened
+                                      with mimhid_node_open; a longer write is split */
     uint32_t endpoint_queue_slots; /* slots the queues of those endpoints are cut from: a queue
                                       of depth d takes d + 1 (MIMHID_FULL_DROP_NEWEST and
                                       MIMHID_FULL_WAIT) or 2 * d + 1 (MIMHID_FULL_DROP_OLDEST) */
-    uint32_t transfer_types;      /* bit n set: the board has endpoints of transfer type n
-                                     (MIMHID_TRANSFER_BULK, MIMHID_TRANSFER_INTERRUPT) */
-    uint32_t max_bos_bytes;       /* the largest BOS descriptor, its header included */
+    uint32_t transfer_types;       /* bit n set: the board has endpoints of transfer type n
+                                      (MIMHID_TRANSFER_BULK, MIMHID_TRANSFER_INTERRUPT) */
+    uint32_t max_bos_bytes;        /* the largest BOS descriptor, its header included */
 } mimhid_board_limits;
 
 /* What the board counted on its serial line since the last reset, each saturating at 65535. A
@@ -1344,9 +1345,10 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_rules(
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a rule that is not an ANSWER rule, a
  * null data with a length or more bytes than the rule's capacity; MIMHID_ERR_UNSET_FIELD for a zero
  * timeout; MIMHID_ERR_BUSY when the board kept answering from the rule; a link error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_rule_data(
-    mimhid_device* device, size_t rule_index, const uint8_t* data, size_t length,
-    uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_rule_data(mimhid_device* device,
+                                                                 size_t rule_index,
+                                                                 const uint8_t* data, size_t length,
+                                                                 uint32_t control_timeout_ms);
 
 /* mimhid_node_set_rule_data
  * Ownership: Copies data.
@@ -1358,9 +1360,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_rule_data(
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node, a rule that is not an ANSWER rule, a
  * null data with a length or more bytes than the rule's capacity; MIMHID_ERR_UNSET_FIELD for a zero
  * timeout; MIMHID_ERR_BUSY when the board kept answering from the rule; a link error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_rule_data(
-    mimhid_node* node, size_t rule_index, const uint8_t* data, size_t length,
-    uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_rule_data(mimhid_node* node, size_t rule_index,
+                                                               const uint8_t* data, size_t length,
+                                                               uint32_t control_timeout_ms);
 
 /* mimhid_hid_descriptor_bytes
  * Ownership: Nothing; writes out.
@@ -1386,8 +1388,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_hid_descriptor_bytes(uint16_t bcd_hi
  * string or another descriptor type. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_hid_descriptor_rule(uint8_t interface_number,
                                                                 uint8_t descriptor_type,
-                                                                const uint8_t* bytes,
-                                                                size_t length,
+                                                                const uint8_t* bytes, size_t length,
                                                                 mimhid_control_rule* out_rule);
 
 /* mimhid_device_control_reply
@@ -1426,11 +1427,11 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* 
  * Blocking: Waits up to control_timeout_ms for the board's answer.
  * Synchronization: Device domain.
  * enabled 1 makes the board report the reports it drops because its queue is full
- * (MIMHID_EVENT_TRANSFER_LOST), at most one event per interval_ms (0 to MIMHID_LOSS_MAX_INTERVAL_MS;
- * 0 reports each time at once). enabled 0, which is how the board starts, needs interval_ms 0 and
- * puts nothing extra on the link. The setting stays until replaced or mimhid_device_close.
- * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, enabled or interval_ms;
- * MIMHID_ERR_UNSET_FIELD for a zero timeout; a link error. */
+ * (MIMHID_EVENT_TRANSFER_LOST), at most one event per interval_ms (0 to
+ * MIMHID_LOSS_MAX_INTERVAL_MS; 0 reports each time at once). enabled 0, which is how the board
+ * starts, needs interval_ms 0 and puts nothing extra on the link. The setting stays until replaced
+ * or mimhid_device_close. Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, enabled or
+ * interval_ms; MIMHID_ERR_UNSET_FIELD for a zero timeout; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(mimhid_device* device,
                                                                       uint32_t enabled,
                                                                       uint32_t interval_ms,
@@ -1542,9 +1543,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device
  * MIMHID_ERR_UNSUPPORTED for an isochronous endpoint or an alternate setting; MIMHID_ERR_OVERFLOW
  * when the board's limits are exceeded; MIMHID_ERR_BUSY while a Node is open; the results of
  * mimhid_device_commit. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
-    mimhid_device* device, const mimhid_device_descriptors* descriptors,
-    const mimhid_commit_timeouts* timeouts);
+MIMHID_API mimhid_result MIMHID_CALL
+mimhid_device_set_descriptors(mimhid_device* device, const mimhid_device_descriptors* descriptors,
+                              const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_clear_descriptors
  * Ownership: Nothing.
@@ -1556,8 +1557,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
  * stages the removal.
  * Returns: MIMHID_OK (also when no descriptors are set); MIMHID_ERR_PARAM for an invalid Device or
  * timeouts; MIMHID_ERR_UNSET_FIELD for a zero timeout; the results of mimhid_device_commit. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_device_clear_descriptors(
-    mimhid_device* device, const mimhid_commit_timeouts* timeouts);
+MIMHID_API mimhid_result MIMHID_CALL
+mimhid_device_clear_descriptors(mimhid_device* device, const mimhid_commit_timeouts* timeouts);
 
 /* mimhid_device_endpoint_set_policy
  * Ownership: Copies policy.
@@ -1569,8 +1570,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_clear_descriptors(
  * may be changed afterwards. A policy for an address the descriptors do not have is kept for the
  * next mimhid_device_set_descriptors. Policies stay until mimhid_device_clear_descriptors.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null policy, a bad on_full, an
- * address that is not an IN address (0x81 to 0x8F); MIMHID_ERR_UNSET_FIELD for on_full or depth 0 or a zero timeout;
- * MIMHID_ERR_OVERFLOW; a link error. */
+ * address that is not an IN address (0x81 to 0x8F); MIMHID_ERR_UNSET_FIELD for on_full or depth 0
+ * or a zero timeout; MIMHID_ERR_OVERFLOW; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(
     mimhid_device* device, uint8_t address, const mimhid_endpoint_policy* policy,
     uint32_t control_timeout_ms);
@@ -1861,9 +1862,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_feature_response(mimhid_nod
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node, a null policy, an address that is not
  * an IN endpoint of the Node or a bad on_full; MIMHID_ERR_UNSET_FIELD for on_full or depth 0 or a
  * zero timeout; MIMHID_ERR_OVERFLOW; a link error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
-    mimhid_node* node, uint8_t address, const mimhid_endpoint_policy* policy,
-    uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL
+mimhid_node_endpoint_set_policy(mimhid_node* node, uint8_t address,
+                                const mimhid_endpoint_policy* policy, uint32_t control_timeout_ms);
 
 /* mimhid_node_endpoint_write
  * Ownership: Copies data.
@@ -1891,10 +1892,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(
  * MIMHID_ERR_SHORT_TRANSFER when it passed after some frames of a split write were sent;
  * MIMHID_ERR_BUSY as above, also for a Node staged in a batch that has not ended or while the board
  * enumerates; MIMHID_ERR_OVERFLOW for a transfer of more than 65535 frames; a link error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node,
-                                                                uint8_t address,
-                                                                const uint8_t* data,
-                                                                size_t length,
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, uint8_t address,
+                                                                const uint8_t* data, size_t length,
                                                                 uint32_t timeout_ms);
 
 /* mimhid_node_endpoint_stall
@@ -1906,11 +1905,10 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* nod
  * On an IN endpoint what waits on the board and the transfer being sent are dropped. This resets
  * the wait count.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node or an address that is not an endpoint
- * of the Node; MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_BUSY when the board does not run the
- * configuration (the Node is staged, or the target has not configured the device); a link
+ * of the Node; MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_BUSY when the board does not
+ * run the configuration (the Node is staged, or the target has not configured the device); a link
  * error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* node,
-                                                                uint8_t address,
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* node, uint8_t address,
                                                                 uint32_t control_timeout_ms);
 
 /* mimhid_node_endpoint_clear_stall
@@ -1921,8 +1919,9 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* nod
  * waits, an OUT endpoint accepts packets again. This resets the wait count.
  * Returns: MIMHID_OK; the errors of mimhid_node_endpoint_stall: MIMHID_ERR_PARAM,
  * MIMHID_ERR_UNSET_FIELD, MIMHID_ERR_BUSY or a link error. */
-MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(
-    mimhid_node* node, uint8_t address, uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(mimhid_node* node,
+                                                                      uint8_t address,
+                                                                      uint32_t control_timeout_ms);
 
 /* mimhid_node_endpoint_flush
  * Ownership: Nothing.
@@ -1931,8 +1930,8 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(
  * Drops what waits on an IN endpoint of the board; a transfer the board's controller already has
  * completes. This resets the wait count.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node, an address that is not an IN endpoint
- * of the Node (an OUT endpoint too); MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_BUSY when
- * the board does not run the configuration; a link error. */
+ * of the Node (an OUT endpoint too); MIMHID_ERR_UNSET_FIELD for a zero timeout; MIMHID_ERR_BUSY
+ * when the board does not run the configuration; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_endpoint_flush(mimhid_node* node, uint8_t address,
                                                                 uint32_t control_timeout_ms);
 

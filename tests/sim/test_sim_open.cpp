@@ -157,7 +157,8 @@ void test_chip_serial_and_boot() {
     no.ep_in.max_packet_size = 6;
     no.ep_out.address = 0x01;
     no.ep_out.max_packet_size = 5;
-    no.ep_out.interval = 1; no.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    no.ep_out.interval = 1;
+    no.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
     no.country_code = 33;
     no.bcd_hid = 0x0110;
     mimhid_node* node = open_node(device, raw, &no);
@@ -191,7 +192,8 @@ void test_chip_serial_and_boot() {
         general.interface_count = 1;
         MIMHID_CHECK(mimhid_node_open(device, &general, &kCommit, &bad) == MIMHID_ERR_UNSET_FIELD &&
                      bad == nullptr);
-        // Class 0x03 is the caller's too: a hand-written HID interface (examples/c/hid_interface.c).
+        // Class 0x03 is the caller's too: a hand-written HID interface
+        // (examples/c/hid_interface.c).
         itf.class_code = 0x03;
         MIMHID_CHECK(mimhid_node_open(device, &general, &kCommit, &bad) == MIMHID_OK &&
                      bad != nullptr);
@@ -204,14 +206,17 @@ void test_chip_serial_and_boot() {
     for (const std::uint8_t bad_in : {0x80, 0x90, 0xF1, 0x01, 0x41}) {
         broken = no;
         broken.ep_in.address = bad_in;
-        MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+        MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                     MIMHID_ERR_PARAM);
     }
     for (const std::uint8_t bad_out : {0x80, 0x81, 0x10, 0x40}) {
         broken = no;
         broken.ep_out.address = bad_out;
         broken.ep_out.max_packet_size = 8;
-        broken.ep_out.interval = 1; broken.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
-        MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+        broken.ep_out.interval = 1;
+        broken.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+        MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                     MIMHID_ERR_PARAM);
     }
     // A number the board's controller does not have is refused before the board is asked: the
     // target's SET_CONFIGURATION would fail. The firmware core of this build has the numbers 1 to
@@ -226,7 +231,8 @@ void test_chip_serial_and_boot() {
         broken = no;
         broken.ep_out.address = above;
         broken.ep_out.max_packet_size = 8;
-        broken.ep_out.interval = 1; broken.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+        broken.ep_out.interval = 1;
+        broken.ep_out.transfer_type = MIMHID_TRANSFER_INTERRUPT;
         MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
                          MIMHID_ERR_OVERFLOW &&
                      bad == nullptr);
@@ -234,7 +240,8 @@ void test_chip_serial_and_boot() {
     // A HID Node's endpoints are interrupt endpoints, and its IN policy is one of the three.
     broken = no;
     broken.ep_in.transfer_type = MIMHID_TRANSFER_BULK;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_UNSUPPORTED &&
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                     MIMHID_ERR_UNSUPPORTED &&
                  bad == nullptr);
     broken = no;
     broken.interface_number = 1; // beside the Node above
@@ -248,21 +255,26 @@ void test_chip_serial_and_boot() {
     // HID 1.11 4.2 and 4.3: subclass 0 or 1, protocol 0, 1 or 2; the rest is reserved.
     broken = no;
     broken.subclass = 2;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_PARAM);
     broken = no;
     broken.subclass = 1;
     broken.protocol = 3;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_PARAM);
     broken = no;
     broken.reserved = 1;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_PARAM);
     broken = no;
     // The board's endpoints hold 64 bytes.
     broken.ep_in.max_packet_size = 65;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_OVERFLOW);
     broken.ep_in.max_packet_size = 64;
     broken.ep_out.max_packet_size = 65;
-    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_open_profile(device, raw, &broken, &kCommit, &bad) ==
+                 MIMHID_ERR_OVERFLOW);
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
     mimhid_spec_release(raw);
@@ -352,7 +364,8 @@ void test_filled_values() {
     test_fill_node_config(&config, 0);
     for (mimhid_spec* spec : specs) {
         mimhid_node* node = nullptr;
-        MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &timeouts, &node) == MIMHID_OK);
+        MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &timeouts, &node) ==
+                     MIMHID_OK);
         mimhid_spec_release(spec);
         if (node == nullptr)
             continue;
@@ -384,9 +397,8 @@ void test_init_fills_nothing() {
 
     mimhid_hid_node_config nc{};
     mimhid_hid_node_config_init(&nc);
-    MIMHID_CHECK(nc.struct_size == sizeof(nc) && nc.interface_number == 0 &&
-                 nc.bcd_hid == 0 && nc.ep_in.address == 0 && nc.ep_in.interval == 0 &&
-                 nc.ep_in.max_packet_size == 0);
+    MIMHID_CHECK(nc.struct_size == sizeof(nc) && nc.interface_number == 0 && nc.bcd_hid == 0 &&
+                 nc.ep_in.address == 0 && nc.ep_in.interval == 0 && nc.ep_in.max_packet_size == 0);
     mimhid_commit_timeouts zero{};
     mimhid_commit_timeouts_init(&zero);
     MIMHID_CHECK(zero.struct_size == sizeof(zero) && zero.control_timeout_ms == 0 &&
@@ -409,9 +421,11 @@ void test_init_fills_nothing() {
     mimhid_node* node = nullptr;
     mimhid_hid_node_config good{};
     test_fill_node_config(&good, 0);
-    MIMHID_CHECK(mimhid_node_open_profile(device, kbd, &good, &zero, &node) == MIMHID_ERR_UNSET_FIELD &&
+    MIMHID_CHECK(mimhid_node_open_profile(device, kbd, &good, &zero, &node) ==
+                     MIMHID_ERR_UNSET_FIELD &&
                  node == nullptr);
-    MIMHID_CHECK(mimhid_node_open_profile(device, kbd, &nc, &kCommit, &node) == MIMHID_ERR_UNSET_FIELD &&
+    MIMHID_CHECK(mimhid_node_open_profile(device, kbd, &nc, &kCommit, &node) ==
+                     MIMHID_ERR_UNSET_FIELD &&
                  node == nullptr);
     mimhid_spec_release(kbd);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
@@ -431,7 +445,8 @@ void test_shared_interfaces() {
     mimhid_hid_node_config slower = first;
     slower.ep_in.interval = 8;
     mimhid_node* nm = nullptr;
-    MIMHID_CHECK(mimhid_node_open_profile(device, mouse, &slower, &kCommit, &nm) == MIMHID_ERR_PARAM &&
+    MIMHID_CHECK(mimhid_node_open_profile(device, mouse, &slower, &kCommit, &nm) ==
+                     MIMHID_ERR_PARAM &&
                  nm == nullptr);
     mimhid_hid_node_config same_endpoint{};
     test_fill_node_config(&same_endpoint, 1);

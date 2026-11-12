@@ -81,7 +81,8 @@ void test_retry_and_timeout() {
     mimhid_spec* spec = keyboard_spec();
     const mimhid_hid_node_config config = node_config();
     mimhid_node* node = nullptr;
-    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) == MIMHID_ERR_TIMEOUT);
+    MIMHID_CHECK(mimhid_node_open_profile(device, spec, &config, &kCommit, &node) ==
+                 MIMHID_ERR_TIMEOUT);
     MIMHID_CHECK(mimhid_last_error()->frame_type == MIMHID_T_DESC_RESET);
     std::vector<Received> sent;
     for (const Received& r : board.received()) {
@@ -155,7 +156,8 @@ void test_commit_connect_disconnect() {
     mimhid_spec* keyboard = keyboard_spec();
     const mimhid_hid_node_config first = node_config();
     mimhid_node* attached = nullptr;
-    MIMHID_CHECK(mimhid_node_open_profile(device, keyboard, &first, &kCommit, &attached) == MIMHID_OK);
+    MIMHID_CHECK(mimhid_node_open_profile(device, keyboard, &first, &kCommit, &attached) ==
+                 MIMHID_OK);
     mimhid_spec_release(keyboard);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 1000) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_is_ready(device) == 1);

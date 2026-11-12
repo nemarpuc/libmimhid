@@ -436,7 +436,7 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, const mimhid_n
         }
         if ((in.endpoints == nullptr && in.endpoint_count != 0U) ||
             (in.class_descriptors == nullptr && in.class_descriptors_length != 0U) ||
-            in.endpoint_count > device->board.max_endpoint_number * 2U) {
+            in.endpoint_count > static_cast<std::size_t>(device->board.max_endpoint_number) * 2U) {
             set_error(MIMHID_ERR_PARAM, "node_config.interfaces",
                       "endpoints and class_descriptors must not be null with a nonzero count, and "
                       "an interface has no more endpoints than the board has.",
@@ -721,16 +721,16 @@ mimhid_result MIMHID_CALL mimhid_node_set_feature_response(
             std::lock_guard<std::mutex> lock(device->rules_mutex);
             for (std::size_t i = 0U; i < device->table.size(); ++i) {
                 const mimhid::usb::BoardRule& rule = device->table[i];
-                if (rule.role == mimhid::usb::BoardRule::Role::hid_other && rule.iface == node->iface &&
-                    rule.rule.action == MIMHID_CONTROL_ANSWER && rule.rule.request_value == 0x01U &&
+                if (rule.role == mimhid::usb::BoardRule::Role::hid_other &&
+                    rule.iface == node->iface && rule.rule.action == MIMHID_CONTROL_ANSWER &&
+                    rule.rule.request_value == 0x01U &&
                     rule.rule.value_value == static_cast<std::uint16_t>(0x0300U | report_id))
                     index = i;
             }
         }
         if (index < device->table.size()) {
-            const mimhid_result sent =
-                mimhid::detail::send_rule_data(device, index, bytes.data(), bytes.size(),
-                                               control_timeout_ms);
+            const mimhid_result sent = mimhid::detail::send_rule_data(
+                device, index, bytes.data(), bytes.size(), control_timeout_ms);
             if (sent == MIMHID_OK) {
                 std::lock_guard<std::mutex> lock(device->rules_mutex);
                 if (index < device->table.size())
@@ -761,6 +761,7 @@ mimhid_result MIMHID_CALL mimhid_node_set_rule_data(mimhid_node* node, const siz
 }
 MIMHID_C_RESULT_CATCH("node.set_rule_data")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimhid_result MIMHID_CALL mimhid_hid_descriptor_bytes(const uint16_t bcd_hid,
                                                       const uint8_t country_code,
                                                       const size_t report_descriptor_length,
@@ -790,6 +791,7 @@ mimhid_result MIMHID_CALL mimhid_hid_descriptor_bytes(const uint16_t bcd_hid,
 }
 MIMHID_C_RESULT_CATCH("hid_descriptor_bytes")
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 mimhid_result MIMHID_CALL mimhid_hid_descriptor_rule(const uint8_t interface_number,
                                                      const uint8_t descriptor_type,
                                                      const uint8_t* bytes, const size_t length,

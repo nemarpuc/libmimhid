@@ -63,9 +63,10 @@ int main(void) {
     mimhid_node* keyboard = NULL;
     mimhid_node* mouse = NULL;
     mimhid_device_batch_begin(device);
-    if ((r = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts, &keyboard)) !=
-            MIMHID_OK ||
-        (r = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts, &mouse)) != MIMHID_OK)
+    if ((r = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
+                                      &keyboard)) != MIMHID_OK ||
+        (r = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts, &mouse)) !=
+            MIMHID_OK)
         return fail("node_open", r);
     mimhid_spec_release(keyboard_spec); // each Node keeps its own reference
     mimhid_spec_release(mouse_spec);

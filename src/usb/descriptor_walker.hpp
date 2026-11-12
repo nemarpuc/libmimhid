@@ -21,11 +21,11 @@ namespace mimhid::usb {
 // One endpoint descriptor found in a configuration.
 struct WalkedEndpoint {
     std::uint8_t address{};
-    std::uint8_t transfer_type{};  // bmAttributes: 2 bulk, 3 interrupt
+    std::uint8_t transfer_type{}; // bmAttributes: 2 bulk, 3 interrupt
     std::uint8_t interval{};
     std::uint16_t max_packet_size{};
     std::uint8_t interface_number{};
-    std::uint32_t offset{};        // of the endpoint descriptor in the configuration
+    std::uint32_t offset{}; // of the endpoint descriptor in the configuration
 };
 
 struct WalkedDescriptors {

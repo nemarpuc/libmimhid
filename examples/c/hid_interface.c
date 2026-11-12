@@ -4,7 +4,8 @@
 // mimhid_node_open: the HID descriptor, the report descriptor the target asks for, the answer to
 // GET_REPORT, the requests that are accepted, and the reports sent with mimhid_node_endpoint_write.
 // Nothing is a default: every byte below is this program's. The library places them and reads none.
-// For the same keyboard from a profile, with all of this written for you, see basic_keyboard_mouse.c.
+// For the same keyboard from a profile, with all of this written for you, see
+// basic_keyboard_mouse.c.
 #include <mimhid.h>
 
 #include "example_values.h"
@@ -20,12 +21,12 @@
 #define sleep_ms(ms) usleep((ms)*1000)
 #endif
 
-// The report descriptor of a boot keyboard without Output items: HID 1.11 Appendix B.1, minus its LED
-// report. One 8 byte Input report: the modifiers (E0..E7), a reserved byte, six key codes.
+// The report descriptor of a boot keyboard without Output items: HID 1.11 Appendix B.1, minus its
+// LED report. One 8 byte Input report: the modifiers (E0..E7), a reserved byte, six key codes.
 static const uint8_t report_descriptor[] = {
-    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x06, 0x75, 0x08,
-    0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xC0};
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25,
+    0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x06,
+    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xC0};
 
 static int fail(const char* what, mimhid_result r) {
     // Read the record first: mimhid_result_name is a call too and replaces it.

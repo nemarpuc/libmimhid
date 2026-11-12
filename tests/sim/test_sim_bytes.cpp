@@ -20,23 +20,37 @@ namespace {
 using Bytes = std::vector<std::uint8_t>;
 
 Bytes device_bytes(std::uint16_t bcd = 0x0210) {
-    return {18, 1, static_cast<std::uint8_t>(bcd), static_cast<std::uint8_t>(bcd >> 8), 0, 0, 0,
-            64, 0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 0, 1};
+    return {18,
+            1,
+            static_cast<std::uint8_t>(bcd),
+            static_cast<std::uint8_t>(bcd >> 8),
+            0,
+            0,
+            0,
+            64,
+            0x09,
+            0x12,
+            0x01,
+            0x00,
+            0x00,
+            0x01,
+            1,
+            2,
+            0,
+            1};
 }
 
 // One vendor interface with a bulk IN 0x81 and a bulk OUT 0x01.
 Bytes config_bytes() {
-    return {9, 2, 32, 0, 1, 1, 0, 0x80, 50,
-            9, 4, 0, 0, 2, 0xFF, 1, 2, 0,
-            7, 5, 0x81, 2, 64, 0, 0,
-            7, 5, 0x01, 2, 64, 0, 0};
+    return {9, 2, 32, 0, 1,    1, 0,  0x80, 50, 9, 4, 0,    0, 2,  0xFF, 1,
+            2, 0, 7,  5, 0x81, 2, 64, 0,    0,  7, 5, 0x01, 2, 64, 0,    0};
 }
 
 // A USB 2.0 Extension capability and the Microsoft OS 2.0 platform capability (vendor code 1).
 Bytes bos_bytes() {
-    return {5, 0x0F, 40, 0, 2, 7, 0x10, 0x02, 0x02, 0, 0, 0, 28, 0x10, 0x05, 0,
-            0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64,
-            0x8A, 0x9F, 0x00, 0x00, 0x03, 0x06, 0x42, 0x00, 0x01, 0x00};
+    return {5,    0x0F, 40,   0,    2,    7,    0x10, 0x02, 0x02, 0,    0,    0,    28,   0x10,
+            0x05, 0,    0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D,
+            0x9E, 0x64, 0x8A, 0x9F, 0x00, 0x00, 0x03, 0x06, 0x42, 0x00, 0x01, 0x00};
 }
 
 struct Given {
@@ -108,7 +122,8 @@ void bytes_end_to_end() {
 
     // The policy of an IN endpoint comes first: without it the call names the endpoint.
     Given g(device_bytes(), config_bytes(), bos_bytes());
-    MIMHID_CHECK(mimhid_device_set_descriptors(device, g.get(), &kCommit) == MIMHID_ERR_UNSET_FIELD);
+    MIMHID_CHECK(mimhid_device_set_descriptors(device, g.get(), &kCommit) ==
+                 MIMHID_ERR_UNSET_FIELD);
     MIMHID_CHECK(std::strcmp(mimhid_last_error()->field, "descriptors.endpoint.policy") == 0 &&
                  mimhid_last_error()->offset == 0x81U);
     // Strings as they go on the bus, in any language.
@@ -131,7 +146,8 @@ void bytes_end_to_end() {
     // What the target reads: the bytes as given, byte for byte.
     std::uint16_t length = 0;
     MIMHID_CHECK(same(fake_board_device_descriptor(), g.device));
-    MIMHID_CHECK(same(fake_board_config_descriptor(&length), g.config) && length == g.config.size());
+    MIMHID_CHECK(same(fake_board_config_descriptor(&length), g.config) &&
+                 length == g.config.size());
     MIMHID_CHECK(same(fake_board_bos_descriptor(&length), g.bos) && length == g.bos.size());
     char text[64];
     MIMHID_CHECK(fake_board_string(1, text, sizeof(text)) != 0 && std::strcmp(text, "Acme") == 0);
@@ -185,7 +201,8 @@ void bytes_end_to_end() {
     itf.class_code = 0xFF;
     none.interfaces = &itf;
     none.interface_count = 1;
-    MIMHID_CHECK(mimhid_node_open(device, &none, &kCommit, &node) == MIMHID_ERR_BUSY && node == nullptr);
+    MIMHID_CHECK(mimhid_node_open(device, &none, &kCommit, &node) == MIMHID_ERR_BUSY &&
+                 node == nullptr);
     mimhid_spec* spec = keyboard_spec(0);
     MIMHID_CHECK(open_profile(device, spec, &node) == MIMHID_ERR_BUSY);
     MIMHID_CHECK(mimhid_device_set_bos(device, g.bos.data(), g.bos.size()) == MIMHID_ERR_BUSY);
@@ -197,8 +214,7 @@ void bytes_end_to_end() {
     MIMHID_CHECK(mimhid_device_clear_descriptors(device, &kCommit) == MIMHID_OK); // again: fine
     MIMHID_CHECK(mimhid_device_clear_string(device, 1, 0x0409) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_clear_string(device, 1, 0x0409) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(open_profile(device, spec, &node) == MIMHID_OK &&
-                 node != nullptr);
+    MIMHID_CHECK(open_profile(device, spec, &node) == MIMHID_OK && node != nullptr);
     // With a Node open the bytes are refused the other way round.
     MIMHID_CHECK(mimhid_device_set_descriptors(device, g.get(), &kCommit) == MIMHID_ERR_BUSY);
     MIMHID_CHECK(mimhid_node_close(node, &kCommit, kDrainMs) == MIMHID_OK);
@@ -213,8 +229,10 @@ void bytes_refusals_and_batch() {
     const mimhid_endpoint_policy p = policy(MIMHID_FULL_DROP_NEWEST, 4);
     MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x81, &p, kControlMs) == MIMHID_OK);
     // Arguments of the endpoint policy call.
-    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x01, &p, kControlMs) == MIMHID_ERR_PARAM);
-    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x80, &p, kControlMs) == MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x01, &p, kControlMs) ==
+                 MIMHID_ERR_PARAM);
+    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x80, &p, kControlMs) ==
+                 MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x81, nullptr, kControlMs) ==
                  MIMHID_ERR_PARAM);
     const mimhid_endpoint_policy unset{};
@@ -296,7 +314,8 @@ void bytes_refusals_and_batch() {
     MIMHID_CHECK(mimhid_device_batch_end(device, &kCommit) == MIMHID_OK);
     MIMHID_CHECK(mimhid_device_wait_ready(device, 2000) == MIMHID_OK);
     std::uint16_t length = 0;
-    MIMHID_CHECK(same(fake_board_config_descriptor(&length), g.config) && fake_board_bos_descriptor(&length) == nullptr);
+    MIMHID_CHECK(same(fake_board_config_descriptor(&length), g.config) &&
+                 fake_board_bos_descriptor(&length) == nullptr);
     MIMHID_CHECK(fake_board_connects() == connects + 1);
     // Replacing them is a new commit: the new configuration, with the same endpoint policy.
     Bytes c = config_bytes();
@@ -315,8 +334,7 @@ void bytes_refusals_and_batch() {
     MIMHID_CHECK(fake_board_wait_transfer(0x82, &t, 1000) && t.length == 1);
     // The board refuses a pool its queues do not fit; the old configuration stays.
     const mimhid_endpoint_policy huge = policy(MIMHID_FULL_DROP_OLDEST, 255);
-    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x82, &huge, kControlMs) !=
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_endpoint_set_policy(device, 0x82, &huge, kControlMs) != MIMHID_OK);
     MIMHID_CHECK(mimhid_device_close(device, kControlMs, kDrainMs) == MIMHID_OK);
 }
 
@@ -357,8 +375,7 @@ void composed_bos() {
     spec = keyboard_spec(0);
     MIMHID_CHECK(mimhid_device_set_bos(device, bos.data(), bos.size()) == MIMHID_OK);
     node = nullptr;
-    MIMHID_CHECK(open_profile(device, spec, &node) == MIMHID_ERR_PARAM &&
-                 node == nullptr);
+    MIMHID_CHECK(open_profile(device, spec, &node) == MIMHID_ERR_PARAM && node == nullptr);
     MIMHID_CHECK(std::strcmp(mimhid_last_error()->field, "device.bos") == 0 &&
                  mimhid_last_error()->offset == 0x0200U);
     MIMHID_CHECK(mimhid_device_set_bos(device, nullptr, 0) == MIMHID_OK);

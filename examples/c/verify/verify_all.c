@@ -290,17 +290,17 @@ int main(void) {
 
         mimhid_device_batch_begin(device);
         if ((result = mimhid_node_open_profile(device, touch_spec, &touch_config, &timeouts,
-                                       &touch_node)) != MIMHID_OK) {
+                                               &touch_node)) != MIMHID_OK) {
             exit_code = verify_fail("touchscreen node open", result);
             goto cleanup;
         }
         if ((result = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
-                                       &keyboard_node)) != MIMHID_OK) {
+                                               &keyboard_node)) != MIMHID_OK) {
             exit_code = verify_fail("keyboard node open", result);
             goto cleanup;
         }
         if ((result = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts,
-                                       &mouse_node)) != MIMHID_OK) {
+                                               &mouse_node)) != MIMHID_OK) {
             exit_code = verify_fail("mouse node open", result);
             goto cleanup;
         }

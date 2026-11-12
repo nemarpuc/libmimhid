@@ -62,8 +62,8 @@ void test_events_and_raw() {
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), big.size(), kControlMs) ==
                  MIMHID_OK);
     std::vector<std::uint8_t> got(1024);
-    MIMHID_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() + 1U && got[0] == 5 &&
-                 std::memcmp(got.data() + 1, big.data(), big.size()) == 0);
+    MIMHID_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() + 1U &&
+                 got[0] == 5 && std::memcmp(got.data() + 1, big.data(), big.size()) == 0);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, big.data(), 1025, kControlMs) ==
                  MIMHID_ERR_PARAM);
     MIMHID_CHECK(mimhid_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) ==

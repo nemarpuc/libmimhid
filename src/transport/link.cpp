@@ -194,6 +194,7 @@ CommandResult Link::disconnect(std::uint32_t timeout_ms) {
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 IoStatus Link::send_report(std::uint8_t endpoint_address, const std::uint8_t* report,
+                           // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                            std::size_t length, std::uint32_t stall_ms, std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;

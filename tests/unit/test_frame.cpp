@@ -63,10 +63,9 @@ void test_other_types_are_skipped() {
     // A board sends only PONG, ACK, NAK and EVENT. Event kinds (MIMHID_EV_*) travel inside an
     // EVENT frame and are no frame types; host-to-board types are not taken from a board either.
     std::vector<std::uint8_t> bytes;
-    for (const std::uint8_t type :
-         {std::uint8_t{MIMHID_T_RULE}, std::uint8_t{MIMHID_T_RULES_APPLY},
-          std::uint8_t{MIMHID_T_PING}, std::uint8_t{MIMHID_T_COMMIT},
-          std::uint8_t{MIMHID_T_EP_IN_BASE}}) {
+    for (const std::uint8_t type : {std::uint8_t{MIMHID_T_RULE}, std::uint8_t{MIMHID_T_RULES_APPLY},
+                                    std::uint8_t{MIMHID_T_PING}, std::uint8_t{MIMHID_T_COMMIT},
+                                    std::uint8_t{MIMHID_T_EP_IN_BASE}}) {
         const std::vector<std::uint8_t> frame = frame_bytes(type, {0x00U, 0x01U, 0x02U});
         bytes.insert(bytes.end(), frame.begin(), frame.end());
     }
@@ -143,16 +142,16 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[9] = 0xC0; // baud 3,000,000
     payload[10] = 0xC6;
     payload[11] = 0x2D;
-    payload[33] = 8; // max_control_rules
-    payload[34] = 6; // max_endpoint_number
-    payload[35] = 2; // unique id length
+    payload[33] = 8;    // max_control_rules
+    payload[34] = 6;    // max_endpoint_number
+    payload[35] = 2;    // unique id length
     payload[36] = 12;   // max_interfaces_any
     payload[37] = 0x00; // max_config_descriptor_bytes 1024
     payload[38] = 0x04;
     payload[39] = 24;   // max_strings
     payload[40] = 0x40; // max_transfer_bytes 576
     payload[41] = 0x02;
-    payload[42] = 32;   // endpoint_queue_slots
+    payload[42] = 32; // endpoint_queue_slots
     payload[43] = 0;
     payload[44] = 0x0C; // transfer types: bulk and interrupt
     payload[45] = 0x00; // max_answer_bytes 4096
@@ -166,13 +165,14 @@ void test_pong_of_this_version_decodes_every_field() {
     if (frames.size() == 1U) {
         mimhid::transport::BoardInfo info;
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
-                     info.max_answer_bytes == 4096U && info.max_bos_bytes == 256U && info.has_unique_id && info.chip == 2U &&
-                     info.baud == 3000000U && info.max_control_rules == 8U &&
-                     info.max_endpoint_number == 6U && info.max_interfaces_any == 12U &&
-                     info.max_config_descriptor_bytes == 1024U && info.max_strings == 24U &&
-                     info.max_transfer_bytes == 576U && info.endpoint_queue_slots == 32U &&
-                     info.transfer_types == 0x0CU && info.unique_id_length == 2U &&
-                     info.unique_id[0] == 0xABU && info.unique_id[1] == 0xCDU);
+                     info.max_answer_bytes == 4096U && info.max_bos_bytes == 256U &&
+                     info.has_unique_id && info.chip == 2U && info.baud == 3000000U &&
+                     info.max_control_rules == 8U && info.max_endpoint_number == 6U &&
+                     info.max_interfaces_any == 12U && info.max_config_descriptor_bytes == 1024U &&
+                     info.max_strings == 24U && info.max_transfer_bytes == 576U &&
+                     info.endpoint_queue_slots == 32U && info.transfer_types == 0x0CU &&
+                     info.unique_id_length == 2U && info.unique_id[0] == 0xABU &&
+                     info.unique_id[1] == 0xCDU);
         // One byte short of the fixed part is refused.
         const std::vector<Frame> shorter = parse(frame_bytes(
             MIMHID_T_PONG,

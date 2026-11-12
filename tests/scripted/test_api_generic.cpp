@@ -98,7 +98,8 @@ void test_generic_frames() {
     config.interface_count = 1;
     mimhid_node* node = nullptr;
     board.clear();
-    MIMHID_CHECK(mimhid_node_open(device, &config, &kCommit, &node) == MIMHID_OK && node != nullptr);
+    MIMHID_CHECK(mimhid_node_open(device, &config, &kCommit, &node) == MIMHID_OK &&
+                 node != nullptr);
     if (node == nullptr)
         return;
 
@@ -144,7 +145,8 @@ void test_generic_frames() {
     MIMHID_CHECK(frames_of(board, 0x41).size() == 3U);
     // EP_DONE frees slots by the count it carries.
     board.send_event(MIMHID_EV_EP_DONE, {0x81, 2, 0});
-    MIMHID_CHECK(write(500) == MIMHID_OK && write(500) == MIMHID_OK && write(50) == MIMHID_ERR_TIMEOUT);
+    MIMHID_CHECK(write(500) == MIMHID_OK && write(500) == MIMHID_OK &&
+                 write(50) == MIMHID_ERR_TIMEOUT);
     // A count above what is outstanding clamps at zero: three writes fit, not four.
     board.send_event(MIMHID_EV_EP_DONE, {0x81, 200, 0});
     for (int i = 0; i < 3; ++i)
@@ -207,7 +209,8 @@ void test_generic_frames() {
         return std::nullopt;
     });
     p = {MIMHID_FULL_WAIT, 200};
-    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x82, &p, kControlMs) == MIMHID_ERR_OVERFLOW);
+    MIMHID_CHECK(mimhid_node_endpoint_set_policy(node, 0x82, &p, kControlMs) ==
+                 MIMHID_ERR_OVERFLOW);
     board.set_policy(nullptr);
     // ...so a write to it still follows the drop policy: no wait, no timeout needed.
     MIMHID_CHECK(mimhid_node_endpoint_write(node, 0x82, data.data(), 4, kSendMs) == MIMHID_OK);
@@ -268,8 +271,8 @@ void test_generic_frames() {
         MIMHID_CHECK(mimhid_node_endpoint_set_policy(keys, hid.ep_in.address, &p, kControlMs) ==
                      MIMHID_OK);
         f = frames_of(board, MIMHID_T_EP_CONFIG);
-        MIMHID_CHECK(f.size() == 1U && f[0].payload[1] == hid.ep_in.address && f[0].payload[2] == 2 &&
-                     f[0].payload[3] == MIMHID_FULL_DROP_NEWEST);
+        MIMHID_CHECK(f.size() == 1U && f[0].payload[1] == hid.ep_in.address &&
+                     f[0].payload[2] == 2 && f[0].payload[3] == MIMHID_FULL_DROP_NEWEST);
         MIMHID_CHECK(mimhid_node_close(keys, &kCommit, kDrainMs) == MIMHID_OK);
     }
     mimhid_spec_release(spec);

@@ -22,8 +22,8 @@
 
 static int fail(const char* what, mimhid_result r) {
     const mimhid_error_detail* d = mimhid_last_error();
-    fprintf(stderr, "%s: %s (%s: %s, offset %u)\n", what, mimhid_result_name(r), d->field, d->reason,
-            (unsigned)d->offset);
+    fprintf(stderr, "%s: %s (%s: %s, offset %u)\n", what, mimhid_result_name(r), d->field,
+            d->reason, (unsigned)d->offset);
     return 1;
 }
 
@@ -39,19 +39,22 @@ static void MIMHID_CALL on_event(void* user, const mimhid_event* event) {
     }
 }
 
-// USB 2.0 9.6.1: 18 bytes. bcdUSB 2.00, class at the interface, 64-byte control endpoint, the pid.codes
-// test IDs, strings 1 (manufacturer) and 2 (product), no serial number, one configuration.
-static const uint8_t kDevice[18] = {18,   1,    0x00, 0x02, 0,    0,    0,    64,  0x09,
-                                    0x12, 0x01, 0x00, 0x00, 0x01, 1,    2,    0,   1};
+// USB 2.0 9.6.1: 18 bytes. bcdUSB 2.00, class at the interface, 64-byte control endpoint, the
+// pid.codes test IDs, strings 1 (manufacturer) and 2 (product), no serial number, one
+// configuration.
+static const uint8_t kDevice[18] = {18,   1,    0x00, 0x02, 0,    0, 0, 64, 0x09,
+                                    0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 0,  1};
 
 // USB 2.0 9.6.3, 9.6.5, 9.6.6: 9 + 9 + 7 + 7 = 32 bytes. One vendor-class interface, number 0,
 // with a bulk IN endpoint 0x81 and a bulk OUT endpoint 0x01 of 64-byte packets (full speed,
 // USB 2.0 5.8.3).
 static const uint8_t kConfiguration[32] = {
-    9, 2, 32, 0, 1, 1, 0, 0x80, 50,       // configuration: 1 interface, value 1, bus powered, 100 mA
-    9, 4, 0, 0, 2, 0xFF, 1, 2, 0,         // interface 0: 2 endpoints, vendor class
-    7, 5, 0x81, 2, 64, 0, 0,              // bulk IN
-    7, 5, 0x01, 2, 64, 0, 0};             // bulk OUT
+    9,    2,  32,   0, 1,  1,    0,
+    0x80, 50, // configuration: 1 interface, value 1, bus powered, 100 mA
+    9,    4,  0,    0, 2,  0xFF, 1,
+    2,    0,                         // interface 0: 2 endpoints, vendor class
+    7,    5,  0x81, 2, 64, 0,    0,  // bulk IN
+    7,    5,  0x01, 2, 64, 0,    0}; // bulk OUT
 
 // String descriptors go on the bus as UTF-16 code units (USB 2.0 9.6.7).
 static const uint16_t kManufacturer[] = {'A', 'c', 'm', 'e'};
@@ -83,8 +86,8 @@ int main(void) {
     mimhid_endpoint_policy policy;
     policy.on_full = MIMHID_FULL_WAIT;
     policy.depth = 4;
-    if ((r = mimhid_device_endpoint_set_policy(device, 0x81, &policy, EXAMPLE_CONTROL_TIMEOUT_MS)) !=
-        MIMHID_OK)
+    if ((r = mimhid_device_endpoint_set_policy(device, 0x81, &policy,
+                                               EXAMPLE_CONTROL_TIMEOUT_MS)) != MIMHID_OK)
         return fail("endpoint_set_policy", r);
 
     mimhid_device_descriptors descriptors;

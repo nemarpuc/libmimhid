@@ -370,7 +370,8 @@ void test_endpoint_address_used_twice() {
     in.nodes.push_back(make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
     in.nodes.push_back(make_node(1, 0, 0, 0x0111, 0, 0x81, 8, 1, 0, 0, 0, &kRdA, ""));
     const ComposerError e = compose_error(in, MIMHID_ERR_PARAM);
-    MIMHID_CHECK(std::strcmp(e.field, "node_config.interfaces.endpoints.address") == 0 && e.length == 1U);
+    MIMHID_CHECK(std::strcmp(e.field, "node_config.interfaces.endpoints.address") == 0 &&
+                 e.length == 1U);
     // An OUT endpoint of another interface on the same address as an OUT endpoint.
     in.nodes.back() = make_node(1, 0, 0, 0x0111, 0, 0x82, 8, 1, 0x01, 8, 1, &kRdA, "");
     in.nodes.front() = make_node(0, 0, 0, 0x0111, 0, 0x81, 8, 1, 0x01, 8, 1, &kRdA, "");
@@ -379,7 +380,6 @@ void test_endpoint_address_used_twice() {
     in.nodes.back() = make_node(1, 0, 0, 0x0111, 0, 0x82, 8, 1, 0x02, 8, 1, &kRdA, "");
     compose_ok(in);
 }
-
 
 // ---- interfaces of any class (no HID layer) ----
 mimhid_usb_endpoint general_ep(std::uint8_t address, std::uint8_t type, std::uint16_t size,
@@ -432,22 +432,27 @@ mimhid::usb::ComposerInterface general_itf(std::uint8_t number, std::uint8_t cls
 
 void test_general_vendor_and_association() {
     mimhid::usb::ComposerGroup g;
-    g.interfaces.push_back(general_itf(0, 0xFF, {general_ep(0x81, 2, 64), general_ep(0x01, 2, 64)}));
+    g.interfaces.push_back(
+        general_itf(0, 0xFF, {general_ep(0x81, 2, 64), general_ep(0x01, 2, 64)}));
     g.interfaces[0].class_descriptors = {3, 0x24, 7};
     Composed c;
     ComposerError e;
     MIMHID_CHECK(mimhid::usb::compose_descriptors(general_input({g}), &c, &e) == MIMHID_OK);
     // Configuration, Interface (class 0xFF, 2 endpoints), the class bytes as given, two Endpoint
     // descriptors (USB 2.0 9.6.3, 9.6.5, 9.6.6).
-    MIMHID_CHECK(hex(c.configuration) ==
-                 "09022300010100803209040000" "02ff000000" "032407" "07058102400000" "07050102400000");
+    MIMHID_CHECK(hex(c.configuration) == "09022300010100803209040000"
+                                         "02ff000000"
+                                         "032407"
+                                         "07058102400000"
+                                         "07050102400000");
     MIMHID_CHECK(c.interfaces.size() == 1U);
 
     // An association goes before the first interface of its Node, which is its bFirstInterface.
     mimhid::usb::ComposerGroup comm, hid;
     hid.interfaces.push_back(general_itf(0, 0xFF, {general_ep(0x82, 2, 64)}));
     comm.interfaces.push_back(general_itf(1, 0x02, {general_ep(0x83, 3, 16, 4)}));
-    comm.interfaces.push_back(general_itf(2, 0x0A, {general_ep(0x84, 2, 64), general_ep(0x04, 2, 64)}));
+    comm.interfaces.push_back(
+        general_itf(2, 0x0A, {general_ep(0x84, 2, 64), general_ep(0x04, 2, 64)}));
     comm.association = {8, 0x0B, 1, 2, 0x02, 0x02, 0x01, 0};
     MIMHID_CHECK(mimhid::usb::compose_descriptors(general_input({comm, hid}), &c, &e) == MIMHID_OK);
     MIMHID_CHECK(c.configuration[4] == 3 && c.interfaces.size() == 3U);
@@ -552,24 +557,30 @@ void test_hid_rules() {
     std::vector<BoardRule> rules = mimhid::usb::compose_hid_rules(one);
     MIMHID_CHECK(rules.size() == 8U);
     if (rules.size() == 8U) {
-        MIMHID_CHECK(rules[0].rule.action == MIMHID_CONTROL_ANSWER && rules[0].rule.request_value == 6U &&
-                     rules[0].rule.value_mask == 0xFF00U && rules[0].rule.value_value == 0x2200U &&
-                     rules[0].data == kRdA && rules[0].capacity == kRdA.size());
+        MIMHID_CHECK(rules[0].rule.action == MIMHID_CONTROL_ANSWER &&
+                     rules[0].rule.request_value == 6U && rules[0].rule.value_mask == 0xFF00U &&
+                     rules[0].rule.value_value == 0x2200U && rules[0].data == kRdA &&
+                     rules[0].capacity == kRdA.size());
         MIMHID_CHECK(rules[1].rule.action == MIMHID_CONTROL_ANSWER &&
                      rules[1].rule.value_value == 0x2100U && rules[1].data.size() == 9U &&
                      rules[1].data[0] == 9U && rules[1].data[6] == 0x22U &&
                      rules[1].data[7] == kRdA.size());
         MIMHID_CHECK(rules[2].rule.action == MIMHID_CONTROL_ANSWER_LAST_SENT &&
                      rules[2].rule.request_value == 1U && rules[2].rule.value_value == 0x0100U &&
-                     rules[2].rule.value_mask == 0xFF00U && rules[2].rule.endpoint_address == 0x81U &&
+                     rules[2].rule.value_mask == 0xFF00U &&
+                     rules[2].rule.endpoint_address == 0x81U &&
                      rules[2].rule.first_byte_filter == 0U);
         MIMHID_CHECK(rules[3].role == Role::hid_set_report &&
-                     rules[3].rule.action == MIMHID_CONTROL_ACCEPT && rules[3].rule.request_value == 9U);
+                     rules[3].rule.action == MIMHID_CONTROL_ACCEPT &&
+                     rules[3].rule.request_value == 9U);
         MIMHID_CHECK(rules[4].role == Role::hid_set_idle &&
-                     rules[4].rule.action == MIMHID_CONTROL_ACCEPT && rules[4].rule.request_value == 10U);
+                     rules[4].rule.action == MIMHID_CONTROL_ACCEPT &&
+                     rules[4].rule.request_value == 10U);
         MIMHID_CHECK(rules[5].role == Role::hid_set_protocol &&
-                     rules[5].rule.action == MIMHID_CONTROL_ACCEPT && rules[5].rule.request_value == 11U);
-        MIMHID_CHECK(rules[6].role == Role::hid_get_idle && rules[6].data == std::vector<std::uint8_t>{0U});
+                     rules[5].rule.action == MIMHID_CONTROL_ACCEPT &&
+                     rules[5].rule.request_value == 11U);
+        MIMHID_CHECK(rules[6].role == Role::hid_get_idle &&
+                     rules[6].data == std::vector<std::uint8_t>{0U});
         MIMHID_CHECK(rules[7].role == Role::hid_get_protocol &&
                      rules[7].data == std::vector<std::uint8_t>{1U}); // the report protocol (7.2.6)
         for (const BoardRule& r : rules) // every rule is of its interface

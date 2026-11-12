@@ -24,13 +24,13 @@ struct BoardInfo {
     std::uint16_t max_control_data_bytes{};
     std::uint8_t max_control_rules{};
     std::uint16_t max_bos_bytes{};
-    std::uint16_t max_answer_bytes{};         // the bytes of every ANSWER control rule together
-    std::uint8_t max_interfaces_any{};        // interfaces of every class
+    std::uint16_t max_answer_bytes{};  // the bytes of every ANSWER control rule together
+    std::uint8_t max_interfaces_any{}; // interfaces of every class
     std::uint16_t max_config_descriptor_bytes{};
     std::uint8_t max_strings{};
-    std::uint16_t max_transfer_bytes{};       // one frame to an IN endpoint
+    std::uint16_t max_transfer_bytes{}; // one frame to an IN endpoint
     std::uint16_t endpoint_queue_slots{};
-    std::uint8_t transfer_types{};            // bit n: transfer type n
+    std::uint8_t transfer_types{}; // bit n: transfer type n
     bool has_unique_id{};
     std::uint8_t chip{};
     bool usb_high_speed{};

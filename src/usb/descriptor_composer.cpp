@@ -75,39 +75,33 @@ mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const Composer
         return refuse(MIMHID_ERR_OVERFLOW, "node_config.interfaces.endpoints.address",
                       "The endpoint number is above the highest the board's USB controller "
                       "has (mimhid_board_limits.max_endpoint_number).",
-                      static_cast<std::uint32_t>(lim.max_endpoint_number), number,
-                      node_id);
+                      static_cast<std::uint32_t>(lim.max_endpoint_number), number, node_id);
     if (ep.reserved8 != 0U || ep.reserved16 != 0U)
         return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.reserved",
-                      "The reserved fields of an endpoint must be zero.", ep.address, 0,
-                      node_id);
+                      "The reserved fields of an endpoint must be zero.", ep.address, 0, node_id);
     if (ep.transfer_type == 0U)
-        return refuse(MIMHID_ERR_UNSET_FIELD,
-                      "node_config.interfaces.endpoints.transfer_type",
+        return refuse(MIMHID_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.transfer_type",
                       "transfer_type is required: MIMHID_TRANSFER_BULK or "
                       "MIMHID_TRANSFER_INTERRUPT.",
                       ep.address, 0, node_id);
     if (ep.transfer_type > 3U)
         return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.transfer_type",
-                      "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.",
-                      ep.address, ep.transfer_type, node_id);
+                      "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.", ep.address,
+                      ep.transfer_type, node_id);
     if ((lim.transfer_types & (1U << ep.transfer_type)) == 0U)
-        return refuse(MIMHID_ERR_UNSUPPORTED,
-                      "node_config.interfaces.endpoints.transfer_type",
+        return refuse(MIMHID_ERR_UNSUPPORTED, "node_config.interfaces.endpoints.transfer_type",
                       "The board has no endpoints of this transfer type "
                       "(mimhid_board_limits.transfer_types).",
                       ep.address, ep.transfer_type, node_id);
     if (ep.max_packet_size == 0U)
-        return refuse(MIMHID_ERR_UNSET_FIELD,
-                      "node_config.interfaces.endpoints.max_packet_size",
+        return refuse(MIMHID_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.max_packet_size",
                       "max_packet_size must be non-zero (1 to board max_endpoint_bytes).",
                       ep.address, 0, node_id);
     if (ep.max_packet_size > lim.max_endpoint_bytes)
-        return refuse(MIMHID_ERR_OVERFLOW,
-                      "node_config.interfaces.endpoints.max_packet_size",
+        return refuse(MIMHID_ERR_OVERFLOW, "node_config.interfaces.endpoints.max_packet_size",
                       "An endpoint packet is larger than the board's endpoints hold.",
-                      static_cast<std::uint32_t>(lim.max_endpoint_bytes),
-                      ep.max_packet_size, node_id);
+                      static_cast<std::uint32_t>(lim.max_endpoint_bytes), ep.max_packet_size,
+                      node_id);
     if (ep.transfer_type == MIMHID_TRANSFER_BULK) {
         // USB 2.0 5.8.3: bulk packets are 8, 16, 32 or 64 bytes at full speed and 512 at
         // high speed.
@@ -116,8 +110,7 @@ mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const Composer
                                  : (ep.max_packet_size == 8U || ep.max_packet_size == 16U ||
                                     ep.max_packet_size == 32U || ep.max_packet_size == 64U);
         if (!allowed)
-            return refuse(MIMHID_ERR_PARAM,
-                          "node_config.interfaces.endpoints.max_packet_size",
+            return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.max_packet_size",
                           lim.high_speed
                               ? "A bulk endpoint of a high-speed device has 512-byte "
                                 "packets (USB 2.0 5.8.3)."
@@ -126,8 +119,7 @@ mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const Composer
                           ep.address, ep.max_packet_size, node_id);
     } else {
         if (ep.interval == 0U)
-            return refuse(MIMHID_ERR_UNSET_FIELD,
-                          "node_config.interfaces.endpoints.interval",
+            return refuse(MIMHID_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.interval",
                           "An interrupt endpoint needs a bInterval (1 to 255; 1 to 16 at "
                           "high speed; USB 2.0 9.6.6).",
                           ep.address, 0, node_id);
@@ -203,8 +195,8 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
             lowest = std::min<std::uint32_t>(lowest, itf.number);
         if (a[2] != lowest)
             return refuse(MIMHID_ERR_PARAM, "node_config.association",
-                          "bFirstInterface must be the lowest interface number of this Node.",
-                          a[2], lowest, group.node_id);
+                          "bFirstInterface must be the lowest interface number of this Node.", a[2],
+                          lowest, group.node_id);
         for (std::size_t i = 0; i < group.interfaces.size(); ++i) {
             const auto wanted = by_number.find(lowest + static_cast<std::uint32_t>(i));
             if (wanted == by_number.end() || wanted->second.group != &group)
@@ -229,8 +221,8 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                 return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.class_descriptors",
                               "A class descriptor's bLength must be at least 2 and stay inside "
                               "the bytes; the offset of the descriptor is in offset.",
-                              static_cast<std::uint32_t>(at),
-                              static_cast<std::uint32_t>(cd.size()), node_id);
+                              static_cast<std::uint32_t>(at), static_cast<std::uint32_t>(cd.size()),
+                              node_id);
             at += cd[at];
         }
         for (const mimhid_usb_endpoint& ep : itf.endpoints) {
@@ -244,8 +236,7 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
                               entry.first, node_id);
             if (in) {
                 if (ep.policy.on_full == 0U || ep.policy.depth == 0U)
-                    return refuse(MIMHID_ERR_UNSET_FIELD,
-                                  "node_config.interfaces.endpoints.policy",
+                    return refuse(MIMHID_ERR_UNSET_FIELD, "node_config.interfaces.endpoints.policy",
                                   "An IN endpoint needs a policy: on_full and depth are required.",
                                   ep.address, 0, node_id);
                 if (ep.policy.on_full > MIMHID_FULL_WAIT)
