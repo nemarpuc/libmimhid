@@ -749,7 +749,7 @@ public static class Native
     public const int MIMUSB_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMUSB_LOSS_MAX_INTERVAL_MS = 60000;
     public const uint MIMUSB_VERSION_MAJOR = 0;
-    public const uint MIMUSB_VERSION_MINOR = 5;
+    public const uint MIMUSB_VERSION_MINOR = 6;
     public const uint MIMUSB_VERSION_PATCH = 0;
     public const int MIMUSB_OK = 0;
     public const int MIMUSB_ERR_PARAM = 1;
@@ -917,7 +917,7 @@ public static class Native
             ["MIMUSB_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMUSB_LOSS_MAX_INTERVAL_MS"] = 60000,
             ["MIMUSB_VERSION_MAJOR"] = 0,
-            ["MIMUSB_VERSION_MINOR"] = 5,
+            ["MIMUSB_VERSION_MINOR"] = 6,
             ["MIMUSB_VERSION_PATCH"] = 0,
             ["MIMUSB_OK"] = 0,
             ["MIMUSB_ERR_PARAM"] = 1,

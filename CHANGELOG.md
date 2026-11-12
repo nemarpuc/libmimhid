@@ -6,6 +6,8 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-13
+
 The C ABI changes: one way to open a Node. A Spec says what a function is, a placement says where
 it goes on a Device. The wire protocol and the firmware are unchanged.
 

@@ -1,6 +1,6 @@
 [package]
 name = "mimusb-sys"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "Literal Rust FFI declarations for the libmimusb C ABI"
 license = "MIT"
