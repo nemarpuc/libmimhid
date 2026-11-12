@@ -23,6 +23,7 @@ struct BoardInfo {
     std::uint16_t max_frame_payload{};
     std::uint16_t max_control_data_bytes{};
     std::uint8_t max_control_rules{};
+    std::uint16_t max_bos_bytes{};
     std::uint16_t max_answer_bytes{};         // the bytes of every ANSWER control rule together
     std::uint8_t max_interfaces_any{};        // interfaces of every class
     std::uint16_t max_config_descriptor_bytes{};

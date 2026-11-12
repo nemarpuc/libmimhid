@@ -179,6 +179,7 @@ public struct BoardLimits
     public uint MaxTransferBytes;
     public uint EndpointQueueSlots;
     public uint TransferTypes;
+    public uint MaxBosBytes;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -349,6 +350,19 @@ public struct HidNodeConfig
     public nint Name;
     public UsbEndpoint EpIn;
     public UsbEndpoint EpOut;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct DeviceDescriptors
+{
+    public uint StructSize;
+    public uint Reserved;
+    public nint Device;
+    public nuint DeviceLength;
+    public nint Configuration;
+    public nuint ConfigurationLength;
+    public nint Bos;
+    public nuint BosLength;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -782,6 +796,7 @@ public static class Native
             ["mimhid_usb_interface"] = typeof(UsbInterface),
             ["mimhid_node_config"] = typeof(NodeConfig),
             ["mimhid_hid_node_config"] = typeof(HidNodeConfig),
+            ["mimhid_device_descriptors"] = typeof(DeviceDescriptors),
             ["mimhid_physical_properties"] = typeof(PhysicalProperties),
             ["mimhid_integer_field"] = typeof(IntegerField),
             ["mimhid_report_id_option"] = typeof(ReportId),
@@ -996,6 +1011,32 @@ public static class Native
     public static extern Result DeviceAddString(nint device, nint utf8, nint index);
     [DllImport(Library, EntryPoint = "mimhid_device_remove_string", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceRemoveString(nint device, byte index);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_string", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetString(nint device, byte index, ushort languageId, nint units, nuint unitCount);
+    [DllImport(Library, EntryPoint = "mimhid_device_clear_string", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceClearString(nint device, byte index, ushort languageId);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_bos", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetBos(nint device, nint bytes, nuint length);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_descriptors", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetDescriptors(nint device, in DeviceDescriptors descriptors, in CommitTimeouts timeouts);
+    [DllImport(Library, EntryPoint = "mimhid_device_set_descriptors", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceSetDescriptors(nint device, nint descriptors, nint timeouts);
+    [DllImport(Library, EntryPoint = "mimhid_device_clear_descriptors", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceClearDescriptors(nint device, in CommitTimeouts timeouts);
+    [DllImport(Library, EntryPoint = "mimhid_device_clear_descriptors", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceClearDescriptors(nint device, nint timeouts);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_set_policy", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointSetPolicy(nint device, byte address, in EndpointPolicy policy, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_set_policy", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointSetPolicy(nint device, byte address, nint policy, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_write", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointWrite(nint device, byte address, nint data, nuint length, uint timeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_stall", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointStall(nint device, byte address, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_clear_stall", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointClearStall(nint device, byte address, uint controlTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimhid_device_endpoint_flush", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result DeviceEndpointFlush(nint device, byte address, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimhid_spec_create_keyboard", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecCreateKeyboard(in KeyboardOptions options, out nint spec);
     [DllImport(Library, EntryPoint = "mimhid_spec_create_keyboard", ExactSpelling = true, CallingConvention = Call)]

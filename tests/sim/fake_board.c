@@ -20,6 +20,7 @@
 
 uint8_t const* tud_descriptor_device_cb(void);
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index);
+uint8_t const* tud_descriptor_bos_cb(void);
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid);
 void tud_suspend_cb(bool remote_wakeup_en);
 void tud_resume_cb(void);
@@ -552,6 +553,12 @@ const uint8_t* fake_board_report_descriptor(uint8_t iface, uint16_t* length) {
 }
 
 const uint8_t* fake_board_device_descriptor(void) { return tud_descriptor_device_cb(); }
+
+const uint8_t* fake_board_bos_descriptor(uint16_t* length) {
+    const uint8_t* b = tud_descriptor_bos_cb();
+    *length = b == NULL ? 0 : (uint16_t)(b[2] | (b[3] << 8));
+    return b;
+}
 
 size_t fake_board_string(uint8_t index, char* out, size_t capacity) {
     // The strings are served for the language they were given in: the one string 0 lists.

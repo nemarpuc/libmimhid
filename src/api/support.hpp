@@ -117,9 +117,12 @@ std::uint8_t hid_interface_depth(mimhid_device* device, std::uint8_t iface);
 EndpointRuntime* write_runtime(mimhid_node* node, std::uint8_t address);
 // The frames of one transfer to an IN endpoint, waiting for room when the policy is WAIT. The
 // caller has checked the link. Shared by mimhid_node_endpoint_write and the profile Nodes.
-mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, std::uint8_t address,
-                             const std::uint8_t* data, std::size_t length,
+mimhid_result endpoint_write(mimhid_device* device, std::uint16_t node_id, EndpointRuntime* ep,
+                             std::uint8_t address, const std::uint8_t* data, std::size_t length,
                              std::uint32_t timeout_ms);
+
+// What the board takes, as the composer and the descriptor checks want it.
+usb::ComposerLimits composer_limits(const mimhid_device* device);
 
 // Zeroes the wait counts of every IN endpoint of the generic Nodes and wakes the writers.
 void reset_endpoint_counts(mimhid_device* device);

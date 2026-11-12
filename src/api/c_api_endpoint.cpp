@@ -157,10 +157,10 @@ EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
 
 // One transfer to an IN endpoint in frames, as mimhid_node_endpoint_write describes; the shared
 // path of the generic Nodes and of the reports of the profile Nodes.
-mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::uint8_t address,
+mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
+                             EndpointRuntime* ep, const std::uint8_t address,
                              const std::uint8_t* data, const std::size_t length,
                              const std::uint32_t timeout_ms) {
-    mimhid_device* device = node->device;
     const bool waits = ep->policy.on_full == MIMHID_FULL_WAIT;
     if (waits && timeout_ms == 0U) {
         set_error(MIMHID_ERR_UNSET_FIELD, "timeout_ms",
@@ -176,7 +176,7 @@ mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::
     const std::size_t frames = length == 0U ? 1U : (length + chunk - 1U) / chunk;
     if (frames > 65535U) {
         set_error(MIMHID_ERR_OVERFLOW, "node.endpoint.write",
-                  "The transfer needs more than 65535 frames.", 0, 0, public_node_id(node), 0,
+                  "The transfer needs more than 65535 frames.", 0, 0, node_id, 0,
                   65535U, static_cast<std::uint32_t>(std::min<std::size_t>(frames, 0xFFFFFFFFU)));
         return MIMHID_ERR_OVERFLOW;
     }
@@ -195,7 +195,7 @@ mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::
             while (ep->epoch == epoch && ep->outstanding >= depth) {
                 if (device->link.failed()) {
                     set_error(MIMHID_ERR_NO_DEVICE, "node.endpoint.write",
-                              "The serial link is gone.", 0, 0, public_node_id(node));
+                              "The serial link is gone.", 0, 0, node_id);
                     return MIMHID_ERR_NO_DEVICE;
                 }
                 const auto now = std::chrono::steady_clock::now();
@@ -207,7 +207,7 @@ mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::
                                          "been sent; the target gets a short transfer."
                                        : "The board's queue stayed full until the timeout; "
                                          "nothing was sent.",
-                              0, 0, public_node_id(node), 0, address, static_cast<std::uint32_t>(offset));
+                              0, 0, node_id, 0, address, static_cast<std::uint32_t>(offset));
                     return r;
                 }
                 // Slices, so a link that dies while waiting is noticed.
@@ -219,7 +219,7 @@ mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::
                 set_error(r, "node.endpoint.write",
                           "The endpoint was flushed, stalled, reconfigured or unmounted while "
                           "the write waited; the rest was not sent.",
-                          0, 0, public_node_id(node), 0, address,
+                          0, 0, node_id, 0, address,
                           static_cast<std::uint32_t>(offset));
                 return r;
             }
@@ -257,7 +257,7 @@ mimhid_result endpoint_write(mimhid_node* node, EndpointRuntime* ep, const std::
             break;
         }
         set_error(r, "node.endpoint.write", "The serial write of a frame did not complete.",
-                  os_error, 0, public_node_id(node), 0, address,
+                  os_error, 0, node_id, 0, address,
                   static_cast<std::uint32_t>(offset));
         return r;
     }
@@ -284,7 +284,8 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const ui
     }
     if (const mimhid_result r = link_ready(node, "node.endpoint.write"); r != MIMHID_OK)
         return r;
-    return mimhid::detail::endpoint_write(node, ep, address, data, length, timeout_ms);
+    return mimhid::detail::endpoint_write(node->device, public_node_id(node), ep, address, data,
+                                          length, timeout_ms);
 }
 MIMHID_C_RESULT_CATCH("node.endpoint.write")
 

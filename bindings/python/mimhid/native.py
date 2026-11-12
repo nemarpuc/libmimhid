@@ -214,6 +214,7 @@ class BoardLimits(c.Structure):
         ("max_transfer_bytes", c.c_uint32),
         ("endpoint_queue_slots", c.c_uint32),
         ("transfer_types", c.c_uint32),
+        ("max_bos_bytes", c.c_uint32),
     ]
 
 
@@ -384,6 +385,19 @@ class HidNodeConfig(c.Structure):
         ("name", c.c_char_p),
         ("ep_in", UsbEndpoint),
         ("ep_out", UsbEndpoint),
+    ]
+
+
+class DeviceDescriptors(c.Structure):
+    _fields_ = [
+        ("struct_size", c.c_uint32),
+        ("reserved", c.c_uint32),
+        ("device", c.POINTER(c.c_uint8)),
+        ("device_length", c.c_size_t),
+        ("configuration", c.POINTER(c.c_uint8)),
+        ("configuration_length", c.c_size_t),
+        ("bos", c.POINTER(c.c_uint8)),
+        ("bos_length", c.c_size_t),
     ]
 
 
@@ -710,6 +724,7 @@ ABI_STRUCTS = {
     "mimhid_usb_interface": UsbInterface,
     "mimhid_node_config": NodeConfig,
     "mimhid_hid_node_config": HidNodeConfig,
+    "mimhid_device_descriptors": DeviceDescriptors,
     "mimhid_physical_properties": PhysicalProperties,
     "mimhid_integer_field": IntegerField,
     "mimhid_report_id_option": ReportId,
@@ -776,6 +791,16 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimhid_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
     declare("mimhid_device_add_string", [DeviceP, c.c_char_p, c.POINTER(c.c_uint8)], c.c_int32)
     declare("mimhid_device_remove_string", [DeviceP, c.c_uint8], c.c_int32)
+    declare("mimhid_device_set_string", [DeviceP, c.c_uint8, c.c_uint16, c.POINTER(c.c_uint16), c.c_size_t], c.c_int32)
+    declare("mimhid_device_clear_string", [DeviceP, c.c_uint8, c.c_uint16], c.c_int32)
+    declare("mimhid_device_set_bos", [DeviceP, c.POINTER(c.c_uint8), c.c_size_t], c.c_int32)
+    declare("mimhid_device_set_descriptors", [DeviceP, c.POINTER(DeviceDescriptors), c.POINTER(CommitTimeouts)], c.c_int32)
+    declare("mimhid_device_clear_descriptors", [DeviceP, c.POINTER(CommitTimeouts)], c.c_int32)
+    declare("mimhid_device_endpoint_set_policy", [DeviceP, c.c_uint8, c.POINTER(EndpointPolicy), c.c_uint32], c.c_int32)
+    declare("mimhid_device_endpoint_write", [DeviceP, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimhid_device_endpoint_stall", [DeviceP, c.c_uint8, c.c_uint32], c.c_int32)
+    declare("mimhid_device_endpoint_clear_stall", [DeviceP, c.c_uint8, c.c_uint32], c.c_int32)
+    declare("mimhid_device_endpoint_flush", [DeviceP, c.c_uint8, c.c_uint32], c.c_int32)
     declare("mimhid_spec_create_keyboard", [c.POINTER(KeyboardOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimhid_spec_create_mouse", [c.POINTER(MouseOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimhid_spec_create_toggle", [c.POINTER(ToggleOptions), c.POINTER(SpecP)], c.c_int32)
@@ -850,6 +875,7 @@ __all__ += [
     "UsbInterface",
     "NodeConfig",
     "HidNodeConfig",
+    "DeviceDescriptors",
     "PhysicalProperties",
     "IntegerField",
     "ReportId",

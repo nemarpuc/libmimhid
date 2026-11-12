@@ -26,6 +26,17 @@
 #ifndef MIMHID_MAX_CONFIG_BYTES
 #define MIMHID_MAX_CONFIG_BYTES 1024
 #endif
+// The Binary Object Store descriptor the board holds (USB 3.2 9.6.2), as the host composes or gives
+// it. The 5-byte header, a USB 2.0 Extension capability (7 bytes, USB 2.0 LPM ECN) and the Microsoft
+// OS 2.0 platform capability (28 bytes, "Microsoft OS 2.0 Descriptors Specification") are 40 bytes;
+// a Container ID capability (20 bytes, USB 3.2 9.6.2.3) and room for a few capabilities of the
+// caller's make 256. One copy of it is staged and one is active, each in the configuration
+// structure below.
+#ifndef MIMHID_MAX_BOS_BYTES
+#define MIMHID_MAX_BOS_BYTES 256
+#endif
+_Static_assert(MIMHID_MAX_BOS_BYTES >= 5 && MIMHID_MAX_BOS_BYTES <= 0xFFFF,
+               "a BOS descriptor has a 5-byte header, and its length fits the wire");
 // The string descriptors the board holds, each with its index and language: manufacturer, product,
 // serial and configuration, one for each interface that has a name, and the ones the caller added
 // (mimhid_device_add_string). The store holds them all at the longest length USB allows (USB 2.0
@@ -145,6 +156,8 @@ typedef struct {
     _Alignas(4) uint8_t device_bytes[18];
     mimhid_desc_t config;
     _Alignas(4) uint8_t config_bytes[MIMHID_MAX_CONFIG_BYTES];
+    mimhid_desc_t bos; // not used: no BOS descriptor
+    _Alignas(4) uint8_t bos_bytes[MIMHID_MAX_BOS_BYTES];
     mimhid_string_t string[MIMHID_MAX_STRINGS];
     uint16_t string_used; // bytes of the pool
     uint8_t string_pool[MIMHID_MAX_STRING_BYTES];

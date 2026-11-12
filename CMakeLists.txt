@@ -122,6 +122,7 @@ endif()
 
 set(MIMHID_SOURCES
     src/api/c_api_device.cpp
+    src/api/c_api_bytes.cpp
     src/api/c_api_endpoint.cpp
     src/api/c_api_node.cpp
     src/api/c_api_send.cpp
@@ -135,6 +136,7 @@ set(MIMHID_SOURCES
     src/transport/frame.cpp
     src/transport/link.cpp
     src/usb/descriptor_composer.cpp
+    src/usb/descriptor_walker.cpp
     src/usb/hid_layer.cpp
     src/transport/handshaker.cpp
 )

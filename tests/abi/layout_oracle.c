@@ -174,6 +174,7 @@ int main(void) {
     OFFSET(mimhid_board_limits, max_transfer_bytes);
     OFFSET(mimhid_board_limits, endpoint_queue_slots);
     OFFSET(mimhid_board_limits, transfer_types);
+    OFFSET(mimhid_board_limits, max_bos_bytes);
     SIZE(mimhid_link_counters);
     OFFSET(mimhid_link_counters, struct_size);
     OFFSET(mimhid_link_counters, reserved);
@@ -292,6 +293,15 @@ int main(void) {
     OFFSET(mimhid_hid_node_config, name);
     OFFSET(mimhid_hid_node_config, ep_in);
     OFFSET(mimhid_hid_node_config, ep_out);
+    SIZE(mimhid_device_descriptors);
+    OFFSET(mimhid_device_descriptors, struct_size);
+    OFFSET(mimhid_device_descriptors, reserved);
+    OFFSET(mimhid_device_descriptors, device);
+    OFFSET(mimhid_device_descriptors, device_length);
+    OFFSET(mimhid_device_descriptors, configuration);
+    OFFSET(mimhid_device_descriptors, configuration_length);
+    OFFSET(mimhid_device_descriptors, bos);
+    OFFSET(mimhid_device_descriptors, bos_length);
     SIZE(mimhid_physical_properties);
     OFFSET(mimhid_physical_properties, enabled);
     OFFSET(mimhid_physical_properties, minimum);

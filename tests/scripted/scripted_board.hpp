@@ -70,6 +70,7 @@ struct Pong {
     std::uint16_t endpoint_queue_slots{64};
     std::uint8_t transfer_types{0x0C}; // bulk and interrupt
     std::uint16_t max_answer_bytes{4096};
+    std::uint16_t max_bos_bytes{256};
     std::vector<std::uint8_t> unique_id{1, 2, 3, 4, 5, 6, 7, 8};
     // When set, sent as the whole PONG payload instead of the fields above.
     std::optional<std::vector<std::uint8_t>> raw;

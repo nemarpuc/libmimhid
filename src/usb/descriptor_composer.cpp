@@ -54,6 +54,92 @@ std::size_t queue_slots(const std::uint8_t depth, const std::uint8_t on_full) no
                                               : static_cast<std::size_t>(depth) + 1U;
 }
 
+mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const ComposerLimits& lim,
+                                   const std::uint16_t node_id, ComposerError* error) {
+    const auto refuse = [&](mimhid_result result, const char* field, const char* reason,
+                            std::uint32_t offset = 0, std::uint32_t length = 0,
+                            std::uint16_t id = 0) {
+        if (error != nullptr)
+            *error = ComposerError{result, field, reason, offset, length, id};
+        return result;
+    };
+    const std::uint8_t number = ep.address & 0x0FU;
+    // USB 2.0 9.6.6: bits 6..4 are reserved and zero; number 0 is the control endpoint,
+    // which has no endpoint descriptor.
+    if ((ep.address & 0x70U) != 0U || number == 0U)
+        return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.address",
+                      "An endpoint address is 0x81 to 0x8F (IN) or 0x01 to 0x0F (OUT): "
+                      "bits 6..4 zero, endpoint number 1 to 15.",
+                      ep.address, 0, node_id);
+    if (number > lim.max_endpoint_number)
+        return refuse(MIMHID_ERR_OVERFLOW, "node_config.interfaces.endpoints.address",
+                      "The endpoint number is above the highest the board's USB controller "
+                      "has (mimhid_board_limits.max_endpoint_number).",
+                      static_cast<std::uint32_t>(lim.max_endpoint_number), number,
+                      node_id);
+    if (ep.reserved8 != 0U || ep.reserved16 != 0U)
+        return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.reserved",
+                      "The reserved fields of an endpoint must be zero.", ep.address, 0,
+                      node_id);
+    if (ep.transfer_type == 0U)
+        return refuse(MIMHID_ERR_UNSET_FIELD,
+                      "node_config.interfaces.endpoints.transfer_type",
+                      "transfer_type is required: MIMHID_TRANSFER_BULK or "
+                      "MIMHID_TRANSFER_INTERRUPT.",
+                      ep.address, 0, node_id);
+    if (ep.transfer_type > 3U)
+        return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.transfer_type",
+                      "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.",
+                      ep.address, ep.transfer_type, node_id);
+    if ((lim.transfer_types & (1U << ep.transfer_type)) == 0U)
+        return refuse(MIMHID_ERR_UNSUPPORTED,
+                      "node_config.interfaces.endpoints.transfer_type",
+                      "The board has no endpoints of this transfer type "
+                      "(mimhid_board_limits.transfer_types).",
+                      ep.address, ep.transfer_type, node_id);
+    if (ep.max_packet_size == 0U)
+        return refuse(MIMHID_ERR_UNSET_FIELD,
+                      "node_config.interfaces.endpoints.max_packet_size",
+                      "max_packet_size must be non-zero (1 to board max_endpoint_bytes).",
+                      ep.address, 0, node_id);
+    if (ep.max_packet_size > lim.max_endpoint_bytes)
+        return refuse(MIMHID_ERR_OVERFLOW,
+                      "node_config.interfaces.endpoints.max_packet_size",
+                      "An endpoint packet is larger than the board's endpoints hold.",
+                      static_cast<std::uint32_t>(lim.max_endpoint_bytes),
+                      ep.max_packet_size, node_id);
+    if (ep.transfer_type == MIMHID_TRANSFER_BULK) {
+        // USB 2.0 5.8.3: bulk packets are 8, 16, 32 or 64 bytes at full speed and 512 at
+        // high speed.
+        const bool allowed = lim.high_speed
+                                 ? ep.max_packet_size == 512U
+                                 : (ep.max_packet_size == 8U || ep.max_packet_size == 16U ||
+                                    ep.max_packet_size == 32U || ep.max_packet_size == 64U);
+        if (!allowed)
+            return refuse(MIMHID_ERR_PARAM,
+                          "node_config.interfaces.endpoints.max_packet_size",
+                          lim.high_speed
+                              ? "A bulk endpoint of a high-speed device has 512-byte "
+                                "packets (USB 2.0 5.8.3)."
+                              : "A bulk endpoint of a full-speed device has 8, 16, 32 or "
+                                "64-byte packets (USB 2.0 5.8.3).",
+                          ep.address, ep.max_packet_size, node_id);
+    } else {
+        if (ep.interval == 0U)
+            return refuse(MIMHID_ERR_UNSET_FIELD,
+                          "node_config.interfaces.endpoints.interval",
+                          "An interrupt endpoint needs a bInterval (1 to 255; 1 to 16 at "
+                          "high speed; USB 2.0 9.6.6).",
+                          ep.address, 0, node_id);
+        if (lim.high_speed && ep.interval > 16U)
+            return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.interval",
+                          "A high-speed board takes a bInterval of 1 to 16 (USB 2.0 "
+                          "9.6.6).",
+                          ep.address, ep.interval, node_id);
+    }
+    return MIMHID_OK;
+}
+
 mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, ComposerError* error) {
     const ComposerLimits& lim = input.limits;
     const auto refuse = [&](mimhid_result result, const char* field, const char* reason,
@@ -148,85 +234,14 @@ mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, Com
             at += cd[at];
         }
         for (const mimhid_usb_endpoint& ep : itf.endpoints) {
-            const std::uint8_t number = ep.address & 0x0FU;
             const bool in = (ep.address & 0x80U) != 0U;
-            // USB 2.0 9.6.6: bits 6..4 are reserved and zero; number 0 is the control endpoint,
-            // which has no endpoint descriptor.
-            if ((ep.address & 0x70U) != 0U || number == 0U)
-                return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.address",
-                              "An endpoint address is 0x81 to 0x8F (IN) or 0x01 to 0x0F (OUT): "
-                              "bits 6..4 zero, endpoint number 1 to 15.",
-                              ep.address, 0, node_id);
-            if (number > lim.max_endpoint_number)
-                return refuse(MIMHID_ERR_OVERFLOW, "node_config.interfaces.endpoints.address",
-                              "The endpoint number is above the highest the board's USB controller "
-                              "has (mimhid_board_limits.max_endpoint_number).",
-                              static_cast<std::uint32_t>(lim.max_endpoint_number), number,
-                              node_id);
+            if (const mimhid_result shape = check_endpoint_shape(ep, lim, node_id, error);
+                shape != MIMHID_OK)
+                return shape;
             if (!addresses.insert(ep.address).second)
                 return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.address",
                               "Two endpoints use the same address; it is in offset.", ep.address,
                               entry.first, node_id);
-            if (ep.reserved8 != 0U || ep.reserved16 != 0U)
-                return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.reserved",
-                              "The reserved fields of an endpoint must be zero.", ep.address, 0,
-                              node_id);
-            if (ep.transfer_type == 0U)
-                return refuse(MIMHID_ERR_UNSET_FIELD,
-                              "node_config.interfaces.endpoints.transfer_type",
-                              "transfer_type is required: MIMHID_TRANSFER_BULK or "
-                              "MIMHID_TRANSFER_INTERRUPT.",
-                              ep.address, 0, node_id);
-            if (ep.transfer_type > 3U)
-                return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.transfer_type",
-                              "transfer_type is bmAttributes bits 1..0: 2 bulk or 3 interrupt.",
-                              ep.address, ep.transfer_type, node_id);
-            if ((lim.transfer_types & (1U << ep.transfer_type)) == 0U)
-                return refuse(MIMHID_ERR_UNSUPPORTED,
-                              "node_config.interfaces.endpoints.transfer_type",
-                              "The board has no endpoints of this transfer type "
-                              "(mimhid_board_limits.transfer_types).",
-                              ep.address, ep.transfer_type, node_id);
-            if (ep.max_packet_size == 0U)
-                return refuse(MIMHID_ERR_UNSET_FIELD,
-                              "node_config.interfaces.endpoints.max_packet_size",
-                              "max_packet_size must be non-zero (1 to board max_endpoint_bytes).",
-                              ep.address, 0, node_id);
-            if (ep.max_packet_size > lim.max_endpoint_bytes)
-                return refuse(MIMHID_ERR_OVERFLOW,
-                              "node_config.interfaces.endpoints.max_packet_size",
-                              "An endpoint packet is larger than the board's endpoints hold.",
-                              static_cast<std::uint32_t>(lim.max_endpoint_bytes),
-                              ep.max_packet_size, node_id);
-            if (ep.transfer_type == MIMHID_TRANSFER_BULK) {
-                // USB 2.0 5.8.3: bulk packets are 8, 16, 32 or 64 bytes at full speed and 512 at
-                // high speed.
-                const bool allowed = lim.high_speed
-                                         ? ep.max_packet_size == 512U
-                                         : (ep.max_packet_size == 8U || ep.max_packet_size == 16U ||
-                                            ep.max_packet_size == 32U || ep.max_packet_size == 64U);
-                if (!allowed)
-                    return refuse(MIMHID_ERR_PARAM,
-                                  "node_config.interfaces.endpoints.max_packet_size",
-                                  lim.high_speed
-                                      ? "A bulk endpoint of a high-speed device has 512-byte "
-                                        "packets (USB 2.0 5.8.3)."
-                                      : "A bulk endpoint of a full-speed device has 8, 16, 32 or "
-                                        "64-byte packets (USB 2.0 5.8.3).",
-                                  ep.address, ep.max_packet_size, node_id);
-            } else {
-                if (ep.interval == 0U)
-                    return refuse(MIMHID_ERR_UNSET_FIELD,
-                                  "node_config.interfaces.endpoints.interval",
-                                  "An interrupt endpoint needs a bInterval (1 to 255; 1 to 16 at "
-                                  "high speed; USB 2.0 9.6.6).",
-                                  ep.address, 0, node_id);
-                if (lim.high_speed && ep.interval > 16U)
-                    return refuse(MIMHID_ERR_PARAM, "node_config.interfaces.endpoints.interval",
-                                  "A high-speed board takes a bInterval of 1 to 16 (USB 2.0 "
-                                  "9.6.6).",
-                                  ep.address, ep.interval, node_id);
-            }
             if (in) {
                 if (ep.policy.on_full == 0U || ep.policy.depth == 0U)
                     return refuse(MIMHID_ERR_UNSET_FIELD,

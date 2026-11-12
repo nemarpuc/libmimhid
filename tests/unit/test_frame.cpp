@@ -157,6 +157,8 @@ void test_pong_of_this_version_decodes_every_field() {
     payload[44] = 0x0C; // transfer types: bulk and interrupt
     payload[45] = 0x00; // max_answer_bytes 4096
     payload[46] = 0x10;
+    payload[47] = 0x00; // max_bos_bytes 256
+    payload[48] = 0x01;
     payload[MIMHID_PONG_MIN_LEN] = 0xAB;
     payload[MIMHID_PONG_MIN_LEN + 1] = 0xCD;
     const std::vector<Frame> frames = parse(frame_bytes(MIMHID_T_PONG, payload));
@@ -164,7 +166,7 @@ void test_pong_of_this_version_decodes_every_field() {
     if (frames.size() == 1U) {
         mimhid::transport::BoardInfo info;
         MIMHID_CHECK(mimhid::transport::decode_pong(frames[0], &info) && info.compatible &&
-                     info.max_answer_bytes == 4096U && info.has_unique_id && info.chip == 2U &&
+                     info.max_answer_bytes == 4096U && info.max_bos_bytes == 256U && info.has_unique_id && info.chip == 2U &&
                      info.baud == 3000000U && info.max_control_rules == 8U &&
                      info.max_endpoint_number == 6U && info.max_interfaces_any == 12U &&
                      info.max_config_descriptor_bytes == 1024U && info.max_strings == 24U &&

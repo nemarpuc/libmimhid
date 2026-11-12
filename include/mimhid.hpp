@@ -169,6 +169,50 @@ device_set_control_rules(mimhid_device* device, uint32_t report_all,
                                                         uint8_t index) noexcept {
     return mimhid_device_remove_string(device, index);
 }
+[[nodiscard]] inline mimhid_result device_set_string(mimhid_device* device, uint8_t index,
+                                                     uint16_t language_id, const uint16_t* units,
+                                                     size_t unit_count) noexcept {
+    return mimhid_device_set_string(device, index, language_id, units, unit_count);
+}
+[[nodiscard]] inline mimhid_result device_clear_string(mimhid_device* device, uint8_t index,
+                                                       uint16_t language_id) noexcept {
+    return mimhid_device_clear_string(device, index, language_id);
+}
+[[nodiscard]] inline mimhid_result device_set_bos(mimhid_device* device, const uint8_t* bytes,
+                                                  size_t length) noexcept {
+    return mimhid_device_set_bos(device, bytes, length);
+}
+[[nodiscard]] inline mimhid_result device_set_descriptors(
+    mimhid_device* device, const mimhid_device_descriptors* descriptors,
+    const mimhid_commit_timeouts* timeouts) noexcept {
+    return mimhid_device_set_descriptors(device, descriptors, timeouts);
+}
+[[nodiscard]] inline mimhid_result device_clear_descriptors(
+    mimhid_device* device, const mimhid_commit_timeouts* timeouts) noexcept {
+    return mimhid_device_clear_descriptors(device, timeouts);
+}
+[[nodiscard]] inline mimhid_result device_endpoint_set_policy(
+    mimhid_device* device, uint8_t address, const mimhid_endpoint_policy* policy,
+    uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_endpoint_set_policy(device, address, policy, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_endpoint_write(mimhid_device* device, uint8_t address,
+                                                         const uint8_t* data, size_t length,
+                                                         uint32_t timeout_ms) noexcept {
+    return mimhid_device_endpoint_write(device, address, data, length, timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_endpoint_stall(mimhid_device* device, uint8_t address,
+                                                         uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_endpoint_stall(device, address, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_endpoint_clear_stall(
+    mimhid_device* device, uint8_t address, uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_endpoint_clear_stall(device, address, control_timeout_ms);
+}
+[[nodiscard]] inline mimhid_result device_endpoint_flush(mimhid_device* device, uint8_t address,
+                                                         uint32_t control_timeout_ms) noexcept {
+    return mimhid_device_endpoint_flush(device, address, control_timeout_ms);
+}
 [[nodiscard]] inline mimhid_result device_close(mimhid_device* device, uint32_t control_timeout_ms,
                                                 uint32_t drain_timeout_ms) noexcept {
     return mimhid_device_close(device, control_timeout_ms, drain_timeout_ms);

@@ -25,6 +25,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -300,6 +301,29 @@ struct mimhid_device {
     std::string configuration;
     // Strings the caller added (mimhid_device_add_string), by index, in UTF-8.
     std::map<std::uint8_t, std::string> user_strings;
+
+    // The Device given as bytes (mimhid_device_set_descriptors); while `descriptors_set`, no Node
+    // is open and the composed configuration is not used. Guarded by nodes_mutex, except the IN
+    // endpoint runtimes, whose counts endpoint_mutex guards like a Node's.
+    struct ByteDevice {
+        std::vector<std::uint8_t> device;
+        std::vector<std::uint8_t> configuration;
+        std::vector<std::uint8_t> bos; // empty: none
+        // Interface number of each endpoint address, from the configuration.
+        std::map<std::uint8_t, std::uint8_t> interface_of;
+        // Runtime of every IN endpoint, in the order of the configuration. A vector that is never
+        // resized while descriptors are set, so a pointer into it stays valid.
+        std::vector<mimhid::detail::EndpointRuntime> in_endpoints;
+    };
+    bool descriptors_set{false};
+    ByteDevice bytes;
+    // Policies given by mimhid_device_endpoint_set_policy, by IN address; they outlive the
+    // descriptors until mimhid_device_clear_descriptors, so they may be given first.
+    std::map<std::uint8_t, mimhid_endpoint_policy> byte_policies;
+    // The BOS of a composed Device (mimhid_device_set_bos); empty: none.
+    std::vector<std::uint8_t> composed_bos;
+    // Raw strings (mimhid_device_set_string), by (index, language), as UTF-16 code units.
+    std::map<std::pair<std::uint8_t, std::uint16_t>, std::u16string> raw_strings;
 
     // The wait policy's counts (EndpointRuntime) and the writers that wait on them. A writer holds
     // the mutex only to look at a count, never while it waits for the board or writes.

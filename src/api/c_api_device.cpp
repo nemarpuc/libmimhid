@@ -657,6 +657,7 @@ mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
     out_limits->max_transfer_bytes = device->board.max_transfer_bytes;
     out_limits->endpoint_queue_slots = device->board.endpoint_queue_slots;
     out_limits->transfer_types = device->board.transfer_types;
+    out_limits->max_bos_bytes = device->board.max_bos_bytes;
     return MIMHID_OK;
 }
 MIMHID_C_RESULT_CATCH("device.limits")

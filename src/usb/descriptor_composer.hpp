@@ -45,6 +45,7 @@ struct ComposerLimits {
     std::size_t max_endpoint_number{};
     std::size_t max_endpoint_bytes{};
     std::size_t max_config_bytes{};
+    std::size_t max_bos_bytes{};
     std::size_t max_strings{};
     std::size_t endpoint_queue_slots{};
     std::uint32_t transfer_types{};        // bit n: transfer type n
@@ -110,6 +111,13 @@ constexpr std::uint8_t kStringFirstFree = 5;
 // Slots of the board's endpoint queue pool one IN endpoint of the generic driver takes (docs/
 // LIMITS.md): depth + 1 for DROP_NEWEST and WAIT, 2 * depth + 1 for DROP_OLDEST.
 std::size_t queue_slots(std::uint8_t depth, std::uint8_t on_full) noexcept;
+
+// The checks of one endpoint that do not depend on how it was given: its address, the transfer
+// type and packet size the board takes, the interval, the reserved fields. The policy of an IN
+// endpoint and the uniqueness of the address are the caller's. MIMHID_OK, or the rule broken, in
+// `error`.
+mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const ComposerLimits& lim,
+                                   std::uint16_t node_id, ComposerError* error);
 
 // MIMHID_OK and `out` filled, or the first rule that is broken, in `error`.
 mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, ComposerError* error);

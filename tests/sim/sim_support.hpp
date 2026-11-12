@@ -112,6 +112,7 @@ void test_control();
 void test_control_rules();
 // test_sim_generic.cpp: Nodes of any class
 void test_generic_nodes();
+void test_byte_device();
 #ifdef SIM_HIGH_SPEED
 // test_sim_high_speed.cpp
 void test_high_speed_rules();

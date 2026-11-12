@@ -317,6 +317,8 @@ static void send_pong(void) {
     p[44] = (uint8_t)((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT));
     p[45] = (uint8_t)(MIMHID_ANSWER_BYTES & 0xFF);
     p[46] = (uint8_t)(MIMHID_ANSWER_BYTES >> 8);
+    p[47] = (uint8_t)(MIMHID_MAX_BOS_BYTES & 0xFF);
+    p[48] = (uint8_t)(MIMHID_MAX_BOS_BYTES >> 8);
     memcpy(&p[MIMHID_PONG_MIN_LEN], g_unique_id, g_unique_id_len);
     send_frame(MIMHID_T_PONG, p, (uint16_t)(MIMHID_PONG_MIN_LEN + g_unique_id_len));
 }
@@ -546,6 +548,10 @@ static bool find_desc(uint8_t kind, uint8_t index, uint16_t language, desc_ref_t
         ref->bytes = &g_staged.string_pool[s->off];
         return true;
     }
+    case MIMHID_DESC_BOS:
+        ref->d = &g_staged.bos;
+        ref->bytes = g_staged.bos_bytes;
+        return index == 0 && language == 0;
     case MIMHID_DESC_ANSWER:
         // The bytes of a staged ANSWER rule (control.c keeps them).
         return language == 0 && mimhid_control_staged_answer(index, &ref->d, &ref->bytes);
@@ -603,6 +609,19 @@ static void cmd_desc_begin(const command_t* c) {
             return;
         }
         g_staged.config = (mimhid_desc_t){.used = true, .total = total, .recv = 0};
+        break;
+    case MIMHID_DESC_BOS:
+        // USB 3.2 9.6.2: the 5-byte header and at least one capability is checked at COMMIT; here
+        // only that the whole of it can be held.
+        if (index != 0 || language != 0 || flags != 0 || total == 0) {
+            cmd_answer(seq, c->type, MIMHID_NAK_PARAM);
+            return;
+        }
+        if (total > sizeof(g_staged.bos_bytes)) {
+            cmd_answer(seq, c->type, MIMHID_NAK_OVERFLOW);
+            return;
+        }
+        g_staged.bos = (mimhid_desc_t){.used = true, .total = total, .recv = 0};
         break;
     case MIMHID_DESC_STRING: {
         // USB 2.0 9.6.7: bLength, 3 and UTF-16LE units, so an even length of 2 to 254 bytes.

@@ -386,6 +386,12 @@ mimhid_result MIMHID_CALL mimhid_node_open(mimhid_device* device, const mimhid_n
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
     }
+    if (device->descriptors_set) {
+        set_error(MIMHID_ERR_BUSY, "node.open",
+                  "The Device is given as bytes (mimhid_device_set_descriptors); clear them "
+                  "before opening a Node.");
+        return MIMHID_ERR_BUSY;
+    }
     CommitWaits waits;
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
         return r;
@@ -535,6 +541,12 @@ mimhid_result MIMHID_CALL mimhid_node_open_profile(mimhid_device* device, mimhid
     if (device->link.failed()) {
         set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
         return MIMHID_ERR_NO_DEVICE;
+    }
+    if (device->descriptors_set) {
+        set_error(MIMHID_ERR_BUSY, "node.open_profile",
+                  "The Device is given as bytes (mimhid_device_set_descriptors); clear them "
+                  "before opening a Node.");
+        return MIMHID_ERR_BUSY;
     }
     CommitWaits waits;
     if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)

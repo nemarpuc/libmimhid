@@ -4,8 +4,9 @@
 #define MIMHID_H
 
 /*
- * libmimhid: a microcontroller board, driven over a serial link, presents USB HID devices to the
- * computer its USB port is plugged into (the "target"). This header is the whole stable C ABI. It
+ * libmimhid: a microcontroller board, driven over a serial link, presents a USB device (HID
+ * profiles, interfaces of any class, or descriptors given as bytes) to the computer its USB port is
+ * plugged into (the "target"). This header is the whole stable C ABI. It
  * exposes no serial handle and no C++ type.
  *
  * Objects
@@ -22,7 +23,9 @@
  *             as one HID collection: the library writes the HID rules and the state its input
  *             calls change (mimhid_keyboard_key, ...); it sends a report when it is submitted.
  *             A HID interface of the caller's own is a mimhid_node_open with class 0x03, its
- *             HID descriptor, mimhid_hid_report_descriptor_rule and the rules it needs.
+ *             HID descriptor, mimhid_hid_descriptor_rule and the rules it needs.
+ *             A Device can instead be given whole as bytes, with no Node
+ *             (mimhid_device_set_descriptors), to present a copy of a real device.
  *   Discovery a snapshot of the boards found on the serial ports.
  *
  * Opening or closing a Node changes the USB device the board presents, so the board drops it from
@@ -228,9 +231,10 @@ enum {
      * HID Node a key-up may be among them: send the current state again. With MIMHID_FULL_DROP_OLDEST
      * the dropped ones are the oldest. Only after mimhid_device_set_loss_reporting. */
     MIMHID_EVENT_TRANSFER_LOST = 11,
-    /* The target sent a packet on an OUT endpoint of a Node opened with mimhid_node_open: data and
-     * length are the packet as it came (a zero-length packet has length 0); endpoint_address names
-     * the endpoint and interface_number its interface. */
+    /* The target sent a packet on an OUT endpoint of a Node opened with mimhid_node_open, or of a
+     * Device given as bytes (node_id 0; mimhid_device_set_descriptors): data and length are the
+     * packet as it came (a zero-length packet has length 0); endpoint_address names the endpoint
+     * and interface_number its interface. */
     MIMHID_EVENT_ENDPOINT_DATA = 12,
     /* The target set (value 1) or cleared (value 0) the Halt feature of an endpoint of a Node
      * opened with mimhid_node_open (USB 2.0 9.4.1, 9.4.5); endpoint_address names it. */
@@ -341,6 +345,7 @@ typedef struct mimhid_board_limits {
                                       MIMHID_FULL_WAIT) or 2 * d + 1 (MIMHID_FULL_DROP_OLDEST) */
     uint32_t transfer_types;      /* bit n set: the board has endpoints of transfer type n
                                      (MIMHID_TRANSFER_BULK, MIMHID_TRANSFER_INTERRUPT) */
+    uint32_t max_bos_bytes;       /* the largest BOS descriptor, its header included */
 } mimhid_board_limits;
 
 /* What the board counted on its serial line since the last reset, each saturating at 65535. A
@@ -366,9 +371,13 @@ typedef struct mimhid_link_counters {
 /* The Device descriptor and its strings. bcd_usb, ep0_max_packet_size and language_id are
  * required (zero is refused), and so is vendor_id: zero is taken for a field that was never set (an
  * identity is the caller's, and mimhid_device_config_init fills nothing in). product_id may be
- * any value, zero included. */
+ * any value, zero included. A host asks for the BOS descriptor only when bcd_usb is 0x0201 or more
+ * (USB 2.0 Link Power Management ECN; USB 3.2 9.6.2): give one with mimhid_device_set_bos or
+ * mimhid_device_set_descriptors, or the request is stalled.
+ * While the Device is given as bytes (mimhid_device_set_descriptors) this structure, usb_config
+ * and the four strings it points to are not used: the bytes are the Device descriptor. */
 typedef struct mimhid_usb_device {
-    uint16_t bcd_usb;        /* e.g. 0x0200; 0x0210 or more needs a BOS rule: docs/LIMITS.md */
+    uint16_t bcd_usb;        /* e.g. 0x0200; 0x0201 or more: a BOS descriptor */
     uint8_t device_class;    /* 0: each interface says its own class */
     uint8_t device_subclass; /* 0 when device_class is 0 (USB 2.0 9.6.1) */
     uint8_t device_protocol;
@@ -383,7 +392,8 @@ typedef struct mimhid_usb_device {
     uint32_t serial_from_chip_id; /* 1 with a null serial: the chip's unique id */
 } mimhid_usb_device;
 
-/* The Configuration descriptor. */
+/* The Configuration descriptor. Not used while the Device is given as bytes
+ * (mimhid_device_set_descriptors). */
 typedef struct mimhid_usb_config {
     uint8_t configuration_value; /* 1: the board has one configuration, selected by that value */
     uint8_t bm_attributes;       /* bit 7 set; bit 6 self-powered; bit 5 remote wakeup; bits 4..0
@@ -602,6 +612,19 @@ typedef struct mimhid_hid_node_config {
     mimhid_usb_endpoint ep_in;  /* required */
     mimhid_usb_endpoint ep_out; /* all zero for none */
 } mimhid_hid_node_config;
+
+/* A whole USB device as the bytes the target reads (mimhid_device_set_descriptors), to present a
+ * copy of a real device. Nothing is changed in them and nothing is filled in. */
+typedef struct mimhid_device_descriptors {
+    uint32_t struct_size;
+    uint32_t reserved;
+    const uint8_t* device; /* the 18-byte device descriptor (USB 2.0 9.6.1) */
+    size_t device_length;
+    const uint8_t* configuration; /* the whole configuration descriptor (USB 2.0 9.6.3) */
+    size_t configuration_length;
+    const uint8_t* bos; /* the whole BOS descriptor (USB 3.2 9.6.2), or null for none */
+    size_t bos_length;
+} mimhid_device_descriptors;
 
 /* ---- Profile options --------------------------------------------------------------------
  * docs/PROFILES.md describes each profile's descriptor and the limits of every field. A value
@@ -1310,12 +1333,12 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_control_rules(
  * board is answering from that rule.
  * Synchronization: Device domain.
  * Changes the bytes an ANSWER rule of mimhid_device_set_control_rules returns, without a new
- * table: the rule is number rule_index in that array. At most as many bytes as the rule was given
- * (the rule then answers with that many; when the library next writes the whole table, a rule keeps
- * the length it had then as the most it can be given). Inside a batch, or before the first commit, it is kept
- * for the commit.
+ * table: the rule is number rule_index in that array. Any number of bytes up to the rule's
+ * capacity, the length of its data when the rule was given (the rule then answers with that many,
+ * and may be given more again later, up to the capacity). Inside a batch, or before the first
+ * commit, it is kept for the commit.
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a rule that is not an ANSWER rule, a
- * null data with a length or more bytes than the rule has; MIMHID_ERR_UNSET_FIELD for a zero
+ * null data with a length or more bytes than the rule's capacity; MIMHID_ERR_UNSET_FIELD for a zero
  * timeout; MIMHID_ERR_BUSY when the board kept answering from the rule; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_rule_data(
     mimhid_device* device, size_t rule_index, const uint8_t* data, size_t length,
@@ -1329,7 +1352,7 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_rule_data(
  * As mimhid_device_set_rule_data for rule number rule_index of the Node's own
  * mimhid_node_config.rules. A profile Node has none of its own (the library writes its rules).
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Node, a rule that is not an ANSWER rule, a
- * null data with a length or more bytes than the rule has; MIMHID_ERR_UNSET_FIELD for a zero
+ * null data with a length or more bytes than the rule's capacity; MIMHID_ERR_UNSET_FIELD for a zero
  * timeout; MIMHID_ERR_BUSY when the board kept answering from the rule; a link error. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_node_set_rule_data(
     mimhid_node* node, size_t rule_index, const uint8_t* data, size_t length,
@@ -1432,6 +1455,155 @@ MIMHID_API mimhid_result MIMHID_CALL mimhid_device_add_string(mimhid_device* dev
  * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or an index that was not given. */
 MIMHID_API mimhid_result MIMHID_CALL mimhid_device_remove_string(mimhid_device* device,
                                                                  uint8_t index);
+
+/* mimhid_device_set_string
+ * Ownership: Copies the units.
+ * Blocking: None; the string is sent with the next commit.
+ * Synchronization: Device domain.
+ * Stores a string descriptor exactly as it goes on the bus: index 1 to 255, any language_id (a
+ * nonzero LANGID, USB 2.0 9.6.7), and unit_count UTF-16 code units (1 to 126), whatever they are.
+ * A string with the same index and language is replaced. These are the strings a Device given as
+ * bytes (mimhid_device_set_descriptors) can be read, and the only ones: the strings of
+ * usb_device, usb_config and mimhid_device_add_string are not sent then. They are sent
+ * with every commit while the Device is given as bytes, and never otherwise.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null units, an index of 0, a
+ * language_id of 0 or a unit_count of 0 or above 126; MIMHID_ERR_OVERFLOW when the board's
+ * max_strings is used up. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_string(mimhid_device* device, uint8_t index,
+                                                              uint16_t language_id,
+                                                              const uint16_t* units,
+                                                              size_t unit_count);
+
+/* mimhid_device_clear_string
+ * Ownership: Nothing.
+ * Blocking: None.
+ * Synchronization: Device domain.
+ * Forgets a string given by mimhid_device_set_string; the next commit no longer sends it.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device or an index and language_id that were
+ * not given. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_clear_string(mimhid_device* device,
+                                                                uint8_t index,
+                                                                uint16_t language_id);
+
+/* mimhid_device_set_bos
+ * Ownership: Copies the bytes.
+ * Blocking: None; the BOS descriptor is sent with the next commit.
+ * Synchronization: Device domain.
+ * For a Device composed from Nodes: stores the Binary Object Store descriptor the target can read
+ * (USB 3.2 9.6.2), for the next commit; length 0 removes it. It is checked without reading any
+ * capability: a 5-byte header of type 0x0F whose wTotalLength is length and whose bNumDeviceCaps is
+ * the number of capability descriptors that follow, each at least 3 bytes, of type 0x10, inside the
+ * bytes; at most the board's max_bos_bytes. At the commit the Device's bcd_usb must be 0x0201 or
+ * more: a host asks for a BOS descriptor only then (USB 2.0 Link Power Management ECN, USB 3.2
+ * 9.6.2). A Device without one stalls the request, as before. A Device given as bytes carries its
+ * BOS in mimhid_device_descriptors.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null bytes with a length, or a BOS
+ * descriptor that does not hold together (mimhid_error_detail.offset is the offset of what is
+ * wrong); MIMHID_ERR_OVERFLOW for more than max_bos_bytes; MIMHID_ERR_BUSY while the Device is
+ * given as bytes. The commit refuses a bcd_usb below 0x0201 with MIMHID_ERR_PARAM. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_bos(mimhid_device* device,
+                                                           const uint8_t* bytes, size_t length);
+
+/* ---- A Device given as bytes -------------------------------------------------------------
+ * To present a copy of a real device, the descriptors can be given as the bytes the target reads
+ * instead of being composed from Nodes. The two are exclusive on a Device: while descriptors are
+ * set, mimhid_node_open and mimhid_node_open_profile return MIMHID_ERR_BUSY, and
+ * mimhid_device_set_descriptors with a Node open does. Its endpoints are then named by their
+ * address on the Device (mimhid_device_endpoint_*). The OUT data of its endpoints arrives as
+ * MIMHID_EVENT_ENDPOINT_DATA with node_id 0 and the interface of the endpoint in
+ * interface_number; endpoint 0 is the control rules of mimhid_device_set_control_rules, whose
+ * events are those of a Device, which is how a class request of such a device is answered or
+ * passed on. */
+
+/* mimhid_device_set_descriptors
+ * Ownership: Copies the bytes.
+ * Blocking: Commits as a Node open does: sends the descriptors, the strings of
+ * mimhid_device_set_string, the Device's control rules and the policy of every IN endpoint, then
+ * the board leaves the target's bus and returns to it with the new device, waiting as timeouts
+ * says. Inside a batch it only stages them; the commit that ends the batch sends them.
+ * Synchronization: Device domain.
+ * Nothing is changed in the bytes and nothing is filled in; usb_device, usb_config and their four
+ * strings are not used. Checked, none of it reading a class: the device descriptor is 18 bytes of
+ * type 1 with one configuration; wTotalLength of the configuration is its length; every bLength
+ * is at least 2 and stays inside the bytes; the interface numbers are 0, 1, 2, ... in order and
+ * only alternate setting 0 is used; every endpoint is interrupt or bulk, with an address that is
+ * valid, unique and within the board's limits and a packet size mimhid_node_open would accept;
+ * the totals fit mimhid_board_limits; a BOS has the header and capability lengths of
+ * mimhid_device_set_bos and needs bcdUSB 0x0201 or more. Every IN endpoint needs a policy given
+ * with mimhid_device_endpoint_set_policy before this call. The details name the field
+ * ("descriptors.device", ".configuration", ".bos") and the offset in the bytes.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null argument, a wrong struct_size,
+ * a nonzero reserved or a descriptor that does not hold together; MIMHID_ERR_UNSET_FIELD for a
+ * zero timeout, a bcdUSB of 0 or an IN endpoint with no policy (the details name the first);
+ * MIMHID_ERR_UNSUPPORTED for an isochronous endpoint or an alternate setting; MIMHID_ERR_OVERFLOW
+ * when the board's limits are exceeded; MIMHID_ERR_BUSY while a Node is open; the results of
+ * mimhid_device_commit. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_set_descriptors(
+    mimhid_device* device, const mimhid_device_descriptors* descriptors,
+    const mimhid_commit_timeouts* timeouts);
+
+/* mimhid_device_clear_descriptors
+ * Ownership: Nothing.
+ * Blocking: Takes the Device off the target (a commit with nothing to present) as
+ * mimhid_node_close does for the last Node.
+ * Synchronization: Device domain.
+ * Forgets the descriptors, the policies of their endpoints and what the board held for them; Nodes
+ * can be opened again. The strings of mimhid_device_set_string stay. Inside a batch it only
+ * stages the removal.
+ * Returns: MIMHID_OK (also when no descriptors are set); MIMHID_ERR_PARAM for an invalid Device or
+ * timeouts; MIMHID_ERR_UNSET_FIELD for a zero timeout; the results of mimhid_device_commit. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_clear_descriptors(
+    mimhid_device* device, const mimhid_commit_timeouts* timeouts);
+
+/* mimhid_device_endpoint_set_policy
+ * Ownership: Copies policy.
+ * Blocking: Before the descriptors are committed: none; the policy is kept for the commit. After:
+ * as mimhid_node_endpoint_set_policy (a command to the board, waiting up to control_timeout_ms).
+ * Synchronization: Device domain.
+ * The policy of an IN endpoint of a Device given as bytes, as mimhid_node_endpoint_set_policy has
+ * it for a Node. It must be given for every IN endpoint before mimhid_device_set_descriptors, and
+ * may be changed afterwards. A policy for an address the descriptors do not have is kept for the
+ * next mimhid_device_set_descriptors. Policies stay until mimhid_device_clear_descriptors.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, a null policy, a bad on_full, an
+ * address that is not an IN address (0x81 to 0x8F); MIMHID_ERR_UNSET_FIELD for on_full or depth 0 or a zero timeout;
+ * MIMHID_ERR_OVERFLOW; a link error. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_set_policy(
+    mimhid_device* device, uint8_t address, const mimhid_endpoint_policy* policy,
+    uint32_t control_timeout_ms);
+
+/* mimhid_device_endpoint_write
+ * Ownership: Copies data.
+ * Blocking: As mimhid_node_endpoint_write.
+ * Synchronization: Device domain; writes to different endpoints may run at the same time.
+ * Sends data as one USB transfer on an IN endpoint of a Device given as bytes, with everything
+ * mimhid_node_endpoint_write says of splitting, zero-length packets and the wait policy.
+ * Returns: MIMHID_OK; MIMHID_ERR_PARAM for an invalid Device, an address that is not an IN endpoint
+ * of the descriptors (none set included) or null data with a nonzero length;
+ * MIMHID_ERR_UNSET_FIELD, MIMHID_ERR_TIMEOUT, MIMHID_ERR_SHORT_TRANSFER, MIMHID_ERR_OVERFLOW and a
+ * link error as mimhid_node_endpoint_write; MIMHID_ERR_BUSY as there, and while the descriptors
+ * are staged in a batch that has not ended. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_write(mimhid_device* device,
+                                                                  uint8_t address,
+                                                                  const uint8_t* data,
+                                                                  size_t length,
+                                                                  uint32_t timeout_ms);
+
+/* mimhid_device_endpoint_stall, mimhid_device_endpoint_clear_stall, mimhid_device_endpoint_flush
+ * Ownership: Nothing.
+ * Blocking: A command to the board, waiting up to control_timeout_ms.
+ * Synchronization: Device domain.
+ * As mimhid_node_endpoint_stall, _clear_stall and _flush for an endpoint of a Device given as
+ * bytes (flush: an IN endpoint).
+ * Returns: As the Node calls, with the address checked against the descriptors; MIMHID_ERR_PARAM
+ * when none are set. */
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_stall(mimhid_device* device,
+                                                                  uint8_t address,
+                                                                  uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_clear_stall(
+    mimhid_device* device, uint8_t address, uint32_t control_timeout_ms);
+MIMHID_API mimhid_result MIMHID_CALL mimhid_device_endpoint_flush(mimhid_device* device,
+                                                                  uint8_t address,
+                                                                  uint32_t control_timeout_ms);
 
 /* ---- Spec -------------------------------------------------------------------------------
  * The factories copy their options and every array and string the options point to. The Spec

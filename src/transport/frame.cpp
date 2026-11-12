@@ -142,6 +142,7 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->endpoint_queue_slots = static_cast<std::uint16_t>(p[42] | (p[43] << 8));
     out->transfer_types = p[44];
     out->max_answer_bytes = static_cast<std::uint16_t>(p[45] | (p[46] << 8));
+    out->max_bos_bytes = static_cast<std::uint16_t>(p[47] | (p[48] << 8));
     out->unique_id_length = id_length;
     std::memcpy(out->unique_id.data(), &p[MIMHID_PONG_MIN_LEN], id_length);
     return true;

@@ -23,6 +23,7 @@ constexpr Suite kSuites[] = {
     {"validator_encoding", test_validator_encoding},
     {"frame", test_frame},
     {"descriptor_composer", test_descriptor_composer},
+    {"descriptor_walker", test_descriptor_walker},
     {"profiles_common", test_profiles_common},
     {"profiles_keyboard", test_profiles_keyboard},
     {"profiles_mouse", test_profiles_mouse},

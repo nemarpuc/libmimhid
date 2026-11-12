@@ -241,6 +241,7 @@ std::vector<std::uint8_t> Board::pong_payload() {
     put_u16(&p, pong_.endpoint_queue_slots);
     p.push_back(pong_.transfer_types);
     put_u16(&p, pong_.max_answer_bytes);
+    put_u16(&p, pong_.max_bos_bytes);
     p.insert(p.end(), pong_.unique_id.begin(), pong_.unique_id.end());
     return p;
 }

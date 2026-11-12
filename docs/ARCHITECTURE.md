@@ -9,7 +9,7 @@ Wire details are in [PROTOCOL.md](PROTOCOL.md), the API model in [API.md](API.md
 | | `libaoahid` | `libmimhid` |
 |---|---|---|
 | Link | PC USB to phone | PC UART to MCU board, board USB to target |
-| Target sees | an Android accessory | an ordinary USB HID device with your VID/PID and strings |
+| Target sees | an Android accessory | an ordinary USB device (HID or any class you describe) with your VID/PID and strings |
 | Where reports are built | on the PC | on the PC (the same code) |
 | Where descriptors live | registered with the phone by vendor requests | uploaded to the board, served in USB enumeration |
 
@@ -56,6 +56,10 @@ The host builds every report. The firmware does not know what a keyboard or a to
 ## Interface configuration
 
 Each node names its USB interface with `mimhid_usb_interface.number` (`interface_number` in `mimhid_hid_node_config`); nothing assigns interfaces automatically. Each interface gives `ep_in.address` (`0x81..0x8F`), `ep_in.max_packet_size` (1 to the board's `max_endpoint_bytes`), and an optional OUT endpoint (`ep_out.address` 0 when there is none, otherwise `0x01..0x0F` with `ep_out.max_packet_size` from 1 to `max_endpoint_bytes`), with poll intervals and protocol fields. When a configuration exceeds the board's `max_interfaces_any`, `max_endpoint_number`, `max_config_descriptor_bytes`, `max_control_rules`, `max_answer_bytes` or `endpoint_queue_slots`, `mimhid_node_open` returns `MIMHID_ERR_OVERFLOW`.
+
+## A Device given as bytes
+
+`mimhid_device_set_descriptors` (`src/api/c_api_bytes.cpp`) gives the board the descriptors of a whole device as bytes, for a copy of a real device. `walk_descriptors` (`src/usb/descriptor_walker.cpp`) checks them the way the board does at `COMMIT` (device descriptor, configuration, interface numbers 0, 1, 2, ..., alternate setting 0 only, interrupt and bulk endpoints with unique addresses, BOS header and capability lengths) so that a refusal names the byte offset; it reads no class. The Device then holds no Node: `ByteDevice` in `mimhid_device` keeps the bytes, the interface of each endpoint address and the runtime (policy, wait count) of every IN endpoint, and `commit_device` sends them like a composed configuration. The endpoint calls (`mimhid_device_endpoint_*`) use the same `endpoint_write` as the Node calls, and the packets of an OUT endpoint are `MIMHID_EVENT_ENDPOINT_DATA` with node id 0 (`node_of_endpoint`). A Device given as bytes and Nodes exclude each other (`MIMHID_ERR_BUSY`).
 
 ## Firmware
 

@@ -437,6 +437,10 @@ void reset_endpoint_counts(mimhid_device* device) {
                 ++ep.epoch;
             }
         }
+        for (EndpointRuntime& ep : device->bytes.in_endpoints) {
+            ep.outstanding = 0U;
+            ++ep.epoch;
+        }
     }
     device->endpoint_cv.notify_all();
 }
@@ -449,6 +453,7 @@ usb::ComposerLimits composer_limits(const mimhid_device* device) {
     lim.max_endpoint_number = board.max_endpoint_number;
     lim.max_endpoint_bytes = board.max_endpoint_bytes;
     lim.max_config_bytes = board.max_config_descriptor_bytes;
+    lim.max_bos_bytes = board.max_bos_bytes;
     lim.max_strings = board.max_strings;
     lim.endpoint_queue_slots = board.endpoint_queue_slots;
     lim.transfer_types = board.transfer_types;
@@ -978,7 +983,7 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     const std::uint32_t control = waits.control;
     const std::vector<mimhid_node*> nodes = live_nodes(device);
 
-    if (nodes.empty()) {
+    if (nodes.empty() && !device->descriptors_set) {
         if (device->configured) {
             const std::uint8_t detach[3] = {
                 1U, static_cast<std::uint8_t>(reconnect_delay_ms & 0xFFU),
@@ -1001,23 +1006,51 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
         return MIMHID_OK;
     }
 
-    // The host composes every descriptor; the board takes them as bytes.
-    usb::ComposerInput input;
-    fill_device_strings(device, &input);
+    // The host composes every descriptor; the board takes them as bytes. A Device given as bytes
+    // (mimhid_device_set_descriptors) has them already, and its strings are the raw ones.
     usb::ComposerError composer_error;
     std::vector<usb::HidNodeInput> hid_inputs;
-    if (const mimhid_result made = groups_of_nodes(nodes, &input.groups, &hid_inputs, &composer_error);
-        made != MIMHID_OK) {
-        set_error(made, composer_error.field, composer_error.reason, 0, 0, composer_error.node_id,
-                  0, composer_error.offset, composer_error.length);
-        return made;
-    }
     usb::Composed composed;
-    if (const mimhid_result made = usb::compose_descriptors(input, &composed, &composer_error);
-        made != MIMHID_OK) {
-        set_error(made, composer_error.field, composer_error.reason, 0, 0, composer_error.node_id,
-                  0, composer_error.offset, composer_error.length);
-        return made;
+    const std::vector<std::uint8_t>* bos = nullptr;
+    if (device->descriptors_set) {
+        composed.device = device->bytes.device;
+        composed.configuration = device->bytes.configuration;
+        for (const auto& entry : device->raw_strings) {
+            std::vector<std::uint8_t> descriptor{static_cast<std::uint8_t>(2U + 2U * entry.second.size()), 3U};
+            for (const char16_t unit : entry.second)
+                put_u16(&descriptor, unit);
+            composed.strings.push_back(
+                usb::ComposedString{entry.first.first, entry.first.second, false, std::move(descriptor)});
+        }
+        if (!device->bytes.bos.empty())
+            bos = &device->bytes.bos;
+    } else {
+        usb::ComposerInput input;
+        fill_device_strings(device, &input);
+        if (const mimhid_result made =
+                groups_of_nodes(nodes, &input.groups, &hid_inputs, &composer_error);
+            made != MIMHID_OK) {
+            set_error(made, composer_error.field, composer_error.reason, 0, 0,
+                      composer_error.node_id, 0, composer_error.offset, composer_error.length);
+            return made;
+        }
+        if (const mimhid_result made = usb::compose_descriptors(input, &composed, &composer_error);
+            made != MIMHID_OK) {
+            set_error(made, composer_error.field, composer_error.reason, 0, 0,
+                      composer_error.node_id, 0, composer_error.offset, composer_error.length);
+            return made;
+        }
+        if (!device->composed_bos.empty()) {
+            // A host asks for a BOS descriptor only from bcdUSB 0x0201 on (USB 3.2 9.6.2).
+            if (device->config.usb_device.bcd_usb < 0x0201U) {
+                set_error(MIMHID_ERR_PARAM, "device.bos",
+                          "A BOS descriptor needs usb_device.bcd_usb of 0x0201 or more: a host "
+                          "asks for one only then (USB 3.2 9.6.2); the value is in offset.",
+                          0, 0, 0, 0, device->config.usb_device.bcd_usb, 0);
+                return MIMHID_ERR_PARAM;
+            }
+            bos = &device->composed_bos;
+        }
     }
 
     const auto send = [&](std::uint8_t type, const std::vector<std::uint8_t>& payload,
@@ -1058,6 +1091,8 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     if (r == MIMHID_OK)
         r = send_blob(MIMHID_DESC_CONFIGURATION, 0U, 0U, composed.configuration, 0U,
                       "device.config");
+    if (r == MIMHID_OK && bos != nullptr)
+        r = send_blob(MIMHID_DESC_BOS, 0U, 0U, *bos, 0U, "device.bos");
     for (const usb::ComposedString& text : composed.strings) {
         if (r != MIMHID_OK)
             break;
@@ -1074,6 +1109,17 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     r = stage_rule_table(device, table, control);
     if (r != MIMHID_OK)
         return r;
+
+    // A Device given as bytes: the policy of each of its IN endpoints.
+    for (const EndpointRuntime& ep : device->bytes.in_endpoints) {
+        if (!device->descriptors_set)
+            break;
+        r = send(MIMHID_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
+                 "device.endpoint.policy", "The board did not accept the policy of an endpoint.",
+                 0U);
+        if (r != MIMHID_OK)
+            return r;
+    }
 
     // The depth of the queue of each interface's IN endpoint (Nodes sharing an interface share it:
     // the least depth).
@@ -1177,6 +1223,13 @@ std::uint16_t node_of_endpoint(mimhid_device* device, const std::uint32_t addres
             return public_node_id(node);
         }
     }
+    // A Device given as bytes has no Node: the id is 0, and the interface is the one the
+    // configuration puts the endpoint on.
+    if (device->descriptors_set) {
+        const auto found = device->bytes.interface_of.find(static_cast<std::uint8_t>(address));
+        if (found != device->bytes.interface_of.end())
+            *interface_number = found->second;
+    }
     return 0U;
 }
 
@@ -1199,6 +1252,10 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                     if (ep.address == d[0])
                         ep.outstanding = ep.outstanding > done ? ep.outstanding - done : 0U;
                 }
+            }
+            for (EndpointRuntime& ep : device->bytes.in_endpoints) {
+                if (ep.address == d[0])
+                    ep.outstanding = ep.outstanding > done ? ep.outstanding - done : 0U;
             }
         }
         device->endpoint_cv.notify_all();

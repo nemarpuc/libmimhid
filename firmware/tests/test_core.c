@@ -1055,7 +1055,9 @@ static void test_ping_and_events(void) {
     assert(p[44] == ((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT)));
     // The answer memory of the control rules (config.h), the last field before the unique id.
     assert((p[45] | (p[46] << 8)) == MIMHID_ANSWER_BYTES && MIMHID_ANSWER_BYTES == 4096);
-    assert(MIMHID_PONG_MIN_LEN == 47 && p[MIMHID_PONG_MIN_LEN] == 0x01);
+    // The largest BOS descriptor (config.h), then the unique id.
+    assert((p[47] | (p[48] << 8)) == MIMHID_MAX_BOS_BYTES && MIMHID_MAX_BOS_BYTES == 256);
+    assert(MIMHID_PONG_MIN_LEN == 49 && p[MIMHID_PONG_MIN_LEN] == 0x01);
 
     // The board's own events: mount, unmount, suspend, resume. (What a class does on the control
     // pipe is reported by the control rules, below.)
@@ -1978,6 +1980,138 @@ static void test_commit_walk(void) {
 // A COMMIT that attaches is refused (NAK STATE) by a board that is attached, whatever it carries:
 // the target has enumerated the device, and new descriptors under it would never be seen. The
 // refusal changes nothing, and a detach makes the same COMMIT work.
+// The BOS descriptor (USB 3.2 9.6.2) of a device with a USB 2.0 Extension capability (USB 2.0 Link
+// Power Management ECN) and the Microsoft OS 2.0 platform capability ("Microsoft OS 2.0 Descriptors
+// Specification"): 5 + 7 + 28 bytes.
+static size_t bos_sample(uint8_t* b) {
+    static const uint8_t bos[] = {
+        5, 0x0F, 40, 0, 2, // header: wTotalLength 40, two capabilities
+        7, 0x10, 0x02, 0x02, 0, 0, 0, // USB 2.0 Extension: LPM supported
+        28, 0x10, 0x05, 0, // platform capability
+        0xDF, 0x60, 0xDD, 0xD8, 0x89, 0x45, 0xC7, 0x4C, 0x9C, 0xD2, 0x65, 0x9D, 0x9E, 0x64, 0x8A,
+        0x9F,              // MS OS 2.0 platform capability UUID
+        0x00, 0x00, 0x03, 0x06, // dwWindowsVersion 0x06030000
+        0x42, 0x00,        // wMSOSDescriptorSetTotalLength
+        0x01, 0x00};       // bMS_VendorCode, bAltEnumCode
+    memcpy(b, bos, sizeof(bos));
+    return sizeof(bos);
+}
+
+// A device with the given bcdUSB and one interface, and a BOS of `bos_len` bytes of which `have`
+// are sent (bos NULL: none), staged and committed. Returns the answer to the COMMIT.
+static int commit_bos(uint16_t bcd_usb, const uint8_t* bos, size_t bos_len, size_t have) {
+    tcfg_t c;
+    cfg_open(&c);
+    cfg_hid_interface(&c, 0, 1, sizeof(k_desc_a));
+    cfg_close(&c);
+    assert(desc_reset() == 1);
+    uint8_t d[18];
+    make_device(d);
+    put_u16(&d[2], bcd_usb);
+    assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
+    assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+    if (bos != NULL) {
+        const int r = send_blob_partial(MIMHID_DESC_BOS, 0, 0, bos, bos_len, have, 0);
+        if (r != 1)
+            return r;
+    }
+    stage_endpoints(&c);
+    return commit_staged();
+}
+
+// The BOS descriptor: served as it was given, only to a device whose bcdUSB asks for one; a device
+// without one has none (TinyUSB then stalls the request); every malformed one is refused at COMMIT.
+static void test_bos(void) {
+    uint8_t good[64];
+    const size_t n = bos_sample(good);
+    assert(n == 40);
+
+    // None given: none served, as before.
+    assert(commit_bos(0x0200, NULL, 0, 0) == 1);
+    assert(tud_descriptor_bos_cb() == NULL);
+
+    // Given: served byte for byte, and replaced by the next configuration, which has none.
+    assert(commit_bos(0x0210, good, n, n) == 1);
+    assert(tud_descriptor_bos_cb() != NULL && memcmp(tud_descriptor_bos_cb(), good, n) == 0);
+    assert(commit_bos(0x0201, good, n, n) == 1); // 0x0201 is the lowest that asks for it
+    assert(tud_descriptor_bos_cb() != NULL);
+    assert(commit_bos(0x0200, NULL, 0, 0) == 1);
+    assert(tud_descriptor_bos_cb() == NULL);
+    // A detach forgets it too.
+    assert(commit_bos(0x0210, good, n, n) == 1);
+    const uint8_t detach[] = {1};
+    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(tud_descriptor_bos_cb() == NULL);
+    // A new DESC_RESET forgets a staged one.
+    assert(desc_reset() == 1);
+    assert(send_blob(MIMHID_DESC_BOS, 0, 0, good, n) == 1);
+    assert(commit_bos(0x0210, NULL, 0, 0) == 1);
+    assert(tud_descriptor_bos_cb() == NULL);
+
+    // A header with no capability is a BOS.
+    static const uint8_t empty[5] = {5, 0x0F, 5, 0, 0};
+    assert(commit_bos(0x0210, empty, sizeof(empty), sizeof(empty)) == 1);
+    assert(tud_descriptor_bos_cb() != NULL && tud_descriptor_bos_cb()[2] == 5);
+
+    // Refused at COMMIT: a bcdUSB below 0x0201, and each way the descriptor does not hold together.
+    expect_nak(commit_bos(0x0200, good, n, n), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit_bos(0x0110, good, n, n), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit_bos(0x0210, good, n, n - 1), MIMHID_NAK_DESCRIPTOR); // only in part
+    uint8_t bad[64];
+    const struct {
+        size_t at;
+        uint8_t value;
+        const char* what;
+    } mistakes[] = {
+        {0, 4, "bLength of the header"},     {0, 6, "bLength of the header"},
+        {1, 0x0E, "type of the header"},     {1, 0x10, "type of the header"},
+        {2, 41, "wTotalLength longer"},      {2, 39, "wTotalLength shorter"},
+        {4, 1, "fewer capabilities"},        {4, 3, "more capabilities"},
+        {5, 2, "capability bLength below 3"}, {5, 8, "capability bLength skips the next"},
+        {6, 0x0F, "capability type"},        {12, 0, "capability bLength 0"},
+        {12, 29, "capability runs past the end"}, {13, 0x11, "capability type"},
+    };
+    for (size_t i = 0; i < sizeof(mistakes) / sizeof(mistakes[0]); i++) {
+        memcpy(bad, good, n);
+        bad[mistakes[i].at] = mistakes[i].value;
+        expect_nak(commit_bos(0x0210, bad, n, n), MIMHID_NAK_DESCRIPTOR);
+    }
+
+    // DESC_BEGIN of the kind BOS: index, language and flags are zero, the length is 1 to the
+    // board's limit, and the same announcement again is acknowledged again.
+    assert(desc_reset() == 1);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 1, 0, 40, 0), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0x0409, 40, 0), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 40, 1), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 0, 0), MIMHID_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES + 1, 0),
+               MIMHID_NAK_OVERFLOW);
+    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES, 0) == 1);
+    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES, 0) == 1);
+    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 40, 0), MIMHID_NAK_STATE);
+    // The bytes of one that was not announced are refused, and so is more than was announced.
+    assert(desc_reset() == 1);
+    expect_nak(desc_data_raw(MIMHID_DESC_BOS, 0, 0, 0, good, 5), MIMHID_NAK_STATE);
+    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 5, 0) == 1);
+    expect_nak(desc_data_raw(MIMHID_DESC_BOS, 0, 0, 0, good, 6), MIMHID_NAK_PARAM);
+
+    // The largest one the board holds is taken (a header and capabilities that fill it).
+    {
+        uint8_t big[MIMHID_MAX_BOS_BYTES];
+        memset(big, 0, sizeof(big));
+        big[0] = 5;
+        big[1] = 0x0F;
+        put_u16(&big[2], MIMHID_MAX_BOS_BYTES);
+        big[4] = 1;
+        big[5] = (uint8_t)(MIMHID_MAX_BOS_BYTES - 5); // one capability that fills the rest
+        big[6] = 0x10;
+        big[7] = 0x05;
+        assert(MIMHID_MAX_BOS_BYTES - 5 <= 255);
+        assert(commit_bos(0x0300, big, sizeof(big), sizeof(big)) == 1);
+        assert(memcmp(tud_descriptor_bos_cb(), big, sizeof(big)) == 0);
+    }
+}
+
 static void test_commit_attached_refused(void) {
     device_config(0, "First");
     base_node();
@@ -3770,6 +3904,7 @@ int main(void) {
     test_desc_commands();
     test_commit_walk();
     test_commit_attached_refused();
+    test_bos();
     test_errors();
     test_all_interfaces();
     test_ep_config();

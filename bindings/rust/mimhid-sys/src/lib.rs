@@ -200,6 +200,7 @@ pub struct mimhid_board_limits {
     pub max_transfer_bytes: u32,
     pub endpoint_queue_slots: u32,
     pub transfer_types: u32,
+    pub max_bos_bytes: u32,
 }
 
 #[repr(C)]
@@ -357,6 +358,18 @@ pub struct mimhid_hid_node_config {
     pub name: *const c_char,
     pub ep_in: mimhid_usb_endpoint,
     pub ep_out: mimhid_usb_endpoint,
+}
+
+#[repr(C)]
+pub struct mimhid_device_descriptors {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub device: *const u8,
+    pub device_length: usize,
+    pub configuration: *const u8,
+    pub configuration_length: usize,
+    pub bos: *const u8,
+    pub bos_length: usize,
 }
 
 #[repr(C)]
@@ -677,6 +690,16 @@ extern "C" {
     pub fn mimhid_device_set_loss_reporting(device: *mut mimhid_device, enabled: u32, interval_ms: u32, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_device_add_string(device: *mut mimhid_device, utf8: *const c_char, out_index: *mut u8) -> mimhid_result;
     pub fn mimhid_device_remove_string(device: *mut mimhid_device, index: u8) -> mimhid_result;
+    pub fn mimhid_device_set_string(device: *mut mimhid_device, index: u8, language_id: u16, units: *const u16, unit_count: usize) -> mimhid_result;
+    pub fn mimhid_device_clear_string(device: *mut mimhid_device, index: u8, language_id: u16) -> mimhid_result;
+    pub fn mimhid_device_set_bos(device: *mut mimhid_device, bytes: *const u8, length: usize) -> mimhid_result;
+    pub fn mimhid_device_set_descriptors(device: *mut mimhid_device, descriptors: *const mimhid_device_descriptors, timeouts: *const mimhid_commit_timeouts) -> mimhid_result;
+    pub fn mimhid_device_clear_descriptors(device: *mut mimhid_device, timeouts: *const mimhid_commit_timeouts) -> mimhid_result;
+    pub fn mimhid_device_endpoint_set_policy(device: *mut mimhid_device, address: u8, policy: *const mimhid_endpoint_policy, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_endpoint_write(device: *mut mimhid_device, address: u8, data: *const u8, length: usize, timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_endpoint_stall(device: *mut mimhid_device, address: u8, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_endpoint_clear_stall(device: *mut mimhid_device, address: u8, control_timeout_ms: u32) -> mimhid_result;
+    pub fn mimhid_device_endpoint_flush(device: *mut mimhid_device, address: u8, control_timeout_ms: u32) -> mimhid_result;
     pub fn mimhid_spec_create_keyboard(options: *const mimhid_keyboard_options, out_spec: *mut *mut mimhid_spec) -> mimhid_result;
     pub fn mimhid_spec_create_mouse(options: *const mimhid_mouse_options, out_spec: *mut *mut mimhid_spec) -> mimhid_result;
     pub fn mimhid_spec_create_toggle(options: *const mimhid_toggle_options, out_spec: *mut *mut mimhid_spec) -> mimhid_result;

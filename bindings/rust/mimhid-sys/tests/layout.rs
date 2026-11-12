@@ -171,6 +171,7 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_board_limits.max_transfer_bytes".to_owned(), offset_of!(mimhid_board_limits, max_transfer_bytes) as i64);
     map.insert("mimhid_board_limits.endpoint_queue_slots".to_owned(), offset_of!(mimhid_board_limits, endpoint_queue_slots) as i64);
     map.insert("mimhid_board_limits.transfer_types".to_owned(), offset_of!(mimhid_board_limits, transfer_types) as i64);
+    map.insert("mimhid_board_limits.max_bos_bytes".to_owned(), offset_of!(mimhid_board_limits, max_bos_bytes) as i64);
     map.insert("mimhid_link_counters.size".to_owned(), size_of::<mimhid_link_counters>() as i64);
     map.insert("mimhid_link_counters.struct_size".to_owned(), offset_of!(mimhid_link_counters, struct_size) as i64);
     map.insert("mimhid_link_counters.reserved".to_owned(), offset_of!(mimhid_link_counters, reserved) as i64);
@@ -289,6 +290,15 @@ fn rust_layout() -> BTreeMap<String, i64> {
     map.insert("mimhid_hid_node_config.name".to_owned(), offset_of!(mimhid_hid_node_config, name) as i64);
     map.insert("mimhid_hid_node_config.ep_in".to_owned(), offset_of!(mimhid_hid_node_config, ep_in) as i64);
     map.insert("mimhid_hid_node_config.ep_out".to_owned(), offset_of!(mimhid_hid_node_config, ep_out) as i64);
+    map.insert("mimhid_device_descriptors.size".to_owned(), size_of::<mimhid_device_descriptors>() as i64);
+    map.insert("mimhid_device_descriptors.struct_size".to_owned(), offset_of!(mimhid_device_descriptors, struct_size) as i64);
+    map.insert("mimhid_device_descriptors.reserved".to_owned(), offset_of!(mimhid_device_descriptors, reserved) as i64);
+    map.insert("mimhid_device_descriptors.device".to_owned(), offset_of!(mimhid_device_descriptors, device) as i64);
+    map.insert("mimhid_device_descriptors.device_length".to_owned(), offset_of!(mimhid_device_descriptors, device_length) as i64);
+    map.insert("mimhid_device_descriptors.configuration".to_owned(), offset_of!(mimhid_device_descriptors, configuration) as i64);
+    map.insert("mimhid_device_descriptors.configuration_length".to_owned(), offset_of!(mimhid_device_descriptors, configuration_length) as i64);
+    map.insert("mimhid_device_descriptors.bos".to_owned(), offset_of!(mimhid_device_descriptors, bos) as i64);
+    map.insert("mimhid_device_descriptors.bos_length".to_owned(), offset_of!(mimhid_device_descriptors, bos_length) as i64);
     map.insert("mimhid_physical_properties.size".to_owned(), size_of::<mimhid_physical_properties>() as i64);
     map.insert("mimhid_physical_properties.enabled".to_owned(), offset_of!(mimhid_physical_properties, enabled) as i64);
     map.insert("mimhid_physical_properties.minimum".to_owned(), offset_of!(mimhid_physical_properties, minimum) as i64);

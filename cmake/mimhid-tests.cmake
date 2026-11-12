@@ -35,6 +35,7 @@ add_executable(mimhid_tests
     tests/unit/test_validator_encoding.cpp
     tests/unit/test_frame.cpp
     tests/unit/test_descriptor_composer.cpp
+    tests/unit/test_descriptor_walker.cpp
     tests/unit/test_profiles_common.cpp
     tests/unit/test_profiles_keyboard.cpp
     tests/unit/test_profiles_mouse.cpp
@@ -168,6 +169,7 @@ if(MIMHID_TINYUSB_PATH AND NOT WIN32)
         tests/sim/test_sim_main.cpp
         tests/sim/sim_support.cpp
         tests/sim/test_sim_arguments.cpp
+        tests/sim/test_sim_bytes.cpp
         tests/sim/test_sim_control.cpp
         tests/sim/test_sim_events.cpp
         tests/sim/test_sim_generic.cpp

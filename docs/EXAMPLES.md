@@ -192,6 +192,14 @@ mimhid_usb_endpoint endpoints[2] = {
    mimhid_node_endpoint_write(node, 0x81, data, length, 1000); */
 ```
 
+### Present a device given as bytes
+
+To present a copy of a real device, give the bytes the target reads instead of composing them from Nodes. `examples/c/device_from_descriptors.c` is the whole program: an 18-byte device descriptor, a 32-byte configuration with one vendor interface (bulk IN `0x81`, bulk OUT `0x01`) and two strings (`mimhid_device_set_string`). The policy of every IN endpoint is given first (`mimhid_device_endpoint_set_policy`); the library checks the bytes (never a class) and names the field and the byte offset of whatever does not hold together. A Device given as bytes has no Node: writes, Halt and flushes name the endpoint by address (`mimhid_device_endpoint_write`, `_stall`, `_clear_stall`, `_flush`), and the packets of an OUT endpoint arrive as `MIMHID_EVENT_ENDPOINT_DATA` with `node_id` 0. While descriptors are set, `mimhid_node_open` returns `MIMHID_ERR_BUSY`, and so does `mimhid_device_set_descriptors` while a Node is open; `mimhid_device_clear_descriptors` ends it. `usb_device`, `usb_config` and their four strings are not used then. It needs a board and a target, so it is not a ctest case.
+
+### Present a WinUSB device (BOS descriptor)
+
+`examples/c/winusb_bulk.c` adds a BOS descriptor (USB 3.2 9.6.2) carrying the Microsoft OS 2.0 platform capability, and a control rule of the Device that answers the vendor request the capability names with the descriptor set, so that Windows binds WinUSB without an INF file. The layouts follow Microsoft's "Microsoft OS 2.0 Descriptors Specification". A host asks for a BOS descriptor only when `bcdUSB` is 0x0201 or more (the commit refuses a BOS below that). **This example has not been run on Windows**: the BOS descriptor and the answer were read back from the simulated board, and no Windows machine has bound WinUSB to the device it presents. A Device composed from Nodes takes its BOS with `mimhid_device_set_bos`.
+
 ### Command physical connection and disconnection
 
 ```c

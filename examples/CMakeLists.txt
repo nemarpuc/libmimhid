@@ -17,6 +17,12 @@ target_link_libraries(control_transfers PRIVATE mimhid::mimhid)
 add_executable(vendor_bulk c/vendor_bulk.c)
 target_link_libraries(vendor_bulk PRIVATE mimhid::mimhid)
 
+add_executable(device_from_descriptors c/device_from_descriptors.c)
+target_link_libraries(device_from_descriptors PRIVATE mimhid::mimhid)
+
+add_executable(winusb_bulk c/winusb_bulk.c)
+target_link_libraries(winusb_bulk PRIVATE mimhid::mimhid)
+
 add_executable(hid_interface c/hid_interface.c)
 target_link_libraries(hid_interface PRIVATE mimhid::mimhid)
 

@@ -49,8 +49,11 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_T_DESC_BEGIN 0x11 /* announces one descriptor (see below) */
 #define MIMHID_T_DESC_DATA 0x12  /* a chunk of the announced descriptor (see below) */
 #define MIMHID_T_COMMIT                                                                            \
-    0x13                      /* apply: disconnect, rebuild descriptors, reconnect, then ACK;      \
-                                  payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian] */
+    0x13 /* payload after sequence number: [detach: 1 byte] [delay_ms: 2 bytes little-endian].     \
+            With detach 1: the board takes its USB device off the target and forgets the active    \
+            configuration. Otherwise it checks the staged configuration, makes it the active one   \
+            and attaches, then ACKs; NAK_STATE when it is attached already (detach first),         \
+            NAK_DESCRIPTOR when the configuration does not hold together */
 /* 0x14 was FEATURE: unused since the board's HID driver went (a Feature report answer is the data
  * of an ANSWER control rule). The number is not reused in this release. */
 #define MIMHID_T_RESET 0x15   /* drop every queued report */
@@ -316,10 +319,11 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *   n; USB 2.0 9.6.6 bmAttributes bits 1..0: bit 2 bulk, bit 3 interrupt)  45..46
  *   max_answer_bytes (the answer memory: the capacities of every ANSWER rule together, a HID report
  *   descriptor and the answers to its Feature reads among them)
- *   47.. the chip's unique id, n bytes
+ *   47..48 max_bos_bytes (the largest BOS descriptor, wTotalLength included)
+ *   49.. the chip's unique id, n bytes
  * Bytes 0..3 are the same in every release. A reader ignores bytes past the ones it knows.
  */
-#define MIMHID_PONG_MIN_LEN 47
+#define MIMHID_PONG_MIN_LEN 49
 #define MIMHID_PONG_UART_BREAK 0x01u
 #define MIMHID_UNIQUE_ID_MAX 16
 #define MIMHID_PONG_FLAG_UNIQUE_ID 0x01
@@ -340,6 +344,9 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  *                                                       wTotalLength bytes
  *   MIMHID_DESC_STRING        1..255          LANGID    the string descriptor as on the bus:
  *                                                       bLength, 0x03, UTF-16LE (USB 2.0 9.6.7)
+ *   MIMHID_DESC_BOS           0               0         the whole Binary Object Store descriptor
+ *                                                       (USB 3.2 9.6.2), wTotalLength bytes; at most
+ *                                                       max_bos_bytes of the PONG; optional
  *   MIMHID_DESC_ANSWER        rule index      0         the bytes of an ANSWER control rule
  *
  * String index 0 (the language list) is never sent: the board answers it with the language ids
@@ -356,15 +363,24 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
  * host sends a frame again when it did not see the answer. A chunk may start only at or before the
  * end of the bytes received so far.
  *
- * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR, the previous
- * configuration kept) unless it holds together: every descriptor complete, every bLength at least
+ * A BOS descriptor is served only when one was staged; the target asks for it only when the device
+ * descriptor's bcdUSB is 0x0201 or more (USB 2.0 Link Power Management ECN; USB 3.2 9.6.2), and the
+ * board refuses a BOS with a bcdUSB below that (NAK DESCRIPTOR at COMMIT). A device without a BOS
+ * stalls the request for one, as before.
+ *
+ * COMMIT checks the staged configuration once, and refuses it (NAK DESCRIPTOR) unless it holds
+ * together: every descriptor complete, every bLength at least
  * 2 and inside the blob, interface numbers 0, 1, 2, ... in order with alternate setting 0 only,
  * every interface, whatever its class (the board reads no class), with endpoints that are
  * interrupt or bulk, the class descriptors between them as given, interface association
  * descriptors that name the interfaces that follow, endpoint numbers the controller has and no
  * address twice, packet sizes the board takes, every IN endpoint with an EP_CONFIG, every ANSWER
- * rule with its bytes and every ANSWER_LAST_SENT rule on an IN endpoint of the configuration
- * (docs/PROTOCOL.md has the whole list).
+ * rule with its bytes and every ANSWER_LAST_SENT rule on an IN endpoint of the configuration, and a
+ * BOS descriptor, if there is one, with a 5-byte header of type 0x0F (USB 3.2 9.6.2), wTotalLength
+ * its own length, bNumDeviceCaps as many as it holds, each capability at least 3 bytes long, of
+ * type 0x10 and inside the bytes, a bcdUSB of 0x0201 or more (docs/PROTOCOL.md has the whole list).
+ * A COMMIT that attaches is for a board that is off the bus: one that is attached answers NAK STATE,
+ * since new descriptors under a device the target has enumerated would never be seen.
  *
  * EP_CONFIG payload after the sequence number:
  *   0 endpoint address  1 depth  2 policy
@@ -406,6 +422,7 @@ static inline uint16_t mimhid_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMHID_DESC_CONFIGURATION 2
 #define MIMHID_DESC_STRING 3
 #define MIMHID_DESC_ANSWER 5 /* 4 was the HID report descriptor, which the board no longer knows */
+#define MIMHID_DESC_BOS 6
 #define MIMHID_DESC_F_SERIAL_FROM_ID 0x01
 
 #define MIMHID_EP_FULL_DROP_NEWEST 1

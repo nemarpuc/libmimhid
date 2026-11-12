@@ -101,6 +101,7 @@ Check("mimhid_board_limits.max_strings", (long)Marshal.OffsetOf<BoardLimits>("Ma
 Check("mimhid_board_limits.max_transfer_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxTransferBytes"));
 Check("mimhid_board_limits.endpoint_queue_slots", (long)Marshal.OffsetOf<BoardLimits>("EndpointQueueSlots"));
 Check("mimhid_board_limits.transfer_types", (long)Marshal.OffsetOf<BoardLimits>("TransferTypes"));
+Check("mimhid_board_limits.max_bos_bytes", (long)Marshal.OffsetOf<BoardLimits>("MaxBosBytes"));
 if (new LinkCounters().StructSize != 0) failures.Add("mimhid_link_counters: the binding fills struct_size");
 Check("mimhid_link_counters.size", Marshal.SizeOf<LinkCounters>());
 Check("mimhid_link_counters.struct_size", (long)Marshal.OffsetOf<LinkCounters>("StructSize"));
@@ -224,6 +225,16 @@ Check("mimhid_hid_node_config.reserved16", (long)Marshal.OffsetOf<HidNodeConfig>
 Check("mimhid_hid_node_config.name", (long)Marshal.OffsetOf<HidNodeConfig>("Name"));
 Check("mimhid_hid_node_config.ep_in", (long)Marshal.OffsetOf<HidNodeConfig>("EpIn"));
 Check("mimhid_hid_node_config.ep_out", (long)Marshal.OffsetOf<HidNodeConfig>("EpOut"));
+if (new DeviceDescriptors().StructSize != 0) failures.Add("mimhid_device_descriptors: the binding fills struct_size");
+Check("mimhid_device_descriptors.size", Marshal.SizeOf<DeviceDescriptors>());
+Check("mimhid_device_descriptors.struct_size", (long)Marshal.OffsetOf<DeviceDescriptors>("StructSize"));
+Check("mimhid_device_descriptors.reserved", (long)Marshal.OffsetOf<DeviceDescriptors>("Reserved"));
+Check("mimhid_device_descriptors.device", (long)Marshal.OffsetOf<DeviceDescriptors>("Device"));
+Check("mimhid_device_descriptors.device_length", (long)Marshal.OffsetOf<DeviceDescriptors>("DeviceLength"));
+Check("mimhid_device_descriptors.configuration", (long)Marshal.OffsetOf<DeviceDescriptors>("Configuration"));
+Check("mimhid_device_descriptors.configuration_length", (long)Marshal.OffsetOf<DeviceDescriptors>("ConfigurationLength"));
+Check("mimhid_device_descriptors.bos", (long)Marshal.OffsetOf<DeviceDescriptors>("Bos"));
+Check("mimhid_device_descriptors.bos_length", (long)Marshal.OffsetOf<DeviceDescriptors>("BosLength"));
 Check("mimhid_physical_properties.size", Marshal.SizeOf<PhysicalProperties>());
 Check("mimhid_physical_properties.enabled", (long)Marshal.OffsetOf<PhysicalProperties>("Enabled"));
 Check("mimhid_physical_properties.minimum", (long)Marshal.OffsetOf<PhysicalProperties>("Minimum"));

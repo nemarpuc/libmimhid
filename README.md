@@ -5,8 +5,8 @@
 Send keyboard, mouse, gamepad, touchscreen, touchpad, pen, and media-key input
 from a PC to any USB host through a microcontroller board (Raspberry Pi Pico
 RP2040 / RP2350, Nordic nRF52840, STM32F4, or ESP32-S3) connected over a high-speed
-UART link. The target machine sees a standard USB composite HID device and needs
-no driver, no app, and no agent. Linux, Windows, and macOS hosts; usable from C,
+UART link. The target machine sees a standard USB composite device (HID, or any class
+you describe) and needs no driver, no app, and no agent. Linux, Windows, and macOS hosts; usable from C,
 C++, Python, C#, and Rust. MIT licensed.
 
 > Version 0.2.1. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
@@ -18,7 +18,10 @@ endpoints); the library validates the descriptor against the USB HID 1.11, HUT
 board, and keeps the report state machines (multi-touch contacts, key rollover,
 pointer deltas, pen tool transitions) bit-exact. The board holds its USB data
 lines at 0 V until your first configuration is committed, so no generic vendor
-or bootloader device ever appears on the target bus.
+or bootloader device ever appears on the target bus. The device does not have to
+be HID: `mimhid_node_open` presents interfaces of any class (bulk and interrupt
+endpoints, your own control rules), and `mimhid_device_set_descriptors` presents
+a whole device given as the bytes the target reads, a BOS descriptor included.
 
 Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which
 sends the same kind of input to an Android device over a plain USB cable using

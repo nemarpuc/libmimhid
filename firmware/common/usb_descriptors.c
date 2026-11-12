@@ -234,6 +234,34 @@ bool mimhid_walk_config(const mimhid_config_t* c, mimhid_layout_t* out) {
     if (out->count == 0 || cfg[4] != out->count)
         return false; // bNumInterfaces says what the walk found
 
+    // The BOS descriptor, if there is one (USB 3.2 9.6.2): a 5-byte header (bLength 5, type 0x0F,
+    // wTotalLength its own length, bNumDeviceCaps) and that many device capability descriptors, each
+    // at least 3 bytes (bLength, bDescriptorType 0x10, bDevCapabilityType) and inside the bytes. No
+    // capability is read beyond that. A host asks for a BOS only when bcdUSB is 0x0201 or more (USB
+    // 2.0 Link Power Management ECN; USB 3.2 9.6.2), so a BOS with a lower bcdUSB is a mistake.
+    if (c->bos.used) {
+        if (c->bos.recv != c->bos.total || c->bos.total < 5)
+            return false;
+        const uint8_t* b = c->bos_bytes;
+        const uint16_t blen = c->bos.total;
+        if (b[0] != 5 || b[1] != 0x0F || (uint16_t)(b[2] | (b[3] << 8)) != blen)
+            return false;
+        if ((uint16_t)(d[2] | (d[3] << 8)) < 0x0201)
+            return false;
+        uint16_t at = 5;
+        uint8_t caps = 0;
+        while (at < blen) {
+            const uint8_t cl = b[at];
+            if (cl < 3 || (uint32_t)at + cl > blen || b[at + 1] != 0x10)
+                return false;
+            at = (uint16_t)(at + cl);
+            if (++caps == 0)
+                return false; // 256 capabilities cannot be counted in a byte
+        }
+        if (caps != b[4])
+            return false;
+    }
+
     // A string is a complete descriptor of its own length (9.6.7), unless the board makes it.
     for (uint8_t i = 0; i < MIMHID_MAX_STRINGS; i++) {
         const mimhid_string_t* s = &c->string[i];
@@ -291,6 +319,13 @@ const uint8_t* mimhid_active_config_bytes(void) { return g_active.config_bytes; 
 // ---- TinyUSB callbacks ----
 
 uint8_t const* tud_descriptor_device_cb(void) { return g_active.device_bytes; }
+
+// The BOS descriptor of the active configuration, or NULL: TinyUSB stalls the request then (usbd.c,
+// process_control_request for TUSB_DESC_BOS), as it does with the default callback it replaces.
+// g_active is written by the USB side at COMMIT (mimhid_apply_config) and read here, by the USB
+// side's tud_task: one context, so a reader never sees it half written. A COMMIT that changes it
+// comes after a detach, which ends any transfer of it.
+uint8_t const* tud_descriptor_bos_cb(void) { return g_active.bos.used ? g_active.bos_bytes : NULL; }
 
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
     if (index >= g_active.device_bytes[17])
