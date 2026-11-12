@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "transport/link.hpp"
 
 #include <algorithm>
@@ -8,11 +8,11 @@
 #include <thread>
 #include <vector>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 Link::~Link() { close(); }
 
-OpenResult Link::open(const char* path) { return port_.open(path, MIMHID_BOOT_BAUD); }
+OpenResult Link::open(const char* path) { return port_.open(path, MIMUSB_BOOT_BAUD); }
 
 void Link::start(EventHandler handler) {
     handler_ = std::move(handler);
@@ -55,16 +55,16 @@ void Link::reader_loop() {
 
 void Link::handle_frame(const Frame& frame) {
     switch (frame.type) {
-    case MIMHID_T_ACK:
-    case MIMHID_T_NAK: {
-        const std::size_t need = frame.type == MIMHID_T_ACK ? 2U : 3U;
+    case MIMUSB_T_ACK:
+    case MIMUSB_T_NAK: {
+        const std::size_t need = frame.type == MIMUSB_T_ACK ? 2U : 3U;
         if (frame.length < need)
             break;
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (frame.payload[0] == pending_seq_ && frame.payload[1] == pending_type_ &&
             !reply_ready_) {
             reply_ready_ = true;
-            reply_nak_ = frame.type == MIMHID_T_NAK;
+            reply_nak_ = frame.type == MIMUSB_T_NAK;
             reply_code_ = reply_nak_ ? frame.payload[2] : 0;
             reply_data_length_ = 0;
             if (!reply_nak_) {
@@ -76,7 +76,7 @@ void Link::handle_frame(const Frame& frame) {
         }
         break;
     }
-    case MIMHID_T_EVENT: {
+    case MIMUSB_T_EVENT: {
         if (frame.length < 1)
             break;
         BoardEvent ev;
@@ -85,11 +85,11 @@ void Link::handle_frame(const Frame& frame) {
         if (ev.length > 0) {
             std::memcpy(ev.data.data(), &frame.payload[1], ev.length);
         }
-        if (ev.kind == MIMHID_EV_MOUNTED) {
+        if (ev.kind == MIMUSB_EV_MOUNTED) {
             ready_.store(true, std::memory_order_release);
             std::lock_guard<std::mutex> lock(state_mutex_);
             state_cv_.notify_all();
-        } else if (ev.kind == MIMHID_EV_UNMOUNTED) {
+        } else if (ev.kind == MIMUSB_EV_UNMOUNTED) {
             ready_.store(false, std::memory_order_release);
         }
         if (handler_)
@@ -98,7 +98,7 @@ void Link::handle_frame(const Frame& frame) {
     }
     default: {
         // A packet of the target on an OUT endpoint, as it came; not acknowledged.
-        if (frame.type > MIMHID_T_EP_OUT_BASE && frame.type <= MIMHID_T_EP_OUT_LAST) {
+        if (frame.type > MIMUSB_T_EP_OUT_BASE && frame.type <= MIMUSB_T_EP_OUT_LAST) {
             BoardEvent ev;
             ev.kind = frame.type;
             ev.length = frame.length;
@@ -116,13 +116,13 @@ void Link::handle_frame(const Frame& frame) {
 CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                             std::uint32_t timeout_ms, int attempts) {
     CommandResult result;
-    if (length + 1U > MIMHID_PROTO_MAX_PAYLOAD) {
+    if (length + 1U > MIMUSB_PROTO_MAX_PAYLOAD) {
         result.status = CommandStatus::io_error;
         return result;
     }
     std::lock_guard<std::mutex> cmd(cmd_mutex_);
-    std::uint8_t body[MIMHID_PROTO_MAX_PAYLOAD];
-    std::uint8_t frame[6 + MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t body[MIMUSB_PROTO_MAX_PAYLOAD];
+    std::uint8_t frame[6 + MIMUSB_PROTO_MAX_PAYLOAD];
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         pending_seq_ = ++seq_;
@@ -169,8 +169,8 @@ CommandResult Link::command(std::uint8_t type, const std::uint8_t* payload, std:
 }
 
 CommandResult Link::counters(bool reset, std::uint32_t timeout_ms, LinkCounters* out) {
-    const std::uint8_t flags[1] = {static_cast<std::uint8_t>(reset ? MIMHID_COUNTERS_F_RESET : 0)};
-    CommandResult result = command(MIMHID_T_COUNTERS, flags, 1, timeout_ms, 1);
+    const std::uint8_t flags[1] = {static_cast<std::uint8_t>(reset ? MIMUSB_COUNTERS_F_RESET : 0)};
+    CommandResult result = command(MIMUSB_T_COUNTERS, flags, 1, timeout_ms, 1);
     if (result.ok() && !decode_counters(result.data.data(), result.data_length, out))
         result.status = CommandStatus::io_error;
     return result;
@@ -182,14 +182,14 @@ CommandResult Link::connect(std::uint32_t timeout_ms) {
         0, // delay_ms_low: 0
         0  // delay_ms_high: 0
     };
-    return command(MIMHID_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
+    return command(MIMUSB_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
 }
 
 CommandResult Link::disconnect(std::uint32_t timeout_ms) {
     clear_ready();
     const std::uint8_t payload[3] = {1, // detach: 1
                                      0, 0};
-    return command(MIMHID_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
+    return command(MIMUSB_T_COMMIT, payload, sizeof(payload), timeout_ms, 1);
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -198,11 +198,11 @@ IoStatus Link::send_report(std::uint8_t endpoint_address, const std::uint8_t* re
                            std::size_t length, std::uint32_t stall_ms, std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;
-    if (length > MIMHID_PROTO_MAX_PAYLOAD)
+    if (length > MIMUSB_PROTO_MAX_PAYLOAD)
         return IoStatus::error;
-    std::uint8_t frame[6 + MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t frame[6 + MIMUSB_PROTO_MAX_PAYLOAD];
     const std::size_t n =
-        encode_frame(static_cast<std::uint8_t>(MIMHID_T_EP_IN_BASE | (endpoint_address & 0x0F)),
+        encode_frame(static_cast<std::uint8_t>(MIMUSB_T_EP_IN_BASE | (endpoint_address & 0x0F)),
                      report, length, frame);
     std::lock_guard<std::mutex> tx(tx_mutex_);
     return port_.write_all(frame, n, stall_ms, os_error);
@@ -215,16 +215,16 @@ IoStatus Link::send_control_reply(std::uint8_t token, std::uint8_t action, const
                                   std::int32_t* os_error) {
     if (failed())
         return IoStatus::closed;
-    if (length + 3U > MIMHID_PROTO_MAX_PAYLOAD)
+    if (length + 3U > MIMUSB_PROTO_MAX_PAYLOAD)
         return IoStatus::error;
-    std::uint8_t body[3 + MIMHID_PROTO_MAX_PAYLOAD];
-    std::uint8_t frame[6 + 3 + MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t body[3 + MIMUSB_PROTO_MAX_PAYLOAD];
+    std::uint8_t frame[6 + 3 + MIMUSB_PROTO_MAX_PAYLOAD];
     body[0] = 0; // a sequence number nobody waits for
     body[1] = token;
     body[2] = action;
     if (length != 0)
         std::memcpy(body + 3, data, length);
-    const std::size_t n = encode_frame(MIMHID_T_CONTROL_REPLY, body, length + 3U, frame);
+    const std::size_t n = encode_frame(MIMUSB_T_CONTROL_REPLY, body, length + 3U, frame);
     std::lock_guard<std::mutex> tx(tx_mutex_);
     return port_.write_all(frame, n, timeout_ms, os_error);
 }
@@ -236,4 +236,4 @@ bool Link::wait_ready(std::uint32_t timeout_ms) {
     return ready();
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

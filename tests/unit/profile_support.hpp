@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Helpers shared by the profile tests: field lookup and extraction in a serialized report,
  * descriptor searches, and the option sets several profile files start from. Test-only. */
 #pragma once
 
 #include "api/internal.hpp"
-#include "mimhid.h"
+#include "mimusb.h"
 #include "test.hpp"
 
 #include <algorithm>
@@ -14,9 +14,9 @@
 #include <initializer_list>
 #include <vector>
 
-namespace mimhid_test {
+namespace mimusb_test {
 
-inline std::uint64_t extract(const std::uint8_t* report, const mimhid::hid::FieldLayout& field) {
+inline std::uint64_t extract(const std::uint8_t* report, const mimusb::hid::FieldLayout& field) {
     std::uint64_t value = 0U;
     for (std::uint8_t bit = 0U; bit < field.bit_width; ++bit) {
         const std::size_t position = field.bit_offset + bit;
@@ -25,8 +25,8 @@ inline std::uint64_t extract(const std::uint8_t* report, const mimhid::hid::Fiel
     return value;
 }
 
-inline const mimhid::hid::FieldLayout* field(const mimhid_spec* spec,
-                                             const mimhid::hid::FieldSemantic semantic,
+inline const mimusb::hid::FieldLayout* field(const mimusb_spec* spec,
+                                             const mimusb::hid::FieldSemantic semantic,
                                              const std::uint16_t instance = 0U) {
     for (const auto& candidate : spec->layout.fields) {
         if (candidate.semantic == semantic && candidate.instance == instance)
@@ -51,8 +51,8 @@ inline bool has_sequence(const std::vector<std::uint8_t>& descriptor,
            descriptor.end();
 }
 
-inline mimhid_keyboard_options keyboard_options() {
-    mimhid_keyboard_options options{};
+inline mimusb_keyboard_options keyboard_options() {
+    mimusb_keyboard_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.reserved = 0U;
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
@@ -65,40 +65,40 @@ inline mimhid_keyboard_options keyboard_options() {
 // the input side of the descriptor must not change.
 template <typename Options>
 void check_battery_variant(Options options,
-                           mimhid_result(MIMHID_CALL* create)(const Options*, mimhid_spec**)) {
+                           mimusb_result(MIMUSB_CALL* create)(const Options*, mimusb_spec**)) {
     options.report_id = {1U, 1U, {0U, 0U, 0U}};
-    mimhid_spec* plain = nullptr;
-    MIMHID_CHECK(create(&options, &plain) == MIMHID_OK);
+    mimusb_spec* plain = nullptr;
+    MIMUSB_CHECK(create(&options, &plain) == MIMUSB_OK);
     options.enable_battery = 1U;
     options.battery.report_id = {1U, 2U, {0U, 0U, 0U}};
     options.battery.strength = {1, 100, 8U, {}};
-    mimhid_spec* spec = nullptr;
-    MIMHID_CHECK(create(&options, &spec) == MIMHID_OK);
+    mimusb_spec* spec = nullptr;
+    MIMUSB_CHECK(create(&options, &spec) == MIMUSB_OK);
     if (plain != nullptr && spec != nullptr) {
         // The input side is the plain descriptor without its closing End
         // Collection; the battery report is the 16 bytes before the new one.
-        MIMHID_CHECK(spec->descriptor.size() == plain->descriptor.size() + 16U);
-        MIMHID_CHECK(std::equal(plain->descriptor.begin(), plain->descriptor.end() - 1,
+        MIMUSB_CHECK(spec->descriptor.size() == plain->descriptor.size() + 16U);
+        MIMUSB_CHECK(std::equal(plain->descriptor.begin(), plain->descriptor.end() - 1,
                                 spec->descriptor.begin()));
-        MIMHID_CHECK(spec->layout.wire_bytes == plain->layout.wire_bytes);
-        MIMHID_CHECK(!plain->has_battery && spec->has_battery &&
+        MIMUSB_CHECK(spec->layout.wire_bytes == plain->layout.wire_bytes);
+        MIMUSB_CHECK(!plain->has_battery && spec->has_battery &&
                      spec->battery_layout.report_id == 2U && spec->battery_layout.wire_bytes == 2U);
-        mimhid_capability_manifest manifest{};
+        mimusb_capability_manifest manifest{};
         manifest.struct_size = static_cast<std::uint32_t>(sizeof(manifest));
-        MIMHID_CHECK(mimhid_spec_manifest(spec, &manifest) == MIMHID_OK);
-        MIMHID_CHECK(manifest.report_count == 2U && manifest.reports[0].report_id.value == 1U &&
+        MIMUSB_CHECK(mimusb_spec_manifest(spec, &manifest) == MIMUSB_OK);
+        MIMUSB_CHECK(manifest.report_count == 2U && manifest.reports[0].report_id.value == 1U &&
                      manifest.reports[1].report_id.enabled == 1U &&
                      manifest.reports[1].report_id.value == 2U &&
                      manifest.reports[1].wire_length == 2U);
-        MIMHID_CHECK(mimhid_spec_manifest(plain, &manifest) == MIMHID_OK);
-        MIMHID_CHECK(manifest.report_count == 1U);
+        MIMUSB_CHECK(mimusb_spec_manifest(plain, &manifest) == MIMUSB_OK);
+        MIMUSB_CHECK(manifest.report_count == 1U);
     }
-    mimhid_spec_release(plain);
-    mimhid_spec_release(spec);
+    mimusb_spec_release(plain);
+    mimusb_spec_release(spec);
 }
 
-inline mimhid_touchscreen_options touchscreen_options() {
-    mimhid_touchscreen_options options{};
+inline mimusb_touchscreen_options touchscreen_options() {
+    mimusb_touchscreen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.maximum_contacts = 3U;
@@ -121,8 +121,8 @@ inline mimhid_touchscreen_options touchscreen_options() {
     return options;
 }
 
-inline mimhid_touchpad_options touchpad_options() {
-    mimhid_touchpad_options options{};
+inline mimusb_touchpad_options touchpad_options() {
+    mimusb_touchpad_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.report_id = {0U, 0U, {0U, 0U, 0U}};
     options.maximum_contacts = 3U;
@@ -146,4 +146,4 @@ inline mimhid_touchpad_options touchpad_options() {
     return options;
 }
 
-} // namespace mimhid_test
+} // namespace mimusb_test

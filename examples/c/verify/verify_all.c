@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Runs the touch, keyboard, and mouse profiles against one real target, first
  * one at a time so each effect is easy to attribute, then interleaved so fast
  * it looks simultaneous on screen.
  *
  * "Simultaneous" here means interleaved from a single thread, not concurrent
- * OS threads: mimhid.h requires the caller to serialize all calls on a Device
+ * OS threads: mimusb.h requires the caller to serialize all calls on a Device
  * and its Nodes (one domain), so this program never calls
  * into the library from more than one thread at a time. Interleaving single
  * small steps across all three nodes many times a second is indistinguishable
@@ -25,7 +25,7 @@
 /* ---- Shared per-node state, advanced one small step per call ---- */
 
 typedef struct {
-    mimhid_node* node;
+    mimusb_node* node;
     int32_t center_x;
     int32_t center_y;
     int32_t radius;
@@ -36,7 +36,7 @@ typedef struct {
 } touch_circle_state;
 
 typedef struct {
-    mimhid_node* node;
+    mimusb_node* node;
     double angle;
     double step_angle;
     double radius;
@@ -45,7 +45,7 @@ typedef struct {
 } mouse_circle_state;
 
 typedef struct {
-    mimhid_node* node;
+    mimusb_node* node;
     const char* message;
     size_t index;
     int key_is_down;
@@ -73,12 +73,12 @@ static int touch_circle_step(touch_circle_state* state) {
     state->angle += state->step_angle;
     const int32_t x = state->center_x + (int32_t)(state->radius * cos(state->angle));
     const int32_t y = state->center_y + (int32_t)(state->radius * sin(state->angle));
-    mimhid_result result =
-        mimhid_touchscreen_contact(state->node, state->contact_id, 1U, x, y, NULL);
-    if (result != MIMHID_OK)
+    mimusb_result result =
+        mimusb_touchscreen_contact(state->node, state->contact_id, 1U, x, y, NULL);
+    if (result != MIMUSB_OK)
         return verify_fail("touch move", result);
     result = verify_submit(state->node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit touch move", result);
     state->down = 1;
     return 0;
@@ -87,12 +87,12 @@ static int touch_circle_step(touch_circle_state* state) {
 static int touch_circle_lift(touch_circle_state* state) {
     if (!state->down)
         return 0;
-    mimhid_result result = mimhid_touchscreen_contact(state->node, state->contact_id, 0U,
+    mimusb_result result = mimusb_touchscreen_contact(state->node, state->contact_id, 0U,
                                                       state->center_x, state->center_y, NULL);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("touch up", result);
     result = verify_submit(state->node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit touch up", result);
     state->down = 0;
     return 0;
@@ -108,11 +108,11 @@ static int mouse_circle_step(mouse_circle_state* state) {
     state->prev_y += dy;
     if (dx == 0 && dy == 0)
         return 0;
-    mimhid_result result = mimhid_mouse_move(state->node, dx, dy);
-    if (result != MIMHID_OK)
+    mimusb_result result = mimusb_mouse_move(state->node, dx, dy);
+    if (result != MIMUSB_OK)
         return verify_fail("mouse move", result);
     result = verify_submit(state->node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit mouse move", result);
     return 0;
 }
@@ -123,11 +123,11 @@ static int mouse_circle_step(mouse_circle_state* state) {
  * message when it reaches the end. Returns 0 on success. */
 static int keyboard_typing_step(keyboard_typing_state* state) {
     if (state->key_is_down) {
-        mimhid_result result = mimhid_keyboard_key(state->node, state->current_usage, 0U);
-        if (result != MIMHID_OK)
+        mimusb_result result = mimusb_keyboard_key(state->node, state->current_usage, 0U);
+        if (result != MIMUSB_OK)
             return verify_fail("key up", result);
         result = verify_submit(state->node);
-        if (result != MIMHID_OK)
+        if (result != MIMUSB_OK)
             return verify_fail("submit key up", result);
         state->key_is_down = 0;
         return 0;
@@ -141,11 +141,11 @@ static int keyboard_typing_step(keyboard_typing_state* state) {
     const uint16_t usage = usage_for_char(c);
     if (usage == 0)
         return 0; /* Silently skip characters this small demo does not map. */
-    mimhid_result result = mimhid_keyboard_key(state->node, usage, 1U);
-    if (result != MIMHID_OK)
+    mimusb_result result = mimusb_keyboard_key(state->node, usage, 1U);
+    if (result != MIMUSB_OK)
         return verify_fail("key down", result);
     result = verify_submit(state->node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit key down", result);
     state->current_usage = usage;
     state->key_is_down = 1;
@@ -154,7 +154,7 @@ static int keyboard_typing_step(keyboard_typing_state* state) {
 
 /* ---- One-profile-at-a-time phases ---- */
 
-static int phase_touch_circle(mimhid_node* touch_node, int seconds) {
+static int phase_touch_circle(mimusb_node* touch_node, int seconds) {
     printf("-- touch: drawing circles on screen for %d seconds --\n", seconds);
     touch_circle_state state = {touch_node, 16000, 16000, 6000, 0.0, 2.0 * M_PI / 30.0, 0U, 0};
     const int steps = seconds * 1000 / 40;
@@ -166,7 +166,7 @@ static int phase_touch_circle(mimhid_node* touch_node, int seconds) {
     return touch_circle_lift(&state);
 }
 
-static int phase_keyboard_hello(mimhid_node* keyboard_node, int repeats) {
+static int phase_keyboard_hello(mimusb_node* keyboard_node, int repeats) {
     printf("-- keyboard: typing \"hello world\" %d time(s) --\n", repeats);
     keyboard_typing_state state = {keyboard_node, "hello world ", 0, 0, 0};
     /* Two report submissions (down, then up) per character. */
@@ -177,17 +177,17 @@ static int phase_keyboard_hello(mimhid_node* keyboard_node, int repeats) {
         verify_sleep_ms(70);
     }
     if (state.key_is_down) {
-        mimhid_result result = mimhid_keyboard_key(keyboard_node, state.current_usage, 0U);
-        if (result != MIMHID_OK)
+        mimusb_result result = mimusb_keyboard_key(keyboard_node, state.current_usage, 0U);
+        if (result != MIMUSB_OK)
             return verify_fail("key up", result);
         result = verify_submit(keyboard_node);
-        if (result != MIMHID_OK)
+        if (result != MIMUSB_OK)
             return verify_fail("submit key up", result);
     }
     return 0;
 }
 
-static int phase_mouse_circle(mimhid_node* mouse_node, int seconds) {
+static int phase_mouse_circle(mimusb_node* mouse_node, int seconds) {
     printf("-- mouse: moving the cursor in circles for %d seconds --\n", seconds);
     printf("   (many touch-first targets show no visible pointer; a clean run with no error\n"
            "   below is still useful evidence even with nothing visible)\n");
@@ -203,8 +203,8 @@ static int phase_mouse_circle(mimhid_node* mouse_node, int seconds) {
 
 /* ---- All three interleaved ---- */
 
-static int phase_all_at_once(mimhid_node* touch_node, mimhid_node* keyboard_node,
-                             mimhid_node* mouse_node, int seconds) {
+static int phase_all_at_once(mimusb_node* touch_node, mimusb_node* keyboard_node,
+                             mimusb_node* mouse_node, int seconds) {
     printf("-- all three at once: touch circling, typing, and mouse circling --\n");
     touch_circle_state touch_state = {touch_node,        16000, 16000, 6000, 0.0,
                                       2.0 * M_PI / 60.0, 0U,    0};
@@ -225,88 +225,88 @@ static int phase_all_at_once(mimhid_node* touch_node, mimhid_node* keyboard_node
         verify_sleep_ms(40);
     }
     if (keyboard_state.key_is_down) {
-        mimhid_result result = mimhid_keyboard_key(keyboard_node, keyboard_state.current_usage, 0U);
-        if (result != MIMHID_OK)
+        mimusb_result result = mimusb_keyboard_key(keyboard_node, keyboard_state.current_usage, 0U);
+        if (result != MIMUSB_OK)
             return verify_fail("key up", result);
         result = verify_submit(keyboard_node);
-        if (result != MIMHID_OK)
+        if (result != MIMUSB_OK)
             return verify_fail("submit key up", result);
     }
     return touch_circle_lift(&touch_state);
 }
 
 int main(void) {
-    mimhid_device* device = NULL;
+    mimusb_device* device = NULL;
     if (verify_open_first_board(&device) != 0)
         return 1;
 
-    mimhid_touchscreen_options touchscreen_options;
+    mimusb_touchscreen_options touchscreen_options;
     example_fill_touchscreen_options(&touchscreen_options);
     touchscreen_options.maximum_contacts = 1U;
     touchscreen_options.contacts_per_report = 1U;
-    touchscreen_options.contact_count = mimhid_integer_field_make(0, 1, 1U);
+    touchscreen_options.contact_count = mimusb_integer_field_make(0, 1, 1U);
 
-    mimhid_keyboard_options keyboard_options;
+    mimusb_keyboard_options keyboard_options;
     example_fill_keyboard_options(&keyboard_options);
 
-    mimhid_mouse_options mouse_options;
+    mimusb_mouse_options mouse_options;
     example_fill_mouse_options(&mouse_options);
 
-    mimhid_spec* touch_spec = NULL;
-    mimhid_spec* keyboard_spec = NULL;
-    mimhid_spec* mouse_spec = NULL;
-    mimhid_node* touch_node = NULL;
-    mimhid_node* keyboard_node = NULL;
-    mimhid_node* mouse_node = NULL;
+    mimusb_spec* touch_spec = NULL;
+    mimusb_spec* keyboard_spec = NULL;
+    mimusb_spec* mouse_spec = NULL;
+    mimusb_node* touch_node = NULL;
+    mimusb_node* keyboard_node = NULL;
+    mimusb_node* mouse_node = NULL;
     int exit_code = 0;
-    mimhid_result result;
+    mimusb_result result;
 
-    result = mimhid_spec_create_touchscreen(&touchscreen_options, &touch_spec);
-    if (result != MIMHID_OK) {
+    result = mimusb_spec_create_touchscreen(&touchscreen_options, &touch_spec);
+    if (result != MIMUSB_OK) {
         exit_code = verify_fail("touchscreen spec create", result);
         goto cleanup;
     }
-    result = mimhid_spec_create_keyboard(&keyboard_options, &keyboard_spec);
-    if (result != MIMHID_OK) {
+    result = mimusb_spec_create_keyboard(&keyboard_options, &keyboard_spec);
+    if (result != MIMUSB_OK) {
         exit_code = verify_fail("keyboard spec create", result);
         goto cleanup;
     }
-    result = mimhid_spec_create_mouse(&mouse_options, &mouse_spec);
-    if (result != MIMHID_OK) {
+    result = mimusb_spec_create_mouse(&mouse_options, &mouse_spec);
+    if (result != MIMUSB_OK) {
         exit_code = verify_fail("mouse spec create", result);
         goto cleanup;
     }
 
     /* One batch, so the board enumerates once for all three Nodes. */
     {
-        mimhid_commit_timeouts timeouts;
+        mimusb_commit_timeouts timeouts;
         example_fill_commit_timeouts(&timeouts);
-        mimhid_hid_node_config touch_config;
+        mimusb_hid_node_config touch_config;
         example_fill_node_config(&touch_config, 0);
-        mimhid_hid_node_config keyboard_config;
+        mimusb_hid_node_config keyboard_config;
         example_fill_node_config(&keyboard_config, 1);
-        mimhid_hid_node_config mouse_config;
+        mimusb_hid_node_config mouse_config;
         example_fill_node_config(&mouse_config, 2);
 
-        mimhid_device_batch_begin(device);
-        if ((result = mimhid_node_open_profile(device, touch_spec, &touch_config, &timeouts,
-                                               &touch_node)) != MIMHID_OK) {
+        mimusb_device_batch_begin(device);
+        if ((result = mimusb_node_open_profile(device, touch_spec, &touch_config, &timeouts,
+                                               &touch_node)) != MIMUSB_OK) {
             exit_code = verify_fail("touchscreen node open", result);
             goto cleanup;
         }
-        if ((result = mimhid_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
-                                               &keyboard_node)) != MIMHID_OK) {
+        if ((result = mimusb_node_open_profile(device, keyboard_spec, &keyboard_config, &timeouts,
+                                               &keyboard_node)) != MIMUSB_OK) {
             exit_code = verify_fail("keyboard node open", result);
             goto cleanup;
         }
-        if ((result = mimhid_node_open_profile(device, mouse_spec, &mouse_config, &timeouts,
-                                               &mouse_node)) != MIMHID_OK) {
+        if ((result = mimusb_node_open_profile(device, mouse_spec, &mouse_config, &timeouts,
+                                               &mouse_node)) != MIMUSB_OK) {
             exit_code = verify_fail("mouse node open", result);
             goto cleanup;
         }
-        if ((result = mimhid_device_batch_end(device, &timeouts)) != MIMHID_OK ||
-            (result = mimhid_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS)) !=
-                MIMHID_OK) {
+        if ((result = mimusb_device_batch_end(device, &timeouts)) != MIMUSB_OK ||
+            (result = mimusb_device_wait_ready(device, EXAMPLE_RECONNECT_TIMEOUT_MS)) !=
+                MIMUSB_OK) {
             exit_code = verify_fail("enumeration", result);
             goto cleanup;
         }
@@ -336,12 +336,12 @@ int main(void) {
 
 cleanup:
     if (touch_spec != NULL)
-        mimhid_spec_release(touch_spec);
+        mimusb_spec_release(touch_spec);
     if (keyboard_spec != NULL)
-        mimhid_spec_release(keyboard_spec);
+        mimusb_spec_release(keyboard_spec);
     if (mouse_spec != NULL)
-        mimhid_spec_release(mouse_spec);
+        mimusb_spec_release(mouse_spec);
     if (device != NULL)
-        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+        mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return exit_code;
 }

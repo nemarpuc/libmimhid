@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Require an SPDX-License-Identifier and copyright line in every source file.
 
 The repository root LICENSE covers the whole tree, but a single file copied out
@@ -21,7 +21,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SPDX_LINE = "SPDX-License-Identifier: MIT"
-COPYRIGHT_LINE = "Copyright (c) 2026 libmimhid contributors"
+COPYRIGHT_LINE = "Copyright (c) 2026 libmimusb contributors"
 
 # Verbatim third-party build files kept in the repository carry their own
 # upstream SPDX identifier and copyright line.

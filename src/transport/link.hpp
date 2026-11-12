@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* The running connection to a board: a reader thread, acknowledged commands, report frames and
  * board events (the frame format is frame.hpp; finding the board and the line rate is
  * handshaker.hpp). It knows nothing about HID; the layers above give it bytes. */
 #pragma once
 
-#include "mimhid_proto.h"
+#include "mimusb_proto.h"
 #include "transport/frame.hpp"
 #include "transport/serial_port.hpp"
 
@@ -17,7 +17,7 @@
 #include <mutex>
 #include <thread>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 enum class CommandStatus : std::uint8_t { ack, nak, timeout, closed, io_error, short_write };
 
@@ -33,13 +33,13 @@ struct CommandResult {
     operator bool() const noexcept { return status == CommandStatus::ack; }
 };
 
-// kind is a MIMHID_EV_* value, or for a packet of the target on an OUT endpoint the type of its
-// frame, MIMHID_T_EP_OUT_BASE | the endpoint number (data holds the packet, length may be 0).
+// kind is a MIMUSB_EV_* value, or for a packet of the target on an OUT endpoint the type of its
+// frame, MIMUSB_T_EP_OUT_BASE | the endpoint number (data holds the packet, length may be 0).
 struct BoardEvent {
     std::uint8_t kind{};
     std::size_t length{};
     // Not zeroed: length says what is in it.
-    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> data;
+    std::array<std::uint8_t, MIMUSB_PROTO_MAX_PAYLOAD> data;
 };
 
 class Link final {
@@ -113,4 +113,4 @@ class Link final {
     std::array<std::uint8_t, 16> reply_data_{};
 };
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

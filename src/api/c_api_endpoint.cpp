@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
- * Public C ABI: the endpoints of a Node opened with mimhid_node_open (writing to an IN endpoint,
+ * Public C ABI: the endpoints of a Node opened with mimusb_node_open (writing to an IN endpoint,
  * the Halt feature, flushing, the policy of the board's queue), and the wait policy's count.
  */
 
@@ -11,24 +11,24 @@
 #include <array>
 #include <chrono>
 
-namespace tr = mimhid::transport;
+namespace tr = mimusb::transport;
 
-using mimhid::detail::command_error;
-using mimhid::detail::EndpointRuntime;
-using mimhid::detail::kCommandAttempts;
-using mimhid::detail::public_node_id;
-using mimhid::detail::require_timeout;
-using mimhid::detail::set_error;
+using mimusb::detail::command_error;
+using mimusb::detail::EndpointRuntime;
+using mimusb::detail::kCommandAttempts;
+using mimusb::detail::public_node_id;
+using mimusb::detail::require_timeout;
+using mimusb::detail::set_error;
 
 namespace {
 
 enum class Direction { none, in, out };
 
 // The direction of `address` among the endpoints of the Node: none when it has no such endpoint.
-Direction endpoint_direction(const mimhid_node* node, const std::uint8_t address) {
+Direction endpoint_direction(const mimusb_node* node, const std::uint8_t address) {
     if (node->generic) {
-        for (const mimhid::detail::GenericInterface& itf : node->interfaces) {
-            for (const mimhid_usb_endpoint& ep : itf.endpoints) {
+        for (const mimusb::detail::GenericInterface& itf : node->interfaces) {
+            for (const mimusb_usb_endpoint& ep : itf.endpoints) {
                 if (ep.address == address)
                     return (address & 0x80U) != 0U ? Direction::in : Direction::out;
             }
@@ -42,7 +42,7 @@ Direction endpoint_direction(const mimhid_node* node, const std::uint8_t address
     return Direction::none;
 }
 
-EndpointRuntime* runtime_of(mimhid_node* node, const std::uint8_t address) {
+EndpointRuntime* runtime_of(mimusb_node* node, const std::uint8_t address) {
     for (EndpointRuntime& ep : node->in_endpoints) {
         if (ep.address == address)
             return &ep;
@@ -51,34 +51,34 @@ EndpointRuntime* runtime_of(mimhid_node* node, const std::uint8_t address) {
 }
 
 // The checks every endpoint call starts with.
-mimhid_result check_call(mimhid_node* node, const char* field) {
+mimusb_result check_call(mimusb_node* node, const char* field) {
     if (node == nullptr || node->closed || node->device == nullptr ||
         node->device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, field, "A live Node is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, field, "A live Node is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result link_ready(mimhid_node* node, const char* field) {
-    mimhid_device* device = node->device;
+mimusb_result link_ready(mimusb_node* node, const char* field) {
+    mimusb_device* device = node->device;
     if (device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, field, "The serial link is gone.", 0, 0,
+        set_error(MIMUSB_ERR_NO_DEVICE, field, "The serial link is gone.", 0, 0,
                   public_node_id(node));
-        return MIMHID_ERR_NO_DEVICE;
+        return MIMUSB_ERR_NO_DEVICE;
     }
     if (node->staged_only || device->batch_open ||
         device->reconfiguring.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, field,
+        set_error(MIMUSB_ERR_BUSY, field,
                   "The board has not applied this Node's configuration yet (batch open or "
                   "re-enumeration in progress).",
                   0, 0, public_node_id(node));
-        return MIMHID_ERR_BUSY;
+        return MIMUSB_ERR_BUSY;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-void reset_count(mimhid_device* device, EndpointRuntime* ep) {
+void reset_count(mimusb_device* device, EndpointRuntime* ep) {
     {
         std::lock_guard<std::mutex> lock(device->endpoint_mutex);
         ep->outstanding = 0U;
@@ -87,27 +87,27 @@ void reset_count(mimhid_device* device, EndpointRuntime* ep) {
     device->endpoint_cv.notify_all();
 }
 
-mimhid_result stall_command(mimhid_node* node, const std::uint8_t address, const bool stall,
+mimusb_result stall_command(mimusb_node* node, const std::uint8_t address, const bool stall,
                             const std::uint32_t timeout_ms, const char* field) {
-    mimhid::detail::clear_error();
-    if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
+    mimusb::detail::clear_error();
+    if (const mimusb_result r = check_call(node, field); r != MIMUSB_OK)
         return r;
     if (endpoint_direction(node, address) == Direction::none) {
-        set_error(MIMHID_ERR_PARAM, field, "The address is not an endpoint of this Node.", 0, 0,
+        set_error(MIMUSB_ERR_PARAM, field, "The address is not an endpoint of this Node.", 0, 0,
                   public_node_id(node), 0, address, 0);
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(timeout_ms, "control_timeout_ms"); t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(timeout_ms, "control_timeout_ms"); t != MIMUSB_OK)
         return t;
-    if (const mimhid_result r = link_ready(node, field); r != MIMHID_OK)
+    if (const mimusb_result r = link_ready(node, field); r != MIMUSB_OK)
         return r;
-    mimhid_device* device = node->device;
+    mimusb_device* device = node->device;
     const std::uint8_t payload[2] = {address, stall ? std::uint8_t{1} : std::uint8_t{0}};
-    const mimhid_result r = command_error(
-        device->link.command(MIMHID_T_EP_STALL, payload, sizeof(payload), timeout_ms,
+    const mimusb_result r = command_error(
+        device->link.command(MIMUSB_T_EP_STALL, payload, sizeof(payload), timeout_ms,
                              kCommandAttempts),
-        field, "The board did not accept the request.", MIMHID_T_EP_STALL, public_node_id(node));
-    if (r == MIMHID_OK) {
+        field, "The board did not accept the request.", MIMUSB_T_EP_STALL, public_node_id(node));
+    if (r == MIMUSB_OK) {
         if (EndpointRuntime* ep = runtime_of(node, address))
             reset_count(device, ep);
     }
@@ -116,12 +116,12 @@ mimhid_result stall_command(mimhid_node* node, const std::uint8_t address, const
 
 } // namespace
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
 // The depth of the queue of a HID interface's IN endpoint: the least any live Node on it set.
-std::uint8_t hid_interface_depth(mimhid_device* device, const std::uint8_t iface) {
+std::uint8_t hid_interface_depth(mimusb_device* device, const std::uint8_t iface) {
     std::uint8_t depth = 0U;
-    for (const mimhid_node* node : live_nodes(device)) {
+    for (const mimusb_node* node : live_nodes(device)) {
         if (node->generic || node->iface != iface)
             continue;
         const std::uint8_t own = node->config.ep_in.policy.depth;
@@ -130,15 +130,15 @@ std::uint8_t hid_interface_depth(mimhid_device* device, const std::uint8_t iface
     return depth;
 }
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
 // The runtime of the IN endpoint a Node writes to: its own; for Nodes sharing a profile interface
 // with the wait policy the one the first live Node of it keeps (the board has one queue for the
 // interface, and its count of finished transfers goes to every Node's runtime of that address,
 // which each clamp at zero).
-EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
+EndpointRuntime* write_runtime(mimusb_node* node, const std::uint8_t address) {
     EndpointRuntime* own = nullptr;
     for (EndpointRuntime& ep : node->in_endpoints) {
         if (ep.address == address)
@@ -146,8 +146,8 @@ EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
     }
     // Only a wait policy counts transfers, so only it needs the one count of the interface; the
     // other policies keep the report path free of the walk (and its lock).
-    if (own != nullptr && !node->generic && own->policy.on_full == MIMHID_FULL_WAIT) {
-        for (mimhid_node* other : live_nodes(node->device)) {
+    if (own != nullptr && !node->generic && own->policy.on_full == MIMUSB_FULL_WAIT) {
+        for (mimusb_node* other : live_nodes(node->device)) {
             if (!other->generic && other->iface == node->iface && !other->in_endpoints.empty())
                 return &other->in_endpoints.front();
         }
@@ -155,28 +155,28 @@ EndpointRuntime* write_runtime(mimhid_node* node, const std::uint8_t address) {
     return own;
 }
 
-// One transfer to an IN endpoint in frames, as mimhid_node_endpoint_write describes; the shared
+// One transfer to an IN endpoint in frames, as mimusb_node_endpoint_write describes; the shared
 // path of the generic Nodes and of the reports of the profile Nodes.
-mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
+mimusb_result endpoint_write(mimusb_device* device, const std::uint16_t node_id,
                              EndpointRuntime* ep, const std::uint8_t address,
                              // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                              const std::uint8_t* data, const std::size_t length,
                              const std::uint32_t timeout_ms) {
-    const bool waits = ep->policy.on_full == MIMHID_FULL_WAIT;
+    const bool waits = ep->policy.on_full == MIMUSB_FULL_WAIT;
     if (waits && timeout_ms == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "timeout_ms",
+        set_error(MIMUSB_ERR_UNSET_FIELD, "timeout_ms",
                   "A write to an endpoint with the wait policy needs a timeout.");
-        return MIMHID_ERR_UNSET_FIELD;
+        return MIMUSB_ERR_UNSET_FIELD;
     }
 
     // An isochronous transfer is one packet, sent in one frame of the bus (USB 2.0 5.6): the
     // library does not split it into several, which would be several frames of the bus.
     if (ep->isochronous && length > ep->max_packet_size) {
-        set_error(MIMHID_ERR_PARAM, "node.endpoint.write",
+        set_error(MIMUSB_ERR_PARAM, "node.endpoint.write",
                   "An isochronous transfer is one packet: at most the endpoint's packet size "
                   "(the largest of its settings); that size is in length.",
                   0, 0, node_id, 0, address, ep->max_packet_size);
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     // Frames: a multiple of the packet size each, except the last, so the target sees the
     // transfer it would have seen whole. The library adds no zero-length packet.
@@ -185,10 +185,10 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
     const std::size_t chunk = largest >= packet ? largest - largest % packet : largest;
     const std::size_t frames = length == 0U ? 1U : (length + chunk - 1U) / chunk;
     if (frames > 65535U) {
-        set_error(MIMHID_ERR_OVERFLOW, "node.endpoint.write",
+        set_error(MIMUSB_ERR_OVERFLOW, "node.endpoint.write",
                   "The transfer needs more than 65535 frames.", 0, 0, node_id, 0, 65535U,
                   static_cast<std::uint32_t>(std::min<std::size_t>(frames, 0xFFFFFFFFU)));
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
@@ -204,14 +204,14 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
             const std::uint32_t depth = ep->policy.depth;
             while (ep->epoch == epoch && ep->outstanding >= depth) {
                 if (device->link.failed()) {
-                    set_error(MIMHID_ERR_NO_DEVICE, "node.endpoint.write",
+                    set_error(MIMUSB_ERR_NO_DEVICE, "node.endpoint.write",
                               "The serial link is gone.", 0, 0, node_id);
-                    return MIMHID_ERR_NO_DEVICE;
+                    return MIMUSB_ERR_NO_DEVICE;
                 }
                 const auto now = std::chrono::steady_clock::now();
                 if (now >= deadline) {
-                    const mimhid_result r =
-                        sent_any ? MIMHID_ERR_SHORT_TRANSFER : MIMHID_ERR_TIMEOUT;
+                    const mimusb_result r =
+                        sent_any ? MIMUSB_ERR_SHORT_TRANSFER : MIMUSB_ERR_TIMEOUT;
                     set_error(r, "node.endpoint.write",
                               sent_any ? "The wait ended after some frames of the transfer had "
                                          "been sent; the target gets a short transfer."
@@ -225,7 +225,7 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
                     lock, std::min(deadline, now + std::chrono::milliseconds(50)));
             }
             if (ep->epoch != epoch) {
-                const mimhid_result r = sent_any ? MIMHID_ERR_SHORT_TRANSFER : MIMHID_ERR_BUSY;
+                const mimusb_result r = sent_any ? MIMUSB_ERR_SHORT_TRANSFER : MIMUSB_ERR_BUSY;
                 set_error(r, "node.endpoint.write",
                           "The endpoint was flushed, stalled, reconfigured or unmounted while "
                           "the write waited; the rest was not sent.",
@@ -250,17 +250,17 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
             if (ep->epoch == epoch && ep->outstanding > 0U)
                 --ep->outstanding;
         }
-        mimhid_result r = MIMHID_ERR_IO;
+        mimusb_result r = MIMUSB_ERR_IO;
         switch (status) {
         case tr::IoStatus::timeout:
-            r = sent_any ? MIMHID_ERR_SHORT_TRANSFER : MIMHID_ERR_TIMEOUT;
+            r = sent_any ? MIMUSB_ERR_SHORT_TRANSFER : MIMUSB_ERR_TIMEOUT;
             break;
         case tr::IoStatus::short_write:
-            r = MIMHID_ERR_SHORT_TRANSFER;
+            r = MIMUSB_ERR_SHORT_TRANSFER;
             break;
         case tr::IoStatus::closed:
-            r = MIMHID_ERR_NO_DEVICE;
-            device->latched.store(MIMHID_ERR_NO_DEVICE, std::memory_order_release);
+            r = MIMUSB_ERR_NO_DEVICE;
+            device->latched.store(MIMUSB_ERR_NO_DEVICE, std::memory_order_release);
             break;
         default:
             break;
@@ -269,118 +269,118 @@ mimhid_result endpoint_write(mimhid_device* device, const std::uint16_t node_id,
                   os_error, 0, node_id, 0, address, static_cast<std::uint32_t>(offset));
         return r;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
 extern "C" {
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_write(mimhid_node* node, const uint8_t address,
+mimusb_result MIMUSB_CALL mimusb_node_endpoint_write(mimusb_node* node, const uint8_t address,
                                                      const uint8_t* data, const size_t length,
                                                      const uint32_t timeout_ms) try {
-    mimhid::detail::clear_error();
-    if (const mimhid_result r = check_call(node, "node.endpoint.write"); r != MIMHID_OK)
+    mimusb::detail::clear_error();
+    if (const mimusb_result r = check_call(node, "node.endpoint.write"); r != MIMUSB_OK)
         return r;
-    EndpointRuntime* ep = mimhid::detail::write_runtime(node, address);
+    EndpointRuntime* ep = mimusb::detail::write_runtime(node, address);
     if (ep == nullptr || (data == nullptr && length != 0U)) {
-        set_error(MIMHID_ERR_PARAM, "node.endpoint.write",
+        set_error(MIMUSB_ERR_PARAM, "node.endpoint.write",
                   "The address must be an IN endpoint of the Node; data is null only with length "
                   "0.",
                   0, 0, public_node_id(node), 0, address, 0);
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result r = link_ready(node, "node.endpoint.write"); r != MIMHID_OK)
+    if (const mimusb_result r = link_ready(node, "node.endpoint.write"); r != MIMUSB_OK)
         return r;
-    return mimhid::detail::endpoint_write(node->device, public_node_id(node), ep, address, data,
+    return mimusb::detail::endpoint_write(node->device, public_node_id(node), ep, address, data,
                                           length, timeout_ms);
 }
-MIMHID_C_RESULT_CATCH("node.endpoint.write")
+MIMUSB_C_RESULT_CATCH("node.endpoint.write")
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_stall(mimhid_node* node, const uint8_t address,
+mimusb_result MIMUSB_CALL mimusb_node_endpoint_stall(mimusb_node* node, const uint8_t address,
                                                      const uint32_t control_timeout_ms) try {
     return stall_command(node, address, true, control_timeout_ms, "node.endpoint.stall");
 }
-MIMHID_C_RESULT_CATCH("node.endpoint.stall")
+MIMUSB_C_RESULT_CATCH("node.endpoint.stall")
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_clear_stall(mimhid_node* node, const uint8_t address,
+mimusb_result MIMUSB_CALL mimusb_node_endpoint_clear_stall(mimusb_node* node, const uint8_t address,
                                                            const uint32_t control_timeout_ms) try {
     return stall_command(node, address, false, control_timeout_ms, "node.endpoint.clear_stall");
 }
-MIMHID_C_RESULT_CATCH("node.endpoint.clear_stall")
+MIMUSB_C_RESULT_CATCH("node.endpoint.clear_stall")
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-mimhid_result MIMHID_CALL mimhid_node_endpoint_flush(mimhid_node* node, const uint8_t address,
+mimusb_result MIMUSB_CALL mimusb_node_endpoint_flush(mimusb_node* node, const uint8_t address,
                                                      const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     const char* field = "node.endpoint.flush";
-    if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
+    if (const mimusb_result r = check_call(node, field); r != MIMUSB_OK)
         return r;
     EndpointRuntime* ep = runtime_of(node, address);
     if (ep == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field, "The address must be an IN endpoint of the Node.", 0, 0,
+        set_error(MIMUSB_ERR_PARAM, field, "The address must be an IN endpoint of the Node.", 0, 0,
                   public_node_id(node), 0, address, 0);
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    if (const mimhid_result r = link_ready(node, field); r != MIMHID_OK)
+    if (const mimusb_result r = link_ready(node, field); r != MIMUSB_OK)
         return r;
     const std::uint8_t payload[1] = {address};
-    const mimhid_result r = command_error(
-        node->device->link.command(MIMHID_T_EP_FLUSH, payload, sizeof(payload), control_timeout_ms,
+    const mimusb_result r = command_error(
+        node->device->link.command(MIMUSB_T_EP_FLUSH, payload, sizeof(payload), control_timeout_ms,
                                    kCommandAttempts),
-        field, "The board did not accept the request.", MIMHID_T_EP_FLUSH, public_node_id(node));
-    if (r == MIMHID_OK)
+        field, "The board did not accept the request.", MIMUSB_T_EP_FLUSH, public_node_id(node));
+    if (r == MIMUSB_OK)
         reset_count(node->device, ep);
     return r;
 }
-MIMHID_C_RESULT_CATCH("node.endpoint.flush")
+MIMUSB_C_RESULT_CATCH("node.endpoint.flush")
 
-mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(mimhid_node* node, const uint8_t address,
-                                                          const mimhid_endpoint_policy* policy,
+mimusb_result MIMUSB_CALL mimusb_node_endpoint_set_policy(mimusb_node* node, const uint8_t address,
+                                                          const mimusb_endpoint_policy* policy,
                                                           const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     const char* field = "node.endpoint.set_policy";
-    if (const mimhid_result r = check_call(node, field); r != MIMHID_OK)
+    if (const mimusb_result r = check_call(node, field); r != MIMUSB_OK)
         return r;
     if (policy == nullptr || endpoint_direction(node, address) != Direction::in) {
-        set_error(MIMHID_ERR_PARAM, field,
+        set_error(MIMUSB_ERR_PARAM, field,
                   "A policy and the address of an IN endpoint of the Node are required.", 0, 0,
                   public_node_id(node), 0, address, 0);
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (policy->on_full == 0U || policy->depth == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, field, "on_full and depth are required.");
-        return MIMHID_ERR_UNSET_FIELD;
+        set_error(MIMUSB_ERR_UNSET_FIELD, field, "on_full and depth are required.");
+        return MIMUSB_ERR_UNSET_FIELD;
     }
-    if (policy->on_full > MIMHID_FULL_WAIT) {
-        set_error(MIMHID_ERR_PARAM, field,
-                  "on_full is MIMHID_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.");
-        return MIMHID_ERR_PARAM;
+    if (policy->on_full > MIMUSB_FULL_WAIT) {
+        set_error(MIMUSB_ERR_PARAM, field,
+                  "on_full is MIMUSB_FULL_DROP_NEWEST, _DROP_OLDEST or _WAIT.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    mimhid_device* device = node->device;
+    mimusb_device* device = node->device;
     if (device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, field, "The serial link is gone.");
-        return MIMHID_ERR_NO_DEVICE;
+        set_error(MIMUSB_ERR_NO_DEVICE, field, "The serial link is gone.");
+        return MIMUSB_ERR_NO_DEVICE;
     }
     const bool live = device->configured && !device->batch_open && !node->staged_only &&
                       !device->reconfiguring.load(std::memory_order_acquire);
     if (node->generic) {
         EndpointRuntime* ep = runtime_of(node, address);
         if (live) {
-            const mimhid_result r = command_error(
+            const mimusb_result r = command_error(
                 device->link.command(
-                    MIMHID_T_EP_CONFIG,
+                    MIMUSB_T_EP_CONFIG,
                     std::array<std::uint8_t, 3>{address, policy->depth, policy->on_full}.data(), 3,
                     control_timeout_ms, kCommandAttempts),
-                field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
+                field, "The board did not accept the policy.", MIMUSB_T_EP_CONFIG,
                 public_node_id(node));
-            if (r != MIMHID_OK)
+            if (r != MIMUSB_OK)
                 return r;
         }
         {
@@ -391,27 +391,27 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(mimhid_node* node, con
         }
         device->endpoint_cv.notify_all();
         // The copy the composer reads at the next commit.
-        for (mimhid::detail::GenericInterface& itf : node->interfaces) {
-            for (mimhid_usb_endpoint& e : itf.endpoints) {
+        for (mimusb::detail::GenericInterface& itf : node->interfaces) {
+            for (mimusb_usb_endpoint& e : itf.endpoints) {
                 if (e.address == address)
                     e.policy = *policy;
             }
         }
         device->dirty = device->dirty || !live;
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
     // A profile Node: the interface's queue takes the least depth of its Nodes.
-    const mimhid_endpoint_policy previous = node->config.ep_in.policy;
+    const mimusb_endpoint_policy previous = node->config.ep_in.policy;
     node->config.ep_in.policy = *policy;
     if (live) {
-        const std::uint8_t depth = mimhid::detail::hid_interface_depth(device, node->iface);
+        const std::uint8_t depth = mimusb::detail::hid_interface_depth(device, node->iface);
         const std::uint8_t payload[3] = {address, depth, policy->on_full};
-        const mimhid_result r =
-            command_error(device->link.command(MIMHID_T_EP_CONFIG, payload, sizeof(payload),
+        const mimusb_result r =
+            command_error(device->link.command(MIMUSB_T_EP_CONFIG, payload, sizeof(payload),
                                                control_timeout_ms, kCommandAttempts),
-                          field, "The board did not accept the policy.", MIMHID_T_EP_CONFIG,
+                          field, "The board did not accept the policy.", MIMUSB_T_EP_CONFIG,
                           public_node_id(node));
-        if (r != MIMHID_OK) {
+        if (r != MIMUSB_OK) {
             node->config.ep_in.policy = previous; // the board keeps the policy it had
             return r;
         }
@@ -427,8 +427,8 @@ mimhid_result MIMHID_CALL mimhid_node_endpoint_set_policy(mimhid_node* node, con
     }
     device->endpoint_cv.notify_all();
     device->dirty = device->dirty || !live;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("node.endpoint.set_policy")
+MIMUSB_C_RESULT_CATCH("node.endpoint.set_policy")
 
 } // extern "C"

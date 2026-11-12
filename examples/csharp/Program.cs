@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-// Lists the boards mimhid_discover finds, using only caller-supplied choices.
-// mimhid_discover messages every serial port on the host, so run this only when
+// Copyright (c) 2026 libmimusb contributors
+// Lists the boards mimusb_discover finds, using only caller-supplied choices.
+// mimusb_discover messages every serial port on the host, so run this only when
 // that is acceptable. With no board attached it prints nothing and exits 0.
 using System.Runtime.InteropServices;
 using System.Text;
-using MimHid;
+using MimUsb;
 
 // The board fills a NUL-terminated string in a fixed buffer of this many bytes.
 static unsafe string Text(byte* raw, int capacity)

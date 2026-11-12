@@ -1,0 +1,12 @@
+prefix=@MIMUSB_PC_PREFIX@
+exec_prefix=${prefix}
+libdir=@MIMUSB_PC_LIBDIR@
+includedir=@MIMUSB_PC_INCLUDEDIR@
+
+Name: @MIMUSB_PC_NAME@
+Description: Host library for USB HID emulation through a UART-attached microcontroller board
+Version: @PROJECT_VERSION@
+URL: @PROJECT_HOMEPAGE_URL@
+Libs: -L${libdir} -l@MIMUSB_PC_LIBRARY_NAME@
+@MIMUSB_PC_LIBS_PRIVATE@
+Cflags: -I${includedir}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-#ifndef MIMHID_EP0_H
-#define MIMHID_EP0_H
+// Copyright (c) 2026 libmimusb contributors
+#ifndef MIMUSB_EP0_H
+#define MIMUSB_EP0_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,10 +26,10 @@
 // stack, counting in 64-byte steps, would not send. At 64 nothing changes.
 
 // The size the device descriptor announces; usb_descriptors.c sets it with the descriptor.
-void mimhid_ep0_set_size(uint8_t size);
+void mimusb_ep0_set_size(uint8_t size);
 
 // Interrupt side, from __wrap_dcd_event_handler before anything else: returns true when the
 // event was taken (a packet of a transfer that goes on), false when it goes on to the stack.
-bool mimhid_ep0_event(dcd_event_t const* event, bool in_isr);
+bool mimusb_ep0_event(dcd_event_t const* event, bool in_isr);
 
-#endif // MIMHID_EP0_H
+#endif // MIMUSB_EP0_H

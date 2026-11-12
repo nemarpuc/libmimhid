@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include <string.h>
 #include "tusb.h"
 // usbd.h declares dcd_int_handler too, which a family build's -Wredundant-decls turns into an error.
@@ -57,13 +57,13 @@ typedef struct {
     uint16_t length;      // ANSWER: the bytes it answers with now (at most capacity)
     uint16_t capacity;    // ANSWER: the answer memory reserved for it, from `offset`; never changes
     uint16_t answer_end;  // answer memory reserved by this rule and the ones before it
-    mimhid_desc_t d;      // ANSWER: the bytes the host announced with the rule and has sent
+    mimusb_desc_t d;      // ANSWER: the bytes the host announced with the rule and has sent
     uint8_t bm_mask;
     uint8_t bm_value;
     uint8_t request_mask;
     uint8_t request_value;
-    uint8_t action;       // MIMHID_RULE_*
-    uint8_t after;        // ASK: MIMHID_REPLY_STALL or MIMHID_REPLY_DROP
+    uint8_t action;       // MIMUSB_RULE_*
+    uint8_t after;        // ASK: MIMUSB_REPLY_STALL or MIMUSB_REPLY_DROP
     uint8_t endpoint;     // ANSWER_LAST_SENT: IN endpoint address
     uint8_t filter;       // ANSWER_LAST_SENT: only transfers whose first byte is `first`
     uint8_t first;
@@ -73,10 +73,10 @@ typedef struct {
 } rule_t;
 
 typedef struct {
-    rule_t rule[MIMHID_CONTROL_RULES];
+    rule_t rule[MIMUSB_CONTROL_RULES];
     uint8_t count;
     uint8_t dirty_slot;   // staged table: lowest slot of a rule changed since it equalled the active one
-    _Alignas(4) uint8_t answer[MIMHID_ANSWER_BYTES];
+    _Alignas(4) uint8_t answer[MIMUSB_ANSWER_BYTES];
 } rule_set_t;
 
 typedef struct {
@@ -96,9 +96,9 @@ static volatile uint8_t g_act;
 static volatile bool g_report_all;
 
 // What ANSWER_LAST_SENT rules keep: the last transfer started on their endpoint. Written by the USB
-// side when the generic driver starts a transfer (mimhid_control_sent_rules, from in_service in
+// side when the generic driver starts a transfer (mimusb_control_sent_rules, from in_service in
 // generic.c, which runs in the USB side's context: from tud_task through xfer callbacks and from
-// mimhid_usb_poll, never at once) and read by the USB side when the vendor callback starts the
+// mimusb_usb_poll, never at once) and read by the USB side when the vendor callback starts the
 // answer to GET_REPORT (also tud_task). One context writes and reads, so a reader never sees a
 // report half written. The interrupt does not read it: the answer is copied into g_answer.buf when
 // its setup stage is handled, and the controller is given the copy, so a transfer started while the
@@ -106,9 +106,9 @@ static volatile bool g_report_all;
 static struct {
     bool valid;
     uint16_t len;
-    _Alignas(4) uint8_t data[MIMHID_MAX_TRANSFER_BYTES];
-} g_sent[MIMHID_LAST_SENT_SLOTS];
-uint8_t mimhid_control_sent_head[16];
+    _Alignas(4) uint8_t data[MIMUSB_MAX_TRANSFER_BYTES];
+} g_sent[MIMUSB_LAST_SENT_SLOTS];
+uint8_t mimusb_control_sent_head[16];
 
 static note_t g_note[NOTE_SLOTS];
 static volatile uint8_t g_note_head; // the interrupt writes
@@ -152,7 +152,7 @@ static struct {
     uint8_t timeout_action;
     uint8_t slot;
     const uint8_t* src;
-    uint8_t buf[1 + MIMHID_CONTROL_DATA_MAX];
+    uint8_t buf[1 + MIMUSB_CONTROL_DATA_MAX];
 } g_answer;
 
 // The host's reply, written by the receive side. The token of the transfer being waited for is
@@ -162,7 +162,7 @@ static struct {
     uint8_t token;
     uint8_t action;
     uint16_t length;
-    uint8_t data[MIMHID_CONTROL_DATA_MAX];
+    uint8_t data[MIMUSB_CONTROL_DATA_MAX];
 } g_reply;
 static volatile uint8_t g_expect;
 
@@ -184,7 +184,7 @@ void __wrap_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     __real_dcd_edpt_stall(rhport, ep_addr);
 }
 
-void mimhid_control_set_single_context(bool single) {
+void mimusb_control_set_single_context(bool single) {
     g_single_context = single;
 }
 
@@ -211,7 +211,7 @@ CONTROL_FAST static int match_rule(const rule_set_t* set, const tusb_control_req
 }
 
 // ---- staging (USB side) ----
-void mimhid_control_reset(void) {
+void mimusb_control_reset(void) {
     rule_set_t* s = staged();
     s->count = 0;
     s->dirty_slot = 0;
@@ -219,15 +219,15 @@ void mimhid_control_reset(void) {
 
 static uint16_t get_u16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 
-uint8_t mimhid_control_stage(const uint8_t* p, uint16_t len) {
+uint8_t mimusb_control_stage(const uint8_t* p, uint16_t len) {
     if (len < 14)
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     rule_set_t* s = staged();
     const uint8_t index = p[0];
     if (index > s->count)
-        return MIMHID_NAK_PARAM; // the table is written in order
-    if (index >= MIMHID_CONTROL_RULES)
-        return MIMHID_NAK_OVERFLOW;
+        return MIMUSB_NAK_PARAM; // the table is written in order
+    if (index >= MIMUSB_CONTROL_RULES)
+        return MIMUSB_NAK_OVERFLOW;
     rule_t r;
     memset(&r, 0, sizeof(r));
     r.bm_mask = p[1];
@@ -242,28 +242,28 @@ uint8_t mimhid_control_stage(const uint8_t* p, uint16_t len) {
     // A value outside its mask never matches, which would only hide a mistake.
     if ((r.bm_value & ~r.bm_mask) || (r.request_value & ~r.request_mask) ||
         (r.value_value & ~r.value_mask) || (r.index_value & ~r.index_mask))
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     const uint16_t answer_before = index ? s->rule[index - 1].answer_end : 0;
     const uint8_t slots_before = index ? s->rule[index - 1].slots_end : 0;
     r.answer_end = answer_before;
     r.slots_end = slots_before;
     r.next = NONE;
     switch (r.action) {
-    case MIMHID_RULE_ANSWER: {
+    case MIMUSB_RULE_ANSWER: {
         if (len != 18)
-            return MIMHID_NAK_PARAM;
+            return MIMUSB_NAK_PARAM;
         // The data stage of a device-to-host request only: USB 2.0 9.3.1 (bit 7 of bmRequestType).
         if ((r.bm_mask & 0x80) == 0 || (r.bm_value & 0x80) == 0)
-            return MIMHID_NAK_PARAM;
+            return MIMUSB_NAK_PARAM;
         // The rule reserves `capacity` bytes of answer memory for as long as the table is active; it
         // starts with `length` of them, which the host sends with DESC_BEGIN and DESC_DATA, and
         // RULE_DATA may later set any length up to the capacity.
         const uint16_t capacity = get_u16(&p[14]);
         const uint16_t length = get_u16(&p[16]);
         if (length > capacity)
-            return MIMHID_NAK_PARAM;
-        if ((uint32_t)answer_before + capacity > MIMHID_ANSWER_BYTES)
-            return MIMHID_NAK_OVERFLOW;
+            return MIMUSB_NAK_PARAM;
+        if ((uint32_t)answer_before + capacity > MIMUSB_ANSWER_BYTES)
+            return MIMUSB_NAK_OVERFLOW;
         r.offset = answer_before;
         r.capacity = capacity;
         r.length = length;
@@ -272,38 +272,38 @@ uint8_t mimhid_control_stage(const uint8_t* p, uint16_t len) {
         r.answer_end = (uint16_t)(answer_before + capacity);
         break;
     }
-    case MIMHID_RULE_ANSWER_LAST_SENT:
+    case MIMUSB_RULE_ANSWER_LAST_SENT:
         if (len != 17)
-            return MIMHID_NAK_PARAM;
+            return MIMUSB_NAK_PARAM;
         if ((r.bm_mask & 0x80) == 0 || (r.bm_value & 0x80) == 0)
-            return MIMHID_NAK_PARAM; // device to host only, as ANSWER
+            return MIMUSB_NAK_PARAM; // device to host only, as ANSWER
         // An IN endpoint address: bit 7 set, bits 6..4 zero, a number (USB 2.0 9.6.6).
         if ((p[14] & 0x80) == 0 || (p[14] & 0x70) != 0 || (p[14] & 0x0F) == 0 || p[15] > 1)
-            return MIMHID_NAK_PARAM;
-        if (slots_before >= MIMHID_LAST_SENT_SLOTS)
-            return MIMHID_NAK_OVERFLOW;
+            return MIMUSB_NAK_PARAM;
+        if (slots_before >= MIMUSB_LAST_SENT_SLOTS)
+            return MIMUSB_NAK_OVERFLOW;
         r.endpoint = p[14];
         r.filter = p[15];
         r.first = p[16];
         r.slot = slots_before;
         r.slots_end = (uint8_t)(slots_before + 1);
         break;
-    case MIMHID_RULE_ASK:
+    case MIMUSB_RULE_ASK:
         if (len != 17)
-            return MIMHID_NAK_PARAM;
+            return MIMUSB_NAK_PARAM;
         r.timeout_ms = get_u16(&p[14]);
         r.after = p[16];
-        if (r.timeout_ms == 0 || r.timeout_ms > MIMHID_CONTROL_TIMEOUT_MAX ||
-            (r.after != MIMHID_REPLY_STALL && r.after != MIMHID_REPLY_DROP))
-            return MIMHID_NAK_PARAM;
+        if (r.timeout_ms == 0 || r.timeout_ms > MIMUSB_CONTROL_TIMEOUT_MAX ||
+            (r.after != MIMUSB_REPLY_STALL && r.after != MIMUSB_REPLY_DROP))
+            return MIMUSB_NAK_PARAM;
         break;
-    case MIMHID_RULE_ACCEPT:
-    case MIMHID_RULE_STALL:
+    case MIMUSB_RULE_ACCEPT:
+    case MIMUSB_RULE_STALL:
         if (len != 14)
-            return MIMHID_NAK_PARAM;
+            return MIMUSB_NAK_PARAM;
         break;
     default:
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     }
     // The rules after this one are forgotten, and with them their last-sent slots from this rule's
     // first slot on.
@@ -314,28 +314,28 @@ uint8_t mimhid_control_stage(const uint8_t* p, uint16_t len) {
     return 0;
 }
 
-bool mimhid_control_staged_answer(uint8_t index, mimhid_desc_t** desc, uint8_t** bytes) {
+bool mimusb_control_staged_answer(uint8_t index, mimusb_desc_t** desc, uint8_t** bytes) {
     rule_set_t* s = staged();
-    if (index >= s->count || s->rule[index].action != MIMHID_RULE_ANSWER)
+    if (index >= s->count || s->rule[index].action != MIMUSB_RULE_ANSWER)
         return false;
     *desc = &s->rule[index].d;
     *bytes = &s->answer[s->rule[index].offset];
     return true;
 }
 
-uint8_t mimhid_control_check(const mimhid_layout_t* layout, uint16_t count) {
+uint8_t mimusb_control_check(const mimusb_layout_t* layout, uint16_t count) {
     const rule_set_t* s = staged();
-    if (count == MIMHID_CONTROL_ALL)
+    if (count == MIMUSB_CONTROL_ALL)
         count = s->count;
     if (count > s->count)
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     for (uint16_t i = 0; i < count; i++) {
         const rule_t* r = &s->rule[i];
-        if (r->action == MIMHID_RULE_ANSWER && !(r->d.used && r->d.recv == r->d.total))
-            return MIMHID_NAK_STATE; // the bytes it answers with are not all here
-        if (r->action == MIMHID_RULE_ANSWER_LAST_SENT &&
-            layout->ep[1][r->endpoint & 0x0F].kind == MIMHID_EP_NONE)
-            return MIMHID_NAK_STATE; // not an IN endpoint of the configuration
+        if (r->action == MIMUSB_RULE_ANSWER && !(r->d.used && r->d.recv == r->d.total))
+            return MIMUSB_NAK_STATE; // the bytes it answers with are not all here
+        if (r->action == MIMUSB_RULE_ANSWER_LAST_SENT &&
+            layout->ep[1][r->endpoint & 0x0F].kind == MIMUSB_EP_NONE)
+            return MIMUSB_NAK_STATE; // not an IN endpoint of the configuration
     }
     return 0;
 }
@@ -368,7 +368,7 @@ CONTROL_FAST static void drop_held(void) {
 // is left to TinyUSB.
 CONTROL_FAST static bool is_interface_status(const tusb_control_request_t* r) {
     return r->bmRequestType == 0x81 && r->bRequest == TUSB_REQ_GET_STATUS && r->wValue == 0 &&
-           r->wLength == 2 && r->wIndex < mimhid_active_interfaces() && tud_mounted();
+           r->wLength == 2 && r->wIndex < mimusb_active_interfaces() && tud_mounted();
 }
 
 // Gives a request nothing holds to TinyUSB. An interface status is retyped as a vendor request, as
@@ -384,7 +384,7 @@ CONTROL_FAST static void pass_on(const dcd_event_t* event, bool in_isr) {
     g_answer.token = 0;
     g_answer.length = 2;
     g_answer.timeout_ms = 0;
-    g_answer.timeout_action = MIMHID_REPLY_STALL;
+    g_answer.timeout_action = MIMUSB_REPLY_STALL;
     g_answer.buf[1] = 0;
     g_answer.buf[2] = 0;
     g_answer.request = retyped.setup_received;
@@ -409,7 +409,7 @@ CONTROL_FAST static void start_rule_answer(const dcd_event_t* event, bool in_isr
     g_answer.token = token;
     g_answer.length = length;
     g_answer.timeout_ms = 0;
-    g_answer.timeout_action = MIMHID_REPLY_STALL;
+    g_answer.timeout_action = MIMUSB_REPLY_STALL;
     g_answer.slot = slot;
     g_answer.src = src;
     g_answer.request = retyped.setup_received;
@@ -420,7 +420,7 @@ CONTROL_FAST static void start_rule_answer(const dcd_event_t* event, bool in_isr
 }
 
 CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
-    if (mimhid_ep0_event(event, in_isr)) return;
+    if (mimusb_ep0_event(event, in_isr)) return;
     if (event->event_id != DCD_EVENT_SETUP_RECEIVED) {
         // The host has left or reset the bus: whatever it asked is void.
         if (event->event_id == DCD_EVENT_BUS_RESET || event->event_id == DCD_EVENT_UNPLUGGED ||
@@ -438,31 +438,31 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
     const rule_set_t* set = &g_set[g_act];
     const bool fixed = is_fixed(r);
     const bool too_long = r->bmRequestType_bit.direction == TUSB_DIR_OUT &&
-                          r->wLength > MIMHID_CONTROL_DATA_MAX;
+                          r->wLength > MIMUSB_CONTROL_DATA_MAX;
     int rule = fixed ? -1 : match_rule(set, r);
     const rule_t* q = rule >= 0 ? &set->rule[rule] : NULL;
     uint8_t action = q != NULL ? q->action : 0;
     // A data stage the board cannot take goes to TinyUSB, which stalls what nobody answers. An
     // ACCEPT rule says so to the host; any other rule leaves it silent, as before.
-    if (too_long && action != MIMHID_RULE_ACCEPT) {
+    if (too_long && action != MIMUSB_RULE_ACCEPT) {
         rule = -1;
         q = NULL;
         action = 0;
     }
-    const bool taken = !too_long && (action == MIMHID_RULE_ASK || action == MIMHID_RULE_ACCEPT);
-    const bool report = g_report_all || action == MIMHID_RULE_ASK || action == MIMHID_RULE_ACCEPT;
+    const bool taken = !too_long && (action == MIMUSB_RULE_ASK || action == MIMUSB_RULE_ACCEPT);
+    const bool report = g_report_all || action == MIMUSB_RULE_ASK || action == MIMUSB_RULE_ACCEPT;
     uint8_t token = 0;
     if (report) {
         if (note_room()) {
             if (++g_token == 0) g_token = 1;
             token = g_token;
             uint8_t flags = 0;
-            if (taken && action == MIMHID_RULE_ASK) flags |= MIMHID_CONTROL_F_HELD;
-            if (taken && action == MIMHID_RULE_ACCEPT) flags |= MIMHID_CONTROL_F_ACCEPTED;
-            if (too_long) flags |= MIMHID_CONTROL_F_TOO_LONG;
-            if (fixed) flags |= MIMHID_CONTROL_F_FIXED;
+            if (taken && action == MIMUSB_RULE_ASK) flags |= MIMUSB_CONTROL_F_HELD;
+            if (taken && action == MIMUSB_RULE_ACCEPT) flags |= MIMUSB_CONTROL_F_ACCEPTED;
+            if (too_long) flags |= MIMUSB_CONTROL_F_TOO_LONG;
+            if (fixed) flags |= MIMUSB_CONTROL_F_FIXED;
             if (g_lost) {
-                flags |= MIMHID_CONTROL_F_LOST;
+                flags |= MIMUSB_CONTROL_F_LOST;
                 g_lost = false;
             }
             note_push(token, flags, r);
@@ -477,7 +477,7 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
     }
 
     switch (action) {
-    case MIMHID_RULE_ASK:
+    case MIMUSB_RULE_ASK:
         g_hold.event = *event;
         g_hold.token = token;
         g_hold.rule = (uint8_t)rule;
@@ -488,14 +488,14 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
         g_expect = token;
         __atomic_store_n(&g_hold.state, HOLD_HELD, __ATOMIC_RELEASE);
         return;
-    case MIMHID_RULE_ANSWER:
+    case MIMUSB_RULE_ANSWER:
         start_rule_answer(event, in_isr, ANS_RULE, token, (uint8_t)rule, NONE, &set->answer[q->offset],
                           q->length);
         return;
-    case MIMHID_RULE_ANSWER_LAST_SENT:
+    case MIMUSB_RULE_ANSWER_LAST_SENT:
         start_rule_answer(event, in_isr, ANS_LAST, token, NONE, q->slot, NULL, 0);
         return;
-    case MIMHID_RULE_ACCEPT:
+    case MIMUSB_RULE_ACCEPT:
         start_rule_answer(event, in_isr, ANS_ACCEPT, token, NONE, NONE, NULL, 0);
         return;
     default: // STALL
@@ -505,11 +505,11 @@ CONTROL_FAST void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr
 }
 
 // ---- the receive side ----
-uint8_t mimhid_control_reply(const uint8_t* p, uint16_t len) {
-    if (len < 2 || p[1] > MIMHID_REPLY_DROP) return MIMHID_NAK_PARAM;
-    if (len - 2u > MIMHID_CONTROL_DATA_MAX) return MIMHID_NAK_OVERFLOW;
-    if (p[0] == 0 || p[0] != g_expect) return MIMHID_NAK_STATE;
-    if (g_reply.full) return MIMHID_NAK_BUSY;
+uint8_t mimusb_control_reply(const uint8_t* p, uint16_t len) {
+    if (len < 2 || p[1] > MIMUSB_REPLY_DROP) return MIMUSB_NAK_PARAM;
+    if (len - 2u > MIMUSB_CONTROL_DATA_MAX) return MIMUSB_NAK_OVERFLOW;
+    if (p[0] == 0 || p[0] != g_expect) return MIMUSB_NAK_STATE;
+    if (g_reply.full) return MIMUSB_NAK_BUSY;
     g_reply.token = p[0];
     g_reply.action = p[1];
     g_reply.length = (uint16_t)(len - 2);
@@ -533,14 +533,14 @@ static void settle(uint8_t token, uint8_t action, const uint8_t* data, uint16_t 
     if (action == BY_RULE) action = g_hold.after;
     g_hold.state = HOLD_IDLE;
     g_expect = 0;
-    if (action == MIMHID_REPLY_DROP) {
+    if (action == MIMUSB_REPLY_DROP) {
         g_suppress_stall = true;
         hal_control_silent_drop();
         dcd_int_enable(RHPORT);
         return;
     }
-    if (action != MIMHID_REPLY_LEAVE) {
-        g_answer.action = action == MIMHID_REPLY_STALL ? ANS_STALL : ANS_HOST;
+    if (action != MIMUSB_REPLY_LEAVE) {
+        g_answer.action = action == MIMUSB_REPLY_STALL ? ANS_STALL : ANS_HOST;
         g_answer.token = token;
         g_answer.length = length;
         g_answer.timeout_ms = g_hold.timeout_ms;
@@ -567,12 +567,12 @@ static void flush_notes(void) {
         ev[0] = n->token;
         ev[1] = n->flags;
         memcpy(&ev[2], n->setup, 8);
-        mimhid_send_event(MIMHID_EV_CONTROL_SETUP, ev, sizeof(ev));
+        mimusb_send_event(MIMUSB_EV_CONTROL_SETUP, ev, sizeof(ev));
         __atomic_store_n(&g_note_tail, (uint8_t)((g_note_tail + 1) & NOTE_MASK), __ATOMIC_RELEASE);
     }
 }
 
-void mimhid_control_poll(void) {
+void mimusb_control_poll(void) {
     flush_notes();
 
     if (__atomic_load_n(&g_hold.state, __ATOMIC_ACQUIRE) != HOLD_HELD) return;
@@ -590,29 +590,29 @@ void mimhid_control_poll(void) {
 // The lists of ANSWER_LAST_SENT rules by endpoint, for the table that is about to become active.
 // `next` is read by the USB side only.
 static void build_sent_lists(rule_set_t* s) {
-    memset(mimhid_control_sent_head, NONE, sizeof(mimhid_control_sent_head));
+    memset(mimusb_control_sent_head, NONE, sizeof(mimusb_control_sent_head));
     for (uint8_t i = 0; i < s->count; i++) {
         rule_t* r = &s->rule[i];
-        if (r->action != MIMHID_RULE_ANSWER_LAST_SENT)
+        if (r->action != MIMUSB_RULE_ANSWER_LAST_SENT)
             continue;
-        r->next = mimhid_control_sent_head[r->endpoint & 0x0F];
-        mimhid_control_sent_head[r->endpoint & 0x0F] = i;
+        r->next = mimusb_control_sent_head[r->endpoint & 0x0F];
+        mimusb_control_sent_head[r->endpoint & 0x0F] = i;
     }
 }
 
-uint8_t mimhid_control_apply(bool report_all, uint16_t count, bool committed) {
+uint8_t mimusb_control_apply(bool report_all, uint16_t count, bool committed) {
     rule_set_t* s = staged();
-    if (count == MIMHID_CONTROL_ALL)
+    if (count == MIMUSB_CONTROL_ALL)
         count = s->count;
     if (count > s->count)
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     dcd_event_t released;
     dcd_int_disable(RHPORT);
     // A rule being answered from the answer memory keeps the table it is in: the new staged copy
     // would be written over it.
     if (!committed && g_answer.serving != NONE) {
         dcd_int_enable(RHPORT);
-        return MIMHID_NAK_BUSY;
+        return MIMUSB_NAK_BUSY;
     }
     dcd_int_enable(RHPORT);
 
@@ -637,7 +637,7 @@ uint8_t mimhid_control_apply(bool report_all, uint16_t count, bool committed) {
     // What an ANSWER_LAST_SENT rule held belongs to the rule: a rule that was not changed keeps it
     // (RULES_APPLY), and a new configuration starts all of them empty.
     const uint8_t from = committed ? 0 : g_set[g_act].dirty_slot;
-    for (uint8_t i = from; i < MIMHID_LAST_SENT_SLOTS; i++)
+    for (uint8_t i = from; i < MIMUSB_LAST_SENT_SLOTS; i++)
         g_sent[i].valid = false;
     // The table that was active is the staged one now, with the previous rules in it: it takes the
     // new ones, so that the next RULE writes into a copy of what runs.
@@ -647,26 +647,26 @@ uint8_t mimhid_control_apply(bool report_all, uint16_t count, bool committed) {
     return 0;
 }
 
-uint8_t mimhid_control_rule_data(const uint8_t* p, uint16_t len) {
+uint8_t mimusb_control_rule_data(const uint8_t* p, uint16_t len) {
     if (len < 1)
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     const uint8_t index = p[0];
     const uint16_t n = (uint16_t)(len - 1);
     dcd_int_disable(RHPORT);
     rule_set_t* a = &g_set[g_act];
     rule_set_t* s = staged();
-    if (index >= a->count || a->rule[index].action != MIMHID_RULE_ANSWER) {
+    if (index >= a->count || a->rule[index].action != MIMUSB_RULE_ANSWER) {
         dcd_int_enable(RHPORT);
-        return MIMHID_NAK_PARAM;
+        return MIMUSB_NAK_PARAM;
     }
     rule_t* r = &a->rule[index];
     if (n > r->capacity) {
         dcd_int_enable(RHPORT);
-        return MIMHID_NAK_OVERFLOW;
+        return MIMUSB_NAK_OVERFLOW;
     }
     if (g_answer.serving == index) {
         dcd_int_enable(RHPORT);
-        return MIMHID_NAK_BUSY; // being sent: it would go out half old, half new
+        return MIMUSB_NAK_BUSY; // being sent: it would go out half old, half new
     }
     // The interrupt is masked for the copy, so it sees the old bytes with the old length or the new
     // ones with the new length. (A rule is answered from here from its setup packet until the end
@@ -675,7 +675,7 @@ uint8_t mimhid_control_rule_data(const uint8_t* p, uint16_t len) {
     r->length = n;
     // The staged table is a copy of the active one until the host stages something else; it keeps
     // the change if its rule is still this one.
-    if (index < s->count && s->rule[index].action == MIMHID_RULE_ANSWER &&
+    if (index < s->count && s->rule[index].action == MIMUSB_RULE_ANSWER &&
         s->rule[index].offset == r->offset && s->rule[index].capacity == r->capacity) {
         memcpy(&s->answer[r->offset], &p[1], n);
         s->rule[index].length = n;
@@ -684,24 +684,24 @@ uint8_t mimhid_control_rule_data(const uint8_t* p, uint16_t len) {
     return 0;
 }
 
-void mimhid_control_detach(void) {
+void mimusb_control_detach(void) {
     dcd_int_disable(RHPORT);
     drop_held();
     g_answer.active = false;
     g_set[g_act].count = 0;
     dcd_int_enable(RHPORT);
-    memset(mimhid_control_sent_head, NONE, sizeof(mimhid_control_sent_head));
-    mimhid_control_forget_sent();
+    memset(mimusb_control_sent_head, NONE, sizeof(mimusb_control_sent_head));
+    mimusb_control_forget_sent();
 }
 
-void mimhid_control_forget_sent(void) {
-    for (uint8_t i = 0; i < MIMHID_LAST_SENT_SLOTS; i++)
+void mimusb_control_forget_sent(void) {
+    for (uint8_t i = 0; i < MIMUSB_LAST_SENT_SLOTS; i++)
         g_sent[i].valid = false;
 }
 
-void mimhid_control_sent_rules(uint8_t number, const uint8_t* data, uint16_t len) {
+void mimusb_control_sent_rules(uint8_t number, const uint8_t* data, uint16_t len) {
     const rule_set_t* a = &g_set[g_act];
-    for (uint8_t i = mimhid_control_sent_head[number & 0x0F]; i != NONE; i = a->rule[i].next) {
+    for (uint8_t i = mimusb_control_sent_head[number & 0x0F]; i != NONE; i = a->rule[i].next) {
         const rule_t* r = &a->rule[i];
         if (r->filter && (len == 0 || data[0] != r->first))
             continue;
@@ -720,12 +720,12 @@ static bool wait_for_verdict(void) {
     g_expect = g_answer.token;
     g_answer.buf[0] = g_answer.token;
     flush_notes(); // the setup first, so the host knows what the data belongs to
-    mimhid_send_event(MIMHID_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
+    mimusb_send_event(MIMUSB_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
 
     uint8_t action = g_answer.timeout_action;
     const uint32_t start = hal_millis();
     while ((uint32_t)(hal_millis() - start) < g_answer.timeout_ms) {
-        if (g_single_context) mimhid_rx_poll();
+        if (g_single_context) mimusb_rx_poll();
         if (__atomic_load_n(&g_reply.full, __ATOMIC_ACQUIRE)) {
             if (g_reply.token == g_answer.token) action = g_reply.action;
             g_reply.full = 0;
@@ -733,12 +733,12 @@ static bool wait_for_verdict(void) {
         }
     }
     g_expect = 0;
-    if (action == MIMHID_REPLY_DROP) {
+    if (action == MIMUSB_REPLY_DROP) {
         g_suppress_stall = true;
         hal_control_silent_drop();
         return false;
     }
-    return action != MIMHID_REPLY_STALL;
+    return action != MIMUSB_REPLY_STALL;
 }
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {
@@ -795,7 +795,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
         if (g_answer.action == ANS_ACCEPT) {
             g_answer.buf[0] = g_answer.token;
             flush_notes(); // the setup first, so the host knows what the data belongs to
-            mimhid_send_event(MIMHID_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
+            mimusb_send_event(MIMUSB_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
             return true;
         }
         return wait_for_verdict();

@@ -1,44 +1,44 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * This file owns thread-local diagnostics and stable result names. It performs
  * no allocation or synchronization.
  */
 
 #include "api/internal.hpp"
-#include "mimhid_proto.h"
+#include "mimusb_proto.h"
 
 #include <cstddef>
 #include <cstdint>
 
 namespace {
-thread_local mimhid_error_detail g_error{MIMHID_OK, nullptr, "No error.", 0, 0, 0, 0, 0, 0};
+thread_local mimusb_error_detail g_error{MIMUSB_OK, nullptr, "No error.", 0, 0, 0, 0, 0, 0};
 
 } // namespace
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
-void set_error(const mimhid_result result, const char* field, const char* reason,
+void set_error(const mimusb_result result, const char* field, const char* reason,
                const std::int32_t transport_status, const std::int32_t frame_type,
                const std::uint16_t node_id, const std::uint16_t report_id,
                const std::uint32_t offset, const std::uint32_t length) noexcept {
-    g_error = mimhid_error_detail{
+    g_error = mimusb_error_detail{
         result,           field,      reason == nullptr ? "An unspecified error occurred." : reason,
         transport_status, frame_type, node_id,
         report_id,        offset,     length};
 }
 
 void clear_error() noexcept {
-    g_error = mimhid_error_detail{MIMHID_OK, nullptr, "No error.", 0, 0, 0, 0, 0, 0};
+    g_error = mimusb_error_detail{MIMUSB_OK, nullptr, "No error.", 0, 0, 0, 0, 0, 0};
 }
 
-void restore_error(const mimhid_error_detail& detail) noexcept { g_error = detail; }
+void restore_error(const mimusb_error_detail& detail) noexcept { g_error = detail; }
 
-mimhid_result finish_result(const mimhid_result result, const char* field, const char* reason,
+mimusb_result finish_result(const mimusb_result result, const char* field, const char* reason,
                             const std::int32_t transport_status, const std::int32_t frame_type,
                             const std::uint16_t node_id, const std::uint16_t report_id,
                             const std::uint32_t offset, const std::uint32_t length) noexcept {
-    if (result == MIMHID_OK) {
+    if (result == MIMUSB_OK) {
         clear_error();
     } else if (g_error.code != result) {
         set_error(result, field, reason, transport_status, frame_type, node_id, report_id, offset,
@@ -47,45 +47,45 @@ mimhid_result finish_result(const mimhid_result result, const char* field, const
     return result;
 }
 
-const char* result_name(const mimhid_result result) noexcept {
+const char* result_name(const mimusb_result result) noexcept {
     switch (result) {
-    case MIMHID_OK:
-        return "MIMHID_OK";
-    case MIMHID_ERR_PARAM:
-        return "MIMHID_ERR_PARAM";
-    case MIMHID_ERR_UNSET_FIELD:
-        return "MIMHID_ERR_UNSET_FIELD";
-    case MIMHID_ERR_UNSUPPORTED:
-        return "MIMHID_ERR_UNSUPPORTED";
-    case MIMHID_ERR_PROTOCOL:
-        return "MIMHID_ERR_PROTOCOL";
-    case MIMHID_ERR_ACCESS:
-        return "MIMHID_ERR_ACCESS";
-    case MIMHID_ERR_BUSY:
-        return "MIMHID_ERR_BUSY";
-    case MIMHID_ERR_NO_DEVICE:
-        return "MIMHID_ERR_NO_DEVICE";
-    case MIMHID_ERR_TIMEOUT:
-        return "MIMHID_ERR_TIMEOUT";
-    case MIMHID_ERR_SHORT_TRANSFER:
-        return "MIMHID_ERR_SHORT_TRANSFER";
-    case MIMHID_ERR_DESCRIPTOR_REJECTED:
-        return "MIMHID_ERR_DESCRIPTOR_REJECTED";
-    case MIMHID_ERR_IO:
-        return "MIMHID_ERR_IO";
-    case MIMHID_ERR_OVERFLOW:
-        return "MIMHID_ERR_OVERFLOW";
-    case MIMHID_ERR_INTERNAL:
-        return "MIMHID_ERR_INTERNAL";
+    case MIMUSB_OK:
+        return "MIMUSB_OK";
+    case MIMUSB_ERR_PARAM:
+        return "MIMUSB_ERR_PARAM";
+    case MIMUSB_ERR_UNSET_FIELD:
+        return "MIMUSB_ERR_UNSET_FIELD";
+    case MIMUSB_ERR_UNSUPPORTED:
+        return "MIMUSB_ERR_UNSUPPORTED";
+    case MIMUSB_ERR_PROTOCOL:
+        return "MIMUSB_ERR_PROTOCOL";
+    case MIMUSB_ERR_ACCESS:
+        return "MIMUSB_ERR_ACCESS";
+    case MIMUSB_ERR_BUSY:
+        return "MIMUSB_ERR_BUSY";
+    case MIMUSB_ERR_NO_DEVICE:
+        return "MIMUSB_ERR_NO_DEVICE";
+    case MIMUSB_ERR_TIMEOUT:
+        return "MIMUSB_ERR_TIMEOUT";
+    case MIMUSB_ERR_SHORT_TRANSFER:
+        return "MIMUSB_ERR_SHORT_TRANSFER";
+    case MIMUSB_ERR_DESCRIPTOR_REJECTED:
+        return "MIMUSB_ERR_DESCRIPTOR_REJECTED";
+    case MIMUSB_ERR_IO:
+        return "MIMUSB_ERR_IO";
+    case MIMUSB_ERR_OVERFLOW:
+        return "MIMUSB_ERR_OVERFLOW";
+    case MIMUSB_ERR_INTERNAL:
+        return "MIMUSB_ERR_INTERNAL";
     default:
         return nullptr;
     }
 }
 
-void log_message(const mimhid_device* device, const mimhid_log_level level,
+void log_message(const mimusb_device* device, const mimusb_log_level level,
                  const char* message) noexcept {
-    if (device == nullptr || message == nullptr || level < MIMHID_LOG_ERROR ||
-        device->config.transport.log_level == MIMHID_LOG_DISABLED ||
+    if (device == nullptr || message == nullptr || level < MIMUSB_LOG_ERROR ||
+        device->config.transport.log_level == MIMUSB_LOG_DISABLED ||
         device->config.transport.log_level < level ||
         device->config.transport.log_sink == nullptr) {
         return;
@@ -95,7 +95,7 @@ void log_message(const mimhid_device* device, const mimhid_log_level level,
         device->config.transport.log_sink(device->config.transport.log_user, level, message);
     } catch (...) {
         // A sink is foreign callback code. It cannot report a failure through this void
-        // callback and must never unwind through libmimhid, so logging is best-effort.
+        // callback and must never unwind through libmimusb, so logging is best-effort.
         return;
     }
 #else
@@ -104,56 +104,56 @@ void log_message(const mimhid_device* device, const mimhid_log_level level,
 }
 
 const char* frame_type_name(const std::int32_t frame_type) noexcept {
-    if (frame_type >= MIMHID_T_EP_IN_BASE && frame_type <= MIMHID_T_EP_IN_LAST)
+    if (frame_type >= MIMUSB_T_EP_IN_BASE && frame_type <= MIMUSB_T_EP_IN_LAST)
         return "EP_IN";
-    if (frame_type >= MIMHID_T_EP_OUT_BASE && frame_type <= MIMHID_T_EP_OUT_LAST)
+    if (frame_type >= MIMUSB_T_EP_OUT_BASE && frame_type <= MIMUSB_T_EP_OUT_LAST)
         return "EP_OUT";
     switch (frame_type) {
-    case MIMHID_T_PING:
+    case MIMUSB_T_PING:
         return "PING";
-    case MIMHID_T_DESC_RESET:
+    case MIMUSB_T_DESC_RESET:
         return "DESC_RESET";
-    case MIMHID_T_DESC_BEGIN:
+    case MIMUSB_T_DESC_BEGIN:
         return "DESC_BEGIN";
-    case MIMHID_T_DESC_DATA:
+    case MIMUSB_T_DESC_DATA:
         return "DESC_DATA";
-    case MIMHID_T_COMMIT:
+    case MIMUSB_T_COMMIT:
         return "COMMIT";
-    case MIMHID_T_RULE:
+    case MIMUSB_T_RULE:
         return "RULE";
-    case MIMHID_T_RULES_APPLY:
+    case MIMUSB_T_RULES_APPLY:
         return "RULES_APPLY";
-    case MIMHID_T_RULE_DATA:
+    case MIMUSB_T_RULE_DATA:
         return "RULE_DATA";
-    case MIMHID_T_RESET:
+    case MIMUSB_T_RESET:
         return "RESET";
-    case MIMHID_T_REMOTE_WAKEUP:
+    case MIMUSB_T_REMOTE_WAKEUP:
         return "REMOTE_WAKEUP";
-    case MIMHID_T_SET_BAUD:
+    case MIMUSB_T_SET_BAUD:
         return "SET_BAUD";
-    case MIMHID_T_CONTROL_REPLY:
+    case MIMUSB_T_CONTROL_REPLY:
         return "CONTROL_REPLY";
-    case MIMHID_T_LOSS_CONFIG:
+    case MIMUSB_T_LOSS_CONFIG:
         return "LOSS_CONFIG";
-    case MIMHID_T_EP_CONFIG:
+    case MIMUSB_T_EP_CONFIG:
         return "EP_CONFIG";
-    case MIMHID_T_PROBE:
+    case MIMUSB_T_PROBE:
         return "PROBE";
-    case MIMHID_T_COUNTERS:
+    case MIMUSB_T_COUNTERS:
         return "COUNTERS";
-    case MIMHID_T_EP_STALL:
+    case MIMUSB_T_EP_STALL:
         return "EP_STALL";
-    case MIMHID_T_EP_FLUSH:
+    case MIMUSB_T_EP_FLUSH:
         return "EP_FLUSH";
-    case MIMHID_T_BOOTLOADER:
+    case MIMUSB_T_BOOTLOADER:
         return "BOOTLOADER";
-    case MIMHID_T_PONG:
+    case MIMUSB_T_PONG:
         return "PONG";
-    case MIMHID_T_ACK:
+    case MIMUSB_T_ACK:
         return "ACK";
-    case MIMHID_T_NAK:
+    case MIMUSB_T_NAK:
         return "NAK";
-    case MIMHID_T_EVENT:
+    case MIMUSB_T_EVENT:
         return "EVENT";
     default:
         return nullptr;
@@ -162,53 +162,53 @@ const char* frame_type_name(const std::int32_t frame_type) noexcept {
 
 bool valid_boolean(const std::uint32_t value) noexcept { return value == 0U || value == 1U; }
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
 extern "C" {
 
-const mimhid_error_detail* MIMHID_CALL mimhid_last_error(void) try {
+const mimusb_error_detail* MIMUSB_CALL mimusb_last_error(void) try {
     return &g_error;
 } catch (...) {
-    mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "last_error",
+    mimusb::detail::set_error(MIMUSB_ERR_INTERNAL, "last_error",
                               "An internal C++ operation failed inside the public C ABI call.");
     return &g_error;
 }
 
-const char* MIMHID_CALL mimhid_result_name(const mimhid_result result) try {
-    const char* name = mimhid::detail::result_name(result);
+const char* MIMUSB_CALL mimusb_result_name(const mimusb_result result) try {
+    const char* name = mimusb::detail::result_name(result);
     if (name == nullptr) {
-        mimhid::detail::set_error(MIMHID_ERR_PARAM, "result",
-                                  "The result value is outside the public mimhid_result enum.");
-        return "MIMHID_RESULT_UNKNOWN";
+        mimusb::detail::set_error(MIMUSB_ERR_PARAM, "result",
+                                  "The result value is outside the public mimusb_result enum.");
+        return "MIMUSB_RESULT_UNKNOWN";
     }
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     return name;
 } catch (...) {
-    mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "result.name",
+    mimusb::detail::set_error(MIMUSB_ERR_INTERNAL, "result.name",
                               "An internal C++ operation failed inside the public C ABI call.");
-    return "MIMHID_ERR_INTERNAL";
+    return "MIMUSB_ERR_INTERNAL";
 }
 
-const char* MIMHID_CALL mimhid_frame_type_name(const std::int32_t frame_type) try {
-    const char* name = mimhid::detail::frame_type_name(frame_type);
+const char* MIMUSB_CALL mimusb_frame_type_name(const std::int32_t frame_type) try {
+    const char* name = mimusb::detail::frame_type_name(frame_type);
     if (name == nullptr) {
-        mimhid::detail::set_error(MIMHID_ERR_PARAM, "frame_type",
+        mimusb::detail::set_error(MIMUSB_ERR_PARAM, "frame_type",
                                   "The value is not a frame type of the serial protocol.");
         return "UNKNOWN";
     }
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     return name;
 } catch (...) {
-    mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "frame_type.name",
+    mimusb::detail::set_error(MIMUSB_ERR_INTERNAL, "frame_type.name",
                               "An internal C++ operation failed inside the public C ABI call.");
     return "UNKNOWN";
 }
 
-std::uint32_t MIMHID_CALL mimhid_version(void) try {
-    mimhid::detail::clear_error();
-    return (MIMHID_VERSION_MAJOR << 24U) | (MIMHID_VERSION_MINOR << 16U) | MIMHID_VERSION_PATCH;
+std::uint32_t MIMUSB_CALL mimusb_version(void) try {
+    mimusb::detail::clear_error();
+    return (MIMUSB_VERSION_MAJOR << 24U) | (MIMUSB_VERSION_MINOR << 16U) | MIMUSB_VERSION_PATCH;
 } catch (...) {
-    mimhid::detail::set_error(MIMHID_ERR_INTERNAL, "version",
+    mimusb::detail::set_error(MIMUSB_ERR_INTERNAL, "version",
                               "An internal C++ operation failed inside the public C ABI call.");
     return 0U;
 }

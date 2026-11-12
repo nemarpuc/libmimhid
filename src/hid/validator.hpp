@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Validates generated and caller-supplied Input descriptors against explicit
  * HID and target policies; it performs no registration or report I/O. */
 #pragma once
@@ -10,15 +10,15 @@
  */
 
 #include "hid/report_layout.hpp"
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <cstddef>
 #include <cstdint>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 struct ValidationIssue {
-    mimhid_result result{MIMHID_OK};
+    mimusb_result result{MIMUSB_OK};
     const char* field{nullptr};
     const char* reason{"No error."};
     std::size_t offset{};
@@ -45,7 +45,7 @@ ValidationIssue validate_generated(const std::uint8_t* descriptor, std::size_t d
 // allow_output and allow_feature admit Output and Feature Main items, which are passed through
 // unchecked: only Input reports are described by the accepted-report table.
 ValidationIssue validate_raw(const std::uint8_t* descriptor, std::size_t descriptor_length,
-                             const mimhid_raw_report* reports, std::size_t report_count,
+                             const mimusb_raw_report* reports, std::size_t report_count,
                              std::uint8_t* trailing_valid_masks = nullptr,
                              DescriptorRequirements* requirements = nullptr,
                              bool allow_output = false, bool allow_feature = false);
@@ -57,9 +57,9 @@ bool value_fits(std::int32_t logical_minimum, std::int32_t logical_maximum,
  * flag is exactly zero or one, the reserved bytes are zero, a declared ID is
  * 1 through 255, and a disabled ID is zero. Every Report ID in the public API
  * (options, raw reports, manifests) follows this rule. */
-const char* report_id_option_violation(const mimhid_report_id_option& option) noexcept;
+const char* report_id_option_violation(const mimusb_report_id_option& option) noexcept;
 
 /* HID 1.11 section 6.2.2.7 Unit item encoding, independent of dimensions. */
 bool unit_is_valid(std::uint32_t unit) noexcept;
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

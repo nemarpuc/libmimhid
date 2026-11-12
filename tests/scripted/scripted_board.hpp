@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* A board played by the test, on the master end of a pseudo-terminal. It speaks the serial
- * protocol of mimhid_proto.h well enough to be opened and configured, and every answer can be
+ * protocol of mimusb_proto.h well enough to be opened and configured, and every answer can be
  * replaced: a NAK with any code, silence, a short or malformed frame, a reader that stops reading,
  * or a cable that is pulled. The firmware core (tests/e2e) shows what a real board does; this
  * shows what the library does when a board, an adapter or a line misbehaves. Test-only. */
 #pragma once
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -49,10 +49,10 @@ using Policy = std::function<std::optional<Reply>(const Received&)>;
 
 // What the PONG says. The baud field is the board's current rate and is filled in by the board.
 struct Pong {
-    std::uint8_t version[3]{MIMHID_VERSION_MAJOR, MIMHID_VERSION_MINOR, MIMHID_VERSION_PATCH};
+    std::uint8_t version[3]{MIMUSB_VERSION_MAJOR, MIMUSB_VERSION_MINOR, MIMUSB_VERSION_PATCH};
     std::uint8_t ready{1};
     std::uint8_t reserved{0}; // byte 4 of the PONG: reserved, zero (as are bytes 5, 21..22, 25..26)
-    std::uint8_t flags{0x01}; // MIMHID_PONG_FLAG_UNIQUE_ID
+    std::uint8_t flags{0x01}; // MIMUSB_PONG_FLAG_UNIQUE_ID
     std::uint8_t chip{0};
     std::uint8_t high_speed{0};
     std::uint32_t max_baud{3000000};

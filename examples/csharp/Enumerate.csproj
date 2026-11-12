@@ -9,6 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <ProjectReference Include="../../bindings/csharp/MimHid/MimHid.csproj" />
+    <ProjectReference Include="../../bindings/csharp/MimUsb/MimUsb.csproj" />
   </ItemGroup>
 </Project>

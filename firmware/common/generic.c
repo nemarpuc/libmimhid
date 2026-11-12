@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "generic.h"
 #include "config.h"
 #include "control.h"
@@ -35,16 +35,16 @@ void dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
 // ---------------------------------------------------------------------------------------------
 
 typedef struct {
-    _Alignas(4) uint8_t data[MIMHID_MAX_TRANSFER_BYTES];
+    _Alignas(4) uint8_t data[MIMUSB_MAX_TRANSFER_BYTES];
     uint16_t len;
 } slot_t;
 
-static slot_t g_pool[MIMHID_EP_POOL_SLOTS];
+static slot_t g_pool[MIMUSB_EP_POOL_SLOTS];
 
 // The transfer each IN endpoint has on the bus. The USB side only.
 static struct {
-    _Alignas(4) uint8_t data[MIMHID_MAX_TRANSFER_BYTES];
-} g_bus[MIMHID_MAX_ENDPOINT_NUMBER + 1];
+    _Alignas(4) uint8_t data[MIMUSB_MAX_TRANSFER_BYTES];
+} g_bus[MIMUSB_MAX_ENDPOINT_NUMBER + 1];
 
 typedef struct {
     // Written by the USB side at COMMIT, read by both.
@@ -70,19 +70,19 @@ typedef struct {
 static in_t g_in[16];
 
 typedef struct {
-    _Alignas(4) uint8_t buf[MIMHID_MAX_TRANSFER_BYTES];
+    _Alignas(4) uint8_t buf[MIMUSB_MAX_TRANSFER_BYTES];
     uint16_t packet;
     bool generic; // an OUT endpoint of the generic driver in the active configuration
     bool open;
     bool armed;
 } out_t;
 
-static out_t g_out[MIMHID_MAX_ENDPOINT_NUMBER + 1];
+static out_t g_out[MIMUSB_MAX_ENDPOINT_NUMBER + 1];
 
 // What the target selected in the active configuration. Both are the USB side's, and both start
 // again at COMMIT, at a bus reset and at SET_CONFIGURATION.
 // The alternate setting of each interface (GET_INTERFACE answers it).
-static uint8_t g_alt[MIMHID_MAX_INTERFACES];
+static uint8_t g_alt[MIMUSB_MAX_INTERFACES];
 // The endpoints the controller has been given in this configuration, bit n of [0] OUT and [1] IN:
 // a bulk or interrupt endpoint is opened once, an isochronous one gets its packet buffer once (the
 // largest of its settings), and every setting that names the address uses what was given.
@@ -109,57 +109,57 @@ static uint16_t slots_of(uint8_t depth, uint8_t policy) {
     if (depth == 0)
         return 0;
     switch (policy) {
-    case MIMHID_EP_FULL_DROP_NEWEST:
-    case MIMHID_EP_FULL_WAIT:
+    case MIMUSB_EP_FULL_DROP_NEWEST:
+    case MIMUSB_EP_FULL_WAIT:
         return (uint16_t)(depth + 1u);
-    case MIMHID_EP_FULL_DROP_OLDEST:
+    case MIMUSB_EP_FULL_DROP_OLDEST:
         return (uint16_t)(2u * depth + 1u);
     default:
         return 0;
     }
 }
 
-uint16_t mimhid_generic_slots(uint8_t depth, uint8_t policy) { return slots_of(depth, policy); }
+uint16_t mimusb_generic_slots(uint8_t depth, uint8_t policy) { return slots_of(depth, policy); }
 
 // ---- COMMIT ----
 
-bool mimhid_generic_plan(const mimhid_config_t* cfg, const mimhid_layout_t* layout, uint8_t* code) {
+bool mimusb_generic_plan(const mimusb_config_t* cfg, const mimusb_layout_t* layout, uint8_t* code) {
     uint32_t total = 0;
     for (uint8_t number = 1; number < 16; number++) {
-        if (layout->ep[1][number].kind != MIMHID_EP_GENERIC)
+        if (layout->ep[1][number].kind != MIMUSB_EP_GENERIC)
             continue;
         const uint16_t cost = slots_of(cfg->ep[number].depth, cfg->ep[number].policy);
         if (cost == 0) {
-            *code = MIMHID_NAK_STATE; // no EP_CONFIG for this endpoint
+            *code = MIMUSB_NAK_STATE; // no EP_CONFIG for this endpoint
             return false;
         }
         total += cost;
     }
-    if (total > MIMHID_EP_POOL_SLOTS) {
-        *code = MIMHID_NAK_OVERFLOW;
+    if (total > MIMUSB_EP_POOL_SLOTS) {
+        *code = MIMUSB_NAK_OVERFLOW;
         return false;
     }
-#if MIMHID_EP_BUFFER_BYTES != 0
+#if MIMUSB_EP_BUFFER_BYTES != 0
     // The controller's packet memory (core.h): a driver that finds none left stops the board.
     uint32_t memory = 0;
     for (uint8_t dir = 0; dir < 2; dir++) {
         for (uint8_t number = 1; number < 16; number++) {
-            const mimhid_ep_info_t* e = &layout->ep[dir][number];
-            if (e->kind != MIMHID_EP_GENERIC)
+            const mimusb_ep_info_t* e = &layout->ep[dir][number];
+            if (e->kind != MIMUSB_EP_GENERIC)
                 continue;
             const uint32_t unit = ((uint32_t)e->packet_size + 63u) & ~63u;
             memory += e->type == TUSB_XFER_BULK ? 2u * unit : unit;
         }
     }
-    if (memory > MIMHID_EP_BUFFER_BYTES) {
-        *code = MIMHID_NAK_OVERFLOW;
+    if (memory > MIMUSB_EP_BUFFER_BYTES) {
+        *code = MIMUSB_NAK_OVERFLOW;
         return false;
     }
 #endif
     return true;
 }
 
-void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* layout) {
+void mimusb_generic_apply(const mimusb_config_t* cfg, const mimusb_layout_t* layout) {
     // Odd: being cut. The store and the fence are sequentially consistent, so the receive side on
     // the other core cannot see a queue change before it can see the odd generation.
     __atomic_store_n(&g_gen, g_gen + 1u, __ATOMIC_SEQ_CST);
@@ -169,7 +169,7 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
     uint16_t next = 0;
     for (uint8_t number = 1; number < 16; number++) {
         in_t* q = &g_in[number];
-        const mimhid_ep_info_t* in = &layout->ep[1][number];
+        const mimusb_ep_info_t* in = &layout->ep[1][number];
         q->open = false;
         q->inflight = false;
         q->orphan = false;
@@ -178,7 +178,7 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
         q->tail = 0;
         q->n = 0;
         __atomic_store_n(&q->geom, 0u, __ATOMIC_RELEASE);
-        if (in->kind == MIMHID_EP_GENERIC) {
+        if (in->kind == MIMUSB_EP_GENERIC) {
             const uint16_t n = slots_of(cfg->ep[number].depth, cfg->ep[number].policy);
             q->base = next;
             q->n = n;
@@ -187,11 +187,11 @@ void mimhid_generic_apply(const mimhid_config_t* cfg, const mimhid_layout_t* lay
             next = (uint16_t)(next + n);
             __atomic_store_n(&q->geom, ((uint32_t)n << 16) | q->base, __ATOMIC_RELEASE);
         }
-        if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+        if (number <= MIMUSB_MAX_ENDPOINT_NUMBER) {
             out_t* o = &g_out[number];
             o->open = false;
             o->armed = false;
-            o->generic = layout->ep[0][number].kind == MIMHID_EP_GENERIC;
+            o->generic = layout->ep[0][number].kind == MIMUSB_EP_GENERIC;
             o->packet = layout->ep[0][number].packet_size;
         }
     }
@@ -211,21 +211,21 @@ static in_t* active_in(uint8_t address) {
 
 static out_t* active_out(uint8_t address) {
     const uint8_t number = address & 0x0F;
-    if ((address & 0xF0) != 0 || number == 0 || number > MIMHID_MAX_ENDPOINT_NUMBER ||
+    if ((address & 0xF0) != 0 || number == 0 || number > MIMUSB_MAX_ENDPOINT_NUMBER ||
         !g_out[number].generic)
         return NULL;
     return &g_out[number];
 }
 
-uint8_t mimhid_generic_set_policy(uint8_t address, uint8_t depth, uint8_t policy) {
+uint8_t mimusb_generic_set_policy(uint8_t address, uint8_t depth, uint8_t policy) {
     in_t* q = active_in(address);
     if (q == NULL)
-        return MIMHID_NAK_STATE;
+        return MIMUSB_NAK_STATE;
     // The ring was cut at COMMIT; the new settings must fit what it holds.
     const uint16_t cost = slots_of(depth, policy);
     if (cost == 0 || cost > q->n)
-        return MIMHID_NAK_OVERFLOW;
-    if (policy != MIMHID_EP_FULL_WAIT)
+        return MIMUSB_NAK_OVERFLOW;
+    if (policy != MIMUSB_EP_FULL_WAIT)
         q->done = 0;
     __atomic_store_n(&q->depth, depth, __ATOMIC_RELAXED);
     __atomic_store_n(&q->policy, policy, __ATOMIC_RELAXED);
@@ -248,12 +248,12 @@ static void out_arm(uint8_t number) {
         o->armed = true;
 }
 
-uint8_t mimhid_generic_stall(uint8_t address, bool stall) {
+uint8_t mimusb_generic_stall(uint8_t address, bool stall) {
     const uint8_t number = address & 0x0F;
     in_t* q = active_in(address);
     out_t* o = q == NULL ? active_out(address) : NULL;
     if ((q == NULL && o == NULL) || (q != NULL && !q->open) || (o != NULL && !o->open))
-        return MIMHID_NAK_STATE;
+        return MIMUSB_NAK_STATE;
     if (stall) {
         usbd_edpt_stall(0, address);
         if (q != NULL) {
@@ -279,12 +279,12 @@ uint8_t mimhid_generic_stall(uint8_t address, bool stall) {
     return 0;
 }
 
-uint8_t mimhid_generic_flush(uint8_t address) {
+uint8_t mimusb_generic_flush(uint8_t address) {
     in_t* q = active_in(address);
     if (q == NULL)
-        return active_out(address) != NULL ? MIMHID_NAK_PARAM : MIMHID_NAK_STATE;
+        return active_out(address) != NULL ? MIMUSB_NAK_PARAM : MIMUSB_NAK_STATE;
     if (!q->open)
-        return MIMHID_NAK_STATE;
+        return MIMUSB_NAK_STATE;
     // The transfer already handed to the controller cannot be recalled: it completes, and is not
     // counted. What waits is dropped.
     if (producing(q))
@@ -295,7 +295,7 @@ uint8_t mimhid_generic_flush(uint8_t address) {
     return 0;
 }
 
-void mimhid_generic_drop_all(void) {
+void mimusb_generic_drop_all(void) {
     for (uint8_t number = 1; number < 16; number++) {
         in_t* q = &g_in[number];
         if (q->n == 0)
@@ -325,7 +325,7 @@ static void lost_add(in_t* q, uint32_t count) {
         __atomic_fetch_add(&q->lost, count, __ATOMIC_RELAXED);
 }
 
-uint8_t* mimhid_generic_in_reserve(uint8_t number) {
+uint8_t* mimusb_generic_in_reserve(uint8_t number) {
     g_rx.q = NULL;
     if (number == 0 || number >= 16)
         return NULL;
@@ -361,7 +361,7 @@ uint8_t* mimhid_generic_in_reserve(uint8_t number) {
     // Most that may be queued: `depth`, or for DROP_OLDEST everything the ring holds, which the USB
     // side cuts back to `depth` when it next looks (see the top of this file).
     const uint16_t max_queued =
-        policy == MIMHID_EP_FULL_DROP_OLDEST ? (uint16_t)(n - 1u)
+        policy == MIMUSB_EP_FULL_DROP_OLDEST ? (uint16_t)(n - 1u)
                                              : (uint16_t)__atomic_load_n(&q->depth, __ATOMIC_RELAXED);
     if (waiting >= max_queued) {
         lost_add(q, 1u);
@@ -375,7 +375,7 @@ uint8_t* mimhid_generic_in_reserve(uint8_t number) {
     return g_pool[g_rx.slot].data;
 }
 
-void mimhid_generic_in_commit(uint16_t length) {
+void mimusb_generic_in_commit(uint16_t length) {
     in_t* q = g_rx.q;
     g_rx.q = NULL;
     if (q == NULL)
@@ -386,12 +386,12 @@ void mimhid_generic_in_commit(uint16_t length) {
     __atomic_store_n(&q->head, ring_add(g_rx.head, 1u, g_rx.n), __ATOMIC_RELEASE);
 }
 
-void mimhid_generic_in_discard(void) { g_rx.q = NULL; }
+void mimusb_generic_in_discard(void) { g_rx.q = NULL; }
 
 // ---- the USB side ----
 
 // Starts the transfer at the tail when the endpoint is free, and cuts back what DROP_OLDEST holds
-// beyond its depth. The USB side is one context (tud_task and mimhid_usb_poll), so this does not
+// beyond its depth. The USB side is one context (tud_task and mimusb_usb_poll), so this does not
 // race with xfer_cb, reset or the commands.
 //
 // DROP_OLDEST: only the USB side moves the tail, so only it may remove a queued transfer; the
@@ -409,7 +409,7 @@ static void in_service(uint8_t number) {
     uint16_t tail = q->tail;
     uint16_t waiting = ring_distance(__atomic_load_n(&q->head, __ATOMIC_ACQUIRE), tail, n);
     const uint8_t depth = __atomic_load_n(&q->depth, __ATOMIC_RELAXED);
-    if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMHID_EP_FULL_DROP_OLDEST &&
+    if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMUSB_EP_FULL_DROP_OLDEST &&
         waiting > depth) {
         const uint16_t drop = (uint16_t)(waiting - depth);
         tail = ring_add(tail, drop, n);
@@ -440,34 +440,34 @@ static void in_service(uint8_t number) {
     // side, which is also where the vendor callback that answers the request runs (control.c), so
     // the one that reads it never meets a half-written copy. Hot path: one test when no rule names
     // this endpoint.
-    mimhid_control_sent(number, g_bus[number].data, len);
+    mimusb_control_sent(number, g_bus[number].data, len);
 }
 
-void mimhid_generic_poll(void) {
+void mimusb_generic_poll(void) {
     for (uint8_t number = 1; number < 16; number++) {
         in_t* q = &g_in[number];
         if (q->n == 0)
             continue;
         in_service(number);
         if (q->done != 0) {
-            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMHID_EP_FULL_WAIT) {
+            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMUSB_EP_FULL_WAIT) {
                 const uint8_t ev[3] = {(uint8_t)(0x80u | number), (uint8_t)(q->done & 0xFF),
                                        (uint8_t)(q->done >> 8)};
-                mimhid_send_event(MIMHID_EV_EP_DONE, ev, sizeof(ev));
+                mimusb_send_event(MIMUSB_EV_EP_DONE, ev, sizeof(ev));
             }
             q->done = 0;
         }
     }
 }
 
-void mimhid_generic_loss_set(bool on) {
+void mimusb_generic_loss_set(bool on) {
     __atomic_store_n(&g_loss_on, false, __ATOMIC_RELEASE);
     for (uint8_t number = 1; number < 16; number++)
         __atomic_store_n(&g_in[number].lost, 0u, __ATOMIC_RELAXED);
     __atomic_store_n(&g_loss_on, on, __ATOMIC_RELEASE);
 }
 
-uint32_t mimhid_generic_loss_take(uint8_t number) {
+uint32_t mimusb_generic_loss_take(uint8_t number) {
     if (number == 0 || number >= 16)
         return 0;
     return __atomic_exchange_n(&g_in[number].lost, 0u, __ATOMIC_RELAXED);
@@ -492,7 +492,7 @@ static void gen_reset(uint8_t rhport) {
         if (q->n != 0 && producing(q))
             __atomic_store_n(&q->tail, __atomic_load_n(&q->head, __ATOMIC_ACQUIRE),
                              __ATOMIC_RELEASE);
-        if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+        if (number <= MIMUSB_MAX_ENDPOINT_NUMBER) {
             g_out[number].open = false;
             g_out[number].armed = false;
         }
@@ -549,7 +549,7 @@ static bool ep_start(uint8_t rhport, const tusb_desc_endpoint_t* ep) {
         q->open = true;
         q->inflight = false;
         q->orphan = false;
-    } else if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+    } else if (number <= MIMUSB_MAX_ENDPOINT_NUMBER) {
         out_t* o = &g_out[number];
         o->packet = tu_edpt_packet_size(ep);
         o->open = true;
@@ -574,7 +574,7 @@ static void ep_stop(uint8_t address) {
         if (q->n != 0 && producing(q))
             __atomic_store_n(&q->tail, __atomic_load_n(&q->head, __ATOMIC_ACQUIRE),
                              __ATOMIC_RELEASE);
-    } else if (number <= MIMHID_MAX_ENDPOINT_NUMBER) {
+    } else if (number <= MIMUSB_MAX_ENDPOINT_NUMBER) {
         g_out[number].open = false;
         g_out[number].armed = false;
     }
@@ -590,7 +590,7 @@ static bool open_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt,
     if (first) {
         if (is_iso(ep)) {
             // The buffer holds the largest packet of any setting the address is in (the walk kept it).
-            const mimhid_ep_info_t* info = mimhid_active_endpoint(address);
+            const mimusb_ep_info_t* info = mimusb_active_endpoint(address);
             if (info == NULL || !usbd_edpt_iso_alloc(rhport, address, info->packet_size))
                 return false;
         } else if (!usbd_edpt_open(rhport, ep)) {
@@ -612,7 +612,7 @@ static bool open_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt,
 // and an interface takes its alternate settings (the span of the walk at COMMIT).
 static uint16_t gen_open(uint8_t rhport, tusb_desc_interface_t const* desc_itf, uint16_t max_len) {
     // 0 for an interface the walk at COMMIT did not find: the stack then looks no further.
-    const uint16_t span = mimhid_active_generic_span(desc_itf->bInterfaceNumber);
+    const uint16_t span = mimusb_active_generic_span(desc_itf->bInterfaceNumber);
     if (span == 0 || span > max_len)
         return 0;
     const uint8_t* p = (const uint8_t*)desc_itf;
@@ -645,14 +645,14 @@ static bool start_visit(const tusb_desc_endpoint_t* ep, uint8_t itf, uint8_t alt
 static bool set_interface(uint8_t rhport, tusb_control_request_t const* request) {
     const uint8_t itf = (uint8_t)(request->wIndex & 0xFF);
     const uint8_t alt = (uint8_t)(request->wValue & 0xFF);
-    const mimhid_layout_t* layout = mimhid_active_layout();
+    const mimusb_layout_t* layout = mimusb_active_layout();
     if (request->wIndex > 0xFF || request->wValue > 0xFF || itf >= layout->count ||
         alt >= layout->itf_alts[itf]) {
         dcd_edpt_stall(rhport, 0x00);
         dcd_edpt_stall(rhport, 0x80);
         return true;
     }
-    const uint8_t* cfg = mimhid_active_config_bytes();
+    const uint8_t* cfg = mimusb_active_config_bytes();
     const uint8_t* end = cfg + (uint16_t)(cfg[2] | (cfg[3] << 8));
     switch_t sw = {.rhport = rhport, .itf = itf, .from = g_alt[itf], .to = alt, .ok = true};
     scan_endpoints(cfg + cfg[0], end, stop_visit, &sw);
@@ -665,7 +665,7 @@ static bool set_interface(uint8_t rhport, tusb_control_request_t const* request)
     }
     tud_control_status(rhport, request);
     const uint8_t ev[2] = {itf, alt};
-    mimhid_send_event(MIMHID_EV_SET_INTERFACE, ev, sizeof(ev));
+    mimusb_send_event(MIMUSB_EV_SET_INTERFACE, ev, sizeof(ev));
     return true;
 }
 
@@ -681,7 +681,7 @@ static bool gen_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request
         if (request->bRequest == TUSB_REQ_SET_INTERFACE)
             return set_interface(rhport, request);
         if (request->bRequest == TUSB_REQ_GET_INTERFACE) {
-            if (request->wIndex >= MIMHID_MAX_INTERFACES)
+            if (request->wIndex >= MIMUSB_MAX_INTERFACES)
                 return false;
             return tud_control_xfer(rhport, request, &g_alt[request->wIndex], 1);
         }
@@ -704,7 +704,7 @@ static bool gen_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request
             // is done (so its count stays right), and it is lost.
             q->inflight = false;
             q->orphan = false;
-            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMHID_EP_FULL_WAIT &&
+            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMUSB_EP_FULL_WAIT &&
                 q->done != 0xFFFF)
                 q->done++;
             lost_add(q, 1u);
@@ -717,7 +717,7 @@ static bool gen_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request
         out_arm(number);
     }
     const uint8_t ev[2] = {address, halted ? 1u : 0u};
-    mimhid_send_event(MIMHID_EV_EP_HALT, ev, sizeof(ev));
+    mimusb_send_event(MIMUSB_EV_EP_HALT, ev, sizeof(ev));
     return true;
 }
 
@@ -732,7 +732,7 @@ static bool gen_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
         if (q->orphan) {
             q->orphan = false; // a flush forgot it
         } else {
-            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMHID_EP_FULL_WAIT &&
+            if (__atomic_load_n(&q->policy, __ATOMIC_RELAXED) == MIMUSB_EP_FULL_WAIT &&
                 q->done != 0xFFFF)
                 q->done++;
         }
@@ -740,21 +740,21 @@ static bool gen_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
         in_service(number);
         return true;
     }
-    if (number > MIMHID_MAX_ENDPOINT_NUMBER || !g_out[number].generic)
+    if (number > MIMUSB_MAX_ENDPOINT_NUMBER || !g_out[number].generic)
         return true;
     out_t* o = &g_out[number];
     o->armed = false;
     if (result == XFER_RESULT_SUCCESS && o->open) {
         // The packet goes to the host first (a blocking write: the target is held by NAKs while it
         // is written), and only then is the endpoint armed again.
-        mimhid_send_ep_out(number, o->buf, (uint16_t)xferred_bytes);
+        mimusb_send_ep_out(number, o->buf, (uint16_t)xferred_bytes);
     }
     out_arm(number);
     return true;
 }
 
 static const usbd_class_driver_t g_driver = {
-    .name = "MIMHID_GENERIC",
+    .name = "MIMUSB_GENERIC",
     .init = gen_init,
     .deinit = NULL,
     .reset = gen_reset,

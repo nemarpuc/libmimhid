@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* What the simulated-board scenarios share: the pseudo-terminal the library and the simulated board
  * talk over, the event sink and its record, the waits every call takes, and the specs and
  * options the scenarios start from. Test-only. */
 #pragma once
 
 #include "fake_board.h"
-#include "mimhid.h"
+#include "mimusb.h"
 #include "test.hpp"
 
 #include <atomic>
@@ -26,7 +26,7 @@ inline constexpr std::uint32_t kControlMs = 500;
 inline constexpr std::uint32_t kSendMs = 500;
 inline constexpr std::uint32_t kReconnectMs = 3000;
 inline constexpr std::uint32_t kDrainMs = 1000;
-inline const mimhid_commit_timeouts kCommit = {sizeof(mimhid_commit_timeouts), 0, kControlMs,
+inline const mimusb_commit_timeouts kCommit = {sizeof(mimusb_commit_timeouts), 0, kControlMs,
                                                kReconnectMs};
 
 // The board end (master) and the library end (slave path) of the pseudo-terminal.
@@ -36,7 +36,7 @@ bool open_pty();
 
 // ---- events -------------------------------------------------------------------------
 struct EventRecord {
-    mimhid_event_kind kind;
+    mimusb_event_kind kind;
     std::uint16_t node_id;
     std::uint16_t report_id;
     std::uint32_t value;
@@ -52,33 +52,33 @@ extern std::vector<EventRecord> g_events;
 // A reply the sink gives by itself to every held transfer that it sees (control tests).
 struct SinkReply {
     std::atomic<bool> enabled{false};
-    mimhid_device* device{nullptr};
-    mimhid_control_action action{MIMHID_CONTROL_ACTION_ANSWER};
+    mimusb_device* device{nullptr};
+    mimusb_control_action action{MIMUSB_CONTROL_ACTION_ANSWER};
     std::vector<std::uint8_t> data;
     std::atomic<int> result{-1};
 };
 extern SinkReply g_sink_reply;
 
-void MIMHID_CALL on_event(void*, const mimhid_event* event);
-bool wait_event(mimhid_event_kind kind, EventRecord* out, int timeout_ms = 2000);
+void MIMUSB_CALL on_event(void*, const mimusb_event* event);
+bool wait_event(mimusb_event_kind kind, EventRecord* out, int timeout_ms = 2000);
 
 // ---- helpers ------------------------------------------------------------------------
-mimhid_device_config base_options();
-mimhid_device* open_device(const mimhid_device_config& options);
-mimhid_spec* keyboard_spec(std::uint8_t report_id);
-mimhid_spec* mouse_spec(std::uint8_t report_id);
-mimhid_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature);
-mimhid_spec* pen_spec(std::uint8_t report_id);
+mimusb_device_config base_options();
+mimusb_device* open_device(const mimusb_device_config& options);
+mimusb_spec* keyboard_spec(std::uint8_t report_id);
+mimusb_spec* mouse_spec(std::uint8_t report_id);
+mimusb_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature);
+mimusb_spec* pen_spec(std::uint8_t report_id);
 // A raw spec with one 1-byte Input report and no Report ID.
-mimhid_spec* raw_spec_no_id();
+mimusb_spec* raw_spec_no_id();
 // A raw spec with an Output and a Feature report, both under Report ID 5.
-mimhid_spec* raw_spec_io();
-mimhid_node* open_node(mimhid_device* device, mimhid_spec* spec,
-                       const mimhid_hid_node_config* options = nullptr);
+mimusb_spec* raw_spec_io();
+mimusb_node* open_node(mimusb_device* device, mimusb_spec* spec,
+                       const mimusb_hid_node_config* options = nullptr);
 // A Node of one vendor interface (number 0, class 0xFF) with an interrupt IN endpoint 0x81 and the
 // rules given, committed; the Device is waited on until the target has it mounted. The smallest
 // thing that gives the Device a USB configuration to hold rules in.
-mimhid_node* open_vendor_node(mimhid_device* device, const mimhid_control_rule* rules = nullptr,
+mimusb_node* open_vendor_node(mimusb_device* device, const mimusb_control_rule* rules = nullptr,
                               std::size_t rule_count = 0);
 bool next_report(fake_report_t* r, int timeout_ms = 2000);
 bool all_zero_after_id(const fake_report_t& r, bool has_id);

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* What the scripted-board tests share: a device configuration for the scripted board, an open
  * helper and the suites of this runner. Test-only. */
 #pragma once
 
 #include "fill_values.h"
-#include "mimhid.h"
+#include "mimusb.h"
 #include "scripted_board.hpp"
 #include "test.hpp"
 
@@ -17,66 +17,66 @@ namespace scripted {
 inline constexpr std::uint32_t kControlMs = 100;
 inline constexpr std::uint32_t kSendMs = 100;
 inline constexpr std::uint32_t kDrainMs = 200;
-inline const mimhid_commit_timeouts kCommit = {sizeof(mimhid_commit_timeouts), 0, kControlMs, 1000};
+inline const mimusb_commit_timeouts kCommit = {sizeof(mimusb_commit_timeouts), 0, kControlMs, 1000};
 
 // The test configuration on the boot rate, so that no rate is tested unless a test asks.
-inline mimhid_device_config board_options() {
-    mimhid_device_config o{};
+inline mimusb_device_config board_options() {
+    mimusb_device_config o{};
     test_fill_device_config(&o);
-    o.transport.baud_rate = MIMHID_BOOT_BAUD;
+    o.transport.baud_rate = MIMUSB_BOOT_BAUD;
     o.transport.handshake_timeout_ms = 50;
     return o;
 }
 
-inline mimhid_device* open_on(Board& board, const mimhid_device_config& options) {
-    mimhid_device* device = nullptr;
-    const mimhid_result r = mimhid_device_open(board.path(), &options, &device);
-    if (r != MIMHID_OK) {
-        std::fprintf(stderr, "device_open: %s (%s)\n", mimhid_result_name(r),
-                     mimhid_last_error()->reason);
+inline mimusb_device* open_on(Board& board, const mimusb_device_config& options) {
+    mimusb_device* device = nullptr;
+    const mimusb_result r = mimusb_device_open(board.path(), &options, &device);
+    if (r != MIMUSB_OK) {
+        std::fprintf(stderr, "device_open: %s (%s)\n", mimusb_result_name(r),
+                     mimusb_last_error()->reason);
         ++g_failures;
     }
     return device;
 }
 
-inline mimhid_spec* keyboard_spec() {
-    mimhid_keyboard_options o{};
+inline mimusb_spec* keyboard_spec() {
+    mimusb_keyboard_options o{};
     test_fill_keyboard(&o);
-    mimhid_spec* spec = nullptr;
-    MIMHID_CHECK(mimhid_spec_create_keyboard(&o, &spec) == MIMHID_OK);
+    mimusb_spec* spec = nullptr;
+    MIMUSB_CHECK(mimusb_spec_create_keyboard(&o, &spec) == MIMUSB_OK);
     return spec;
 }
 
-inline mimhid_hid_node_config node_config(std::uint8_t interface_number = 0) {
-    mimhid_hid_node_config c{};
+inline mimusb_hid_node_config node_config(std::uint8_t interface_number = 0) {
+    mimusb_hid_node_config c{};
     test_fill_node_config(&c, interface_number);
     return c;
 }
 
 // A Node of one vendor interface (class 0xFF) with an interrupt IN endpoint and the rules given,
 // committed: the smallest thing that gives the Device a USB configuration to hold rules in.
-inline mimhid_node* open_vendor_node(mimhid_device* device,
-                                     const mimhid_control_rule* rules = nullptr,
+inline mimusb_node* open_vendor_node(mimusb_device* device,
+                                     const mimusb_control_rule* rules = nullptr,
                                      std::size_t rule_count = 0) {
-    mimhid_usb_endpoint ep{};
+    mimusb_usb_endpoint ep{};
     ep.address = 0x81;
-    ep.transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    ep.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     ep.max_packet_size = 64;
     ep.interval = 1;
-    ep.policy = {MIMHID_FULL_DROP_NEWEST, 4};
-    mimhid_usb_interface itf{};
+    ep.policy = {MIMUSB_FULL_DROP_NEWEST, 4};
+    mimusb_usb_interface itf{};
     itf.class_code = 0xFF;
     itf.endpoints = &ep;
     itf.endpoint_count = 1;
-    mimhid_node_config config;
-    mimhid_node_config_init(&config);
+    mimusb_node_config config;
+    mimusb_node_config_init(&config);
     config.interfaces = &itf;
     config.interface_count = 1;
     config.rules = rules;
     config.rule_count = rule_count;
-    mimhid_node* node = nullptr;
-    const mimhid_result r = mimhid_node_open(device, &config, &kCommit, &node);
-    MIMHID_CHECK(r == MIMHID_OK);
+    mimusb_node* node = nullptr;
+    const mimusb_result r = mimusb_node_open(device, &config, &kCommit, &node);
+    MIMUSB_CHECK(r == MIMUSB_OK);
     return node;
 }
 

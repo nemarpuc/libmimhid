@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-/* Checks that the C++ header forwards to the C ABI under namespace mimhid. */
+// Copyright (c) 2026 libmimusb contributors
+/* Checks that the C++ header forwards to the C ABI under namespace mimusb. */
 #include "../fill_values.h"
-#include "mimhid.hpp"
+#include "mimusb.hpp"
 
 int main() {
-    if (mimhid::version() != mimhid_version() || mimhid::result_name(MIMHID_OK) == nullptr ||
-        mimhid::frame_type_name(0x01) == nullptr ||
-        mimhid::keyboard_key(nullptr, 0U, 0U) != MIMHID_ERR_PARAM ||
-        mimhid::mouse_move(nullptr, 0, 0) != MIMHID_ERR_PARAM ||
-        mimhid::node_submit(nullptr, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::discover(1U, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::device_open(nullptr, nullptr, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::device_commit(nullptr, 0U, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::device_connect(nullptr, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::device_disconnect(nullptr, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::device_set_control_rules(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::device_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::node_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMHID_ERR_PARAM ||
-        mimhid::hid_descriptor_bytes(0x0111U, 0U, 0U, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::hid_descriptor_rule(0U, 0x22U, nullptr, 0U, nullptr) != MIMHID_ERR_PARAM ||
-        mimhid::last_error() != mimhid_last_error()) {
+    if (mimusb::version() != mimusb_version() || mimusb::result_name(MIMUSB_OK) == nullptr ||
+        mimusb::frame_type_name(0x01) == nullptr ||
+        mimusb::keyboard_key(nullptr, 0U, 0U) != MIMUSB_ERR_PARAM ||
+        mimusb::mouse_move(nullptr, 0, 0) != MIMUSB_ERR_PARAM ||
+        mimusb::node_submit(nullptr, 1U) != MIMUSB_ERR_PARAM ||
+        mimusb::discover(1U, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::device_open(nullptr, nullptr, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::device_commit(nullptr, 0U, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::device_connect(nullptr, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::device_disconnect(nullptr, 1U) != MIMUSB_ERR_PARAM ||
+        mimusb::device_set_control_rules(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
+        mimusb::device_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
+        mimusb::node_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
+        mimusb::hid_descriptor_bytes(0x0111U, 0U, 0U, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::hid_descriptor_rule(0U, 0x22U, nullptr, 0U, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::last_error() != mimusb_last_error()) {
         return 1;
     }
 
-    const mimhid_device_config config = mimhid::device_config();
-    const mimhid_commit_timeouts timeouts = mimhid::commit_timeouts();
-    const mimhid_hid_node_config node = mimhid::hid_node_config();
+    const mimusb_device_config config = mimusb::device_config();
+    const mimusb_commit_timeouts timeouts = mimusb::commit_timeouts();
+    const mimusb_hid_node_config node = mimusb::hid_node_config();
     // The wrappers return what the C *_init functions do: struct_size set, every other byte zero.
     if (config.struct_size != sizeof(config) || config.usb_device.vendor_id != 0 ||
         config.usb_device.product_id != 0 || config.usb_device.bcd_usb != 0 ||
@@ -37,18 +37,18 @@ int main() {
         return 1;
     }
 
-    mimhid_mouse_options mouse;
+    mimusb_mouse_options mouse;
     test_fill_mouse(&mouse);
-    mimhid_spec* raw_spec = nullptr;
-    if (mimhid::spec_create_mouse(&mouse, &raw_spec) != MIMHID_OK) {
+    mimusb_spec* raw_spec = nullptr;
+    if (mimusb::spec_create_mouse(&mouse, &raw_spec) != MIMUSB_OK) {
         return 1;
     }
-    const mimhid::SpecPtr spec{raw_spec};
-    mimhid_capability_manifest manifest = mimhid::capability_manifest();
-    if (mimhid::spec_manifest(spec.get(), &manifest) != MIMHID_OK ||
-        manifest.profile_kind != MIMHID_PROFILE_MOUSE) {
+    const mimusb::SpecPtr spec{raw_spec};
+    mimusb_capability_manifest manifest = mimusb::capability_manifest();
+    if (mimusb::spec_manifest(spec.get(), &manifest) != MIMUSB_OK ||
+        manifest.profile_kind != MIMUSB_PROFILE_MOUSE) {
         return 1;
     }
-    const mimhid::DiscoveryPtr empty{};
+    const mimusb::DiscoveryPtr empty{};
     return 0;
 }

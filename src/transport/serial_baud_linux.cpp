@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Linux: any line rate through termios2 (BOTHER). <asm/termbits.h> redefines what <termios.h>
 // declares, so this is the only file that includes it.
 #include "transport/serial_baud.hpp"
@@ -9,7 +9,7 @@
 #include <asm/termbits.h>
 #include <sys/ioctl.h>
 
-namespace mimhid::transport::detail {
+namespace mimusb::transport::detail {
 
 namespace {
 // glibc's ioctl takes the request as unsigned long, musl's as int; TCGETS2 has the top bit set.
@@ -41,5 +41,5 @@ bool linux_set_baud(int fd, std::uint32_t baud, std::uint32_t* actual) noexcept 
     return true;
 }
 
-} // namespace mimhid::transport::detail
+} // namespace mimusb::transport::detail
 #endif

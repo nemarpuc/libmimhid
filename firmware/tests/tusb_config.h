@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Configuration for compiling the firmware core on the host against real TinyUSB headers.
 #ifndef TEST_TUSB_CONFIG_H
 #define TEST_TUSB_CONFIG_H

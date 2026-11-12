@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "bsp/board_api.h"
 #include "core.h"
 #include "hal.h"
 
 int main(void) {
     hal_init();
-    mimhid_core_init();
+    mimusb_core_init();
     if (board_init_after_tusb) {
         board_init_after_tusb();
     }
-    mimhid_run();
+    mimusb_run();
     return 0;
 }

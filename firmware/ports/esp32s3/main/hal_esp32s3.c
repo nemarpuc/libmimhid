@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // ESP32-S3: UART1 through the IDF driver (interrupt-fed ring), built-in USB PHY.
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -13,11 +13,11 @@
 #include "hal.h"
 
 // The wiring is the board's: the build states the two pins (no pin is assumed).
-#ifndef MIMHID_UART_TX_PIN
-#error MIMHID_UART_TX_PIN must be defined by the build
+#ifndef MIMUSB_UART_TX_PIN
+#error MIMUSB_UART_TX_PIN must be defined by the build
 #endif
-#ifndef MIMHID_UART_RX_PIN
-#error MIMHID_UART_RX_PIN must be defined by the build
+#ifndef MIMUSB_UART_RX_PIN
+#error MIMUSB_UART_RX_PIN must be defined by the build
 #endif
 
 #define UART_PORT UART_NUM_1
@@ -40,7 +40,7 @@ void hal_init(void) {
     usb_new_phy(&phy_conf, &g_phy);
 
     const uart_config_t cfg = {
-        .baud_rate = MIMHID_BOOT_BAUD,
+        .baud_rate = MIMUSB_BOOT_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -49,7 +49,7 @@ void hal_init(void) {
     };
     uart_driver_install(UART_PORT, 2048, 0, 32, &g_uart_events, 0);
     uart_param_config(UART_PORT, &cfg);
-    uart_set_pin(UART_PORT, MIMHID_UART_TX_PIN, MIMHID_UART_RX_PIN,
+    uart_set_pin(UART_PORT, MIMUSB_UART_TX_PIN, MIMUSB_UART_RX_PIN,
                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     // Hand bytes to the ring after a short idle (2 symbols) instead of waiting for a full FIFO.
     uart_set_rx_full_threshold(UART_PORT, 8);
@@ -110,7 +110,7 @@ void hal_uart_set_baud(uint32_t baud) {
 }
 
 uint8_t hal_chip(void) {
-    return MIMHID_CHIP_ESP32S3;
+    return MIMUSB_CHIP_ESP32S3;
 }
 
 uint32_t hal_millis(void) {

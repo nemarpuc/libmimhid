@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """One SPDX 2.3 document for a release: a package per binary archive, each generated from the
 source package."""
 
@@ -18,7 +18,7 @@ import zipfile
 
 import release_names
 
-COPYRIGHT = "Copyright (c) 2026 libmimhid contributors"
+COPYRIGHT = "Copyright (c) 2026 libmimusb contributors"
 SOURCE_ID = "SPDXRef-Package-source"
 
 
@@ -129,7 +129,7 @@ def spdx_document(version: str, source_sha: str, created: str, source: tuple[str
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": name,
         "documentNamespace": f"{release_names.REPOSITORY_URL}/releases/{version}/{release_names.sbom_name(version)}",
-        "creationInfo": {"created": created, "creators": ["Tool: libmimhid-release-tools"]},
+        "creationInfo": {"created": created, "creators": ["Tool: libmimusb-release-tools"]},
         "packages": packages,
         "files": files,
         "relationships": relationships,

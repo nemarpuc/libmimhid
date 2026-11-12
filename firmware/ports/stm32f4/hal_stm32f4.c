@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // STM32F4: USART2 (PA2 TX, PA3 RX) received by a circular DMA1 stream 5 channel 4 transfer.
 // The TinyUSB BSP board_init() already enables USART2, its pins and its clock; this file
 // adds the DMA receiver and sets the rate.
@@ -97,7 +97,7 @@ void hal_init(void) {
     // a read of DR, which the DMA owns. Data is received as usual.
     USART2->CR2 = USART_CR2_LINEN;
     USART2->CR3 = USART_CR3_DMAR;
-    set_rate(divider(MIMHID_BOOT_BAUD));
+    set_rate(divider(MIMUSB_BOOT_BAUD));
 
     // USART2_RX is DMA1 stream 5, channel 4: peripheral to memory, circular, byte-wide.
     DMA1_Stream5->CR = 0;
@@ -179,7 +179,7 @@ void hal_uart_set_baud(uint32_t baud) {
 }
 
 uint8_t hal_chip(void) {
-    return MIMHID_CHIP_STM32F4;
+    return MIMUSB_CHIP_STM32F4;
 }
 
 uint32_t hal_millis(void) {

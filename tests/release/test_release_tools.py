@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Tests of the release tooling; they need nothing but the standard library."""
 
 from pathlib import Path
@@ -27,28 +27,28 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 def fake_stage(root: Path, platform: str) -> Path:
-    """An install tree configured with both MIMHID_BUILD_SHARED and MIMHID_BUILD_STATIC."""
+    """An install tree configured with both MIMUSB_BUILD_SHARED and MIMUSB_BUILD_STATIC."""
     stage = root / f"stage-{platform}"
     files = {
-        "include/mimhid.h": "h", "include/mimhid.hpp": "hpp",
-        "share/doc/libmimhid/LICENSE": "MIT",
-        "share/doc/libmimhid/NOTICE": "notice",
-        "share/doc/libmimhid/THIRD_PARTY_NOTICES.md": "third-party",
-        "share/doc/libmimhid/CHANGELOG.md": "log",
-        "lib/cmake/mimhid/mimhid-config.cmake": "set(_MIMHID_BUILT_SHARED ON)\nset(_MIMHID_BUILT_STATIC ON)\n",
-        "lib/cmake/mimhid/mimhid-config-version.cmake": "v",
-        "lib/cmake/mimhid/mimhid-shared-targets.cmake": "t",
-        "lib/cmake/mimhid/mimhid-static-targets.cmake": "t",
-        "lib/pkgconfig/mimhid.pc": "pc",
-        "lib/pkgconfig/mimhid-static.pc": "pc",
+        "include/mimusb.h": "h", "include/mimusb.hpp": "hpp",
+        "share/doc/libmimusb/LICENSE": "MIT",
+        "share/doc/libmimusb/NOTICE": "notice",
+        "share/doc/libmimusb/THIRD_PARTY_NOTICES.md": "third-party",
+        "share/doc/libmimusb/CHANGELOG.md": "log",
+        "lib/cmake/mimusb/mimusb-config.cmake": "set(_MIMUSB_BUILT_SHARED ON)\nset(_MIMUSB_BUILT_STATIC ON)\n",
+        "lib/cmake/mimusb/mimusb-config-version.cmake": "v",
+        "lib/cmake/mimusb/mimusb-shared-targets.cmake": "t",
+        "lib/cmake/mimusb/mimusb-static-targets.cmake": "t",
+        "lib/pkgconfig/mimusb.pc": "pc",
+        "lib/pkgconfig/mimusb-static.pc": "pc",
     }
     if platform == "windows":
-        files["bin/mimhid.dll"] = "dll"
-        files["lib/mimhid.lib"] = "lib"
-        files["lib/mimhid_static.lib"] = "a"
+        files["bin/mimusb.dll"] = "dll"
+        files["lib/mimusb.lib"] = "lib"
+        files["lib/mimusb_static.lib"] = "a"
     else:
-        files["lib/libmimhid.dylib" if platform == "macos" else "lib/libmimhid.so"] = "so"
-        files["lib/libmimhid_static.a"] = "a"
+        files["lib/libmimusb.dylib" if platform == "macos" else "lib/libmimusb.so"] = "so"
+        files["lib/libmimusb_static.a"] = "a"
     for name, text in files.items():
         path = stage / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,14 +62,14 @@ class Names(unittest.TestCase):
         self.assertEqual(len(assets), len(set(assets)))
         # 6 archives, 1 SBOM, the source, 7 firmware images, the firmware notices, manifest, sums.
         self.assertEqual(len(assets), 6 + 1 + 1 + 7 + 1 + 2)
-        self.assertIn("libmimhid-1.2.3-linux-aarch64-ubuntu22.04.tar.gz", assets)
-        self.assertIn("libmimhid-1.2.3-windows-arm64.zip", assets)
-        self.assertIn("libmimhid-1.2.3.spdx.json", assets)
+        self.assertIn("libmimusb-1.2.3-linux-aarch64-ubuntu22.04.tar.gz", assets)
+        self.assertIn("libmimusb-1.2.3-windows-arm64.zip", assets)
+        self.assertIn("libmimusb-1.2.3.spdx.json", assets)
         for gone in ("-shared", "-static", "-runtime"):
             self.assertFalse([a for a in assets if gone in a], gone)
         self.assertEqual(len([a for a in assets if a.endswith(".spdx.json")]), 1)
-        self.assertIn("mimhid_firmware-rp2040-1.2.3.uf2", assets)
-        self.assertIn("mimhid_firmware-THIRD_PARTY_NOTICES-1.2.3.txt", assets)
+        self.assertIn("mimusb_firmware-rp2040-1.2.3.uf2", assets)
+        self.assertIn("mimusb_firmware-THIRD_PARTY_NOTICES-1.2.3.txt", assets)
 
     def test_rejects_bad_input(self):
         with self.assertRaises(release_names.ReleaseError):
@@ -87,17 +87,17 @@ class Validate(unittest.TestCase):
         major, minor, patch = version.split(".")
         binding = binding or version
         files = {
-            "CMakeLists.txt": f"project(libmimhid VERSION {cmake or version} LANGUAGES C)\n",
-            "include/mimhid.h": f"#define MIMHID_VERSION_MAJOR {major}\n"
-            f"#define MIMHID_VERSION_MINOR {minor}\n#define MIMHID_VERSION_PATCH {patch}\n",
+            "CMakeLists.txt": f"project(libmimusb VERSION {cmake or version} LANGUAGES C)\n",
+            "include/mimusb.h": f"#define MIMUSB_VERSION_MAJOR {major}\n"
+            f"#define MIMUSB_VERSION_MINOR {minor}\n#define MIMUSB_VERSION_PATCH {patch}\n",
             "firmware/common/core.h": f"#define FW_VERSION_MAJOR {major}\n"
             f"#define FW_VERSION_MINOR {minor}\n#define FW_VERSION_PATCH {patch}\n",
             "README.md": f"> Version {version}. Version 2.0.0 changed the API.\n",
             "bindings/python/pyproject.toml": f'version = "{binding}"\n',
-            "bindings/csharp/MimHid/MimHid.csproj": f"<Version>{binding}</Version>\n",
-            "bindings/rust/mimhid/Cargo.toml": f'version = "{binding}"\n'
-            f'mimhid-sys = {{ path = "../mimhid-sys", version = "{binding}" }}\n',
-            "bindings/rust/mimhid-sys/Cargo.toml": f'version = "{binding}"\n',
+            "bindings/csharp/MimUsb/MimUsb.csproj": f"<Version>{binding}</Version>\n",
+            "bindings/rust/mimusb/Cargo.toml": f'version = "{binding}"\n'
+            f'mimusb-sys = {{ path = "../mimusb-sys", version = "{binding}" }}\n',
+            "bindings/rust/mimusb-sys/Cargo.toml": f'version = "{binding}"\n',
         }
         for path, text in files.items():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +175,7 @@ class DryRun(unittest.TestCase):
             subprocess.check_call(tool + ["--dry-run", "--version-out", str(root / "v"),
                                           "--summary-out", str(root / "s")], stdout=subprocess.DEVNULL)
             self.assertEqual((root / "v").read_text(), "1.2.3\n")
-            self.assertIn("Dry run of libmimhid 1.2.3", (root / "s").read_text())
+            self.assertIn("Dry run of libmimusb 1.2.3", (root / "s").read_text())
             self.assertNotEqual(subprocess.call(tool + ["--dry-run", "--tag", "v1.2.3"],
                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), 0)
             self.assertNotEqual(subprocess.call(tool, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), 0)
@@ -217,9 +217,9 @@ class Package(unittest.TestCase):
             with tarfile.open(first) as tar:
                 names = tar.getnames()
                 root = release_names.base_name("1.2.3", "linux", "x86_64")
-                metadata = json.load(tar.extractfile(f"{root}/share/doc/libmimhid/build-metadata.json"))
-            self.assertIn(f"{root}/share/doc/libmimhid/examples/README.md", names)
-            self.assertIn(f"{root}/share/doc/libmimhid/examples/c/profiles/keyboard.c", names)
+                metadata = json.load(tar.extractfile(f"{root}/share/doc/libmimusb/build-metadata.json"))
+            self.assertIn(f"{root}/share/doc/libmimusb/examples/README.md", names)
+            self.assertIn(f"{root}/share/doc/libmimusb/examples/c/profiles/keyboard.c", names)
             self.assertEqual(metadata["components"], ["shared", "static"])
             self.assertNotIn("variant", metadata)
 
@@ -229,18 +229,18 @@ class Package(unittest.TestCase):
             root = release_names.base_name("1.2.3", "linux", "x86_64")
             with tarfile.open(archive) as tar:
                 names = set(tar.getnames())
-            for relative in ("lib/libmimhid.so", "lib/libmimhid_static.a",
-                             "lib/cmake/mimhid/mimhid-shared-targets.cmake",
-                             "lib/cmake/mimhid/mimhid-static-targets.cmake",
-                             "lib/cmake/mimhid/mimhid-config.cmake",
-                             "lib/pkgconfig/mimhid.pc", "lib/pkgconfig/mimhid-static.pc"):
+            for relative in ("lib/libmimusb.so", "lib/libmimusb_static.a",
+                             "lib/cmake/mimusb/mimusb-shared-targets.cmake",
+                             "lib/cmake/mimusb/mimusb-static-targets.cmake",
+                             "lib/cmake/mimusb/mimusb-config.cmake",
+                             "lib/pkgconfig/mimusb.pc", "lib/pkgconfig/mimusb-static.pc"):
                 self.assertIn(f"{root}/{relative}", names)
             macos = self.run_package(tmp, "macos", Path(tmp) / "m", arch="arm64")
             with tarfile.open(macos) as tar:
                 names = set(tar.getnames())
             root = release_names.base_name("1.2.3", "macos", "arm64")
-            self.assertIn(f"{root}/lib/libmimhid.dylib", names)
-            self.assertIn(f"{root}/lib/libmimhid_static.a", names)
+            self.assertIn(f"{root}/lib/libmimusb.dylib", names)
+            self.assertIn(f"{root}/lib/libmimusb_static.a", names)
 
     def test_windows_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -248,15 +248,15 @@ class Package(unittest.TestCase):
             self.assertTrue(zipfile.is_zipfile(archive))
             with zipfile.ZipFile(archive) as opened:
                 names = opened.namelist()
-            for relative in ("bin/mimhid.dll", "lib/mimhid.lib", "lib/mimhid_static.lib",
-                             "lib/cmake/mimhid/mimhid-shared-targets.cmake",
-                             "lib/cmake/mimhid/mimhid-static-targets.cmake"):
+            for relative in ("bin/mimusb.dll", "lib/mimusb.lib", "lib/mimusb_static.lib",
+                             "lib/cmake/mimusb/mimusb-shared-targets.cmake",
+                             "lib/cmake/mimusb/mimusb-static-targets.cmake"):
                 self.assertTrue(any(n.endswith(relative) for n in names), relative)
 
     def test_missing_file_is_rejected(self):
-        for relative in ("lib/libmimhid.so", "lib/libmimhid_static.a",
-                         "lib/cmake/mimhid/mimhid-static-targets.cmake",
-                         "lib/cmake/mimhid/mimhid-shared-targets.cmake", "lib/pkgconfig/mimhid-static.pc"):
+        for relative in ("lib/libmimusb.so", "lib/libmimusb_static.a",
+                         "lib/cmake/mimusb/mimusb-static-targets.cmake",
+                         "lib/cmake/mimusb/mimusb-shared-targets.cmake", "lib/pkgconfig/mimusb-static.pc"):
             with tempfile.TemporaryDirectory() as tmp:
                 stage = fake_stage(Path(tmp), "linux")
                 (stage / relative).unlink()
@@ -267,8 +267,8 @@ class Package(unittest.TestCase):
         # A tree configured with one kind installs a config that refuses the other component.
         with tempfile.TemporaryDirectory() as tmp:
             stage = fake_stage(Path(tmp), "linux")
-            (stage / "lib/cmake/mimhid/mimhid-config.cmake").write_text(
-                "set(_MIMHID_BUILT_SHARED ON)\nset(_MIMHID_BUILT_STATIC OFF)\n")
+            (stage / "lib/cmake/mimusb/mimusb-config.cmake").write_text(
+                "set(_MIMUSB_BUILT_SHARED ON)\nset(_MIMUSB_BUILT_STATIC OFF)\n")
             with self.assertRaises(release_names.ReleaseError):
                 package_release.validate_layout(stage, "linux")
 
@@ -279,7 +279,7 @@ def fake_dist(dist: Path, version: str = "1.2.3") -> None:
         if name not in ("release-manifest.json", "SHA256SUMS", release_names.sbom_name(version)):
             (dist / name).write_bytes(name.encode())
     archives = [(name, generate_spdx.sha256_file(dist / name),
-                 [generate_spdx.member(f"{name}/include/mimhid.h", b"h")])
+                 [generate_spdx.member(f"{name}/include/mimusb.h", b"h")])
                 for name in release_names.archive_names(version)]
     source = release_names.source_name(version)
     document = generate_spdx.spdx_document(version, SHA, "2023-11-14T22:13:20Z",
@@ -298,20 +298,20 @@ class Sbom(unittest.TestCase):
             subprocess.check_call([sys.executable, str(ROOT / "tools/release/generate_spdx.py"),
                                    "--dist", str(dist), "--version", "1.2.3", "--source-sha", SHA,
                                    "--epoch", "1700000000"], stdout=subprocess.DEVNULL)
-            document = json.loads((dist / "libmimhid-1.2.3.spdx.json").read_text())
+            document = json.loads((dist / "libmimusb-1.2.3.spdx.json").read_text())
             self.assertEqual(document["spdxVersion"], "SPDX-2.3")
             self.assertEqual(document["dataLicense"], "CC0-1.0")
-            self.assertEqual(document["name"], "libmimhid-1.2.3")
+            self.assertEqual(document["name"], "libmimusb-1.2.3")
             self.assertEqual(document["creationInfo"]["created"], "2023-11-14T22:13:20Z")
             packages = {p["packageFileName"]: p for p in document["packages"]}
-            self.assertEqual(set(packages), set(release_names.archive_names("1.2.3")) | {"libmimhid-1.2.3-source.tar.gz"})
+            self.assertEqual(set(packages), set(release_names.archive_names("1.2.3")) | {"libmimusb-1.2.3-source.tar.gz"})
             ids = [p["SPDXID"] for p in document["packages"]] + [f["SPDXID"] for f in document["files"]]
             self.assertEqual(len(ids), len(set(ids)))
             for identifier in ids:
                 self.assertRegex(identifier, r"^SPDXRef-[A-Za-z0-9.-]+$")
             relations = {(r["spdxElementId"], r["relationshipType"], r["relatedSpdxElement"])
                          for r in document["relationships"]}
-            source_id = packages["libmimhid-1.2.3-source.tar.gz"]["SPDXID"]
+            source_id = packages["libmimusb-1.2.3-source.tar.gz"]["SPDXID"]
             files = {f["SPDXID"]: f for f in document["files"]}
             for name in release_names.archive_names("1.2.3"):
                 package = packages[name]
@@ -321,14 +321,14 @@ class Sbom(unittest.TestCase):
                 self.assertIn((package["SPDXID"], "GENERATED_FROM", source_id), relations)
                 members = generate_spdx.archive_members(dist / name)
                 self.assertEqual(len(package["hasFiles"]), len(members))
-                self.assertTrue(any(m[0].endswith("lib/cmake/mimhid/mimhid-static-targets.cmake") for m in members))
+                self.assertTrue(any(m[0].endswith("lib/cmake/mimusb/mimusb-static-targets.cmake") for m in members))
                 sha1s = sorted(next(c["checksumValue"] for c in files[i]["checksums"] if c["algorithm"] == "SHA1")
                                for i in package["hasFiles"])
                 self.assertEqual(package["packageVerificationCode"]["packageVerificationCodeValue"],
                                  hashlib.sha1("".join(sha1s).encode()).hexdigest())
             # The document passes the same check collect_release applies.
             digests = {n: generate_spdx.sha256_file(dist / n)
-                       for n in release_names.archive_names("1.2.3") + ["libmimhid-1.2.3-source.tar.gz"]}
+                       for n in release_names.archive_names("1.2.3") + ["libmimusb-1.2.3-source.tar.gz"]}
             collect_release.check_sbom(dist, "1.2.3", digests)
 
     def test_missing_archive_is_rejected(self):

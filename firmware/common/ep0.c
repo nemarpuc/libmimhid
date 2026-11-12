@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "ep0.h"
 #include "device/usbd_pvt.h"
 
@@ -34,7 +34,7 @@ static struct {
     uint16_t packet;   // the packet under way
 } g_x;
 
-void mimhid_ep0_set_size(uint8_t size) {
+void mimusb_ep0_set_size(uint8_t size) {
     g_size = size;
 }
 
@@ -78,7 +78,7 @@ EP0_FAST static void finish(dcd_event_t const* event, bool in_isr) {
     __real_dcd_event_handler(&whole, in_isr);
 }
 
-EP0_FAST bool mimhid_ep0_event(dcd_event_t const* event, bool in_isr) {
+EP0_FAST bool mimusb_ep0_event(dcd_event_t const* event, bool in_isr) {
     switch (event->event_id) {
     case DCD_EVENT_SETUP_RECEIVED:
         g_x.round++;

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Write one release version into every file that must carry it.
 
 Usage: python tools/release/sync_version.py 0.6.0
 
-This replaces editing CMakeLists.txt, include/mimhid.h, firmware/common/core.h, README.md
+This replaces editing CMakeLists.txt, include/mimusb.h, firmware/common/core.h, README.md
 and the Python/C#/Rust binding manifests one at a time. The version constants inside the
 generated binding files follow from the header: run tools/bindings/generate.py afterwards
 (CI runs it with --check). version_files.py holds the single list of sites;

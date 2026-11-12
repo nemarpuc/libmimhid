@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Builds immutable HID descriptors and their matching report layouts; it has
  * no transport, device-state, or platform-classification responsibility. */
 #pragma once
@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 class DescriptorBuilder final {
   public:
@@ -34,7 +34,7 @@ class DescriptorBuilder final {
     bool variable(std::uint16_t usage_page, std::uint16_t usage, std::int32_t logical_minimum,
                   std::int32_t logical_maximum, std::uint8_t bit_width, bool relative,
                   bool null_state, FieldSemantic semantic, std::uint16_t instance,
-                  bool no_preferred = false, const mimhid_physical_properties* physical = nullptr);
+                  bool no_preferred = false, const mimusb_physical_properties* physical = nullptr);
     bool variable_range(std::uint16_t usage_page, std::uint16_t usage_minimum,
                         std::uint16_t usage_maximum, std::uint8_t bit_width,
                         FieldSemantic semantic);
@@ -52,7 +52,7 @@ class DescriptorBuilder final {
   private:
     bool add_layout(FieldSemantic semantic, std::uint16_t instance, std::uint8_t bit_width,
                     std::int32_t logical_minimum, std::int32_t logical_maximum,
-                    const mimhid_physical_properties* physical = nullptr,
+                    const mimusb_physical_properties* physical = nullptr,
                     bool has_null_state = false);
     void record_main(bool feature, std::uint64_t local_usage_count, std::uint64_t report_count,
                      std::uint64_t report_size) noexcept;
@@ -79,4 +79,4 @@ class DescriptorBuilder final {
     bool good_{true};
 };
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

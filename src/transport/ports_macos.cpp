@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "transport/serial_port.hpp"
 
 #include <dirent.h>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 // Only the callout (cu.*) nodes are used: tty.* blocks on open waiting for carrier detect.
 std::vector<PortCandidate> list_candidate_ports() {
@@ -28,4 +28,4 @@ std::vector<PortCandidate> list_candidate_ports() {
     return out;
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Encodes bounded HID short items into caller-owned storage; it neither
  * allocates report objects nor interprets operating-system behavior. */
 #pragma once
@@ -12,7 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 class ItemWriter final {
   public:
@@ -58,4 +58,4 @@ class ItemWriter final {
     bool good_{true};
 };
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

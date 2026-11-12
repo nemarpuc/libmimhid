@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // nRF52840: UARTE1 receives one byte per EasyDMA transfer, restarted by a shortcut, and an
 // interrupt moves each byte into a software ring. UARTE has no receive timeout, so a partly
 // filled multi-byte DMA buffer would hold data back; one-byte transfers avoid that.
@@ -11,12 +11,12 @@
 #include "hal.h"
 
 // The wiring is the selected board's (BOARD is required by the build): its UART pins from the
-// TinyUSB BSP (board.h). A build may override them with MIMHID_UART_RX_PIN and MIMHID_UART_TX_PIN.
-#ifndef MIMHID_UART_RX_PIN
-#define MIMHID_UART_RX_PIN UART_RX_PIN
+// TinyUSB BSP (board.h). A build may override them with MIMUSB_UART_RX_PIN and MIMUSB_UART_TX_PIN.
+#ifndef MIMUSB_UART_RX_PIN
+#define MIMUSB_UART_RX_PIN UART_RX_PIN
 #endif
-#ifndef MIMHID_UART_TX_PIN
-#define MIMHID_UART_TX_PIN UART_TX_PIN
+#ifndef MIMUSB_UART_TX_PIN
+#define MIMUSB_UART_TX_PIN UART_TX_PIN
 #endif
 
 #define UARTE_REG        NRF_UARTE1
@@ -75,18 +75,18 @@ void hal_init(void) {
     // The BSP leaves UARTE0 enabled for its debug console on the same pins.
     NRF_UARTE0->ENABLE = 0;
 
-    gpio_port(MIMHID_UART_TX_PIN)->OUTSET = 1UL << (MIMHID_UART_TX_PIN & 31);
-    gpio_port(MIMHID_UART_TX_PIN)->DIRSET = 1UL << (MIMHID_UART_TX_PIN & 31);
-    gpio_port(MIMHID_UART_RX_PIN)->PIN_CNF[MIMHID_UART_RX_PIN & 31] =
+    gpio_port(MIMUSB_UART_TX_PIN)->OUTSET = 1UL << (MIMUSB_UART_TX_PIN & 31);
+    gpio_port(MIMUSB_UART_TX_PIN)->DIRSET = 1UL << (MIMUSB_UART_TX_PIN & 31);
+    gpio_port(MIMUSB_UART_RX_PIN)->PIN_CNF[MIMUSB_UART_RX_PIN & 31] =
         (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
         (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos);
 
-    UARTE_REG->PSEL.TXD = MIMHID_UART_TX_PIN;
-    UARTE_REG->PSEL.RXD = MIMHID_UART_RX_PIN;
+    UARTE_REG->PSEL.TXD = MIMUSB_UART_TX_PIN;
+    UARTE_REG->PSEL.RXD = MIMUSB_UART_RX_PIN;
     UARTE_REG->PSEL.RTS = 0xFFFFFFFFUL;
     UARTE_REG->PSEL.CTS = 0xFFFFFFFFUL;
     UARTE_REG->CONFIG = 0; // no flow control, no parity
-    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud115200; // MIMHID_BOOT_BAUD
+    UARTE_REG->BAUDRATE = UARTE_BAUDRATE_BAUDRATE_Baud115200; // MIMUSB_BOOT_BAUD
     UARTE_REG->ENABLE = UARTE_ENABLE_ENABLE_Enabled;
 
     UARTE_REG->RXD.PTR = (uint32_t)(uintptr_t)&g_landing;
@@ -167,7 +167,7 @@ void hal_uart_set_baud(uint32_t baud) {
 }
 
 uint8_t hal_chip(void) {
-    return MIMHID_CHIP_NRF52840;
+    return MIMUSB_CHIP_NRF52840;
 }
 
 uint32_t hal_millis(void) {
@@ -188,16 +188,16 @@ size_t hal_unique_id(uint8_t* out, size_t max) {
 // Open Bootloader, the Adafruit nRF52 bootloader, ...), which the master boot record starts
 // before the firmware and which looks at the retained register GPREGRET to decide whether to stay
 // (nRF52840 Product Specification, POWER: GPREGRET is kept through a system reset). The value it
-// looks for is the bootloader's own, so the build states it (MIMHID_NRF_BOOTLOADER_GPREGRET) and
+// looks for is the bootloader's own, so the build states it (MIMUSB_NRF_BOOTLOADER_GPREGRET) and
 // nothing is assumed: without it, or on a chip whose UICR names no bootloader (NRFFW[0], the
 // address the MBR starts, is erased), the command is refused.
-#ifdef MIMHID_NRF_BOOTLOADER_GPREGRET
+#ifdef MIMUSB_NRF_BOOTLOADER_GPREGRET
 bool hal_has_bootloader(void) { return NRF_UICR->NRFFW[0] != 0xFFFFFFFFu; }
 
 void hal_enter_bootloader(void) {
     if (!hal_has_bootloader()) return;
     // hal_uart_write returns only once its bytes have left, so the answer is out.
-    NRF_POWER->GPREGRET = (uint32_t)(MIMHID_NRF_BOOTLOADER_GPREGRET);
+    NRF_POWER->GPREGRET = (uint32_t)(MIMUSB_NRF_BOOTLOADER_GPREGRET);
     NVIC_SystemReset();
 }
 #else
@@ -215,7 +215,7 @@ void hal_usb_clear_endpoint(uint8_t address) { (void)address; }
 extern void __real_tusb_hal_nrf_power_event(uint32_t event);
 void __wrap_tusb_hal_nrf_power_event(uint32_t event) {
     __real_tusb_hal_nrf_power_event(event);
-    if (!mimhid_core_attached()) {
+    if (!mimusb_core_attached()) {
         NRF_USBD->USBPULLUP = 0;
     }
 }

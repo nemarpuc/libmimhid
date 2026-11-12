@@ -1,13 +1,13 @@
 # Contributing
 
-Use the [issue tracker](https://github.com/nemarpuc/libmimhid/issues) for
+Use the [issue tracker](https://github.com/nemarpuc/libmimusb/issues) for
 proposed changes and submit patches through
-[pull requests](https://github.com/nemarpuc/libmimhid/pulls).
+[pull requests](https://github.com/nemarpuc/libmimusb/pulls).
 
 ## Technical Standards
 
 Every protocol, descriptor, or platform statement must cite primary
-technical specifications: USB HID 1.11, HID Usage Tables 1.7 (the version `include/mimhid.h` cites),
+technical specifications: USB HID 1.11, HID Usage Tables 1.7 (the version `include/mimusb.h` cites),
 Raspberry Pi RP2040 / RP2350 Datasheets, and TinyUSB documentation. Do not guess Usage IDs
 or serial wire formats.
 
@@ -23,7 +23,7 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
 
 ## Bindings
 
-`bindings/*/` declarations and `tests/abi/layout_oracle.c` are generated. After changing `include/mimhid.h`, run `python3 tools/bindings/generate.py`, and commit the result; CI runs it with `--check`.
+`bindings/*/` declarations and `tests/abi/layout_oracle.c` are generated. After changing `include/mimusb.h`, run `python3 tools/bindings/generate.py`, and commit the result; CI runs it with `--check`.
 
 ## Releasing
 
@@ -46,7 +46,7 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
    ```
 4. Verify firmware compilation. The Raspberry Pi Pico (RP2040) and Pico 2 (RP2350) images need the ARM GCC toolchain and the Pico SDK; the other ports are listed in [docs/BUILDING.md](docs/BUILDING.md#building-the-firmware). The pinned SDK and TinyUSB versions are in `.github/scripts/`.
    ```bash
-   cmake -B build_firmware -S firmware -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1
+   cmake -B build_firmware -S firmware -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMUSB_UART_ID=uart0 -DMIMUSB_UART_TX_PIN=0 -DMIMUSB_UART_RX_PIN=1
    cmake --build build_firmware --parallel
    ```
 5. Run the firmware core tests (they need only a TinyUSB checkout):
@@ -56,7 +56,7 @@ caller-controlled. Preserve deterministic latency and minimal resource usage:
    ```
 6. Run the simulated-board tests (POSIX; they need a TinyUSB checkout):
    ```bash
-   cmake -B build_sim -S . -DMIMHID_BUILD_TESTS=ON -DMIMHID_TINYUSB_PATH=<tinyusb>
+   cmake -B build_sim -S . -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_TINYUSB_PATH=<tinyusb>
    cmake --build build_sim && ctest --test-dir build_sim -R sim
    ```
 7. Submit pull requests with concise descriptions and test verification evidence.

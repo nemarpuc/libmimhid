@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* The operating-system serial port, below the wire protocol. One implementation per platform
  * (serial_posix.cpp, serial_win32.cpp); everything above it is platform independent. */
 #pragma once
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 // Where a failed open stopped, for diagnostics.
 enum class OpenStep : std::uint8_t { none, open, configure, speed };
@@ -87,4 +87,4 @@ std::vector<PortCandidate> list_candidate_ports_in(const std::string& tty_class,
 } // namespace detail
 #endif
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

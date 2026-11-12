@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 cmake_minimum_required(VERSION 3.17)
 
 # STM32F4 firmware built on the TinyUSB board support package.
@@ -16,19 +16,19 @@ endif()
 # CMSIS device header, which counts endpoint 0: 4 on the F401, F405, F407, F411, F429 and F439, 6 on
 # the F412, F413, F423, F446, F469 and F479). Each interface takes one IN endpoint (see core.h).
 if(BOARD MATCHES "^(stm32f401blackpill|stm32f407blackvet|stm32f407disco|stm32f411blackpill|stm32f411disco|stm32f439nucleo|feather_stm32f405|pyboardv11)$")
-    set(MIMHID_STM32_ENDPOINTS 3)
+    set(MIMUSB_STM32_ENDPOINTS 3)
 elseif(BOARD MATCHES "^(stm32f412disco|stm32f412nucleo)$")
-    set(MIMHID_STM32_ENDPOINTS 5)
+    set(MIMUSB_STM32_ENDPOINTS 5)
 else()
     message(FATAL_ERROR "BOARD '${BOARD}': its MCU's USB_OTG_FS_MAX_IN_ENDPOINTS is not recorded in this file; add it before building")
 endif()
 
 include(${TINYUSB_PATH}/hw/bsp/family_support.cmake)
-project(mimhid_firmware_stm32f4 C CXX ASM)
-family_initialize_project(mimhid_firmware_stm32f4 ${CMAKE_CURRENT_LIST_DIR})
+project(mimusb_firmware_stm32f4 C CXX ASM)
+family_initialize_project(mimusb_firmware_stm32f4 ${CMAKE_CURRENT_LIST_DIR})
 
-add_executable(mimhid_firmware_stm32f4)
-target_sources(mimhid_firmware_stm32f4 PUBLIC
+add_executable(mimusb_firmware_stm32f4)
+target_sources(mimusb_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/main.c
     ${CMAKE_CURRENT_LIST_DIR}/hal_stm32f4.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/core.c
@@ -37,25 +37,25 @@ target_sources(mimhid_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common/usb_descriptors.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/generic.c
 )
-target_include_directories(mimhid_firmware_stm32f4 PUBLIC
+target_include_directories(mimusb_firmware_stm32f4 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 
 # The endpoint numbers are 1 to what the core has IN endpoints, in both directions (see core.h). The BSP's UART (USART2) is reused,
 # starting at the protocol's boot rate.
-set(MIMHID_DEFS
-    MIMHID_MAX_ENDPOINT_NUMBER=${MIMHID_STM32_ENDPOINTS}
-    MIMHID_MAX_ENDPOINT_BYTES=64
+set(MIMUSB_DEFS
+    MIMUSB_MAX_ENDPOINT_NUMBER=${MIMUSB_STM32_ENDPOINTS}
+    MIMUSB_MAX_ENDPOINT_BYTES=64
     CFG_TUSB_OS=OPT_OS_NONE
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
     CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
     CFG_BOARD_UART_BAUDRATE=115200)
 
-family_configure_device_example(mimhid_firmware_stm32f4 noos)
+family_configure_device_example(mimusb_firmware_stm32f4 noos)
 # Control transfers of the target are taken where the stack receives them (see common/control.h).
-target_link_options(mimhid_firmware_stm32f4 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall -Wl,--wrap=dcd_edpt_xfer)
-target_include_directories(mimhid_firmware_stm32f4-tinyusb_config INTERFACE
+target_link_options(mimusb_firmware_stm32f4 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall -Wl,--wrap=dcd_edpt_xfer)
+target_include_directories(mimusb_firmware_stm32f4-tinyusb_config INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/../../common
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
-target_compile_definitions(mimhid_firmware_stm32f4 PUBLIC ${MIMHID_DEFS})
-target_compile_definitions(mimhid_firmware_stm32f4-tinyusb_config INTERFACE ${MIMHID_DEFS})
+target_compile_definitions(mimusb_firmware_stm32f4 PUBLIC ${MIMUSB_DEFS})
+target_compile_definitions(mimusb_firmware_stm32f4-tinyusb_config INTERFACE ${MIMUSB_DEFS})

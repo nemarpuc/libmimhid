@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Finding a board and agreeing the line rate with it, on a port that has no reader thread yet
  * (Link takes over once the rate is settled). See docs/PROTOCOL.md, "Line rate". */
 #pragma once
 
 #include "transport/link.hpp"
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 enum class Handshake : std::uint8_t {
     ok,
@@ -60,9 +60,9 @@ class Handshaker final {
 
     SerialPort& port_;
     std::uint32_t wait_ms_;
-    std::uint32_t rate_{MIMHID_BOOT_BAUD};
+    std::uint32_t rate_{MIMUSB_BOOT_BAUD};
     std::uint32_t reply_extra_ms_{0}; // added to the wait for one answer
     std::uint8_t seq_{0x80};
 };
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

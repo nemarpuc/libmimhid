@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #pragma once
 
 /*
@@ -9,7 +9,7 @@
 
 #include "hid/report_layout.hpp"
 #include "hid/validator.hpp"
-#include "mimhid.h"
+#include "mimusb.h"
 #include "transport/link.hpp"
 #include "usb/board_rule.hpp"
 
@@ -29,31 +29,31 @@
 #include <variant>
 #include <vector>
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
 struct KeyboardConfig {
-    mimhid_keyboard_options options{};
+    mimusb_keyboard_options options{};
 };
 
 struct MouseConfig {
-    mimhid_mouse_options options{};
+    mimusb_mouse_options options{};
 };
 
 struct ConsumerConfig {
-    mimhid_toggle_options options{};
+    mimusb_toggle_options options{};
     std::vector<std::uint16_t> allowed_usages;
-    std::vector<mimhid_usage_semantic> usage_semantics;
+    std::vector<mimusb_usage_semantic> usage_semantics;
     std::vector<std::string> expected_linux_event_types;
     std::vector<std::string> expected_linux_codes;
 };
 
 struct GamepadAxisConfig {
-    mimhid_gamepad_axis_option axis{};
+    mimusb_gamepad_axis_option axis{};
     std::string expected_linux_code;
 };
 
 struct GamepadConfig {
-    mimhid_gamepad_options options{};
+    mimusb_gamepad_options options{};
     std::vector<GamepadAxisConfig> axes;
 };
 
@@ -61,23 +61,23 @@ struct GamepadConfig {
  * Touchpad. button_count is always here; Touchscreen always passes zero, so
  * the button state machine below needs no profile_kind branch. */
 struct TouchFields {
-    mimhid_report_id_option report_id{};
+    mimusb_report_id_option report_id{};
     std::uint32_t maximum_contacts{};
     std::uint32_t contacts_per_report{};
-    mimhid_integer_field contact_id{};
-    mimhid_integer_field x{};
-    mimhid_integer_field y{};
-    mimhid_integer_field contact_count{};
+    mimusb_integer_field contact_id{};
+    mimusb_integer_field x{};
+    mimusb_integer_field y{};
+    mimusb_integer_field contact_count{};
     std::uint32_t enable_pressure{};
-    mimhid_integer_field pressure{};
+    mimusb_integer_field pressure{};
     std::uint32_t enable_width{};
-    mimhid_integer_field width{};
+    mimusb_integer_field width{};
     std::uint32_t enable_height{};
-    mimhid_integer_field height{};
+    mimusb_integer_field height{};
     std::uint32_t enable_azimuth{};
-    mimhid_integer_field azimuth{};
+    mimusb_integer_field azimuth{};
     std::uint32_t enable_scan_time{};
-    mimhid_integer_field scan_time{};
+    mimusb_integer_field scan_time{};
     std::uint32_t scan_time_unit_100us{};
     std::uint32_t enable_contact_count_maximum_feature_declaration{};
     std::uint32_t enable_multi_packet_frames{};
@@ -89,12 +89,12 @@ struct TouchConfig {
 };
 
 struct PenConfig {
-    mimhid_pen_options options{};
+    mimusb_pen_options options{};
     std::vector<std::uint16_t> barrel_usages;
 };
 
 struct RawConfig {
-    std::vector<mimhid_raw_report> reports;
+    std::vector<mimusb_raw_report> reports;
     std::vector<std::uint8_t> trailing_valid_masks;
 };
 
@@ -164,8 +164,8 @@ struct TouchState {
 };
 
 struct PenState {
-    mimhid_pen_sample desired{};
-    mimhid_pen_sample emitted{};
+    mimusb_pen_sample desired{};
+    mimusb_pen_sample emitted{};
     std::uint32_t barrel_transitions{};
     bool tool_switch_departure{};
     bool in_range_transition_pending{};
@@ -186,21 +186,21 @@ struct RawState {
 using NodeState = std::variant<std::monostate, KeyboardState, MouseState, ConsumerState,
                                GamepadState, TouchState, PenState, RawState>;
 
-void set_error(mimhid_result result, const char* field, const char* reason,
+void set_error(mimusb_result result, const char* field, const char* reason,
                std::int32_t transport_status = 0, std::int32_t frame_type = 0,
                std::uint16_t node_id = 0, std::uint16_t report_id = 0, std::uint32_t offset = 0,
                std::uint32_t length = 0) noexcept;
 void clear_error() noexcept;
-mimhid_result finish_result(mimhid_result result, const char* field, const char* reason,
+mimusb_result finish_result(mimusb_result result, const char* field, const char* reason,
                             std::int32_t transport_status = 0, std::int32_t frame_type = 0,
                             std::uint16_t node_id = 0, std::uint16_t report_id = 0,
                             std::uint32_t offset = 0, std::uint32_t length = 0) noexcept;
-const char* result_name(mimhid_result result) noexcept;
+const char* result_name(mimusb_result result) noexcept;
 const char* frame_type_name(std::int32_t frame_type) noexcept;
-void restore_error(const mimhid_error_detail& detail) noexcept;
-bool retain_spec(struct mimhid_spec* spec) noexcept;
-bool release_spec(struct mimhid_spec* spec) noexcept;
-void log_message(const struct mimhid_device* device, mimhid_log_level level,
+void restore_error(const mimusb_error_detail& detail) noexcept;
+bool retain_spec(struct mimusb_spec* spec) noexcept;
+bool release_spec(struct mimusb_spec* spec) noexcept;
+void log_message(const struct mimusb_device* device, mimusb_log_level level,
                  const char* message) noexcept;
 
 bool valid_boolean(std::uint32_t value) noexcept;
@@ -208,36 +208,36 @@ bool valid_boolean(std::uint32_t value) noexcept;
 inline bool valid_struct(const void* value, const std::uint32_t actual_size,
                          const std::uint32_t expected_size, const char* field) noexcept {
     if (value == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field, "The required structure pointer is null.");
+        set_error(MIMUSB_ERR_PARAM, field, "The required structure pointer is null.");
         return false;
     }
     if (actual_size != expected_size) {
-        set_error(MIMHID_ERR_PARAM, field,
+        set_error(MIMUSB_ERR_PARAM, field,
                   "struct_size must equal the size of the ABI structure used by this release.");
         return false;
     }
     return true;
 }
 
-mimhid_result serialize_node(struct mimhid_node* node, std::uint8_t* report, std::size_t capacity,
+mimusb_result serialize_node(struct mimusb_node* node, std::uint8_t* report, std::size_t capacity,
                              std::size_t* report_length) noexcept;
-mimhid_result validate_serialized_report(const struct mimhid_spec* spec, const std::uint8_t* report,
+mimusb_result validate_serialized_report(const struct mimusb_spec* spec, const std::uint8_t* report,
                                          std::size_t report_length) noexcept;
-mimhid_result validate_serialized_report(const struct mimhid_spec* spec,
-                                         const mimhid::hid::ReportLayout& layout,
+mimusb_result validate_serialized_report(const struct mimusb_spec* spec,
+                                         const mimusb::hid::ReportLayout& layout,
                                          const std::uint8_t* report,
                                          std::size_t report_length) noexcept;
-mimhid_result serialize_battery(const struct mimhid_node* node, std::uint8_t* report,
+mimusb_result serialize_battery(const struct mimusb_node* node, std::uint8_t* report,
                                 std::size_t capacity, std::size_t* report_length) noexcept;
-void transfer_complete(void* user, mimhid_result result, std::int32_t native_status) noexcept;
-// MIMHID_OK, or why a node cannot send now (serial link gone, batch open, re-enumerating).
-mimhid_result link_available(const struct mimhid_node* node, const char* field) noexcept;
+void transfer_complete(void* user, mimusb_result result, std::int32_t native_status) noexcept;
+// MIMUSB_OK, or why a node cannot send now (serial link gone, batch open, re-enumerating).
+mimusb_result link_available(const struct mimusb_node* node, const char* field) noexcept;
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
-// One interface of a Node opened with mimhid_node_open, copied from the caller's configuration.
+// One interface of a Node opened with mimusb_node_open, copied from the caller's configuration.
 struct GenericInterface {
     std::uint8_t number{};
     std::uint8_t class_code{};
@@ -245,7 +245,7 @@ struct GenericInterface {
     std::uint8_t protocol{};
     std::string name;
     std::vector<std::uint8_t> class_descriptors;
-    std::vector<mimhid_usb_endpoint> endpoints;
+    std::vector<mimusb_usb_endpoint> endpoints;
 };
 
 // What the library knows of an IN endpoint of a Node while it is open. The counters are
@@ -255,34 +255,34 @@ struct EndpointRuntime {
     std::uint8_t address{};
     std::uint16_t max_packet_size{}; // an isochronous endpoint: the largest of its settings
     bool isochronous{}; // a transfer is one packet (USB 2.0 5.6): at most max_packet_size
-    mimhid_endpoint_policy policy{};
+    mimusb_endpoint_policy policy{};
     std::uint32_t outstanding{}; // frames written minus frames the board reported finished
     std::uint64_t epoch{};       // counts the resets of `outstanding`, which wake writers
 };
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
-struct mimhid_spec {
+struct mimusb_spec {
     std::atomic<std::uint32_t> references{1U};
-    mimhid_profile_kind kind{};
+    mimusb_profile_kind kind{};
     std::vector<std::uint8_t> descriptor;
-    mimhid::hid::ReportLayout layout;
-    mimhid::hid::DescriptorRequirements requirements;
-    std::vector<mimhid_report_capability> report_capabilities;
-    mimhid::detail::SpecConfig config;
+    mimusb::hid::ReportLayout layout;
+    mimusb::hid::DescriptorRequirements requirements;
+    std::vector<mimusb_report_capability> report_capabilities;
+    mimusb::detail::SpecConfig config;
     // The optional battery report: a second Input report with its own layout.
     bool has_battery{};
-    mimhid_battery_report battery{};
-    mimhid::hid::ReportLayout battery_layout;
+    mimusb_battery_report battery{};
+    mimusb::hid::ReportLayout battery_layout;
 };
 
-struct mimhid_discovery {
-    std::vector<mimhid_device_info> entries;
+struct mimusb_discovery {
+    std::vector<mimusb_device_info> entries;
 };
 
-struct mimhid_device {
+struct mimusb_device {
     // The updater thread sends on the link: it is joined before the members go.
-    ~mimhid_device() {
+    ~mimusb_device() {
         {
             std::lock_guard<std::mutex> lock(update_mutex);
             updater_stop = true;
@@ -291,19 +291,19 @@ struct mimhid_device {
         if (updater.joinable())
             updater.join();
     }
-    mimhid_device_config config{};
-    mimhid_device_info info{};
-    mimhid::transport::BoardInfo board{};
-    mimhid::transport::Link link;
+    mimusb_device_config config{};
+    mimusb_device_info info{};
+    mimusb::transport::BoardInfo board{};
+    mimusb::transport::Link link;
     std::uint32_t maximum_report_bytes{};
     std::string manufacturer;
     std::string product;
     std::string serial;
     std::string configuration;
-    // Strings the caller added (mimhid_device_add_string), by index, in UTF-8.
+    // Strings the caller added (mimusb_device_add_string), by index, in UTF-8.
     std::map<std::uint8_t, std::string> user_strings;
 
-    // The Device given as bytes (mimhid_device_set_descriptors); while `descriptors_set`, no Node
+    // The Device given as bytes (mimusb_device_set_descriptors); while `descriptors_set`, no Node
     // is open and the composed configuration is not used. Guarded by nodes_mutex, except the IN
     // endpoint runtimes, whose counts endpoint_mutex guards like a Node's.
     struct ByteDevice {
@@ -314,16 +314,16 @@ struct mimhid_device {
         std::map<std::uint8_t, std::uint8_t> interface_of;
         // Runtime of every IN endpoint, in the order of the configuration. A vector that is never
         // resized while descriptors are set, so a pointer into it stays valid.
-        std::vector<mimhid::detail::EndpointRuntime> in_endpoints;
+        std::vector<mimusb::detail::EndpointRuntime> in_endpoints;
     };
     bool descriptors_set{false};
     ByteDevice bytes;
-    // Policies given by mimhid_device_endpoint_set_policy, by IN address; they outlive the
-    // descriptors until mimhid_device_clear_descriptors, so they may be given first.
-    std::map<std::uint8_t, mimhid_endpoint_policy> byte_policies;
-    // The BOS of a composed Device (mimhid_device_set_bos); empty: none.
+    // Policies given by mimusb_device_endpoint_set_policy, by IN address; they outlive the
+    // descriptors until mimusb_device_clear_descriptors, so they may be given first.
+    std::map<std::uint8_t, mimusb_endpoint_policy> byte_policies;
+    // The BOS of a composed Device (mimusb_device_set_bos); empty: none.
     std::vector<std::uint8_t> composed_bos;
-    // Raw strings (mimhid_device_set_string), by (index, language), as UTF-16 code units.
+    // Raw strings (mimusb_device_set_string), by (index, language), as UTF-16 code units.
     std::map<std::pair<std::uint8_t, std::uint16_t>, std::u16string> raw_strings;
 
     // The wait policy's counts (EndpointRuntime) and the writers that wait on them. A writer holds
@@ -336,8 +336,8 @@ struct mimhid_device {
     // while another mutex is taken. The reader thread classifies the requests the board reports
     // from `table`, and answers GET_IDLE and GET_PROTOCOL by changing the bytes of rules in it.
     std::mutex rules_mutex;
-    std::vector<mimhid::usb::BoardRule> table;
-    std::vector<mimhid::usb::BoardRule> device_rules; // set by mimhid_device_set_control_rules
+    std::vector<mimusb::usb::BoardRule> table;
+    std::vector<mimusb::usb::BoardRule> device_rules; // set by mimusb_device_set_control_rules
     bool report_all{false};
     // What the reader thread waits for: the data stage of an ACCEPT rule of a profile interface.
     struct Pending {
@@ -363,7 +363,7 @@ struct mimhid_device {
     // Nodes by node id (the index). A closed Node leaves a null entry that the next Node takes.
     // Event delivery reads this from the reader thread.
     std::mutex nodes_mutex;
-    std::vector<struct mimhid_node*> slots;
+    std::vector<struct mimusb_node*> slots;
 
     bool batch_open{false};
     bool configured{false};                  // the board holds a committed configuration
@@ -372,22 +372,22 @@ struct mimhid_device {
     std::atomic<bool> control_routed{false}; // the board holds control rules (the Device's own)
     std::atomic<bool> reconfiguring{false};
     std::atomic<bool> closing{false};
-    std::atomic<mimhid_result> latched{MIMHID_OK};
+    std::atomic<mimusb_result> latched{MIMUSB_OK};
 };
 
-struct mimhid_node {
-    mimhid_device* device{};
-    mimhid_spec* spec{};
-    mimhid::detail::NodeState state;
-    // A Node opened with mimhid_node_open (generic) has no Spec: its interfaces are in `interfaces`
-    // and `config` is not used. A profile Node (mimhid_node_open_profile, _raw) has a Spec and
+struct mimusb_node {
+    mimusb_device* device{};
+    mimusb_spec* spec{};
+    mimusb::detail::NodeState state;
+    // A Node opened with mimusb_node_open (generic) has no Spec: its interfaces are in `interfaces`
+    // and `config` is not used. A profile Node (mimusb_node_open_profile, _raw) has a Spec and
     // `config`, and the board's HID driver serves it.
     bool generic{false};
-    std::vector<mimhid::detail::GenericInterface> interfaces;
+    std::vector<mimusb::detail::GenericInterface> interfaces;
     std::vector<std::uint8_t> association;
-    std::vector<mimhid::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
-    std::vector<mimhid::usb::BoardRule> rules; // a Node opened with mimhid_node_open: its own
-    mimhid_hid_node_config config{};
+    std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
+    std::vector<mimusb::usb::BoardRule> rules; // a Node opened with mimusb_node_open: its own
+    mimusb_hid_node_config config{};
     std::string interface_string;
     std::uint16_t node_id{};
     std::uint8_t iface{}; // config.interface_number: the bInterfaceNumber the Node has on the bus
@@ -412,14 +412,14 @@ struct mimhid_node {
     bool dirty{false};
     // The battery report of a Spec that has one. It is sent only when there
     // is no input report to send; has_value says a level was ever set.
-    mimhid::detail::BatteryState battery{};
+    mimusb::detail::BatteryState battery{};
     bool battery_dirty{false};
     bool submitted_battery{false};
     bool closed{false};
     bool staged_only{false}; // opened inside a batch that has not ended
     // The report just written; the state machine settles it in transfer_complete().
     std::atomic<bool> transfer_inflight{false};
-    std::atomic<mimhid_result> completion_result{MIMHID_OK};
+    std::atomic<mimusb_result> completion_result{MIMUSB_OK};
     std::atomic<std::int32_t> completion_native_status{0};
     std::atomic<std::uint32_t> completion_report_length{0U};
     std::atomic<std::uint16_t> completion_report_id{0U};

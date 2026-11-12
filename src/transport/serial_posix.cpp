@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Linux and macOS serial port: termios with non-blocking descriptors.
 #include "transport/serial_port.hpp"
 
@@ -25,7 +25,7 @@
 #include <linux/serial.h>
 #endif
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 namespace {
 
@@ -290,4 +290,4 @@ void SerialPort::discard_input() noexcept {
         tcflush(static_cast<int>(handle_), TCIFLUSH);
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

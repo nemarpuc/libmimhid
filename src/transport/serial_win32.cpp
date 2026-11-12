@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Windows serial port: overlapped I/O on a \\.\COMn handle.
 #include "transport/serial_port.hpp"
 
@@ -7,7 +7,7 @@
 #include <string>
 #include <windows.h>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 namespace {
 
@@ -230,4 +230,4 @@ void SerialPort::discard_input() noexcept {
         PurgeComm(reinterpret_cast<HANDLE>(handle_), PURGE_RXCLEAR);
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

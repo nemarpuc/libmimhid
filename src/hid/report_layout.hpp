@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Defines the immutable bit-level report model shared by builders and
  * serializers; it contains no mutable Node or USB state. */
 #pragma once
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 /*
  * This file records the immutable wire layout produced with each descriptor.
@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 enum class FieldSemantic : std::uint16_t {
     modifier,
@@ -54,7 +54,7 @@ struct FieldLayout {
     bool has_null_state{};
     std::int32_t logical_minimum{};
     std::int32_t logical_maximum{};
-    mimhid_physical_properties physical{};
+    mimusb_physical_properties physical{};
 };
 
 struct ReportLayout {
@@ -71,7 +71,7 @@ struct BatteryField {
     std::int32_t logical_minimum{};
     std::int32_t logical_maximum{};
     std::uint8_t bit_width{};
-    mimhid_physical_properties physical{};
+    mimusb_physical_properties physical{};
 };
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

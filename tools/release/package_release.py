@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Create one deterministic binary archive from an install tree that holds both library kinds.
 
 The SPDX document of the release covers every archive; generate_spdx.py writes it once all
@@ -23,7 +23,7 @@ import zipfile
 
 import release_names
 
-DOC = "share/doc/libmimhid"
+DOC = "share/doc/libmimusb"
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -32,10 +32,10 @@ def collect(stage: Path) -> list[Path]:
     return sorted(p.relative_to(stage) for p in stage.rglob("*") if p.is_file() or p.is_symlink())
 
 
-SHARED_LIBRARY = {"linux": "lib/libmimhid.so", "macos": "lib/libmimhid.dylib", "windows": "bin/mimhid.dll"}
-# With both kinds built the static library is called mimhid_static everywhere (CMakeLists.txt).
-STATIC_LIBRARY = {"linux": "lib/libmimhid_static.a", "macos": "lib/libmimhid_static.a",
-                  "windows": "lib/mimhid_static.lib"}
+SHARED_LIBRARY = {"linux": "lib/libmimusb.so", "macos": "lib/libmimusb.dylib", "windows": "bin/mimusb.dll"}
+# With both kinds built the static library is called mimusb_static everywhere (CMakeLists.txt).
+STATIC_LIBRARY = {"linux": "lib/libmimusb_static.a", "macos": "lib/libmimusb_static.a",
+                  "windows": "lib/mimusb_static.lib"}
 CMAKE_TRUE = {"ON", "TRUE", "1", "YES", "Y"}
 
 
@@ -48,21 +48,21 @@ def validate_layout(stage: Path, platform: str) -> None:
         f"{DOC}/CHANGELOG.md",
     ]
     required.append(f"{DOC}/examples/README.md")
-    required += ["include/mimhid.h", "include/mimhid.hpp"]
-    required += ["lib/cmake/mimhid/mimhid-config.cmake", "lib/cmake/mimhid/mimhid-config-version.cmake"]
-    required += [f"lib/cmake/mimhid/mimhid-{component}-targets.cmake" for component in release_names.COMPONENTS]
-    required += ["lib/pkgconfig/mimhid.pc", "lib/pkgconfig/mimhid-static.pc"]
+    required += ["include/mimusb.h", "include/mimusb.hpp"]
+    required += ["lib/cmake/mimusb/mimusb-config.cmake", "lib/cmake/mimusb/mimusb-config-version.cmake"]
+    required += [f"lib/cmake/mimusb/mimusb-{component}-targets.cmake" for component in release_names.COMPONENTS]
+    required += ["lib/pkgconfig/mimusb.pc", "lib/pkgconfig/mimusb-static.pc"]
     required += [SHARED_LIBRARY[platform], STATIC_LIBRARY[platform]]
     if platform == "windows":
-        required.append("lib/mimhid.lib")
+        required.append("lib/mimusb.lib")
     for relative in required:
         if not (stage / relative).exists():
             raise release_names.ReleaseError(f"required package file is missing: {relative}")
-    # find_package(mimhid COMPONENTS x) finds x only when the configured tree built it, so the
+    # find_package(mimusb COMPONENTS x) finds x only when the configured tree built it, so the
     # installed config must say that both were built.
-    config = (stage / "lib/cmake/mimhid/mimhid-config.cmake").read_text(encoding="utf-8")
+    config = (stage / "lib/cmake/mimusb/mimusb-config.cmake").read_text(encoding="utf-8")
     for component in release_names.COMPONENTS:
-        match = re.search(rf"^set\(_MIMHID_BUILT_{component.upper()} (\S+)\)", config, re.MULTILINE)
+        match = re.search(rf"^set\(_MIMUSB_BUILT_{component.upper()} (\S+)\)", config, re.MULTILINE)
         if match is None or match.group(1).upper() not in CMAKE_TRUE:
             raise release_names.ReleaseError(f"the installed CMake package was not built with the {component} library")
 

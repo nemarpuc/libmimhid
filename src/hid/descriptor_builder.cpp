@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * This file emits descriptor bytes and immutable field offsets together so a
  * serializer can never silently drift away from the descriptor it serves.
@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <limits>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 namespace {
 constexpr std::uint32_t kCollectionPhysical = 0x00U;
@@ -167,15 +167,15 @@ bool DescriptorBuilder::prepare_data_main() noexcept {
 bool DescriptorBuilder::add_layout(const FieldSemantic semantic, const std::uint16_t instance,
                                    const std::uint8_t bit_width, const std::int32_t logical_minimum,
                                    const std::int32_t logical_maximum,
-                                   const mimhid_physical_properties* physical,
+                                   const mimusb_physical_properties* physical,
                                    const bool has_null_state) {
     if (bit_width == 0U || bit_width > 32U ||
         input_bits_ > std::numeric_limits<std::size_t>::max() - bit_width) {
         good_ = false;
         return false;
     }
-    const mimhid_physical_properties physical_value =
-        physical == nullptr ? mimhid_physical_properties{} : *physical;
+    const mimusb_physical_properties physical_value =
+        physical == nullptr ? mimusb_physical_properties{} : *physical;
     if (layout_ != nullptr) {
         layout_->fields.push_back(FieldLayout{
             semantic, instance, input_bits_, bit_width, logical_minimum < 0 || logical_maximum < 0,
@@ -233,7 +233,7 @@ bool DescriptorBuilder::variable(const std::uint16_t usage_page, const std::uint
                                  const bool relative, const bool null_state,
                                  const FieldSemantic semantic, const std::uint16_t instance,
                                  const bool no_preferred,
-                                 const mimhid_physical_properties* physical) {
+                                 const mimusb_physical_properties* physical) {
     if (!prepare_data_main()) {
         return false;
     }
@@ -365,4 +365,4 @@ void DescriptorBuilder::finish() noexcept {
     }
 }
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

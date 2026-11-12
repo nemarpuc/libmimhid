@@ -1,21 +1,21 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """What the Python package promises: a small surface, and no value chosen for the caller.
 
 The layout against the compiled C is test_layout.py, which is generated.
 """
 
-import mimhid
-from mimhid import native
-from mimhid.native import DeviceConfig, KeyboardOptions
+import mimusb
+from mimusb import native
+from mimusb.native import DeviceConfig, KeyboardOptions
 
 
 def test_package_exports_only_the_binding_surface():
-    assert "load" in mimhid.__all__
-    assert "MIMHID_OK" in mimhid.__all__
-    assert not hasattr(mimhid, "c")
-    assert not hasattr(mimhid, "os")
-    assert not hasattr(mimhid, "Union")
+    assert "load" in mimusb.__all__
+    assert "MIMUSB_OK" in mimusb.__all__
+    assert not hasattr(mimusb, "c")
+    assert not hasattr(mimusb, "os")
+    assert not hasattr(mimusb, "Union")
 
 
 def test_a_new_option_structure_is_all_zero():

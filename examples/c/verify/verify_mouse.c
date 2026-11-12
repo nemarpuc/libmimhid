@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Moves the mouse cursor in a circle repeatedly, so a person watching the
  * target can confirm real relative pointer motion actually arrives.
  *
@@ -17,25 +17,25 @@
 #endif
 
 int main(void) {
-    mimhid_device* device = NULL;
+    mimusb_device* device = NULL;
     if (verify_open_first_board(&device) != 0)
         return 1;
 
-    mimhid_mouse_options options;
+    mimusb_mouse_options options;
     example_fill_mouse_options(&options);
 
-    mimhid_spec* spec = NULL;
-    mimhid_result result = mimhid_spec_create_mouse(&options, &spec);
-    if (result != MIMHID_OK) {
-        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    mimusb_spec* spec = NULL;
+    mimusb_result result = mimusb_spec_create_mouse(&options, &spec);
+    if (result != MIMUSB_OK) {
+        mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("mouse spec create", result);
     }
 
-    mimhid_node* node = NULL;
+    mimusb_node* node = NULL;
     result = verify_open_node(device, spec, 0U, &node);
-    mimhid_spec_release(spec);
-    if (result != MIMHID_OK) {
-        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    mimusb_spec_release(spec);
+    if (result != MIMUSB_OK) {
+        mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("mouse node open", result);
     }
     /* The target may still be binding its driver to the new HID; input sent at once
@@ -63,15 +63,15 @@ int main(void) {
             prev_x += dx;
             prev_y += dy;
             if (dx != 0 || dy != 0) {
-                result = mimhid_mouse_move(node, dx, dy);
-                if (result != MIMHID_OK) {
-                    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
+                result = mimusb_mouse_move(node, dx, dy);
+                if (result != MIMUSB_OK) {
+                    mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
                                         EXAMPLE_DRAIN_TIMEOUT_MS);
                     return verify_fail("mouse move", result);
                 }
                 result = verify_submit(node);
-                if (result != MIMHID_OK) {
-                    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
+                if (result != MIMUSB_OK) {
+                    mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS,
                                         EXAMPLE_DRAIN_TIMEOUT_MS);
                     return verify_fail("submit mouse move", result);
                 }
@@ -81,6 +81,6 @@ int main(void) {
     }
 
     printf("done. Expected result: the cursor traced circles, if your target shows one.\n");
-    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return 0;
 }

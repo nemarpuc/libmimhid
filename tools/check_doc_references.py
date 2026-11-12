@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Fail when the documentation names a library identifier or a path that does not exist.
 
 Two kinds of reference are checked in the Markdown files listed in DOCUMENTS:
 
-- an identifier with the library's own prefix (mimhid_*, MIMHID_*, mimhid::*) inside
+- an identifier with the library's own prefix (mimusb_*, MIMUSB_*, mimusb::*) inside
   backticks or a fenced code block must occur in the code: include/, src/, proto/,
   firmware/, tests/, examples/, bindings/, cmake/, tools/, .github/ or CMakeLists.txt. A '*' in
-  the reference stands for any run of identifier characters, so `mimhid_spec_create_*`
-  needs one match. mimhid::name is met by the literal text or by name in
-  include/mimhid.hpp. A name CMake builds from a variable (mimhid_sim_${itfs}) is met
+  the reference stands for any run of identifier characters, so `mimusb_spec_create_*`
+  needs one match. mimusb::name is met by the literal text or by name in
+  include/mimusb.hpp. A name CMake builds from a variable (mimusb_sim_${itfs}) is met
   by any reference that starts with the part before '${'.
 - a backticked path that starts with one of PATH_ROOTS must exist ('*' is a glob).
 
@@ -54,9 +54,9 @@ SELF = (Path("tools/check_doc_references.py"), ALLOWLIST)
 
 INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
-# A CMake name made from a variable, such as mimhid_sim_${itfs}: the part before "${".
-GENERATED_RE = re.compile(r"(?<![A-Za-z0-9_])((?:mimhid_|MIMHID_)[A-Za-z0-9_]*)\$\{")
-IDENTIFIER_RE = re.compile(r"(?<![A-Za-z0-9_])(?:mimhid::|mimhid_|MIMHID_)[A-Za-z0-9_*]*")
+# A CMake name made from a variable, such as mimusb_sim_${itfs}: the part before "${".
+GENERATED_RE = re.compile(r"(?<![A-Za-z0-9_])((?:mimusb_|MIMUSB_)[A-Za-z0-9_]*)\$\{")
+IDENTIFIER_RE = re.compile(r"(?<![A-Za-z0-9_])(?:mimusb::|mimusb_|MIMUSB_)[A-Za-z0-9_*]*")
 PATH_RE = re.compile(r"^(?:\.\./)*(?:" + "|".join(PATH_ROOTS) + r")/[A-Za-z0-9_.*/+-]*$")
 
 
@@ -135,10 +135,10 @@ def generated_prefixes(code: str) -> tuple[str, ...]:
 
 def identifier_exists(reference: str, code: str, facade: str,
                       prefixes: tuple[str, ...] = ()) -> bool:
-    # A trailing '_' is a prefix written out (`MIMHID_ERR_`), as is a trailing '*'.
+    # A trailing '_' is a prefix written out (`MIMUSB_ERR_`), as is a trailing '*'.
     name = reference + "*" if reference.endswith("_") else reference
-    if name.startswith("mimhid::"):
-        member = name[len("mimhid::") :]
+    if name.startswith("mimusb::"):
+        member = name[len("mimusb::") :]
         if "*" not in member and re.search(rf"\b{re.escape(member)}\b", facade):
             return True
     if any(name.startswith(prefix) and len(name) > len(prefix) for prefix in prefixes):
@@ -160,7 +160,7 @@ def path_exists(root: Path, document: Path, reference: str) -> bool:
 
 def find_problems(root: Path) -> list[Problem]:
     code = code_text(root)
-    facade_path = root / "include/mimhid.hpp"
+    facade_path = root / "include/mimusb.hpp"
     facade = facade_path.read_text(encoding="utf-8") if facade_path.is_file() else ""
     prefixes = generated_prefixes(code)
     allowed, allowlist_errors = read_allowlist(root / ALLOWLIST)
@@ -170,7 +170,7 @@ def find_problems(root: Path) -> list[Problem]:
         for number, span, inline in references(document.read_text(encoding="utf-8")):
             for match in IDENTIFIER_RE.finditer(span):
                 reference = match.group(0)
-                if reference in {"mimhid_", "MIMHID_", "mimhid::"} or reference in allowed:
+                if reference in {"mimusb_", "MIMUSB_", "mimusb::"} or reference in allowed:
                     continue
                 if not identifier_exists(reference, code, facade, prefixes):
                     problems.append(Problem(relative, number, reference, "not found in the code"))

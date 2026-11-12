@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #ifndef _TUSB_CONFIG_H_
 #define _TUSB_CONFIG_H_
 

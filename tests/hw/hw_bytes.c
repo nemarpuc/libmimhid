@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-// A device given as bytes (mimhid_device_set_descriptors), and a BOS descriptor, on a real board
-// whose target is this machine: the host side is libmimhid, the target side is libusb. Types
+// Copyright (c) 2026 libmimusb contributors
+// A device given as bytes (mimusb_device_set_descriptors), and a BOS descriptor, on a real board
+// whose target is this machine: the host side is libmimusb, the target side is libusb. Types
 // nothing into the session.
 //
 //   hw_bytes bytes   a vendor device from bytes with a BOS descriptor and two strings; the target
 //                    reads back every descriptor, the vendor request that a rule of the Device
 //                    answers, bulk IN and OUT.
 //   hw_bytes bos     a Device composed from a Node (bcdUSB 0x0210) that is given a BOS with
-//                    mimhid_device_set_bos; the target reads it back.
+//                    mimusb_device_set_bos; the target reads it back.
 #include "example_values.h"
 #include <libusb.h>
-#include <mimhid.h>
+#include <mimusb.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,9 +22,9 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t g_out[256];
 static size_t g_out_len, g_out_packets;
 static int g_out_node = -1, g_out_ep, g_out_itf;
-static void on_event(void* user, const mimhid_event* e) {
+static void on_event(void* user, const mimusb_event* e) {
     (void)user;
-    if (e->kind != MIMHID_EVENT_ENDPOINT_DATA)
+    if (e->kind != MIMUSB_EVENT_ENDPOINT_DATA)
         return;
     pthread_mutex_lock(&g_lock);
     // One event per packet (USB 2.0 5.8.3): a transfer of 70 bytes is a packet of 64 and one of 6.
@@ -83,18 +83,18 @@ static int get_descriptor(libusb_device_handle* h, uint16_t value, uint16_t inde
     return libusb_control_transfer(h, 0x80, 6, value, index, out, (uint16_t)cap, 2000);
 }
 
-static int run_bytes(mimhid_device* device) {
-    mimhid_result r;
-    mimhid_commit_timeouts to;
+static int run_bytes(mimusb_device* device) {
+    mimusb_result r;
+    mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
-    CHECK((r = mimhid_device_set_string(device, 1, 0x0409, kManufacturer, 4)) == MIMHID_OK,
-          "set_string 1: %s", mimhid_result_name(r));
-    CHECK((r = mimhid_device_set_string(device, 2, 0x0409, kProduct, 5)) == MIMHID_OK,
-          "set_string 2: %s", mimhid_result_name(r));
-    mimhid_endpoint_policy p = {MIMHID_FULL_WAIT, 4};
-    CHECK((r = mimhid_device_endpoint_set_policy(device, 0x81, &p, 500)) == MIMHID_OK, "policy: %s",
-          mimhid_result_name(r));
-    mimhid_control_rule rule;
+    CHECK((r = mimusb_device_set_string(device, 1, 0x0409, kManufacturer, 4)) == MIMUSB_OK,
+          "set_string 1: %s", mimusb_result_name(r));
+    CHECK((r = mimusb_device_set_string(device, 2, 0x0409, kProduct, 5)) == MIMUSB_OK,
+          "set_string 2: %s", mimusb_result_name(r));
+    mimusb_endpoint_policy p = {MIMUSB_FULL_WAIT, 4};
+    CHECK((r = mimusb_device_endpoint_set_policy(device, 0x81, &p, 500)) == MIMUSB_OK, "policy: %s",
+          mimusb_result_name(r));
+    mimusb_control_rule rule;
     memset(&rule, 0, sizeof(rule));
     rule.request_type_mask = 0xFF;
     rule.request_type_value = 0xC0;
@@ -102,20 +102,20 @@ static int run_bytes(mimhid_device* device) {
     rule.request_value = 1;
     rule.index_mask = 0xFFFF;
     rule.index_value = 7;
-    rule.action = MIMHID_CONTROL_ANSWER;
+    rule.action = MIMUSB_CONTROL_ANSWER;
     rule.data = kSet;
     rule.length = sizeof(kSet);
-    CHECK((r = mimhid_device_set_control_rules(device, 0, &rule, 1, 500)) == MIMHID_OK, "rule: %s",
-          mimhid_result_name(r));
-    mimhid_device_descriptors d = {sizeof(d),       0,    kDevice,     sizeof(kDevice), kConfig,
+    CHECK((r = mimusb_device_set_control_rules(device, 0, &rule, 1, 500)) == MIMUSB_OK, "rule: %s",
+          mimusb_result_name(r));
+    mimusb_device_descriptors d = {sizeof(d),       0,    kDevice,     sizeof(kDevice), kConfig,
                                    sizeof(kConfig), kBos, sizeof(kBos)};
-    r = mimhid_device_set_descriptors(device, &d, &to);
-    CHECK(r == MIMHID_OK, "set_descriptors: %s %s", mimhid_result_name(r),
-          mimhid_last_error()->reason);
-    if (r != MIMHID_OK)
+    r = mimusb_device_set_descriptors(device, &d, &to);
+    CHECK(r == MIMUSB_OK, "set_descriptors: %s %s", mimusb_result_name(r),
+          mimusb_last_error()->reason);
+    if (r != MIMUSB_OK)
         return 1;
-    CHECK((r = mimhid_device_wait_ready(device, 5000)) == MIMHID_OK, "mounted: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_wait_ready(device, 5000)) == MIMUSB_OK, "mounted: %s",
+          mimusb_result_name(r));
 
     libusb_context* ctx = NULL;
     libusb_init(&ctx);
@@ -148,14 +148,14 @@ static int run_bytes(mimhid_device* device) {
     for (int i = 0; i < 100; i++)
         msg[i] = (uint8_t)(i * 3 + 1);
     int got = 0;
-    r = mimhid_device_endpoint_write(device, 0x81, msg, 100, 2000);
-    CHECK(r == MIMHID_OK, "endpoint_write: %s", mimhid_result_name(r));
+    r = mimusb_device_endpoint_write(device, 0x81, msg, 100, 2000);
+    CHECK(r == MIMUSB_OK, "endpoint_write: %s", mimusb_result_name(r));
     e = libusb_bulk_transfer(h, 0x81, b, 512, &got, 2000);
     CHECK(e == 0 && got == 100 && memcmp(b, msg, 100) == 0, "bulk IN of 100 bytes (%d, %d)", e,
           got);
-    r = mimhid_device_endpoint_write(device, 0x81, msg, 0, 2000);
+    r = mimusb_device_endpoint_write(device, 0x81, msg, 0, 2000);
     e = libusb_bulk_transfer(h, 0x81, b, 512, &got, 2000);
-    CHECK(r == MIMHID_OK && e == 0 && got == 0, "zero-length packet (%d, %d)", e, got);
+    CHECK(r == MIMUSB_OK && e == 0 && got == 0, "zero-length packet (%d, %d)", e, got);
     // Bulk OUT: an event with node id 0.
     int sent = 0;
     e = libusb_bulk_transfer(h, 0x01, msg, 70, &sent, 2000);
@@ -168,53 +168,53 @@ static int run_bytes(mimhid_device* device) {
           g_out_node, g_out_ep, g_out_itf, libusb_error_name(e), sent, g_out_len);
     pthread_mutex_unlock(&g_lock);
     // Halt of an IN endpoint, then clear.
-    CHECK((r = mimhid_device_endpoint_stall(device, 0x81, 500)) == MIMHID_OK, "stall: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_endpoint_stall(device, 0x81, 500)) == MIMUSB_OK, "stall: %s",
+          mimusb_result_name(r));
     e = libusb_bulk_transfer(h, 0x81, b, 512, &got, 300);
     CHECK(e == LIBUSB_ERROR_PIPE, "a read of the halted endpoint stalls (%s)",
           libusb_error_name(e));
-    CHECK((r = mimhid_device_endpoint_clear_stall(device, 0x81, 500)) == MIMHID_OK,
-          "clear stall: %s", mimhid_result_name(r));
+    CHECK((r = mimusb_device_endpoint_clear_stall(device, 0x81, 500)) == MIMUSB_OK,
+          "clear stall: %s", mimusb_result_name(r));
     libusb_clear_halt(h, 0x81);
     libusb_release_interface(h, 0);
     libusb_close(h);
     libusb_exit(ctx);
-    CHECK((r = mimhid_device_clear_descriptors(device, &to)) == MIMHID_OK, "clear_descriptors: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_clear_descriptors(device, &to)) == MIMUSB_OK, "clear_descriptors: %s",
+          mimusb_result_name(r));
     return 0;
 }
 
-static int run_bos(mimhid_device* device, const char* port, uint32_t baud) {
-    mimhid_result r;
-    mimhid_commit_timeouts to;
+static int run_bos(mimusb_device* device, const char* port, uint32_t baud) {
+    mimusb_result r;
+    mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
-    mimhid_usb_endpoint eps[2];
+    mimusb_usb_endpoint eps[2];
     memset(eps, 0, sizeof(eps));
     eps[0].address = 0x81;
-    eps[0].transfer_type = MIMHID_TRANSFER_BULK;
+    eps[0].transfer_type = MIMUSB_TRANSFER_BULK;
     eps[0].max_packet_size = 64;
-    eps[0].policy.on_full = MIMHID_FULL_WAIT;
+    eps[0].policy.on_full = MIMUSB_FULL_WAIT;
     eps[0].policy.depth = 4;
     eps[1].address = 0x01;
-    eps[1].transfer_type = MIMHID_TRANSFER_BULK;
+    eps[1].transfer_type = MIMUSB_TRANSFER_BULK;
     eps[1].max_packet_size = 64;
-    mimhid_usb_interface itf;
+    mimusb_usb_interface itf;
     memset(&itf, 0, sizeof(itf));
     itf.class_code = 0xFF;
     itf.subclass = 1;
     itf.protocol = 2;
     itf.endpoints = eps;
     itf.endpoint_count = 2;
-    mimhid_node_config nc;
-    mimhid_node_config_init(&nc);
+    mimusb_node_config nc;
+    mimusb_node_config_init(&nc);
     nc.interfaces = &itf;
     nc.interface_count = 1;
-    CHECK((r = mimhid_device_set_bos(device, kBos, sizeof(kBos))) == MIMHID_OK, "set_bos: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_set_bos(device, kBos, sizeof(kBos))) == MIMUSB_OK, "set_bos: %s",
+          mimusb_result_name(r));
     {
         // The BOS names the Microsoft OS 2.0 platform capability, so the host asks for the
         // descriptor set: answer it.
-        mimhid_control_rule rule;
+        mimusb_control_rule rule;
         memset(&rule, 0, sizeof(rule));
         rule.request_type_mask = 0xFF;
         rule.request_type_value = 0xC0;
@@ -222,19 +222,19 @@ static int run_bos(mimhid_device* device, const char* port, uint32_t baud) {
         rule.request_value = 1;
         rule.index_mask = 0xFFFF;
         rule.index_value = 7;
-        rule.action = MIMHID_CONTROL_ANSWER;
+        rule.action = MIMUSB_CONTROL_ANSWER;
         rule.data = kSet;
         rule.length = sizeof(kSet);
-        mimhid_device_set_control_rules(device, 0, &rule, 1, 500);
+        mimusb_device_set_control_rules(device, 0, &rule, 1, 500);
     }
-    mimhid_node* node = NULL;
-    r = mimhid_node_open(device, &nc, &to, &node);
-    CHECK(r == MIMHID_OK, "node_open with bcdUSB 0x0210: %s %s", mimhid_result_name(r),
-          mimhid_last_error()->reason);
-    if (r != MIMHID_OK)
+    mimusb_node* node = NULL;
+    r = mimusb_node_open(device, &nc, &to, &node);
+    CHECK(r == MIMUSB_OK, "node_open with bcdUSB 0x0210: %s %s", mimusb_result_name(r),
+          mimusb_last_error()->reason);
+    if (r != MIMUSB_OK)
         return 1;
-    CHECK((r = mimhid_device_wait_ready(device, 5000)) == MIMHID_OK, "mounted: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_wait_ready(device, 5000)) == MIMUSB_OK, "mounted: %s",
+          mimusb_result_name(r));
     libusb_context* ctx = NULL;
     libusb_init(&ctx);
     libusb_device_handle* h = open_target(ctx);
@@ -250,10 +250,10 @@ static int run_bos(mimhid_device* device, const char* port, uint32_t baud) {
     libusb_exit(ctx);
     // A configuration with bcdUSB 0x0210 and no BOS cannot be enumerated (docs/LIMITS.md), so the
     // BOS is only removed here, for the node_close commit that takes the device off the bus.
-    CHECK((r = mimhid_device_set_bos(device, NULL, 0)) == MIMHID_OK, "bos removed: %s",
-          mimhid_result_name(r));
-    CHECK((r = mimhid_node_close(node, &to, 1000)) == MIMHID_OK, "node_close: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_set_bos(device, NULL, 0)) == MIMUSB_OK, "bos removed: %s",
+          mimusb_result_name(r));
+    CHECK((r = mimusb_node_close(node, &to, 1000)) == MIMUSB_OK, "node_close: %s",
+          mimusb_result_name(r));
     (void)port;
     (void)baud;
     return 0;
@@ -261,27 +261,27 @@ static int run_bos(mimhid_device* device, const char* port, uint32_t baud) {
 
 int main(int argc, char** argv) {
     const char* mode = argc > 1 ? argv[1] : "bytes";
-    mimhid_discovery* found = NULL;
-    if (mimhid_discover(3000, &found) != MIMHID_OK || mimhid_discovery_count(found) == 0) {
+    mimusb_discovery* found = NULL;
+    if (mimusb_discover(3000, &found) != MIMUSB_OK || mimusb_discovery_count(found) == 0) {
         printf("no board\n");
         return 1;
     }
-    mimhid_device_config config;
-    example_fill_device_config(&config, mimhid_discovery_get(found, 0)->baud_rate, "HW bytes test");
+    mimusb_device_config config;
+    example_fill_device_config(&config, mimusb_discovery_get(found, 0)->baud_rate, "HW bytes test");
     config.transport.event_sink = on_event;
     if (!strcmp(mode, "bos"))
         config.usb_device.bcd_usb = 0x0210; // a host asks for the BOS from 0x0201
-    mimhid_device* device = NULL;
-    mimhid_result r =
-        mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &config, &device);
-    mimhid_discovery_destroy(found);
-    if (r != MIMHID_OK) {
-        printf("open: %s %s\n", mimhid_result_name(r), mimhid_last_error()->reason);
+    mimusb_device* device = NULL;
+    mimusb_result r =
+        mimusb_device_open(mimusb_discovery_get(found, 0)->port_name, &config, &device);
+    mimusb_discovery_destroy(found);
+    if (r != MIMUSB_OK) {
+        printf("open: %s %s\n", mimusb_result_name(r), mimusb_last_error()->reason);
         return 1;
     }
     int rc = !strcmp(mode, "bos") ? run_bos(device, NULL, 0) : run_bytes(device);
-    CHECK((r = mimhid_device_close(device, 500, 1000)) == MIMHID_OK, "close: %s",
-          mimhid_result_name(r));
+    CHECK((r = mimusb_device_close(device, 500, 1000)) == MIMUSB_OK, "close: %s",
+          mimusb_result_name(r));
     printf("%s\n", fails == 0 && rc == 0 ? "PASSED" : "FAILED");
     return fails == 0 && rc == 0 ? 0 : 1;
 }

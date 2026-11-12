@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           python3 tools/check_license_headers.py
           python3 tests/release/test_release_tools.py
-          python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
+          python3 tools/symbol-lint/symbol_lint.py --header include/mimusb.h
           # Only a tag publishes; a manual run on a tag publishes only with dry_run turned off.
           publish=false
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$DRY_RUN_INPUT" != true ]; then publish=true; fi
@@ -146,7 +146,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
+          cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=ON
           cmake --build build_test --config Release --parallel
           ctest --test-dir build_test -C Release --output-on-failure
 
@@ -155,7 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build_release -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
-            -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_BUILD_SHARED=ON -DMIMHID_BUILD_STATIC=ON
+            -DMIMUSB_BUILD_TESTS=OFF -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_BUILD_SHARED=ON -DMIMUSB_BUILD_STATIC=ON
           cmake --build build_release --config Release --parallel
           cmake --install build_release --config Release --prefix "$PWD/stage"
 
@@ -165,20 +165,20 @@ jobs:
           set -euo pipefail
           case "${{ matrix.platform }}" in
             linux)
-              library="$(ls stage/lib/libmimhid.so.*.*.*)"
+              library="$(ls stage/lib/libmimusb.so.*.*.*)"
               objdump=objdump
               nm=nm
               if [ "${{ matrix.arch }}" = aarch64 ]; then objdump=aarch64-linux-gnu-objdump; nm=aarch64-linux-gnu-nm; fi
-              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library" --nm "$nm"
+              python tools/symbol-lint/symbol_lint.py --header include/mimusb.h --library "$library" --nm "$nm"
               python tools/release/glibc_check.py --library "$library" --objdump "$objdump" ;;
             macos)
-              library="$(ls stage/lib/libmimhid.*.*.*.dylib)"
+              library="$(ls stage/lib/libmimusb.*.*.*.dylib)"
               codesign --force --sign - "$library"
               codesign --verify --strict "$library"
-              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library "$library"
+              python tools/symbol-lint/symbol_lint.py --header include/mimusb.h --library "$library"
               otool -l "$library" | grep -A4 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' ;;
             windows)
-              python tools/symbol-lint/symbol_lint.py --header include/mimhid.h --library stage/bin/mimhid.dll ;;
+              python tools/symbol-lint/symbol_lint.py --header include/mimusb.h --library stage/bin/mimusb.dll ;;
           esac
 
       - name: Build an external consumer of each component against the one install
@@ -188,8 +188,8 @@ jobs:
           set -euo pipefail
           for component in shared static; do
             cmake -B "build_consumer_$component" -S tools/release/consumer ${{ matrix.cmake_args }} \
-              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage" -DMIMHID_COMPONENT=$component \
-              -DMIMHID_VERSION=${{ needs.verify.outputs.version }}
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/stage" -DMIMUSB_COMPONENT=$component \
+              -DMIMUSB_VERSION=${{ needs.verify.outputs.version }}
             cmake --build "build_consumer_$component" --config Release
             if [ "${{ matrix.platform }}" = windows ]; then
               PATH="$PWD/stage/bin:$PATH" "build_consumer_$component/Release/consumer.exe"
@@ -227,8 +227,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: rp2040, args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1" }
-          - { name: rp2350, args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1" }
+          - { name: rp2040, args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMUSB_UART_ID=uart0 -DMIMUSB_UART_TX_PIN=0 -DMIMUSB_UART_RX_PIN=1" }
+          - { name: rp2350, args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMUSB_UART_ID=uart0 -DMIMUSB_UART_TX_PIN=0 -DMIMUSB_UART_RX_PIN=1" }
 
     steps:
       - name: Check out source
@@ -251,7 +251,7 @@ jobs:
           cmake -B build_fw -S firmware ${{ matrix.args }}
           cmake --build build_fw --parallel
           mkdir -p dist
-          cp build_fw/mimhid_firmware.uf2 "dist/mimhid_firmware-${{ matrix.name }}-${version}.uf2"
+          cp build_fw/mimusb_firmware.uf2 "dist/mimusb_firmware-${{ matrix.name }}-${version}.uf2"
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -291,8 +291,8 @@ jobs:
           cmake -B build_fw -S firmware/ports/${{ matrix.name }} -G Ninja -DTINYUSB_PATH="$HOME/tinyusb" -DBOARD=${{ matrix.board }}
           cmake --build build_fw
           mkdir -p dist
-          cp build_fw/mimhid_firmware_${{ matrix.name }}.hex "dist/mimhid_firmware-${{ matrix.name }}-${version}.hex"
-          cp build_fw/mimhid_firmware_${{ matrix.name }}.bin "dist/mimhid_firmware-${{ matrix.name }}-${version}.bin"
+          cp build_fw/mimusb_firmware_${{ matrix.name }}.hex "dist/mimusb_firmware-${{ matrix.name }}-${version}.hex"
+          cp build_fw/mimusb_firmware_${{ matrix.name }}.bin "dist/mimusb_firmware-${{ matrix.name }}-${version}.bin"
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -325,11 +325,11 @@ jobs:
           . "$IDF_PATH/export.sh"
           export TINYUSB_PATH="$HOME/tinyusb"
           version="${{ needs.verify.outputs.version }}"
-          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3
-          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 build
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMUSB_UART_TX_PIN=17 -DMIMUSB_UART_RX_PIN=18 set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMUSB_UART_TX_PIN=17 -DMIMUSB_UART_RX_PIN=18 build
           mkdir -p dist
           # Bootloader, partition table and application merged for a single flash at 0x0.
-          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 merge-bin -o "$PWD/dist/mimhid_firmware-esp32s3-${version}.bin"
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMUSB_UART_TX_PIN=17 -DMIMUSB_UART_RX_PIN=18 merge-bin -o "$PWD/dist/mimusb_firmware-esp32s3-${version}.bin"
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -346,7 +346,7 @@ jobs:
     permissions:
       contents: read
     env:
-      MIMHID_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+      MIMUSB_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.verify.outputs.epoch }}
       PYTHONHASHSEED: '0'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -392,16 +392,16 @@ jobs:
           build/bindings/python-venv/bin/python -I - <<'PY'
           import os
 
-          import mimhid
+          import mimusb
 
           expected = tuple(
               int(component)
-              for component in os.environ["MIMHID_RELEASE_VERSION"].split(".")
+              for component in os.environ["MIMUSB_RELEASE_VERSION"].split(".")
           )
           actual = (
-              mimhid.MIMHID_VERSION_MAJOR,
-              mimhid.MIMHID_VERSION_MINOR,
-              mimhid.MIMHID_VERSION_PATCH,
+              mimusb.MIMUSB_VERSION_MAJOR,
+              mimusb.MIMUSB_VERSION_MINOR,
+              mimusb.MIMUSB_VERSION_PATCH,
           )
           if actual != expected:
               raise SystemExit(f"binding version {actual!r} != release version {expected!r}")
@@ -411,9 +411,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet restore bindings/csharp/MimHid/MimHid.csproj
+          dotnet restore bindings/csharp/MimUsb/MimUsb.csproj
           for output in nuget nuget-rebuild; do
-            dotnet pack bindings/csharp/MimHid/MimHid.csproj \
+            dotnet pack bindings/csharp/MimUsb/MimUsb.csproj \
               --configuration Release \
               --no-restore \
               --output "build/bindings/$output" \
@@ -428,19 +428,19 @@ jobs:
           test "$(sha256sum build/bindings/nuget/*.nupkg | cut -d' ' -f1)" = \
             "$(sha256sum build/bindings/nuget-rebuild/*.nupkg | cut -d' ' -f1)"
           dotnet new console --framework net8.0 --output build/bindings/nuget-consumer
-          dotnet add build/bindings/nuget-consumer package MimHid \
+          dotnet add build/bindings/nuget-consumer package MimUsb \
             --version '${{ needs.verify.outputs.version }}' \
             --source "$PWD/build/bindings/nuget"
           printf '%s\n' \
             'using System;' \
-            'using MimHid;' \
-            'var expectedText = Environment.GetEnvironmentVariable("MIMHID_RELEASE_VERSION");' \
+            'using MimUsb;' \
+            'var expectedText = Environment.GetEnvironmentVariable("MIMUSB_RELEASE_VERSION");' \
             'var parts = expectedText?.Split(new[] { "." }, StringSplitOptions.None);' \
             'if (parts is null || parts.Length != 3 ||' \
             '    !uint.TryParse(parts[0], out var major) ||' \
             '    !uint.TryParse(parts[1], out var minor) ||' \
             '    !uint.TryParse(parts[2], out var patch)) return 2;' \
-            'if (Native.MIMHID_VERSION_MAJOR != major || Native.MIMHID_VERSION_MINOR != minor || Native.MIMHID_VERSION_PATCH != patch) return 1;' \
+            'if (Native.MIMUSB_VERSION_MAJOR != major || Native.MIMUSB_VERSION_MINOR != minor || Native.MIMUSB_VERSION_PATCH != patch) return 1;' \
             'return 0;' \
             > build/bindings/nuget-consumer/Program.cs
           dotnet run --project build/bindings/nuget-consumer --configuration Release
@@ -450,7 +450,7 @@ jobs:
           python tools/release/validate_binding_packages.py
           --python-directory build/bindings/python-dist
           --nuget-directory build/bindings/nuget
-          --csharp-project bindings/csharp/MimHid/MimHid.csproj
+          --csharp-project bindings/csharp/MimUsb/MimUsb.csproj
           --version '${{ needs.verify.outputs.version }}'
 
       - name: Upload validated binding packages
@@ -491,7 +491,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           for part in parts/host-* parts/firmware-*; do cp "$part"/* dist/; done
-          cp THIRD_PARTY_NOTICES.md "dist/mimhid_firmware-THIRD_PARTY_NOTICES-${{ needs.verify.outputs.version }}.txt"
+          cp THIRD_PARTY_NOTICES.md "dist/mimusb_firmware-THIRD_PARTY_NOTICES-${{ needs.verify.outputs.version }}.txt"
           python3 tools/release/package_source.py --version "${{ needs.verify.outputs.version }}" \
             --commit "${{ needs.verify.outputs.source_sha }}" --out-dir dist
           python3 tools/release/generate_spdx.py --dist dist --version "${{ needs.verify.outputs.version }}" \
@@ -556,7 +556,7 @@ jobs:
 
   publish-pypi:
     name: Publish Python wheel through PyPI Trusted Publishing
-    if: needs.verify.outputs.publish == 'true' && vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    if: needs.verify.outputs.publish == 'true' && vars.MIMUSB_PUBLISH_BINDINGS == 'true'
     needs:
       - verify
       - publish
@@ -582,7 +582,7 @@ jobs:
 
   publish-nuget:
     name: Publish NuGet package with a scoped API key
-    if: needs.verify.outputs.publish == 'true' && vars.MIMHID_PUBLISH_BINDINGS == 'true'
+    if: needs.verify.outputs.publish == 'true' && vars.MIMUSB_PUBLISH_BINDINGS == 'true'
     needs:
       - verify
       - publish
@@ -611,7 +611,7 @@ jobs:
           set -euo pipefail
           test -n "$NUGET_API_KEY"
           mapfile -t packages < <(find build/bindings/nuget -maxdepth 1 \
-            -type f -name 'MimHid.*.nupkg' -print)
+            -type f -name 'MimUsb.*.nupkg' -print)
           test "${#packages[@]}" -eq 1
           dotnet nuget push "${packages[0]}" \
             --api-key "$NUGET_API_KEY" \

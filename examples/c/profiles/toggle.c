@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Toggle profile: a sparse allow-list of one-bit selector controls on any HUT
  * page. application_page/application_usage pick the Application Collection
  * (here HUT 0x0C/0x01 Consumer Control); field_page picks the Usage Page each
@@ -12,25 +12,25 @@
 #include "profile_example.h"
 
 static const uint16_t k_usages[] = {0x00CDU, 0x00E9U, 0x00E2U, 0x0201U};
-static const mimhid_usage_semantic k_semantics[] = {MIMHID_USAGE_ONE_SHOT, MIMHID_USAGE_RETRIGGER,
-                                                    MIMHID_USAGE_ON_OFF_MAINTAINED,
-                                                    MIMHID_USAGE_SELECTOR_BITMAP};
+static const mimusb_usage_semantic k_semantics[] = {MIMUSB_USAGE_ONE_SHOT, MIMUSB_USAGE_RETRIGGER,
+                                                    MIMUSB_USAGE_ON_OFF_MAINTAINED,
+                                                    MIMUSB_USAGE_SELECTOR_BITMAP};
 /* Placeholders. A product must name the events it verified on its own target. */
 static const char* const k_expected[] = {"TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE",
                                          "TEST_EVENT_CODE"};
 
 static const char* const k_send_sequence[] = {
-    "mimhid_toggle_usage(node, 0x00CD, 1)   assert one allow-listed Usage",
-    "mimhid_node_submit(node, send_timeout_ms)  sends the 1 edge",
-    "mimhid_toggle_usage(node, 0x00CD, 0)   release it",
-    "mimhid_node_submit(node, send_timeout_ms)  sends the 0 edge that completes the tap", NULL};
+    "mimusb_toggle_usage(node, 0x00CD, 1)   assert one allow-listed Usage",
+    "mimusb_node_submit(node, send_timeout_ms)  sends the 1 edge",
+    "mimusb_toggle_usage(node, 0x00CD, 0)   release it",
+    "mimusb_node_submit(node, send_timeout_ms)  sends the 0 edge that completes the tap", NULL};
 
 int main(void) {
-    mimhid_toggle_options options;
-    mimhid_spec* spec = NULL;
-    mimhid_result result;
+    mimusb_toggle_options options;
+    mimusb_spec* spec = NULL;
+    mimusb_result result;
 
-    mimhid_toggle_options_init(&options);
+    mimusb_toggle_options_init(&options);
     /* Consumer Control. For System Control set the three pages to 0x01/0x80/0x01; for Camera keys
      * keep 0x0C/0x01 and set field_page to 0x90 (Auto-focus 0x20 and Shutter 0x21 only); for
      * Telephony keys 0x0B/0x01/0x0B. */
@@ -43,6 +43,6 @@ int main(void) {
     options.expected_linux_event_types = k_expected;
     options.expected_linux_codes = k_expected;
 
-    result = mimhid_spec_create_toggle(&options, &spec);
-    return mimhid_example_run("toggle", MIMHID_PROFILE_TOGGLE, result, spec, k_send_sequence);
+    result = mimusb_spec_create_toggle(&options, &spec);
+    return mimusb_example_run("toggle", MIMUSB_PROFILE_TOGGLE, result, spec, k_send_sequence);
 }

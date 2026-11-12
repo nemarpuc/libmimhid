@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Fail when a Linux library needs a newer glibc than the release baseline (2.35, Ubuntu 22.04)."""
 
 from __future__ import annotations

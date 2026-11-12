@@ -1,0 +1,6 @@
+MIMUSB_2.0 {
+  global:
+    mimusb_*;
+  local:
+    *;
+};

@@ -37,7 +37,7 @@ Run them in order; stop at the first failure and record it.
    library at the same tag with tests and examples, from the top of a clone:
    ```sh
    cmake -S . -B build/hw -DCMAKE_BUILD_TYPE=Release \
-         -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
+         -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=ON
    cmake --build build/hw
    ctest --test-dir build/hw
    ```
@@ -46,16 +46,16 @@ Run them in order; stop at the first failure and record it.
 3. **Discovery.** Run `build/hw/examples/basic_keyboard_mouse`. It must find the
    board, report the firmware version of this release, and type `a`, move and click on the target.
    Note the `baud_rate` the search chose.
-4. **Every profile.** Run each `mimhid_verify_*` program
+4. **Every profile.** Run each `mimusb_verify_*` program
    ([`docs/QUICKSTART.md`](../../docs/QUICKSTART.md), section 5) and watch the target. Each has one
    expected result; anything else is a failure.
 5. **Re-enumeration.** Run a profile example from `examples/c/profiles/` twice in a row without
    unplugging anything: the target must see the old device leave and the new one arrive.
-6. **Unplug.** While `mimhid_verify_all` runs, pull the adapter's USB cable. The program must end
-   with `MIMHID_ERR_NO_DEVICE` and not hang. Plug it back and run step 3 again.
+6. **Unplug.** While `mimusb_verify_all` runs, pull the adapter's USB cable. The program must end
+   with `MIMUSB_ERR_NO_DEVICE` and not hang. Plug it back and run step 3 again.
 7. **A crashed program.** Kill a running example (`kill -9`) after it set a fast rate, then run
    step 3 again. With an adapter that sends a BREAK it must find the board without a power cycle.
-8. **Link counters.** After the runs, read `mimhid_device_link_counters` from a short program
+8. **Link counters.** After the runs, read `mimusb_device_link_counters` from a short program
    that opens the board (no example prints them yet). They must show no CRC, framing or overrun
    errors.
 9. **Latency (when the transport, the firmware's report path or the pacing changed).** Measure as
@@ -71,12 +71,12 @@ they present vendor-defined devices, or grab the input device before a key is se
 
 ```sh
 cmake -S tests/hw -B <build dir> && cmake --build <build dir>
-sudo cp tests/hw/99-mimhid-hwtest.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+sudo cp tests/hw/99-mimusb-hwtest.rules /etc/udev/rules.d/ && sudo udevadm control --reload
 ```
 
 The rule lets the group of the serial ports read the USB node, the hidraw node and the input
 events of the device the programs present (the pid.codes test pair, `1209:0001`); edit the group
-name in it for your distribution. The programs find the board themselves (`mimhid_discover`), so
+name in it for your distribution. The programs find the board themselves (`mimusb_discover`), so
 only one board may be connected.
 
 | Program | What it shows |
@@ -86,18 +86,18 @@ only one board may be connected.
 | `hw_control_rules` | An HID interface written by hand: the report descriptor the kernel read, `ANSWER_LAST_SENT`, an `ANSWER` and its bytes replaced, `ACCEPT` with a data stage, `ASK`, a stall for a request no rule matches, an Output report on the OUT endpoint. |
 | `hw_composite` | A keyboard profile and a two-interface Node with an interface association, opened in one batch. |
 | `hw_bytes bytes` | A device given as bytes with a BOS descriptor: the target reads every descriptor and two strings back byte for byte, a vendor request is answered by a rule of the Device, bulk IN and OUT, Halt. |
-| `hw_bytes bos` | A composed Device with `bcdUSB` 0x0210 and a BOS given with `mimhid_device_set_bos`: the target reads it back. |
+| `hw_bytes bos` | A composed Device with `bcdUSB` 0x0210 and a BOS given with `mimusb_device_set_bos`: the target reads it back. |
 | `hw_keyboard_latency [presses]` | Step 9: submit to evdev event for a keyboard profile, with the event device grabbed. Compare versions over several runs each: one run's median moves by some 0.3 ms from one enumeration to the next. |
 
 Each prints `PASSED` or what failed and returns nonzero on a failure. They do not replace the
 steps above: the target's USB stack is this machine's, nothing is checked on Windows or macOS,
-and the `mimhid_verify_*` programs are not run by them.
+and the `mimusb_verify_*` programs are not run by them.
 
 Two things learned while writing them. A read on the target side that is cancelled by its
 timeout while a transfer is arriving can lose the packets the host controller had already taken
 (seen in a VMware guest with a 50 ms timeout: data the board had sent correctly was gone), so
 the programs read with a long timeout. And a board can be written again without its button:
-`mimhid_device_enter_bootloader` restarts it into the chip's bootloader.
+`mimusb_device_enter_bootloader` restarts it into the chip's bootloader.
 
 ## What to record, and where
 

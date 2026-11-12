@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Reject a release whose tag, versions, or CHANGELOG disagree."""
 
 from __future__ import annotations
@@ -19,18 +19,18 @@ FIRMWARE_LICENSE_NOTES = """
 
 ### Firmware Binary Third-Party Notices
 
-The host library (`libmimhid`) is licensed under the MIT License and has no third-party runtime library dependencies.
+The host library (`libmimusb`) is licensed under the MIT License and has no third-party runtime library dependencies.
 
-Prebuilt microcontroller firmware images (`mimhid_firmware-*`) incorporate third-party SDK and USB stack components under permissive licenses:
+Prebuilt microcontroller firmware images (`mimusb_firmware-*`) incorporate third-party SDK and USB stack components under permissive licenses:
 
 | Firmware asset | Third-party components & licenses |
 | :--- | :--- |
-| `mimhid_firmware-rp2040-*`, `mimhid_firmware-rp2350-*` | TinyUSB 0.18.0 (`MIT`), Raspberry Pi Pico SDK 2.2.0 (`BSD-3-Clause`, Copyright (c) 2020 Raspberry Pi (Trading) Ltd.), Arm CMSIS Core (`Apache-2.0`), Newlib C runtime |
-| `mimhid_firmware-nrf52840-*` | TinyUSB 0.18.0 (`MIT`), Nordic Semiconductor `nrfx` (`BSD-3-Clause`, Copyright (c) 2017-2024 Nordic Semiconductor ASA), Arm CMSIS 5 (`Apache-2.0`), Newlib C runtime |
-| `mimhid_firmware-stm32f4-*` | TinyUSB 0.18.0 (`MIT`), STMicroelectronics `cmsis_device_f4` & `stm32f4xx_hal_driver` (`BSD-3-Clause` / `Apache-2.0`, Copyright (c) 2016-2019 STMicroelectronics), Arm CMSIS 5 (`Apache-2.0`), Newlib C runtime |
-| `mimhid_firmware-esp32s3-*` | TinyUSB 0.18.0 (`MIT`), Espressif ESP-IDF v5.4.2 (`Apache-2.0`, Copyright 2015-2025 Espressif Systems), Amazon FreeRTOS Kernel (`MIT`), Newlib C runtime |
+| `mimusb_firmware-rp2040-*`, `mimusb_firmware-rp2350-*` | TinyUSB 0.18.0 (`MIT`), Raspberry Pi Pico SDK 2.2.0 (`BSD-3-Clause`, Copyright (c) 2020 Raspberry Pi (Trading) Ltd.), Arm CMSIS Core (`Apache-2.0`), Newlib C runtime |
+| `mimusb_firmware-nrf52840-*` | TinyUSB 0.18.0 (`MIT`), Nordic Semiconductor `nrfx` (`BSD-3-Clause`, Copyright (c) 2017-2024 Nordic Semiconductor ASA), Arm CMSIS 5 (`Apache-2.0`), Newlib C runtime |
+| `mimusb_firmware-stm32f4-*` | TinyUSB 0.18.0 (`MIT`), STMicroelectronics `cmsis_device_f4` & `stm32f4xx_hal_driver` (`BSD-3-Clause` / `Apache-2.0`, Copyright (c) 2016-2019 STMicroelectronics), Arm CMSIS 5 (`Apache-2.0`), Newlib C runtime |
+| `mimusb_firmware-esp32s3-*` | TinyUSB 0.18.0 (`MIT`), Espressif ESP-IDF v5.4.2 (`Apache-2.0`, Copyright 2015-2025 Espressif Systems), Amazon FreeRTOS Kernel (`MIT`), Newlib C runtime |
 
-Complete copyright notices, license texts, and warranty disclaimers for all firmware binaries are provided in the release asset `mimhid_firmware-THIRD_PARTY_NOTICES-{version}.txt` and in [`THIRD_PARTY_NOTICES.md`](https://github.com/nemarpuc/libmimhid/blob/v{version}/THIRD_PARTY_NOTICES.md) / [`NOTICE`](https://github.com/nemarpuc/libmimhid/blob/v{version}/NOTICE)."""
+Complete copyright notices, license texts, and warranty disclaimers for all firmware binaries are provided in the release asset `mimusb_firmware-THIRD_PARTY_NOTICES-{version}.txt` and in [`THIRD_PARTY_NOTICES.md`](https://github.com/nemarpuc/libmimusb/blob/v{version}/THIRD_PARTY_NOTICES.md) / [`NOTICE`](https://github.com/nemarpuc/libmimusb/blob/v{version}/NOTICE)."""
 
 
 def validate(root: Path, tag: str, allow_undated: bool = False) -> tuple[str, str]:
@@ -103,7 +103,7 @@ def main() -> int:
     if args.summary_out is not None:
         with args.summary_out.open("a", encoding="utf-8") as summary:
             kind = "Dry run" if args.dry_run else "Release"
-            summary.write(f"{kind} of libmimhid {version}: the version comes from {origin}.\n")
+            summary.write(f"{kind} of libmimusb {version}: the version comes from {origin}.\n")
     print(f"release {version} is consistent (version from {origin})")
     return 0
 

@@ -9,8 +9,8 @@
       "binaryDir": "${sourceDir}/build/dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "MIMHID_BUILD_TESTS": "ON",
-        "MIMHID_BUILD_EXAMPLES": "ON"
+        "MIMUSB_BUILD_TESTS": "ON",
+        "MIMUSB_BUILD_EXAMPLES": "ON"
       }
     },
     {
@@ -20,7 +20,7 @@
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "MIMHID_BUILD_TESTS": "OFF"
+        "MIMUSB_BUILD_TESTS": "OFF"
       }
     },
     {
@@ -30,9 +30,9 @@
       "binaryDir": "${sourceDir}/build/tsan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "MIMHID_BUILD_TESTS": "ON",
-        "MIMHID_BUILD_EXAMPLES": "ON",
-        "MIMHID_TSAN": "ON"
+        "MIMUSB_BUILD_TESTS": "ON",
+        "MIMUSB_BUILD_EXAMPLES": "ON",
+        "MIMUSB_TSAN": "ON"
       }
     },
     {
@@ -42,9 +42,9 @@
       "binaryDir": "${sourceDir}/build/coverage",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "MIMHID_BUILD_TESTS": "ON",
-        "MIMHID_BUILD_EXAMPLES": "OFF",
-        "MIMHID_COVERAGE": "ON"
+        "MIMUSB_BUILD_TESTS": "ON",
+        "MIMUSB_BUILD_EXAMPLES": "OFF",
+        "MIMUSB_COVERAGE": "ON"
       }
     }
   ],

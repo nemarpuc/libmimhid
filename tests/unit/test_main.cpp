@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Runs the unit suites: the HID layer, the profile state machines and the frame parser.
  * Integration executables own serial port and threading coverage. */
 #include "test.hpp"

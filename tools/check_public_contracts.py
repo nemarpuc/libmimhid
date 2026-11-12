@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Require an adjacent, per-function contract for every exported C declaration."""
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = ROOT / "include/mimhid.h"
+HEADER = ROOT / "include/mimusb.h"
 EXPORT_RE = re.compile(
-    r"MIMHID_API\s+(?P<return_type>[^;]*?)\bMIMHID_CALL\s+"
-    r"(?P<name>mimhid_[A-Za-z0-9_]+)\s*\([^;]*?\)\s*;",
+    r"MIMUSB_API\s+(?P<return_type>[^;]*?)\bMIMUSB_CALL\s+"
+    r"(?P<name>mimusb_[A-Za-z0-9_]+)\s*\([^;]*?\)\s*;",
     re.MULTILINE | re.DOTALL,
 )
 REQUIRED_LABELS = ("Ownership:", "Blocking:", "Synchronization:", "Returns:")
@@ -51,9 +51,9 @@ def main() -> int:
         for label in REQUIRED_LABELS:
             if comment.count(label) != 1:
                 failures.append(f"{name}: requires exactly one {label} field")
-        if "mimhid_result" in match.group("return_type"):
+        if "mimusb_result" in match.group("return_type"):
             returns = comment.split("Returns:", 1)[-1]
-            if "MIMHID_OK" not in returns or "MIMHID_ERR_" not in returns:
+            if "MIMUSB_OK" not in returns or "MIMUSB_ERR_" not in returns:
                 failures.append(f"{name}: result contract must enumerate success and errors")
 
     if failures:

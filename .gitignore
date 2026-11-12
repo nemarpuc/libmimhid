@@ -40,10 +40,10 @@ build.ninja
 .ninja_log
 install_manifest.txt
 compile_commands.json
-mimhid-config.cmake
-mimhid-config-version.cmake
-mimhid.pc
-mimhid-static.pc
+mimusb-config.cmake
+mimusb-config-version.cmake
+mimusb.pc
+mimusb-static.pc
 
 # Python cache
 __pycache__/

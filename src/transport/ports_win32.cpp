@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "transport/serial_port.hpp"
 
 #include <cstring>
@@ -9,7 +9,7 @@
 
 #include <setupapi.h>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 // Lists present USB-backed COM ports (native USB CDC, CP210x, CH340, and FTDI VCP).
 std::vector<PortCandidate> list_candidate_ports() {
@@ -60,4 +60,4 @@ std::vector<PortCandidate> list_candidate_ports() {
     return out;
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

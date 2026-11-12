@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * Device-side internals shared by the C ABI entry points: option validation, interface
  * assignment, the commit sequence and the events the board reports.
@@ -20,32 +20,32 @@
 #include <thread>
 #include <utility>
 
-namespace tr = mimhid::transport;
+namespace tr = mimusb::transport;
 
-using mimhid::detail::collect_report_ids;
-using mimhid::detail::command_error;
-using mimhid::detail::commit_device;
-using mimhid::detail::CommitWaits;
-using mimhid::detail::deliver_event;
-using mimhid::detail::describe_board;
-using mimhid::detail::kCommandAttempts;
-using mimhid::detail::live_nodes;
-using mimhid::detail::prepare_device_config;
-using mimhid::detail::public_node_id;
-using mimhid::detail::read_commit_timeouts;
-using mimhid::detail::report_id;
-using mimhid::detail::require_timeout;
-using mimhid::detail::reserved_is_zero;
-using mimhid::detail::saturate_u32;
-using mimhid::detail::set_error;
-using mimhid::detail::valid_usb_string;
-using mimhid::detail::validate_usb_identity;
-using mimhid::detail::validate_usb_identity_on_board;
+using mimusb::detail::collect_report_ids;
+using mimusb::detail::command_error;
+using mimusb::detail::commit_device;
+using mimusb::detail::CommitWaits;
+using mimusb::detail::deliver_event;
+using mimusb::detail::describe_board;
+using mimusb::detail::kCommandAttempts;
+using mimusb::detail::live_nodes;
+using mimusb::detail::prepare_device_config;
+using mimusb::detail::public_node_id;
+using mimusb::detail::read_commit_timeouts;
+using mimusb::detail::report_id;
+using mimusb::detail::require_timeout;
+using mimusb::detail::reserved_is_zero;
+using mimusb::detail::saturate_u32;
+using mimusb::detail::set_error;
+using mimusb::detail::valid_usb_string;
+using mimusb::detail::validate_usb_identity;
+using mimusb::detail::validate_usb_identity_on_board;
 
 namespace {
 
-bool required_product_policies_nonzero(const mimhid_transport_options& options) noexcept {
-    const mimhid_linux_hid_policy& linux_hid = options.linux_hid;
+bool required_product_policies_nonzero(const mimusb_transport_options& options) noexcept {
+    const mimusb_linux_hid_policy& linux_hid = options.linux_hid;
     return linux_hid.descriptor_bytes != 0U && linux_hid.fields_per_report != 0U &&
            linux_hid.global_stack_depth != 0U && linux_hid.report_size_bits != 0U &&
            linux_hid.usages != 0U && linux_hid.report_data_bits != 0U;
@@ -57,11 +57,11 @@ void put_u16(std::vector<std::uint8_t>* out, std::uint32_t value) {
 }
 
 struct ReconfigGuard {
-    explicit ReconfigGuard(mimhid_device* d) : device(d) {
+    explicit ReconfigGuard(mimusb_device* d) : device(d) {
         device->reconfiguring.store(true, std::memory_order_release);
     }
     ~ReconfigGuard() { device->reconfiguring.store(false, std::memory_order_release); }
-    mimhid_device* device;
+    mimusb_device* device;
 };
 
 // Copies as much of text as fits with its terminating NUL; destination is zero-initialized.
@@ -71,7 +71,7 @@ template <std::size_t N> void copy_text(char (&destination)[N], const std::strin
 
 } // namespace
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
 bool utf16_from_utf8(const char* text, std::u16string* units) {
     units->clear();
@@ -116,7 +116,7 @@ bool utf16_from_utf8(const char* text, std::u16string* units) {
         } else {
             units->push_back(static_cast<char16_t>(code));
         }
-        if (units->size() > MIMHID_STRING_MAX)
+        if (units->size() > MIMUSB_STRING_MAX)
             return false;
     }
     return true;
@@ -140,14 +140,14 @@ std::uint32_t saturate_u32(const std::uint64_t value) noexcept {
 // header never read it differently.
 bool reserved_is_zero(const std::uint32_t reserved, const char* field) noexcept {
     if (reserved != 0U) {
-        set_error(MIMHID_ERR_PARAM, field, "The reserved field must be zero.");
+        set_error(MIMUSB_ERR_PARAM, field, "The reserved field must be zero.");
         return false;
     }
     return true;
 }
 
-mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
-                                    const mimhid_usb_config& usb_config) noexcept {
+mimusb_result validate_usb_identity(const mimusb_usb_device& usb_device,
+                                    const mimusb_usb_config& usb_config) noexcept {
     const std::pair<std::uint32_t, const char*> required_usb_device[] = {
         {usb_device.vendor_id, "usb_device.vendor_id"},
         {usb_device.language_id, "usb_device.language_id"},
@@ -156,96 +156,96 @@ mimhid_result validate_usb_identity(const mimhid_usb_device& usb_device,
     };
     for (const auto& [value, field] : required_usb_device) {
         if (value == 0U) {
-            set_error(MIMHID_ERR_UNSET_FIELD, field, "This value is required.");
-            return MIMHID_ERR_UNSET_FIELD;
+            set_error(MIMUSB_ERR_UNSET_FIELD, field, "This value is required.");
+            return MIMUSB_ERR_UNSET_FIELD;
         }
     }
     if (usb_device.ep0_max_packet_size != 8U && usb_device.ep0_max_packet_size != 16U &&
         usb_device.ep0_max_packet_size != 32U && usb_device.ep0_max_packet_size != 64U) {
-        set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",
+        set_error(MIMUSB_ERR_PARAM, "usb_device.ep0_max_packet_size",
                   "ep0_max_packet_size must be 8, 16, 32, or 64.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (usb_device.device_class == 0U && usb_device.device_subclass != 0U) {
         // USB 2.0 9.6.1: "If the bDeviceClass field is reset to zero, this field must also be
         // reset to zero."
-        set_error(MIMHID_ERR_PARAM, "usb_device.device_subclass",
+        set_error(MIMUSB_ERR_PARAM, "usb_device.device_subclass",
                   "device_subclass must be zero when device_class is zero (USB 2.0 9.6.1).");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    if (!mimhid::detail::valid_boolean(usb_device.serial_from_chip_id)) {
-        set_error(MIMHID_ERR_PARAM, "usb_device.serial_from_chip_id",
+    if (!mimusb::detail::valid_boolean(usb_device.serial_from_chip_id)) {
+        set_error(MIMUSB_ERR_PARAM, "usb_device.serial_from_chip_id",
                   "serial_from_chip_id must be zero or one.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     for (const char* text : {usb_device.manufacturer, usb_device.product, usb_device.serial}) {
         if (!valid_usb_string(text)) {
-            set_error(MIMHID_ERR_PARAM, "usb_device.strings",
+            set_error(MIMUSB_ERR_PARAM, "usb_device.strings",
                       "A string must be UTF-8 without control characters, at most 126 UTF-16 code "
                       "units.");
-            return MIMHID_ERR_PARAM;
+            return MIMUSB_ERR_PARAM;
         }
     }
 
     if (usb_config.configuration_value == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "usb_config.configuration_value",
+        set_error(MIMUSB_ERR_UNSET_FIELD, "usb_config.configuration_value",
                   "configuration_value must be non-zero (e.g. 1).");
-        return MIMHID_ERR_UNSET_FIELD;
+        return MIMUSB_ERR_UNSET_FIELD;
     }
     if (usb_config.configuration_value != 1U) {
         // USB 2.0 9.6.3 allows any value 1 to 255, but the board has one configuration and its
         // USB stack maps SET_CONFIGURATION(n) to the n-th one.
-        set_error(MIMHID_ERR_UNSUPPORTED, "usb_config.configuration_value",
+        set_error(MIMUSB_ERR_UNSUPPORTED, "usb_config.configuration_value",
                   "The board has one configuration, and it is selected by the value 1.");
-        return MIMHID_ERR_UNSUPPORTED;
+        return MIMUSB_ERR_UNSUPPORTED;
     }
     if ((usb_config.bm_attributes & 0x80U) == 0U) {
-        set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
+        set_error(MIMUSB_ERR_PARAM, "usb_config.bm_attributes",
                   "bm_attributes bit 7 must be set (0x80).");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if ((usb_config.bm_attributes & 0x1FU) != 0U) {
         // USB 2.0 9.6.3: D4..0 are reserved and reset to zero.
-        set_error(MIMHID_ERR_PARAM, "usb_config.bm_attributes",
+        set_error(MIMUSB_ERR_PARAM, "usb_config.bm_attributes",
                   "bm_attributes bits 4..0 are reserved and must be zero (USB 2.0 9.6.3).");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (usb_config.bmax_power > 250U) {
-        set_error(MIMHID_ERR_PARAM, "usb_config.bmax_power",
+        set_error(MIMUSB_ERR_PARAM, "usb_config.bmax_power",
                   "bmax_power must be at most 250 (500 mA).");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!valid_usb_string(usb_config.string)) {
         set_error(
-            MIMHID_ERR_PARAM, "usb_config.string",
+            MIMUSB_ERR_PARAM, "usb_config.string",
             "A string must be UTF-8 without control characters, at most 126 UTF-16 code units.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
 
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
 // The rules of the Device descriptor that depend on the speed the board runs at.
-mimhid_result validate_usb_identity_on_board(const tr::BoardInfo& board,
-                                             const mimhid_usb_device& usb_device) noexcept {
+mimusb_result validate_usb_identity_on_board(const tr::BoardInfo& board,
+                                             const mimusb_usb_device& usb_device) noexcept {
     if (board.usb_high_speed && usb_device.ep0_max_packet_size != 64U) {
         // USB 2.0 9.6.1: at high speed bMaxPacketSize0 is 64 and nothing else.
-        set_error(MIMHID_ERR_PARAM, "usb_device.ep0_max_packet_size",
+        set_error(MIMUSB_ERR_PARAM, "usb_device.ep0_max_packet_size",
                   "A high-speed board has a 64-byte control endpoint (USB 2.0 9.6.1).");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result prepare_device_config(const mimhid_device_config* config,
-                                    mimhid_device_config* effective) noexcept {
-    if (!mimhid::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
+mimusb_result prepare_device_config(const mimusb_device_config* config,
+                                    mimusb_device_config* effective) noexcept {
+    if (!mimusb::detail::valid_struct(config, config == nullptr ? 0U : config->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*config)),
                                       "device_config")) {
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!reserved_is_zero(config->reserved, "device_config.reserved"))
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     *effective = *config;
 
     // Transport required fields
@@ -257,25 +257,25 @@ mimhid_result prepare_device_config(const mimhid_device_config* config,
     };
     for (const auto& [value, field] : required_transport) {
         if (value == 0U) {
-            set_error(MIMHID_ERR_UNSET_FIELD, field, "This value is required.");
-            return MIMHID_ERR_UNSET_FIELD;
+            set_error(MIMUSB_ERR_UNSET_FIELD, field, "This value is required.");
+            return MIMUSB_ERR_UNSET_FIELD;
         }
     }
     if (!required_product_policies_nonzero(effective->transport)) {
-        set_error(MIMHID_ERR_UNSET_FIELD, "transport.linux_hid",
+        set_error(MIMUSB_ERR_UNSET_FIELD, "transport.linux_hid",
                   "Every linux_hid limit is required.");
-        return MIMHID_ERR_UNSET_FIELD;
+        return MIMUSB_ERR_UNSET_FIELD;
     }
-    if (!mimhid::detail::valid_boolean(effective->transport.validate_reports) ||
-        !mimhid::detail::valid_boolean(effective->transport.keep_attached) ||
-        effective->transport.log_level < MIMHID_LOG_DISABLED ||
-        effective->transport.log_level > MIMHID_LOG_TRACE ||
-        (effective->transport.log_level != MIMHID_LOG_DISABLED &&
+    if (!mimusb::detail::valid_boolean(effective->transport.validate_reports) ||
+        !mimusb::detail::valid_boolean(effective->transport.keep_attached) ||
+        effective->transport.log_level < MIMUSB_LOG_DISABLED ||
+        effective->transport.log_level > MIMUSB_LOG_TRACE ||
+        (effective->transport.log_level != MIMUSB_LOG_DISABLED &&
          effective->transport.log_sink == nullptr)) {
-        set_error(MIMHID_ERR_PARAM, "transport",
+        set_error(MIMUSB_ERR_PARAM, "transport",
                   "Every flag must be exactly zero or one, log_level a defined value, and a "
                   "log_level other than DISABLED needs a log_sink.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
 
     return validate_usb_identity(effective->usb_device, effective->usb_config);
@@ -306,66 +306,66 @@ void collect_report_ids(const std::vector<std::uint8_t>& descriptor, std::bitset
     }
 }
 
-mimhid_result command_error(const tr::CommandResult& result, const char* field, const char* reason,
+mimusb_result command_error(const tr::CommandResult& result, const char* field, const char* reason,
                             std::uint8_t frame_type, std::uint16_t node_id) noexcept {
-    mimhid_result code = MIMHID_ERR_INTERNAL;
+    mimusb_result code = MIMUSB_ERR_INTERNAL;
     switch (result.status) {
     case tr::CommandStatus::ack:
-        return MIMHID_OK;
+        return MIMUSB_OK;
     case tr::CommandStatus::nak:
         switch (result.nak_code) {
-        case MIMHID_NAK_PARAM:
-            code = MIMHID_ERR_PARAM;
+        case MIMUSB_NAK_PARAM:
+            code = MIMUSB_ERR_PARAM;
             break;
-        case MIMHID_NAK_OVERFLOW:
-            code = MIMHID_ERR_OVERFLOW;
+        case MIMUSB_NAK_OVERFLOW:
+            code = MIMUSB_ERR_OVERFLOW;
             break;
-        case MIMHID_NAK_STATE:
-            code = MIMHID_ERR_BUSY;
+        case MIMUSB_NAK_STATE:
+            code = MIMUSB_ERR_BUSY;
             break;
-        case MIMHID_NAK_DESCRIPTOR:
-            code = MIMHID_ERR_DESCRIPTOR_REJECTED;
+        case MIMUSB_NAK_DESCRIPTOR:
+            code = MIMUSB_ERR_DESCRIPTOR_REJECTED;
             break;
-        case MIMHID_NAK_UNSUPPORTED:
-            code = MIMHID_ERR_UNSUPPORTED;
+        case MIMUSB_NAK_UNSUPPORTED:
+            code = MIMUSB_ERR_UNSUPPORTED;
             break;
-        case MIMHID_NAK_BUSY:
-            code = MIMHID_ERR_BUSY;
+        case MIMUSB_NAK_BUSY:
+            code = MIMUSB_ERR_BUSY;
             break;
         default:
-            code = MIMHID_ERR_INTERNAL;
+            code = MIMUSB_ERR_INTERNAL;
             break;
         }
         set_error(code, field, reason, result.nak_code, frame_type, node_id);
         return code;
     case tr::CommandStatus::timeout:
-        code = MIMHID_ERR_TIMEOUT;
+        code = MIMUSB_ERR_TIMEOUT;
         break;
     case tr::CommandStatus::closed:
-        code = MIMHID_ERR_NO_DEVICE;
+        code = MIMUSB_ERR_NO_DEVICE;
         break;
     case tr::CommandStatus::io_error:
-        code = MIMHID_ERR_IO;
+        code = MIMUSB_ERR_IO;
         break;
     case tr::CommandStatus::short_write:
-        code = MIMHID_ERR_SHORT_TRANSFER;
+        code = MIMUSB_ERR_SHORT_TRANSFER;
         break;
     }
     set_error(code, field, reason, result.os_error, frame_type, node_id);
     return code;
 }
 
-std::vector<mimhid_node*> live_nodes(mimhid_device* device) {
+std::vector<mimusb_node*> live_nodes(mimusb_device* device) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
-    std::vector<mimhid_node*> nodes;
-    for (mimhid_node* node : device->slots) {
+    std::vector<mimusb_node*> nodes;
+    for (mimusb_node* node : device->slots) {
         if (node != nullptr && !node->closed)
             nodes.push_back(node);
     }
     return nodes;
 }
 
-bool free_node_id(mimhid_device* device, std::uint16_t* node_id) {
+bool free_node_id(mimusb_device* device, std::uint16_t* node_id) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
     for (std::size_t i = 0U; i < device->slots.size(); ++i) {
         if (device->slots[i] == nullptr) {
@@ -379,57 +379,57 @@ bool free_node_id(mimhid_device* device, std::uint16_t* node_id) {
     return true;
 }
 
-void publish_node(mimhid_device* device, mimhid_node* node) {
+void publish_node(mimusb_device* device, mimusb_node* node) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
     if (device->slots.size() <= node->node_id)
         device->slots.resize(static_cast<std::size_t>(node->node_id) + 1U, nullptr);
     device->slots[node->node_id] = node;
 }
 
-void unpublish_node(mimhid_device* device, const mimhid_node* node) {
+void unpublish_node(mimusb_device* device, const mimusb_node* node) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
     if (node->node_id < device->slots.size() && device->slots[node->node_id] == node)
         device->slots[node->node_id] = nullptr;
 }
 
 // A wait the caller passed to a call has no default: zero is refused.
-mimhid_result require_timeout(const std::uint32_t timeout_ms, const char* field) noexcept {
+mimusb_result require_timeout(const std::uint32_t timeout_ms, const char* field) noexcept {
     if (timeout_ms == 0U) {
-        set_error(MIMHID_ERR_UNSET_FIELD, field, "This timeout must be set; it has no default.");
-        return MIMHID_ERR_UNSET_FIELD;
+        set_error(MIMUSB_ERR_UNSET_FIELD, field, "This timeout must be set; it has no default.");
+        return MIMUSB_ERR_UNSET_FIELD;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result read_commit_timeouts(const mimhid_commit_timeouts* timeouts,
+mimusb_result read_commit_timeouts(const mimusb_commit_timeouts* timeouts,
                                    CommitWaits* waits) noexcept {
-    if (!mimhid::detail::valid_struct(timeouts, timeouts == nullptr ? 0U : timeouts->struct_size,
+    if (!mimusb::detail::valid_struct(timeouts, timeouts == nullptr ? 0U : timeouts->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*timeouts)), "timeouts")) {
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!reserved_is_zero(timeouts->reserved, "timeouts.reserved"))
-        return MIMHID_ERR_PARAM;
-    if (const mimhid_result r =
+        return MIMUSB_ERR_PARAM;
+    if (const mimusb_result r =
             require_timeout(timeouts->control_timeout_ms, "timeouts.control_timeout_ms");
-        r != MIMHID_OK)
+        r != MIMUSB_OK)
         return r;
-    if (const mimhid_result r =
+    if (const mimusb_result r =
             require_timeout(timeouts->reconnect_timeout_ms, "timeouts.reconnect_timeout_ms");
-        r != MIMHID_OK)
+        r != MIMUSB_OK)
         return r;
     waits->control = timeouts->control_timeout_ms;
     waits->reconnect = timeouts->reconnect_timeout_ms;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-void reset_endpoint_counts(mimhid_device* device) {
+void reset_endpoint_counts(mimusb_device* device) {
     {
         // nodes_mutex is held for the whole walk, and taken before endpoint_mutex: the reader
         // thread calls this, and a Node is deleted only after unpublish_node took nodes_mutex, so
         // no Node walked here can go away under it.
         std::lock_guard<std::mutex> nodes(device->nodes_mutex);
         std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-        for (mimhid_node* node : device->slots) {
+        for (mimusb_node* node : device->slots) {
             if (node == nullptr || node->closed)
                 continue;
             for (EndpointRuntime& ep : node->in_endpoints) {
@@ -446,7 +446,7 @@ void reset_endpoint_counts(mimhid_device* device) {
 }
 
 // What the board takes, as the composer wants it.
-usb::ComposerLimits composer_limits(const mimhid_device* device) {
+usb::ComposerLimits composer_limits(const mimusb_device* device) {
     const tr::BoardInfo& board = device->board;
     usb::ComposerLimits lim;
     lim.max_interfaces = board.max_interfaces_any;
@@ -463,7 +463,7 @@ usb::ComposerLimits composer_limits(const mimhid_device* device) {
     return lim;
 }
 
-void fill_device_strings(const mimhid_device* device, usb::ComposerInput* input) {
+void fill_device_strings(const mimusb_device* device, usb::ComposerInput* input) {
     input->device = device->config.usb_device;
     input->config = device->config.usb_config;
     input->limits = composer_limits(device);
@@ -476,13 +476,13 @@ void fill_device_strings(const mimhid_device* device, usb::ComposerInput* input)
 }
 
 // The interfaces of the generic Nodes and, joined per interface, those of the HID Nodes.
-mimhid_result groups_of_nodes(const std::vector<mimhid_node*>& nodes,
+mimusb_result groups_of_nodes(const std::vector<mimusb_node*>& nodes,
                               std::vector<usb::ComposerGroup>* groups,
                               std::vector<usb::HidNodeInput>* hid_inputs,
                               usb::ComposerError* error) {
     std::vector<usb::HidNodeInput>& hid = *hid_inputs;
     hid.clear();
-    for (const mimhid_node* node : nodes) {
+    for (const mimusb_node* node : nodes) {
         if (node->generic) {
             usb::ComposerGroup group;
             group.node_id = public_node_id(node);
@@ -507,32 +507,32 @@ mimhid_result groups_of_nodes(const std::vector<mimhid_node*>& nodes,
             in.has_report_ids = node->has_report_ids;
             in.report_ids = node->report_ids;
             in.node_id = public_node_id(node);
-            for (const mimhid_node::FeatureEntry& feature : node->features)
+            for (const mimusb_node::FeatureEntry& feature : node->features)
                 in.features.push_back(usb::HidNodeInput::Feature{feature.report_id, feature.data});
             hid.push_back(std::move(in));
         }
     }
     std::vector<usb::ComposerGroup> hid_groups;
-    if (const mimhid_result r = usb::compose_hid_groups(hid, &hid_groups, error); r != MIMHID_OK)
+    if (const mimusb_result r = usb::compose_hid_groups(hid, &hid_groups, error); r != MIMUSB_OK)
         return r;
     for (usb::ComposerGroup& g : hid_groups)
         groups->push_back(std::move(g));
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result precheck_groups(const mimhid_device* device, std::vector<usb::ComposerGroup> groups) {
+mimusb_result precheck_groups(const mimusb_device* device, std::vector<usb::ComposerGroup> groups) {
     usb::ComposerInput input;
     fill_device_strings(device, &input);
     input.groups = std::move(groups);
     input.partial = true;
     usb::Composed composed;
     usb::ComposerError error;
-    if (const mimhid_result r = usb::compose_descriptors(input, &composed, &error);
-        r != MIMHID_OK) {
+    if (const mimusb_result r = usb::compose_descriptors(input, &composed, &error);
+        r != MIMUSB_OK) {
         set_error(r, error.field, error.reason, 0, 0, error.node_id, 0, error.offset, error.length);
         return r;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
 // ---- control rules --------------------------------------------------------------------------
@@ -546,7 +546,7 @@ void put_u16_le(std::vector<std::uint8_t>* out, const std::uint32_t value) {
 
 // A command that finds the board answering from the rule it touches is sent again a few times:
 // the board says BUSY until the transfer it is answering is over, which takes milliseconds.
-tr::CommandResult command_retry_busy(mimhid_device* device, const std::uint8_t type,
+tr::CommandResult command_retry_busy(mimusb_device* device, const std::uint8_t type,
                                      const std::vector<std::uint8_t>& payload,
                                      const std::uint32_t control) {
     constexpr int kBusyTries = 50;
@@ -554,7 +554,7 @@ tr::CommandResult command_retry_busy(mimhid_device* device, const std::uint8_t t
     for (int tries = 0; tries < kBusyTries; ++tries) {
         result =
             device->link.command(type, payload.data(), payload.size(), control, kCommandAttempts);
-        if (result.status != tr::CommandStatus::nak || result.nak_code != MIMHID_NAK_BUSY)
+        if (result.status != tr::CommandStatus::nak || result.nak_code != MIMUSB_NAK_BUSY)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
@@ -563,7 +563,7 @@ tr::CommandResult command_retry_busy(mimhid_device* device, const std::uint8_t t
 
 // The RULE frame of one rule (docs/PROTOCOL.md "Control rules").
 std::vector<std::uint8_t> rule_payload(const std::size_t index, const usb::BoardRule& entry) {
-    const mimhid_control_rule& r = entry.rule;
+    const mimusb_control_rule& r = entry.rule;
     std::vector<std::uint8_t> p{static_cast<std::uint8_t>(index), r.request_type_mask,
                                 r.request_type_value, r.request_mask, r.request_value};
     put_u16_le(&p, r.value_mask);
@@ -572,19 +572,19 @@ std::vector<std::uint8_t> rule_payload(const std::size_t index, const usb::Board
     put_u16_le(&p, r.index_value);
     p.push_back(static_cast<std::uint8_t>(r.action));
     switch (r.action) {
-    case MIMHID_CONTROL_ANSWER:
+    case MIMUSB_CONTROL_ANSWER:
         // The capacity the rule was given and the bytes it holds now (at most the capacity).
         put_u16_le(&p, entry.capacity);
         put_u16_le(&p, static_cast<std::uint32_t>(entry.data.size()));
         break;
-    case MIMHID_CONTROL_ANSWER_LAST_SENT:
+    case MIMUSB_CONTROL_ANSWER_LAST_SENT:
         p.push_back(r.endpoint_address);
         p.push_back(r.first_byte_filter);
         p.push_back(r.first_byte);
         break;
-    case MIMHID_CONTROL_ASK:
+    case MIMUSB_CONTROL_ASK:
         put_u16_le(&p, r.timeout_ms);
-        // MIMHID_CONTROL_ACTION_STALL and _DROP are the wire's MIMHID_REPLY_STALL and _DROP plus 1.
+        // MIMUSB_CONTROL_ACTION_STALL and _DROP are the wire's MIMUSB_REPLY_STALL and _DROP plus 1.
         p.push_back(static_cast<std::uint8_t>(r.when_late - 1));
         break;
     default:
@@ -596,7 +596,7 @@ std::vector<std::uint8_t> rule_payload(const std::size_t index, const usb::Board
 // Stages the whole table on the board: for each rule a RULE frame and, for an ANSWER, its bytes as
 // a descriptor of the kind ANSWER. The board holds it as the staged table until a COMMIT or
 // RULES_APPLY makes it the active one.
-mimhid_result stage_rule_table(mimhid_device* device, const std::vector<usb::BoardRule>& table,
+mimusb_result stage_rule_table(mimusb_device* device, const std::vector<usb::BoardRule>& table,
                                const std::uint32_t control) {
     const auto send = [&](const std::uint8_t type, const std::vector<std::uint8_t>& payload,
                           const char* reason) {
@@ -605,69 +605,69 @@ mimhid_result stage_rule_table(mimhid_device* device, const std::vector<usb::Boa
             "device.control_rules", reason, type);
     };
     for (std::size_t i = 0U; i < table.size(); ++i) {
-        mimhid_result r = send(MIMHID_T_RULE, rule_payload(i, table[i]),
+        mimusb_result r = send(MIMUSB_T_RULE, rule_payload(i, table[i]),
                                "The board did not accept a control rule.");
         const std::vector<std::uint8_t>& bytes = table[i].data;
-        if (r != MIMHID_OK)
+        if (r != MIMUSB_OK)
             return r;
-        if (table[i].rule.action != MIMHID_CONTROL_ANSWER || bytes.empty())
+        if (table[i].rule.action != MIMUSB_CONTROL_ANSWER || bytes.empty())
             continue;
-        std::vector<std::uint8_t> begin{MIMHID_DESC_ANSWER, static_cast<std::uint8_t>(i)};
+        std::vector<std::uint8_t> begin{MIMUSB_DESC_ANSWER, static_cast<std::uint8_t>(i)};
         put_u16_le(&begin, 0U);
         put_u16_le(&begin, static_cast<std::uint32_t>(bytes.size()));
         begin.push_back(0U);
-        r = send(MIMHID_T_DESC_BEGIN, begin, "The board did not accept the bytes of an answer.");
-        for (std::size_t offset = 0U; r == MIMHID_OK && offset < bytes.size();
-             offset += MIMHID_DESC_DATA_CHUNK) {
+        r = send(MIMUSB_T_DESC_BEGIN, begin, "The board did not accept the bytes of an answer.");
+        for (std::size_t offset = 0U; r == MIMUSB_OK && offset < bytes.size();
+             offset += MIMUSB_DESC_DATA_CHUNK) {
             const std::size_t chunk =
-                std::min<std::size_t>(MIMHID_DESC_DATA_CHUNK, bytes.size() - offset);
-            std::vector<std::uint8_t> data{MIMHID_DESC_ANSWER, static_cast<std::uint8_t>(i)};
+                std::min<std::size_t>(MIMUSB_DESC_DATA_CHUNK, bytes.size() - offset);
+            std::vector<std::uint8_t> data{MIMUSB_DESC_ANSWER, static_cast<std::uint8_t>(i)};
             put_u16_le(&data, 0U);
             put_u16_le(&data, static_cast<std::uint32_t>(offset));
             data.insert(data.end(), bytes.begin() + static_cast<std::ptrdiff_t>(offset),
                         bytes.begin() + static_cast<std::ptrdiff_t>(offset + chunk));
-            r = send(MIMHID_T_DESC_DATA, data, "The board did not accept the bytes of an answer.");
+            r = send(MIMUSB_T_DESC_DATA, data, "The board did not accept the bytes of an answer.");
         }
-        if (r != MIMHID_OK)
+        if (r != MIMUSB_OK)
             return r;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
 // What the board holds in the table, checked before anything is sent.
-mimhid_result check_rule_table(const mimhid_device* device,
+mimusb_result check_rule_table(const mimusb_device* device,
                                const std::vector<usb::BoardRule>& table) {
     const tr::BoardInfo& board = device->board;
     std::size_t bytes = 0U;
     for (const usb::BoardRule& entry : table)
-        bytes += entry.rule.action == MIMHID_CONTROL_ANSWER ? entry.capacity : 0U;
+        bytes += entry.rule.action == MIMUSB_CONTROL_ANSWER ? entry.capacity : 0U;
     if (table.size() > board.max_control_rules) {
-        set_error(MIMHID_ERR_OVERFLOW, "device.control_rules",
+        set_error(MIMUSB_ERR_OVERFLOW, "device.control_rules",
                   "The control rules of the Nodes and of the Device exceed what the board holds "
-                  "(mimhid_board_limits.max_control_rules).",
+                  "(mimusb_board_limits.max_control_rules).",
                   0, 0, 0, 0, board.max_control_rules, static_cast<std::uint32_t>(table.size()));
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
     if (bytes > board.max_answer_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "device.control_rules",
+        set_error(MIMUSB_ERR_OVERFLOW, "device.control_rules",
                   "The answers of the control rules exceed the board's answer memory "
-                  "(mimhid_board_limits.max_answer_bytes).",
+                  "(mimusb_board_limits.max_answer_bytes).",
                   0, 0, 0, 0, board.max_answer_bytes, static_cast<std::uint32_t>(bytes));
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-// The table the board is to hold: the rules of the Nodes opened with mimhid_node_open in node
+// The table the board is to hold: the rules of the Nodes opened with mimusb_node_open in node
 // order, those the library writes for the profile Nodes, then the Device's own. What the target
 // has set (idle rate, protocol) is kept from the table the board holds now.
-mimhid_result build_rule_table(mimhid_device* device, const std::vector<mimhid_node*>& nodes,
+mimusb_result build_rule_table(mimusb_device* device, const std::vector<mimusb_node*>& nodes,
                                const std::vector<usb::HidNodeInput>& hid,
                                std::vector<usb::BoardRule>* table) {
     table->clear();
     // An ANSWER rule keeps the capacity it was given however its bytes change, so the board
     // reserves the same room each time the table is sent and a shortened answer can grow again.
-    for (mimhid_node* node : nodes) {
+    for (mimusb_node* node : nodes) {
         if (node->generic)
             table->insert(table->end(), node->rules.begin(), node->rules.end());
     }
@@ -691,7 +691,7 @@ mimhid_result build_rule_table(mimhid_device* device, const std::vector<mimhid_n
 }
 
 // The request matches the rule: each field with its mask equals its value.
-bool rule_matches(const mimhid_control_rule& r, const std::uint8_t* setup) {
+bool rule_matches(const mimusb_control_rule& r, const std::uint8_t* setup) {
     const std::uint16_t value = static_cast<std::uint16_t>(setup[2] | (setup[3] << 8));
     const std::uint16_t index = static_cast<std::uint16_t>(setup[4] | (setup[5] << 8));
     return (setup[0] & r.request_type_mask) == r.request_type_value &&
@@ -701,9 +701,9 @@ bool rule_matches(const mimhid_control_rule& r, const std::uint8_t* setup) {
 
 // The reader thread cannot wait for the board, so the change of the bytes of an answer is done by
 // this thread, which sends what the table holds for the rule when it gets to it.
-void updater_loop(mimhid_device* device) {
+void updater_loop(mimusb_device* device) {
     for (;;) {
-        mimhid_device::Update update;
+        mimusb_device::Update update;
         {
             std::unique_lock<std::mutex> lock(device->update_mutex);
             device->update_cv.wait(
@@ -728,14 +728,14 @@ void updater_loop(mimhid_device* device) {
             payload.insert(payload.end(), entry.data.begin(), entry.data.end());
         }
         const std::uint32_t timeout = device->rule_timeout_ms.load(std::memory_order_acquire);
-        (void)command_retry_busy(device, MIMHID_T_RULE_DATA, payload,
+        (void)command_retry_busy(device, MIMUSB_T_RULE_DATA, payload,
                                  timeout == 0U ? 1000U : timeout);
     }
 }
 
 } // namespace
 
-void start_rule_updater(mimhid_device* device) {
+void start_rule_updater(mimusb_device* device) {
     std::lock_guard<std::mutex> lock(device->update_mutex);
     if (!device->updater.joinable()) {
         device->updater_stop = false;
@@ -743,7 +743,7 @@ void start_rule_updater(mimhid_device* device) {
     }
 }
 
-void stop_rule_updater(mimhid_device* device) noexcept {
+void stop_rule_updater(mimusb_device* device) noexcept {
     {
         std::lock_guard<std::mutex> lock(device->update_mutex);
         device->updater_stop = true;
@@ -755,7 +755,7 @@ void stop_rule_updater(mimhid_device* device) noexcept {
 
 // Sets the one byte a GET_IDLE or GET_PROTOCOL rule of `iface` answers with, and has it sent.
 // The reader thread calls this.
-static void set_hid_answer(mimhid_device* device, const usb::BoardRule::Role role,
+static void set_hid_answer(mimusb_device* device, const usb::BoardRule::Role role,
                            // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                            const std::uint8_t iface, const std::uint8_t value) {
     std::uint16_t found = 0xFFFFU;
@@ -773,14 +773,14 @@ static void set_hid_answer(mimhid_device* device, const usb::BoardRule::Role rol
         return;
     {
         std::lock_guard<std::mutex> lock(device->update_mutex);
-        device->updates.push_back(mimhid_device::Update{found, value});
+        device->updates.push_back(mimusb_device::Update{found, value});
     }
     device->update_cv.notify_one();
 }
 
 // HID 1.11 7.2.4 and 7.2.6: the idle rate and the protocol start again from their initial values
 // each time the target configures the device.
-static void reset_hid_answers(mimhid_device* device) {
+static void reset_hid_answers(mimusb_device* device) {
     std::vector<std::pair<usb::BoardRule::Role, std::uint8_t>> changed;
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
@@ -798,74 +798,74 @@ static void reset_hid_answers(mimhid_device* device) {
                        role == usb::BoardRule::Role::hid_get_protocol ? 1U : 0U);
 }
 
-mimhid_result copy_control_rules(const mimhid_device* device, const mimhid_control_rule* rules,
+mimusb_result copy_control_rules(const mimusb_device* device, const mimusb_control_rule* rules,
                                  const std::size_t count, const char* field,
                                  std::vector<usb::BoardRule>* out) {
     out->clear();
     if (count != 0U && rules == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field, "rules is null with a nonzero rule_count.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, field, "rules is null with a nonzero rule_count.");
+        return MIMUSB_ERR_PARAM;
     }
     std::size_t bytes = 0U;
     for (std::size_t i = 0U; i < count; ++i) {
-        const mimhid_control_rule& r = rules[i];
-        const auto fail = [&](const mimhid_result result, const char* reason) {
+        const mimusb_control_rule& r = rules[i];
+        const auto fail = [&](const mimusb_result result, const char* reason) {
             set_error(result, field, reason, 0, 0, 0, 0, static_cast<std::uint32_t>(i), 0);
             return result;
         };
         if (r.action == 0)
-            return fail(MIMHID_ERR_UNSET_FIELD, "action is required.");
-        if (r.action < MIMHID_CONTROL_ANSWER || r.action > MIMHID_CONTROL_STALL)
-            return fail(MIMHID_ERR_PARAM, "An unknown rule action.");
+            return fail(MIMUSB_ERR_UNSET_FIELD, "action is required.");
+        if (r.action < MIMUSB_CONTROL_ANSWER || r.action > MIMUSB_CONTROL_STALL)
+            return fail(MIMUSB_ERR_PARAM, "An unknown rule action.");
         if ((r.request_type_value & ~r.request_type_mask) != 0 ||
             (r.request_value & ~r.request_mask) != 0 || (r.value_value & ~r.value_mask) != 0 ||
             (r.index_value & ~r.index_mask) != 0)
-            return fail(MIMHID_ERR_PARAM, "A value outside its mask never matches.");
+            return fail(MIMUSB_ERR_PARAM, "A value outside its mask never matches.");
         if (r.reserved8 != 0U)
-            return fail(MIMHID_ERR_PARAM, "The reserved field must be zero.");
-        const bool answer = r.action == MIMHID_CONTROL_ANSWER;
-        const bool last = r.action == MIMHID_CONTROL_ANSWER_LAST_SENT;
-        const bool ask = r.action == MIMHID_CONTROL_ASK;
+            return fail(MIMUSB_ERR_PARAM, "The reserved field must be zero.");
+        const bool answer = r.action == MIMUSB_CONTROL_ANSWER;
+        const bool last = r.action == MIMUSB_CONTROL_ANSWER_LAST_SENT;
+        const bool ask = r.action == MIMUSB_CONTROL_ASK;
         if (!answer && (r.data != nullptr || r.length != 0U))
-            return fail(MIMHID_ERR_PARAM, "data and length belong to an ANSWER rule only.");
+            return fail(MIMUSB_ERR_PARAM, "data and length belong to an ANSWER rule only.");
         if (!last && (r.endpoint_address != 0U || r.first_byte_filter != 0U || r.first_byte != 0U))
-            return fail(MIMHID_ERR_PARAM,
+            return fail(MIMUSB_ERR_PARAM,
                         "endpoint_address and the first byte belong to ANSWER_LAST_SENT only.");
         if (!ask && (r.timeout_ms != 0U || r.when_late != 0))
-            return fail(MIMHID_ERR_PARAM, "timeout_ms and when_late belong to an ASK rule only.");
+            return fail(MIMUSB_ERR_PARAM, "timeout_ms and when_late belong to an ASK rule only.");
         if (answer || last) {
             // USB 2.0 9.3.1: bit 7 of bmRequestType is the direction; the answer is data stage.
             if ((r.request_type_mask & 0x80U) == 0U || (r.request_type_value & 0x80U) == 0U)
-                return fail(MIMHID_ERR_PARAM,
+                return fail(MIMUSB_ERR_PARAM,
                             "An ANSWER or ANSWER_LAST_SENT rule matches device-to-host requests "
                             "only: bit 7 of request_type_mask and _value.");
         }
         if (answer) {
             if (r.data == nullptr && r.length != 0U)
-                return fail(MIMHID_ERR_PARAM, "data is null with a nonzero length.");
+                return fail(MIMUSB_ERR_PARAM, "data is null with a nonzero length.");
             if (r.length > 0xFFFFU)
-                return fail(MIMHID_ERR_OVERFLOW, "An answer is at most 65535 bytes.");
+                return fail(MIMUSB_ERR_OVERFLOW, "An answer is at most 65535 bytes.");
             bytes += r.length;
             if (bytes > device->board.max_answer_bytes)
-                return fail(MIMHID_ERR_OVERFLOW, "The answers exceed the board's answer memory "
-                                                 "(mimhid_board_limits.max_answer_bytes).");
+                return fail(MIMUSB_ERR_OVERFLOW, "The answers exceed the board's answer memory "
+                                                 "(mimusb_board_limits.max_answer_bytes).");
         }
         if (last) {
             // USB 2.0 9.6.6: an IN endpoint address has bit 7 set, bits 6..4 clear, a number.
             if ((r.endpoint_address & 0x80U) == 0U || (r.endpoint_address & 0x70U) != 0U ||
                 (r.endpoint_address & 0x0FU) == 0U || r.first_byte_filter > 1U)
-                return fail(MIMHID_ERR_PARAM,
+                return fail(MIMUSB_ERR_PARAM,
                             "endpoint_address is an IN endpoint address (0x81 to 0x8F) and "
                             "first_byte_filter 0 or 1.");
         }
         if (ask) {
             if (r.timeout_ms == 0U || r.when_late == 0)
-                return fail(MIMHID_ERR_UNSET_FIELD, "An ASK rule needs timeout_ms and when_late.");
-            if (r.timeout_ms > MIMHID_CONTROL_MAX_TIMEOUT_MS ||
-                (r.when_late != MIMHID_CONTROL_ACTION_STALL &&
-                 r.when_late != MIMHID_CONTROL_ACTION_DROP))
-                return fail(MIMHID_ERR_PARAM,
-                            "timeout_ms is 1 to MIMHID_CONTROL_MAX_TIMEOUT_MS and when_late STALL "
+                return fail(MIMUSB_ERR_UNSET_FIELD, "An ASK rule needs timeout_ms and when_late.");
+            if (r.timeout_ms > MIMUSB_CONTROL_MAX_TIMEOUT_MS ||
+                (r.when_late != MIMUSB_CONTROL_ACTION_STALL &&
+                 r.when_late != MIMUSB_CONTROL_ACTION_DROP))
+                return fail(MIMUSB_ERR_PARAM,
+                            "timeout_ms is 1 to MIMUSB_CONTROL_MAX_TIMEOUT_MS and when_late STALL "
                             "or DROP.");
         }
         usb::BoardRule entry;
@@ -876,34 +876,34 @@ mimhid_result copy_control_rules(const mimhid_device* device, const mimhid_contr
         entry.capacity = static_cast<std::uint16_t>(answer ? r.length : 0U);
         out->push_back(std::move(entry));
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result rebuild_rules(mimhid_device* device, const std::uint32_t control_timeout_ms) {
-    const std::vector<mimhid_node*> nodes = live_nodes(device);
+mimusb_result rebuild_rules(mimusb_device* device, const std::uint32_t control_timeout_ms) {
+    const std::vector<mimusb_node*> nodes = live_nodes(device);
     std::vector<usb::ComposerGroup> groups;
     std::vector<usb::HidNodeInput> hid;
     usb::ComposerError error;
-    if (const mimhid_result made = groups_of_nodes(nodes, &groups, &hid, &error);
-        made != MIMHID_OK) {
+    if (const mimusb_result made = groups_of_nodes(nodes, &groups, &hid, &error);
+        made != MIMUSB_OK) {
         set_error(made, error.field, error.reason, 0, 0, error.node_id, 0, error.offset,
                   error.length);
         return made;
     }
     std::vector<usb::BoardRule> table;
-    if (const mimhid_result built = build_rule_table(device, nodes, hid, &table);
-        built != MIMHID_OK)
+    if (const mimusb_result built = build_rule_table(device, nodes, hid, &table);
+        built != MIMUSB_OK)
         return built;
-    if (const mimhid_result staged = stage_rule_table(device, table, control_timeout_ms);
-        staged != MIMHID_OK)
+    if (const mimusb_result staged = stage_rule_table(device, table, control_timeout_ms);
+        staged != MIMUSB_OK)
         return staged;
     const std::vector<std::uint8_t> apply{device->report_all ? std::uint8_t{1} : std::uint8_t{0},
                                           static_cast<std::uint8_t>(table.size())};
-    if (const mimhid_result applied = command_error(
-            command_retry_busy(device, MIMHID_T_RULES_APPLY, apply, control_timeout_ms),
+    if (const mimusb_result applied = command_error(
+            command_retry_busy(device, MIMUSB_T_RULES_APPLY, apply, control_timeout_ms),
             "device.control_rules", "The board did not apply the control rules.",
-            MIMHID_T_RULES_APPLY);
-        applied != MIMHID_OK)
+            MIMUSB_T_RULES_APPLY);
+        applied != MIMUSB_OK)
         return applied;
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
@@ -911,10 +911,10 @@ mimhid_result rebuild_rules(mimhid_device* device, const std::uint32_t control_t
     }
     device->control_routed.store(device->report_all || !device->device_rules.empty(),
                                  std::memory_order_release);
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result send_rule_data(mimhid_device* device, const std::size_t table_index,
+mimusb_result send_rule_data(mimusb_device* device, const std::size_t table_index,
                              // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                              const std::uint8_t* data, const std::size_t length,
                              const std::uint32_t control_timeout_ms) {
@@ -922,31 +922,31 @@ mimhid_result send_rule_data(mimhid_device* device, const std::size_t table_inde
     if (length != 0U)
         payload.insert(payload.end(), data, data + length);
     return command_error(
-        command_retry_busy(device, MIMHID_T_RULE_DATA, payload, control_timeout_ms),
+        command_retry_busy(device, MIMUSB_T_RULE_DATA, payload, control_timeout_ms),
         "device.rule_data", "The board did not accept the bytes of the answer.",
-        MIMHID_T_RULE_DATA);
+        MIMUSB_T_RULE_DATA);
 }
 
 // Changes the bytes of an ANSWER rule of the Device (node null) or of a Node's own rules: kept for
 // the next table, and sent to the board when it holds the table now.
-mimhid_result change_rule_data(mimhid_device* device, mimhid_node* node,
+mimusb_result change_rule_data(mimusb_device* device, mimusb_node* node,
                                const std::size_t rule_index, const std::uint8_t* data,
                                // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                                const std::size_t length, const std::uint32_t control_timeout_ms) {
     std::vector<usb::BoardRule>& own = node != nullptr ? node->rules : device->device_rules;
-    if (rule_index >= own.size() || own[rule_index].rule.action != MIMHID_CONTROL_ANSWER) {
-        set_error(MIMHID_ERR_PARAM, "rule_index", "There is no ANSWER rule with this number.");
-        return MIMHID_ERR_PARAM;
+    if (rule_index >= own.size() || own[rule_index].rule.action != MIMUSB_CONTROL_ANSWER) {
+        set_error(MIMUSB_ERR_PARAM, "rule_index", "There is no ANSWER rule with this number.");
+        return MIMUSB_ERR_PARAM;
     }
     if (data == nullptr && length != 0U) {
-        set_error(MIMHID_ERR_PARAM, "data", "data is null with a nonzero length.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "data", "data is null with a nonzero length.");
+        return MIMUSB_ERR_PARAM;
     }
     if (length > own[rule_index].capacity) {
-        set_error(MIMHID_ERR_PARAM, "length",
+        set_error(MIMUSB_ERR_PARAM, "length",
                   "length is more than the rule's capacity, the length of its data when the rule "
                   "was set.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     std::vector<std::uint8_t> bytes;
     if (length != 0U)
@@ -960,7 +960,7 @@ mimhid_result change_rule_data(mimhid_device* device, mimhid_node* node,
         index = device->table.size() - std::min(device->table.size(), device->device_rules.size()) +
                 rule_index;
     } else {
-        for (const mimhid_node* other : live_nodes(device)) {
+        for (const mimusb_node* other : live_nodes(device)) {
             if (other == node)
                 break;
             if (other->generic)
@@ -971,26 +971,26 @@ mimhid_result change_rule_data(mimhid_device* device, mimhid_node* node,
         own[rule_index].data = std::move(bytes);
         if (device->configured)
             device->dirty = true; // a batch is open: the commit sends the bytes
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
-    const mimhid_result r =
+    const mimusb_result r =
         send_rule_data(device, index, bytes.data(), bytes.size(), control_timeout_ms);
-    if (r != MIMHID_OK)
+    if (r != MIMUSB_OK)
         return r;
     own[rule_index].data = bytes;
     std::lock_guard<std::mutex> lock(device->rules_mutex);
     if (index < device->table.size())
         device->table[index].data = std::move(bytes);
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
 // Sends the complete configuration of every live node and commits it. The board drops its USB
 // device and re-enumerates it with exactly these nodes.
-mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
+mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
                             const CommitWaits& waits) {
     const ReconfigGuard guard(device);
     const std::uint32_t control = waits.control;
-    const std::vector<mimhid_node*> nodes = live_nodes(device);
+    const std::vector<mimusb_node*> nodes = live_nodes(device);
 
     if (nodes.empty() && !device->descriptors_set) {
         if (device->configured) {
@@ -998,12 +998,12 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
                 1U, static_cast<std::uint8_t>(reconnect_delay_ms & 0xFFU),
                 static_cast<std::uint8_t>((reconnect_delay_ms >> 8U) & 0xFFU)};
             device->link.clear_ready();
-            const mimhid_result r =
-                command_error(device->link.command(MIMHID_T_COMMIT, detach, sizeof(detach), control,
+            const mimusb_result r =
+                command_error(device->link.command(MIMUSB_T_COMMIT, detach, sizeof(detach), control,
                                                    kCommandAttempts),
                               "device.commit", "The board did not acknowledge going off the bus.",
-                              MIMHID_T_COMMIT);
-            if (r != MIMHID_OK)
+                              MIMUSB_T_COMMIT);
+            if (r != MIMUSB_OK)
                 return r;
             device->configured = false;
         }
@@ -1012,11 +1012,11 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
             device->table.clear(); // the board dropped its rules with the configuration
         }
         device->dirty = false;
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
 
     // The host composes every descriptor; the board takes them as bytes. A Device given as bytes
-    // (mimhid_device_set_descriptors) has them already, and its strings are the raw ones.
+    // (mimusb_device_set_descriptors) has them already, and its strings are the raw ones.
     usb::ComposerError composer_error;
     std::vector<usb::HidNodeInput> hid_inputs;
     usb::Composed composed;
@@ -1037,15 +1037,15 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     } else {
         usb::ComposerInput input;
         fill_device_strings(device, &input);
-        if (const mimhid_result made =
+        if (const mimusb_result made =
                 groups_of_nodes(nodes, &input.groups, &hid_inputs, &composer_error);
-            made != MIMHID_OK) {
+            made != MIMUSB_OK) {
             set_error(made, composer_error.field, composer_error.reason, 0, 0,
                       composer_error.node_id, 0, composer_error.offset, composer_error.length);
             return made;
         }
-        if (const mimhid_result made = usb::compose_descriptors(input, &composed, &composer_error);
-            made != MIMHID_OK) {
+        if (const mimusb_result made = usb::compose_descriptors(input, &composed, &composer_error);
+            made != MIMUSB_OK) {
             set_error(made, composer_error.field, composer_error.reason, 0, 0,
                       composer_error.node_id, 0, composer_error.offset, composer_error.length);
             return made;
@@ -1053,11 +1053,11 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
         if (!device->composed_bos.empty()) {
             // A host asks for a BOS descriptor only from bcdUSB 0x0201 on (USB 3.2 9.6.2).
             if (device->config.usb_device.bcd_usb < 0x0201U) {
-                set_error(MIMHID_ERR_PARAM, "device.bos",
+                set_error(MIMUSB_ERR_PARAM, "device.bos",
                           "A BOS descriptor needs usb_device.bcd_usb of 0x0201 or more: a host "
                           "asks for one only then (USB 3.2 9.6.2); the value is in offset.",
                           0, 0, 0, 0, device->config.usb_device.bcd_usb, 0);
-                return MIMHID_ERR_PARAM;
+                return MIMUSB_ERR_PARAM;
             }
             bos = &device->composed_bos;
         }
@@ -1078,57 +1078,57 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
         put_u16(&begin, language);
         put_u16(&begin, static_cast<std::uint32_t>(bytes.size()));
         begin.push_back(flags);
-        mimhid_result result =
-            send(MIMHID_T_DESC_BEGIN, begin, field, "The board did not accept a descriptor.", 0U);
-        for (std::size_t offset = 0U; result == MIMHID_OK && offset < bytes.size();
-             offset += MIMHID_DESC_DATA_CHUNK) {
+        mimusb_result result =
+            send(MIMUSB_T_DESC_BEGIN, begin, field, "The board did not accept a descriptor.", 0U);
+        for (std::size_t offset = 0U; result == MIMUSB_OK && offset < bytes.size();
+             offset += MIMUSB_DESC_DATA_CHUNK) {
             const std::size_t chunk =
-                std::min<std::size_t>(MIMHID_DESC_DATA_CHUNK, bytes.size() - offset);
+                std::min<std::size_t>(MIMUSB_DESC_DATA_CHUNK, bytes.size() - offset);
             std::vector<std::uint8_t> data{kind, index};
             put_u16(&data, language);
             put_u16(&data, static_cast<std::uint32_t>(offset));
             data.insert(data.end(), bytes.begin() + static_cast<std::ptrdiff_t>(offset),
                         bytes.begin() + static_cast<std::ptrdiff_t>(offset + chunk));
-            result = send(MIMHID_T_DESC_DATA, data, field,
+            result = send(MIMUSB_T_DESC_DATA, data, field,
                           "The board did not accept the bytes of a descriptor.", 0U);
         }
         return result;
     };
 
-    mimhid_result r = send(MIMHID_T_DESC_RESET, {}, "device.config",
+    mimusb_result r = send(MIMUSB_T_DESC_RESET, {}, "device.config",
                            "The board did not start a new configuration.", 0U);
-    if (r == MIMHID_OK)
-        r = send_blob(MIMHID_DESC_DEVICE, 0U, 0U, composed.device, 0U, "device.config");
-    if (r == MIMHID_OK)
-        r = send_blob(MIMHID_DESC_CONFIGURATION, 0U, 0U, composed.configuration, 0U,
+    if (r == MIMUSB_OK)
+        r = send_blob(MIMUSB_DESC_DEVICE, 0U, 0U, composed.device, 0U, "device.config");
+    if (r == MIMUSB_OK)
+        r = send_blob(MIMUSB_DESC_CONFIGURATION, 0U, 0U, composed.configuration, 0U,
                       "device.config");
-    if (r == MIMHID_OK && bos != nullptr)
-        r = send_blob(MIMHID_DESC_BOS, 0U, 0U, *bos, 0U, "device.bos");
+    if (r == MIMUSB_OK && bos != nullptr)
+        r = send_blob(MIMUSB_DESC_BOS, 0U, 0U, *bos, 0U, "device.bos");
     for (const usb::ComposedString& text : composed.strings) {
-        if (r != MIMHID_OK)
+        if (r != MIMUSB_OK)
             break;
-        r = send_blob(MIMHID_DESC_STRING, text.index, text.language, text.descriptor,
-                      text.from_chip_id ? MIMHID_DESC_F_SERIAL_FROM_ID : 0U, "device.strings");
+        r = send_blob(MIMUSB_DESC_STRING, text.index, text.language, text.descriptor,
+                      text.from_chip_id ? MIMUSB_DESC_F_SERIAL_FROM_ID : 0U, "device.strings");
     }
-    if (r != MIMHID_OK)
+    if (r != MIMUSB_OK)
         return r;
 
     // The control rules, with the bytes of their answers; the COMMIT makes them the active ones.
     std::vector<usb::BoardRule> table;
-    if (r = build_rule_table(device, nodes, hid_inputs, &table); r != MIMHID_OK)
+    if (r = build_rule_table(device, nodes, hid_inputs, &table); r != MIMUSB_OK)
         return r;
     r = stage_rule_table(device, table, control);
-    if (r != MIMHID_OK)
+    if (r != MIMUSB_OK)
         return r;
 
     // A Device given as bytes: the policy of each of its IN endpoints.
     for (const EndpointRuntime& ep : device->bytes.in_endpoints) {
         if (!device->descriptors_set)
             break;
-        r = send(MIMHID_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
+        r = send(MIMUSB_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
                  "device.endpoint.policy", "The board did not accept the policy of an endpoint.",
                  0U);
-        if (r != MIMHID_OK)
+        if (r != MIMUSB_OK)
             return r;
     }
 
@@ -1136,20 +1136,20 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     // the least depth).
     // The policy of every IN endpoint: from the Node, or for profile Nodes from the interface,
     // which its Nodes share the settings of.
-    for (const mimhid_node* node : nodes) {
+    for (const mimusb_node* node : nodes) {
         if (node->generic) {
             for (const EndpointRuntime& ep : node->in_endpoints) {
-                r = send(MIMHID_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
+                r = send(MIMUSB_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
                          "node.endpoint.policy",
                          "The board did not accept the policy of an endpoint.",
                          public_node_id(node));
-                if (r != MIMHID_OK)
+                if (r != MIMUSB_OK)
                     return r;
             }
         } else {
             // Nodes on one interface share its endpoint: one command, the least depth.
             bool first_of_interface = true;
-            for (const mimhid_node* other : nodes) {
+            for (const mimusb_node* other : nodes) {
                 if (other == node)
                     break;
                 if (!other->generic && other->iface == node->iface)
@@ -1157,12 +1157,12 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
             }
             if (!first_of_interface)
                 continue;
-            r = send(MIMHID_T_EP_CONFIG,
+            r = send(MIMUSB_T_EP_CONFIG,
                      {node->config.ep_in.address, hid_interface_depth(device, node->iface),
                       node->config.ep_in.policy.on_full},
                      "node.endpoint.policy", "The board did not accept the queue depth.",
                      public_node_id(node));
-            if (r != MIMHID_OK)
+            if (r != MIMUSB_OK)
                 return r;
         }
     }
@@ -1180,14 +1180,14 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
     // descriptors under a device the target has already enumerated. The target would never see
     // the new device, and the board would never report it mounted.
     r = command_error(device->link.disconnect(control), "device.commit",
-                      "The board did not disconnect in time.", MIMHID_T_COMMIT);
-    if (r != MIMHID_OK)
+                      "The board did not disconnect in time.", MIMUSB_T_COMMIT);
+    if (r != MIMUSB_OK)
         return r;
     if (reconnect_delay_ms > 0U)
         std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_delay_ms));
     r = command_error(device->link.connect(waits.reconnect), "device.commit",
-                      "The board did not connect or enumerate in time.", MIMHID_T_COMMIT);
-    if (r != MIMHID_OK)
+                      "The board did not connect or enumerate in time.", MIMUSB_T_COMMIT);
+    if (r != MIMUSB_OK)
         return r;
     device->configured = true;
     device->dirty = false;
@@ -1200,28 +1200,28 @@ mimhid_result commit_device(mimhid_device* device, uint32_t reconnect_delay_ms,
             count = device->table.size();
         }
         const std::vector<std::uint8_t> apply{1U, static_cast<std::uint8_t>(count)};
-        r = command_error(command_retry_busy(device, MIMHID_T_RULES_APPLY, apply, control),
+        r = command_error(command_retry_busy(device, MIMUSB_T_RULES_APPLY, apply, control),
                           "device.control_rules", "The board did not apply the control rules.",
-                          MIMHID_T_RULES_APPLY);
-        if (r != MIMHID_OK)
+                          MIMUSB_T_RULES_APPLY);
+        if (r != MIMUSB_OK)
             return r;
     }
     device->control_routed.store(device->report_all || !device->device_rules.empty(),
                                  std::memory_order_release);
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
 // The public id of the live Node that owns an endpoint address, and the interface it is on; 0 when
 // none does. A HID Node owns the endpoints of its config.
-std::uint16_t node_of_endpoint(mimhid_device* device, const std::uint32_t address,
+std::uint16_t node_of_endpoint(mimusb_device* device, const std::uint32_t address,
                                std::uint32_t* interface_number) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
-    for (const mimhid_node* node : device->slots) {
+    for (const mimusb_node* node : device->slots) {
         if (node == nullptr || node->closed)
             continue;
         if (node->generic) {
             for (const GenericInterface& itf : node->interfaces) {
-                for (const mimhid_usb_endpoint& ep : itf.endpoints) {
+                for (const mimusb_usb_endpoint& ep : itf.endpoints) {
                     if (ep.address == address) {
                         *interface_number = itf.number;
                         return public_node_id(node);
@@ -1244,11 +1244,11 @@ std::uint16_t node_of_endpoint(mimhid_device* device, const std::uint32_t addres
     return 0U;
 }
 
-void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept {
+void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept {
     const std::uint8_t* d = board.data.data();
 
     // The wait policy's count is kept whether or not anyone listens for events.
-    if (board.kind == MIMHID_EV_EP_DONE) {
+    if (board.kind == MIMUSB_EV_EP_DONE) {
         if (board.length < 3U)
             return;
         const std::uint32_t done = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
@@ -1256,7 +1256,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
             // As reset_endpoint_counts: nodes_mutex for the whole walk, then endpoint_mutex.
             std::lock_guard<std::mutex> nodes(device->nodes_mutex);
             std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-            for (mimhid_node* node : device->slots) {
+            for (mimusb_node* node : device->slots) {
                 if (node == nullptr || node->closed)
                     continue;
                 for (EndpointRuntime& ep : node->in_endpoints) {
@@ -1273,15 +1273,15 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         return;
     }
     // The target left: nothing the board held for it will be reported done (a flush of its own).
-    if (board.kind == MIMHID_EV_UNMOUNTED) {
+    if (board.kind == MIMUSB_EV_UNMOUNTED) {
         reset_endpoint_counts(device);
         device->pending.clear();
     }
-    if (board.kind == MIMHID_EV_MOUNTED) {
+    if (board.kind == MIMUSB_EV_MOUNTED) {
         device->pending.clear();
         reset_hid_answers(device);
     }
-    mimhid_event event{};
+    mimusb_event event{};
     event.struct_size = sizeof(event);
     std::uint8_t iface = 0xFFU;
     // A report the target sent to a profile Node, as the HID driver of the board used to report
@@ -1289,7 +1289,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
     const auto hid_report = [&](const std::uint8_t type, const std::uint8_t id,
                                 const std::uint8_t* data, std::size_t length) {
         if (type == 2U && id == 0U) {
-            event.kind = MIMHID_EVENT_OUTPUT_REPORT; // the whole packet: the ID, if any, is in it
+            event.kind = MIMUSB_EVENT_OUTPUT_REPORT; // the whole packet: the ID, if any, is in it
         } else {
             // TinyUSB strips the Report ID from the data stage when it matches wValue
             // (src/class/hid/hid_device.c, hidd_control_xfer_cb, SET_REPORT).
@@ -1297,31 +1297,31 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                 ++data;
                 --length;
             }
-            event.kind = type == 3U ? MIMHID_EVENT_FEATURE_REPORT : MIMHID_EVENT_OUTPUT_REPORT;
+            event.kind = type == 3U ? MIMUSB_EVENT_FEATURE_REPORT : MIMUSB_EVENT_OUTPUT_REPORT;
             event.report_id = id;
         }
         event.data = data;
         event.length = length;
     };
     switch (board.kind) {
-    case MIMHID_EV_MOUNTED:
-        event.kind = MIMHID_EVENT_MOUNTED;
+    case MIMUSB_EV_MOUNTED:
+        event.kind = MIMUSB_EVENT_MOUNTED;
         break;
-    case MIMHID_EV_UNMOUNTED:
-        event.kind = MIMHID_EVENT_UNMOUNTED;
+    case MIMUSB_EV_UNMOUNTED:
+        event.kind = MIMUSB_EVENT_UNMOUNTED;
         break;
-    case MIMHID_EV_SUSPEND:
-        event.kind = MIMHID_EVENT_SUSPEND;
+    case MIMUSB_EV_SUSPEND:
+        event.kind = MIMUSB_EVENT_SUSPEND;
         event.value = board.length >= 1U ? d[0] : 0U;
         break;
-    case MIMHID_EV_RESUME:
-        event.kind = MIMHID_EVENT_RESUME;
+    case MIMUSB_EV_RESUME:
+        event.kind = MIMUSB_EVENT_RESUME;
         break;
-    case MIMHID_EV_CONTROL_SETUP: {
+    case MIMUSB_EV_CONTROL_SETUP: {
         if (board.length < 10U)
             return;
         const std::uint8_t* setup = d + 2;
-        if ((d[1] & MIMHID_CONTROL_F_ACCEPTED) != 0U) {
+        if ((d[1] & MIMUSB_CONTROL_F_ACCEPTED) != 0U) {
             // An ACCEPT rule took it. When it is one the library wrote for a profile interface,
             // the program hears of it as the HID event it stands for, not as a control transfer.
             usb::BoardRule::Role role = usb::BoardRule::Role::user;
@@ -1341,7 +1341,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                 // HID 1.11 7.2.4: the idle rate is the high byte of wValue.
                 const std::uint8_t rate = static_cast<std::uint8_t>(value >> 8U);
                 set_hid_answer(device, usb::BoardRule::Role::hid_get_idle, itf, rate);
-                event.kind = MIMHID_EVENT_SET_IDLE;
+                event.kind = MIMUSB_EVENT_SET_IDLE;
                 event.value = rate;
                 iface = itf;
                 break;
@@ -1350,7 +1350,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                 // HID 1.11 7.2.6: the protocol is wValue (0 boot, 1 report).
                 const std::uint8_t protocol = static_cast<std::uint8_t>(value & 0xFFU);
                 set_hid_answer(device, usb::BoardRule::Role::hid_get_protocol, itf, protocol);
-                event.kind = MIMHID_EVENT_SET_PROTOCOL;
+                event.kind = MIMUSB_EVENT_SET_PROTOCOL;
                 event.value = protocol;
                 iface = itf;
                 break;
@@ -1360,7 +1360,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                     // The data stage follows as CONTROL_DATA with this token.
                     if (device->pending.size() >= 8U)
                         device->pending.erase(device->pending.begin());
-                    device->pending.push_back(mimhid_device::Pending{d[0], 0U, itf, value});
+                    device->pending.push_back(mimusb_device::Pending{d[0], 0U, itf, value});
                     return;
                 }
                 hid_report(static_cast<std::uint8_t>(value >> 8U),
@@ -1371,20 +1371,20 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
         }
         if (device->config.transport.event_sink == nullptr)
             return;
-        event.kind = MIMHID_EVENT_CONTROL_SETUP;
+        event.kind = MIMUSB_EVENT_CONTROL_SETUP;
         event.control_token = d[0];
         event.control_flags = d[1];
         event.data = d + 2;
         event.length = 8U;
         break;
     }
-    case MIMHID_EV_CONTROL_DATA:
+    case MIMUSB_EV_CONTROL_DATA:
         if (board.length < 1U)
             return;
         for (auto it = device->pending.begin(); it != device->pending.end(); ++it) {
             if (it->token != d[0])
                 continue;
-            const mimhid_device::Pending found = *it;
+            const mimusb_device::Pending found = *it;
             device->pending.erase(it);
             hid_report(static_cast<std::uint8_t>(found.value >> 8U),
                        static_cast<std::uint8_t>(found.value & 0xFFU), d + 1, board.length - 1U);
@@ -1395,29 +1395,29 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
             break;
         if (device->config.transport.event_sink == nullptr)
             return;
-        event.kind = MIMHID_EVENT_CONTROL_DATA;
+        event.kind = MIMUSB_EVENT_CONTROL_DATA;
         event.control_token = d[0];
         event.data = d + 1;
         event.length = board.length - 1U;
         break;
-    case MIMHID_EV_TRANSFER_LOST: {
+    case MIMUSB_EV_TRANSFER_LOST: {
         if (board.length < 3U)
             return;
-        event.kind = MIMHID_EVENT_TRANSFER_LOST;
+        event.kind = MIMUSB_EVENT_TRANSFER_LOST;
         event.value = static_cast<std::uint32_t>(d[1] | (d[2] << 8));
         event.endpoint_address = d[0];
         event.node_id = node_of_endpoint(device, d[0], &event.interface_number);
         break;
     }
-    case MIMHID_EV_EP_HALT:
+    case MIMUSB_EV_EP_HALT:
         if (board.length < 2U)
             return;
-        event.kind = MIMHID_EVENT_ENDPOINT_HALT;
+        event.kind = MIMUSB_EVENT_ENDPOINT_HALT;
         event.value = d[1];
         event.endpoint_address = d[0];
         event.node_id = node_of_endpoint(device, d[0], &event.interface_number);
         break;
-    case MIMHID_EV_SET_INTERFACE: {
+    case MIMUSB_EV_SET_INTERFACE: {
         if (board.length < 2U)
             return;
         // The board switched the interface's isochronous endpoints and dropped what waited for
@@ -1434,20 +1434,20 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
             }
         }
         device->endpoint_cv.notify_all();
-        event.kind = MIMHID_EVENT_INTERFACE_ALTERNATE;
+        event.kind = MIMUSB_EVENT_INTERFACE_ALTERNATE;
         event.interface_number = d[0];
         event.value = d[1];
         break;
     }
     default:
-        if (board.kind > MIMHID_T_EP_OUT_BASE && board.kind <= MIMHID_T_EP_OUT_LAST) {
+        if (board.kind > MIMUSB_T_EP_OUT_BASE && board.kind <= MIMUSB_T_EP_OUT_LAST) {
             // A packet on an OUT endpoint, as it came (a zero-length one has length 0). On the OUT
             // endpoint of a profile Node it is an Output report, as the HID driver reported it.
             const std::uint32_t ep_address = board.kind & 0x0FU;
             std::uint8_t profile_iface = 0xFFU;
             {
                 std::lock_guard<std::mutex> lock(device->nodes_mutex);
-                for (const mimhid_node* node : device->slots) {
+                for (const mimusb_node* node : device->slots) {
                     if (node != nullptr && !node->closed && !node->generic &&
                         node->config.ep_out.address != 0U &&
                         node->config.ep_out.address == ep_address)
@@ -1455,13 +1455,13 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
                 }
             }
             if (profile_iface != 0xFFU) {
-                event.kind = MIMHID_EVENT_OUTPUT_REPORT;
+                event.kind = MIMUSB_EVENT_OUTPUT_REPORT;
                 event.data = d;
                 event.length = board.length;
                 iface = profile_iface;
                 break;
             }
-            event.kind = MIMHID_EVENT_ENDPOINT_DATA;
+            event.kind = MIMUSB_EVENT_ENDPOINT_DATA;
             event.endpoint_address = board.kind & 0x0FU;
             event.data = d;
             event.length = board.length;
@@ -1476,11 +1476,11 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
     if (iface != 0xFFU) {
         event.interface_number = iface;
         std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        const mimhid_node* match = nullptr;
-        if (event.kind == MIMHID_EVENT_OUTPUT_REPORT && event.length > 0U &&
+        const mimusb_node* match = nullptr;
+        if (event.kind == MIMUSB_EVENT_OUTPUT_REPORT && event.length > 0U &&
             event.report_id == 0U) {
             const std::uint8_t candidate_id = event.data[0];
-            for (const mimhid_node* node : device->slots) {
+            for (const mimusb_node* node : device->slots) {
                 if (node == nullptr || node->closed || node->iface != iface)
                     continue;
                 if (node->has_report_ids && node->report_ids.test(candidate_id)) {
@@ -1493,7 +1493,7 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
             }
         }
         if (match == nullptr) {
-            for (const mimhid_node* node : device->slots) {
+            for (const mimusb_node* node : device->slots) {
                 if (node == nullptr || node->closed || node->iface != iface)
                     continue;
                 if (event.report_id != 0U && node->has_report_ids &&
@@ -1514,9 +1514,9 @@ void deliver_event(mimhid_device* device, const tr::BoardEvent& board) noexcept 
     }
 }
 
-mimhid_device_info describe_board(const std::string& port, const std::string& description,
+mimusb_device_info describe_board(const std::string& port, const std::string& description,
                                   const tr::BoardInfo& board, std::uint32_t baud) noexcept {
-    mimhid_device_info info{};
+    mimusb_device_info info{};
     copy_text(info.port_name, port);
     copy_text(info.description, description);
     info.version_major = board.version[0];
@@ -1540,4 +1540,4 @@ mimhid_device_info describe_board(const std::string& port, const std::string& de
     return info;
 }
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* The running link below the C ABI, against the scripted board: commands and their answers,
  * the limits of a frame, events handed to the handler, and a reader that sees the cable go. */
-#include "mimhid_proto.h"
+#include "mimusb_proto.h"
 #include "scripted_support.hpp"
 #include "transport/link.hpp"
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 using namespace scripted;
-namespace tr = mimhid::transport;
+namespace tr = mimusb::transport;
 
 namespace {
 
@@ -21,74 +21,74 @@ void test_commands_and_events() {
     if (!board.start())
         return;
     tr::Link link;
-    MIMHID_CHECK(link.open(board.path()).ok);
+    MIMUSB_CHECK(link.open(board.path()).ok);
     std::atomic<int> events{0};
     link.start([&](const tr::BoardEvent&) { ++events; });
 
     const std::uint8_t payload[2] = {7, 8};
-    tr::CommandResult r = link.command(MIMHID_T_RESET, payload, sizeof(payload), 200, 1);
-    MIMHID_CHECK(r.ok() && r.status == tr::CommandStatus::ack && r.data_length == 0);
+    tr::CommandResult r = link.command(MIMUSB_T_RESET, payload, sizeof(payload), 200, 1);
+    MIMUSB_CHECK(r.ok() && r.status == tr::CommandStatus::ack && r.data_length == 0);
     Received got;
-    MIMHID_CHECK(board.take(MIMHID_T_RESET, &got, 0) && got.payload.size() == 3U &&
+    MIMUSB_CHECK(board.take(MIMUSB_T_RESET, &got, 0) && got.payload.size() == 3U &&
                  got.payload[1] == 7 && got.payload[2] == 8);
 
     board.set_policy([](const Received& q) -> std::optional<Reply> {
-        if (q.type == MIMHID_T_RESET)
+        if (q.type == MIMUSB_T_RESET)
             return Reply::ack(std::vector<std::uint8_t>(20, 0xEE)); // more than the slot holds
-        if (q.type == MIMHID_T_EP_CONFIG)
-            return Reply::nak(MIMHID_NAK_OVERFLOW);
-        if (q.type == MIMHID_T_RULE_DATA)
+        if (q.type == MIMUSB_T_EP_CONFIG)
+            return Reply::nak(MIMUSB_NAK_OVERFLOW);
+        if (q.type == MIMUSB_T_RULE_DATA)
             return Reply::silent();
         return std::nullopt;
     });
-    r = link.command(MIMHID_T_RESET, nullptr, 0, 200, 1);
-    MIMHID_CHECK(r.ok() && r.data_length == 16 && r.data[15] == 0xEE);
-    r = link.command(MIMHID_T_EP_CONFIG, payload, 2, 200, 1);
-    MIMHID_CHECK(r.status == tr::CommandStatus::nak && r.nak_code == MIMHID_NAK_OVERFLOW && !r);
-    r = link.command(MIMHID_T_RULE_DATA, payload, 2, 20, 2);
-    MIMHID_CHECK(r.status == tr::CommandStatus::timeout);
-    MIMHID_CHECK(board.count(MIMHID_T_RULE_DATA) == 2U);
+    r = link.command(MIMUSB_T_RESET, nullptr, 0, 200, 1);
+    MIMUSB_CHECK(r.ok() && r.data_length == 16 && r.data[15] == 0xEE);
+    r = link.command(MIMUSB_T_EP_CONFIG, payload, 2, 200, 1);
+    MIMUSB_CHECK(r.status == tr::CommandStatus::nak && r.nak_code == MIMUSB_NAK_OVERFLOW && !r);
+    r = link.command(MIMUSB_T_RULE_DATA, payload, 2, 20, 2);
+    MIMUSB_CHECK(r.status == tr::CommandStatus::timeout);
+    MIMUSB_CHECK(board.count(MIMUSB_T_RULE_DATA) == 2U);
     board.set_policy(nullptr);
 
     // A payload that cannot be framed is refused before anything is written.
-    const std::vector<std::uint8_t> huge(MIMHID_PROTO_MAX_PAYLOAD, 0);
-    r = link.command(MIMHID_T_RESET, huge.data(), huge.size(), 20, 1);
-    MIMHID_CHECK(r.status == tr::CommandStatus::io_error);
+    const std::vector<std::uint8_t> huge(MIMUSB_PROTO_MAX_PAYLOAD, 0);
+    r = link.command(MIMUSB_T_RESET, huge.data(), huge.size(), 20, 1);
+    MIMUSB_CHECK(r.status == tr::CommandStatus::io_error);
     std::int32_t os_error = 0;
-    std::vector<std::uint8_t> too_long(MIMHID_PROTO_MAX_PAYLOAD + 1U, 0);
-    MIMHID_CHECK(link.send_report(0, too_long.data(), too_long.size(), 20, &os_error) ==
+    std::vector<std::uint8_t> too_long(MIMUSB_PROTO_MAX_PAYLOAD + 1U, 0);
+    MIMUSB_CHECK(link.send_report(0, too_long.data(), too_long.size(), 20, &os_error) ==
                  tr::IoStatus::error);
-    MIMHID_CHECK(link.send_control_reply(1, 0, huge.data(), MIMHID_PROTO_MAX_PAYLOAD - 2U, 20,
+    MIMUSB_CHECK(link.send_control_reply(1, 0, huge.data(), MIMUSB_PROTO_MAX_PAYLOAD - 2U, 20,
                                          &os_error) == tr::IoStatus::error);
-    MIMHID_CHECK(link.send_control_reply(1, 0, payload, 2, 20, &os_error) == tr::IoStatus::ok);
-    MIMHID_CHECK(board.take(MIMHID_T_CONTROL_REPLY, &got) && got.payload.size() == 5U &&
+    MIMUSB_CHECK(link.send_control_reply(1, 0, payload, 2, 20, &os_error) == tr::IoStatus::ok);
+    MIMUSB_CHECK(board.take(MIMUSB_T_CONTROL_REPLY, &got) && got.payload.size() == 5U &&
                  got.payload[1] == 1 && got.payload[3] == 7);
 
     // Counters that do not decode are an I/O error.
     board.set_policy([](const Received& q) -> std::optional<Reply> {
-        if (q.type == MIMHID_T_COUNTERS)
+        if (q.type == MIMUSB_T_COUNTERS)
             return Reply::ack({1});
         return std::nullopt;
     });
     tr::LinkCounters counters;
-    MIMHID_CHECK(link.counters(false, 200, &counters).status == tr::CommandStatus::io_error);
+    MIMUSB_CHECK(link.counters(false, 200, &counters).status == tr::CommandStatus::io_error);
     board.set_policy(nullptr);
-    MIMHID_CHECK(link.counters(true, 200, &counters).ok() && counters.errors() == 0U);
+    MIMUSB_CHECK(link.counters(true, 200, &counters).ok() && counters.errors() == 0U);
 
     // Mount and unmount set ready; every event is handed on as it came (the library, not the link,
     // judges what an event carries).
-    MIMHID_CHECK(!link.ready());
-    board.send_event(MIMHID_EV_MOUNTED, {});
-    MIMHID_CHECK(link.wait_ready(500) && link.ready());
-    board.send_event(MIMHID_EV_UNMOUNTED, {});
-    board.send_event(MIMHID_EV_CONTROL_SETUP, {0, 0x10});
-    board.send_event(MIMHID_EV_SUSPEND, {0});
+    MIMUSB_CHECK(!link.ready());
+    board.send_event(MIMUSB_EV_MOUNTED, {});
+    MIMUSB_CHECK(link.wait_ready(500) && link.ready());
+    board.send_event(MIMUSB_EV_UNMOUNTED, {});
+    board.send_event(MIMUSB_EV_CONTROL_SETUP, {0, 0x10});
+    board.send_event(MIMUSB_EV_SUSPEND, {0});
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     while (events.load() < 4 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    MIMHID_CHECK(events.load() == 4); // mounted, unmounted, the two others
-    MIMHID_CHECK(!link.ready());
-    MIMHID_CHECK(!link.wait_ready(10));
+    MIMUSB_CHECK(events.load() == 4); // mounted, unmounted, the two others
+    MIMUSB_CHECK(!link.ready());
+    MIMUSB_CHECK(!link.wait_ready(10));
     link.close();
 }
 
@@ -98,29 +98,29 @@ void test_reader_sees_the_hang_up() {
     if (!board.start())
         return;
     tr::Link link;
-    MIMHID_CHECK(link.open(board.path()).ok);
+    MIMUSB_CHECK(link.open(board.path()).ok);
     link.start(nullptr);
-    board.send_event(MIMHID_EV_MOUNTED, {}); // no handler: nothing to call
-    MIMHID_CHECK(link.wait_ready(500));
+    board.send_event(MIMUSB_EV_MOUNTED, {}); // no handler: nothing to call
+    MIMUSB_CHECK(link.wait_ready(500));
     board.set_policy([](const Received&) -> std::optional<Reply> { return Reply::silent(); });
     std::atomic<bool> done{false};
     tr::CommandResult pending;
     std::thread waiter([&] {
-        pending = link.command(MIMHID_T_RESET, nullptr, 0, 2000, 3);
+        pending = link.command(MIMUSB_T_RESET, nullptr, 0, 2000, 3);
         done.store(true);
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(30));
     const auto start = std::chrono::steady_clock::now();
     board.hang_up();
     waiter.join();
-    MIMHID_CHECK(done.load() && pending.status == tr::CommandStatus::closed);
-    MIMHID_CHECK(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1500));
-    MIMHID_CHECK(link.failed() && !link.ready());
-    MIMHID_CHECK(link.command(MIMHID_T_RESET, nullptr, 0, 20, 1).status ==
+    MIMUSB_CHECK(done.load() && pending.status == tr::CommandStatus::closed);
+    MIMUSB_CHECK(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1500));
+    MIMUSB_CHECK(link.failed() && !link.ready());
+    MIMUSB_CHECK(link.command(MIMUSB_T_RESET, nullptr, 0, 20, 1).status ==
                  tr::CommandStatus::closed);
-    MIMHID_CHECK(link.send_report(0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
-    MIMHID_CHECK(link.send_control_reply(1, 0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
-    MIMHID_CHECK(!link.wait_ready(10));
+    MIMUSB_CHECK(link.send_report(0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
+    MIMUSB_CHECK(link.send_control_reply(1, 0, nullptr, 0, 20, nullptr) == tr::IoStatus::closed);
+    MIMUSB_CHECK(!link.wait_ready(10));
     link.close();
 }
 
@@ -130,7 +130,7 @@ void test_command_write_failures() {
     if (!board.start())
         return;
     tr::Link link;
-    MIMHID_CHECK(link.open(board.path()).ok);
+    MIMUSB_CHECK(link.open(board.path()).ok);
     link.start(nullptr);
     board.set_reading(false);
     // The board does not read, so no answer comes: each command times out, waiting for one or,
@@ -139,8 +139,8 @@ void test_command_write_failures() {
     std::vector<std::uint8_t> payload(1000, 0x55);
     tr::CommandStatus status = tr::CommandStatus::timeout;
     for (int i = 0; i < 300 && status == tr::CommandStatus::timeout; ++i)
-        status = link.command(MIMHID_T_RESET, payload.data(), payload.size(), 1, 1).status;
-    MIMHID_CHECK(status == tr::CommandStatus::short_write || status == tr::CommandStatus::timeout);
+        status = link.command(MIMUSB_T_RESET, payload.data(), payload.size(), 1, 1).status;
+    MIMUSB_CHECK(status == tr::CommandStatus::short_write || status == tr::CommandStatus::timeout);
     board.set_reading(true);
     link.close();
 }

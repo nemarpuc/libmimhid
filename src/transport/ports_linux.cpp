@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "transport/serial_port.hpp"
 
 #include <dirent.h>
@@ -24,7 +24,7 @@ std::string read_sysfs_string(const std::string& path) {
 
 } // namespace
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 namespace detail {
 
@@ -68,4 +68,4 @@ std::vector<PortCandidate> list_candidate_ports() {
     return detail::list_candidate_ports_in("/sys/class/tty", "/dev");
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

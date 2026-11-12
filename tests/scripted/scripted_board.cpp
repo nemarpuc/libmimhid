@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* The scripted board (scripted_board.hpp). */
 #include "scripted_board.hpp"
 
-#include "mimhid.h"
-#include "mimhid_proto.h"
+#include "mimusb.h"
+#include "mimusb_proto.h"
 #include "transport/frame.hpp"
 
 #include <chrono>
@@ -18,7 +18,7 @@ extern "C" std::uint32_t fake_board_pty_baud(int fd); // tests/sim/pty_baud.c
 
 namespace scripted {
 
-namespace tr = mimhid::transport;
+namespace tr = mimusb::transport;
 
 namespace {
 
@@ -34,8 +34,8 @@ void put_u32(std::vector<std::uint8_t>* out, std::uint32_t value) {
 
 // Types that carry a sequence number and are answered with an ACK or NAK.
 bool is_command(std::uint8_t type) {
-    return type != MIMHID_T_PING && type != MIMHID_T_PROBE && type != MIMHID_T_CONTROL_REPLY &&
-           !(type >= MIMHID_T_EP_IN_BASE && type <= MIMHID_T_EP_IN_LAST);
+    return type != MIMUSB_T_PING && type != MIMUSB_T_PROBE && type != MIMUSB_T_CONTROL_REPLY &&
+           !(type >= MIMUSB_T_EP_IN_BASE && type <= MIMUSB_T_EP_IN_LAST);
 }
 
 // The library's frames (the library's own parser takes only the board's types). Complete valid
@@ -44,7 +44,7 @@ void parse(std::vector<std::uint8_t>* buffer, std::vector<Received>* out) {
     std::size_t pos = 0;
     while (pos < buffer->size()) {
         const std::vector<std::uint8_t>& b = *buffer;
-        if (b[pos] != MIMHID_SYNC) {
+        if (b[pos] != MIMUSB_SYNC) {
             ++pos;
             continue;
         }
@@ -58,15 +58,15 @@ void parse(std::vector<std::uint8_t>* buffer, std::vector<Received>* out) {
             length = (length & 0x7FU) | (static_cast<std::size_t>(b[pos + 3]) << 7);
             header = 4U;
         }
-        if (length > MIMHID_PROTO_MAX_PAYLOAD) {
+        if (length > MIMUSB_PROTO_MAX_PAYLOAD) {
             ++pos;
             continue;
         }
         if (b.size() - pos < header + length + 2U)
             break;
-        std::uint16_t crc = MIMHID_CRC16_INIT;
+        std::uint16_t crc = MIMUSB_CRC16_INIT;
         for (std::size_t i = 1; i < header + length; ++i)
-            crc = mimhid_crc16_update(crc, b[pos + i]);
+            crc = mimusb_crc16_update(crc, b[pos + i]);
         const std::size_t end = pos + header + length;
         if (b[end] != (crc & 0xFFU) || b[end + 1U] != (crc >> 8)) {
             ++pos;
@@ -83,9 +83,9 @@ void parse(std::vector<std::uint8_t>* buffer, std::vector<Received>* out) {
 } // namespace
 
 Board::Board() {
-    pong_.version[0] = MIMHID_VERSION_MAJOR;
-    pong_.version[1] = MIMHID_VERSION_MINOR;
-    pong_.version[2] = MIMHID_VERSION_PATCH;
+    pong_.version[0] = MIMUSB_VERSION_MAJOR;
+    pong_.version[1] = MIMUSB_VERSION_MINOR;
+    pong_.version[2] = MIMUSB_VERSION_PATCH;
 }
 
 Board::~Board() { stop(); }
@@ -171,7 +171,7 @@ void Board::send_frame(std::uint8_t type, const std::uint8_t* payload, std::size
 void Board::send_event(std::uint8_t kind, std::initializer_list<std::uint8_t> data) {
     std::vector<std::uint8_t> payload{kind};
     payload.insert(payload.end(), data.begin(), data.end());
-    send_frame(MIMHID_T_EVENT, payload.data(), payload.size());
+    send_frame(MIMUSB_T_EVENT, payload.data(), payload.size());
 }
 
 std::vector<Received> Board::received() {
@@ -247,14 +247,14 @@ std::vector<std::uint8_t> Board::pong_payload() {
 }
 
 void Board::handle(const Received& frame) {
-    if (frame.type == MIMHID_T_PING) {
+    if (frame.type == MIMUSB_T_PING) {
         if (answer_pings_.load()) {
             const std::vector<std::uint8_t> pong = pong_payload();
-            send_frame(MIMHID_T_PONG, pong.data(), pong.size());
+            send_frame(MIMUSB_T_PONG, pong.data(), pong.size());
         }
         return;
     }
-    if (frame.type == MIMHID_T_PROBE) {
+    if (frame.type == MIMUSB_T_PROBE) {
         std::lock_guard<std::mutex> lock(mutex_);
         ++probes_;
         if (carries_ && !carries_(baud_.load()))
@@ -275,21 +275,21 @@ void Board::handle(const Received& frame) {
     bool mount = false;
     if (!reply) {
         reply = Reply::ack();
-        if (frame.type == MIMHID_T_SET_BAUD && frame.payload.size() >= 5U) {
+        if (frame.type == MIMUSB_T_SET_BAUD && frame.payload.size() >= 5U) {
             new_baud = tr::get_u32(&frame.payload[1]);
             put_u32(&reply->data, new_baud);
-        } else if (frame.type == MIMHID_T_COUNTERS && frame.payload.size() >= 2U) {
+        } else if (frame.type == MIMUSB_T_COUNTERS && frame.payload.size() >= 2U) {
             std::lock_guard<std::mutex> lock(mutex_);
             put_u16(&reply->data, static_cast<std::uint16_t>(probes_));
             put_u16(&reply->data, probe_error_ ? 1U : 0U); // bad CRC
             put_u16(&reply->data, 0U);
             put_u16(&reply->data, 0U);
             put_u16(&reply->data, 0U);
-            if ((frame.payload[1] & MIMHID_COUNTERS_F_RESET) != 0U) {
+            if ((frame.payload[1] & MIMUSB_COUNTERS_F_RESET) != 0U) {
                 probes_ = 0;
                 probe_error_ = false;
             }
-        } else if (frame.type == MIMHID_T_COMMIT && frame.payload.size() >= 2U) {
+        } else if (frame.type == MIMUSB_T_COMMIT && frame.payload.size() >= 2U) {
             mount = frame.payload[1] == 0U && mount_on_commit_.load();
         }
     }
@@ -298,20 +298,20 @@ void Board::handle(const Received& frame) {
         return;
     case Reply::Kind::nak: {
         const std::uint8_t nak[3] = {seq, frame.type, reply->nak_code};
-        send_frame(MIMHID_T_NAK, nak, sizeof(nak));
+        send_frame(MIMUSB_T_NAK, nak, sizeof(nak));
         return;
     }
     case Reply::Kind::ack: {
         std::vector<std::uint8_t> ack{seq, frame.type};
         ack.insert(ack.end(), reply->data.begin(), reply->data.end());
-        send_frame(MIMHID_T_ACK, ack.data(), ack.size());
+        send_frame(MIMUSB_T_ACK, ack.data(), ack.size());
         break;
     }
     }
     if (new_baud != 0U)
         baud_.store(new_baud);
     if (mount)
-        send_event(MIMHID_EV_MOUNTED, {});
+        send_event(MIMUSB_EV_MOUNTED, {});
 }
 
 void Board::run() {
@@ -344,7 +344,7 @@ void Board::run() {
         pending.insert(pending.end(), buffer, buffer + n);
         parse(&pending, &frames);
         for (const Received& frame : frames) {
-            if (frame.type != MIMHID_T_PING && frame.type != MIMHID_T_PROBE) {
+            if (frame.type != MIMUSB_T_PING && frame.type != MIMUSB_T_PROBE) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 received_.push_back(frame);
                 taken_.push_back(false);

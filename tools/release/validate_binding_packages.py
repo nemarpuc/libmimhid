@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Validate the registry packages without loading an untrusted native library."""
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def safe_members(archive: zipfile.ZipFile, label: str) -> list[str]:
 
 def validate_wheel(directory: Path, version: str) -> Path:
     wheel = one_file(directory, "*.whl", "Python wheel")
-    expected_name = f"mimhid-{version}-py3-none-any.whl"
+    expected_name = f"mimusb-{version}-py3-none-any.whl"
     if wheel.name != expected_name:
         raise BindingPackageError(
             f"Python wheel is {wheel.name!r}, expected {expected_name!r}"
@@ -51,7 +51,7 @@ def validate_wheel(directory: Path, version: str) -> Path:
                 raise BindingPackageError(
                     f"platform-independent wheel contains a native {suffix} artifact"
                 )
-        for required in ("mimhid/__init__.py", "mimhid/native.py"):
+        for required in ("mimusb/__init__.py", "mimusb/native.py"):
             if required not in members:
                 raise BindingPackageError(f"Python wheel is missing {required}")
         metadata_names = [name for name in members if name.endswith(".dist-info/METADATA")]
@@ -66,7 +66,7 @@ def validate_wheel(directory: Path, version: str) -> Path:
             raise BindingPackageError("Python wheel metadata/license layout is incomplete")
         metadata_bytes = archive.read(metadata_names[0])
         metadata = BytesParser().parsebytes(metadata_bytes)
-        if metadata.get("Name") != "mimhid" or metadata.get("Version") != version:
+        if metadata.get("Name") != "mimusb" or metadata.get("Version") != version:
             raise BindingPackageError("Python wheel Name/Version metadata is incorrect")
         if metadata.get("License-Expression") != "MIT":
             raise BindingPackageError("Python wheel has no exact MIT License-Expression")
@@ -88,7 +88,7 @@ def element_text(root: ET.Element, name: str) -> str | None:
 
 def validate_nuget(directory: Path, version: str) -> Path:
     package = one_file(directory, "*.nupkg", "NuGet package")
-    expected_name = f"MimHid.{version}.nupkg"
+    expected_name = f"MimUsb.{version}.nupkg"
     if package.name != expected_name:
         raise BindingPackageError(
             f"NuGet package is {package.name!r}, expected {expected_name!r}"
@@ -103,9 +103,9 @@ def validate_nuget(directory: Path, version: str) -> Path:
         except ET.ParseError as error:
             raise BindingPackageError(f"NuGet nuspec is invalid XML: {error}") from error
         expected_fields = {
-            "id": "MimHid",
+            "id": "MimUsb",
             "version": version,
-            "authors": "libmimhid contributors",
+            "authors": "libmimusb contributors",
             "license": "MIT",
             "readme": "README.md",
         }
@@ -115,9 +115,9 @@ def validate_nuget(directory: Path, version: str) -> Path:
                     f"NuGet {field} is {element_text(nuspec, field)!r}, expected {expected!r}"
                 )
         description = element_text(nuspec, "description") or ""
-        if "separately installed, version-matched native libmimhid" not in description:
+        if "separately installed, version-matched native libmimusb" not in description:
             raise BindingPackageError("NuGet metadata does not disclose its native dependency")
-        required = {"README.md", "LICENSE", "lib/net8.0/MimHid.dll"}
+        required = {"README.md", "LICENSE", "lib/net8.0/MimUsb.dll"}
         missing = required - set(members)
         if missing:
             raise BindingPackageError(
@@ -129,10 +129,10 @@ def validate_nuget(directory: Path, version: str) -> Path:
         if any(member.lower().endswith(native_suffixes) for member in members):
             raise BindingPackageError("NuGet declaration package contains a native library")
         dlls = [name for name in members if name.lower().endswith(".dll")]
-        if dlls != ["lib/net8.0/MimHid.dll"]:
+        if dlls != ["lib/net8.0/MimUsb.dll"]:
             raise BindingPackageError(f"NuGet package has unexpected DLL members: {dlls!r}")
         readme = archive.read("README.md").decode("utf-8")
-        if "does not contain `mimhid.dll` or `libmimhid.so`" not in readme:
+        if "does not contain `mimusb.dll` or `libmimusb.so`" not in readme:
             raise BindingPackageError("NuGet readme does not state that native assets are external")
     return package
 

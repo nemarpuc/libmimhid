@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Exports representative generated descriptors for independent hid-tools
  * parsing; it makes no hardware-support claim. */
 #include "hid/usages.hpp"
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <array>
 #include <cstdint>
@@ -40,9 +40,9 @@ struct hid_globals {
     bool has_report_id{};
 };
 
-bool descriptor_layout_matches_manifest(const char* name, const mimhid_spec* spec,
+bool descriptor_layout_matches_manifest(const char* name, const mimusb_spec* spec,
                                         const std::uint8_t* bytes, const std::size_t length,
-                                        mimhid_capability_manifest* const out_manifest) {
+                                        mimusb_capability_manifest* const out_manifest) {
     std::map<std::pair<bool, std::uint8_t>, std::uint64_t> input_bits;
     std::vector<hid_globals> stack;
     hid_globals globals{};
@@ -99,9 +99,9 @@ bool descriptor_layout_matches_manifest(const char* name, const mimhid_spec* spe
     if (!stack.empty() || input_bits.empty())
         return false;
 
-    mimhid_capability_manifest manifest{};
+    mimusb_capability_manifest manifest{};
     manifest.struct_size = static_cast<std::uint32_t>(sizeof(manifest));
-    if (mimhid_spec_manifest(spec, &manifest) != MIMHID_OK || manifest.input_supported != 1U ||
+    if (mimusb_spec_manifest(spec, &manifest) != MIMUSB_OK || manifest.input_supported != 1U ||
         manifest.reports == nullptr || manifest.report_count != input_bits.size() ||
         manifest.descriptor_length != length) {
         std::fprintf(stderr, "%s manifest shape disagrees with descriptor\n", name);
@@ -109,7 +109,7 @@ bool descriptor_layout_matches_manifest(const char* name, const mimhid_spec* spe
     }
     auto remaining = input_bits;
     for (std::size_t report_index = 0U; report_index < manifest.report_count; ++report_index) {
-        const mimhid_report_capability& report = manifest.reports[report_index];
+        const mimusb_report_capability& report = manifest.reports[report_index];
         const auto key = std::make_pair(report.report_id.enabled != 0U, report.report_id.value);
         const auto found = remaining.find(key);
         if (found == remaining.end())
@@ -128,29 +128,29 @@ bool descriptor_layout_matches_manifest(const char* name, const mimhid_spec* spe
 }
 
 bool emit_descriptor(const std::filesystem::path& directory, const char* name,
-                     const mimhid_result creation_result, mimhid_spec*& spec) {
-    if (creation_result != MIMHID_OK || spec == nullptr) {
-        const mimhid_error_detail* detail = mimhid_last_error();
+                     const mimusb_result creation_result, mimusb_spec*& spec) {
+    if (creation_result != MIMUSB_OK || spec == nullptr) {
+        const mimusb_error_detail* detail = mimusb_last_error();
         std::fprintf(stderr, "%s creation failed: result=%s field=%s reason=%s\n", name,
-                     mimhid_result_name(creation_result),
+                     mimusb_result_name(creation_result),
                      detail != nullptr && detail->field != nullptr ? detail->field : "",
                      detail != nullptr && detail->reason != nullptr ? detail->reason : "");
-        mimhid_spec_release(spec);
+        mimusb_spec_release(spec);
         return false;
     }
 
     const std::uint8_t* bytes = nullptr;
     std::size_t length = 0U;
-    const mimhid_result descriptor_result = mimhid_spec_descriptor(spec, &bytes, &length);
-    if (descriptor_result != MIMHID_OK || bytes == nullptr || length == 0U) {
+    const mimusb_result descriptor_result = mimusb_spec_descriptor(spec, &bytes, &length);
+    if (descriptor_result != MIMUSB_OK || bytes == nullptr || length == 0U) {
         std::fprintf(stderr, "%s returned no descriptor\n", name);
-        mimhid_spec_release(spec);
+        mimusb_spec_release(spec);
         return false;
     }
-    mimhid_capability_manifest manifest{};
+    mimusb_capability_manifest manifest{};
     if (!descriptor_layout_matches_manifest(name, spec, bytes, length, &manifest)) {
         std::fprintf(stderr, "%s report layout property failed\n", name);
-        mimhid_spec_release(spec);
+        mimusb_spec_release(spec);
         return false;
     }
 
@@ -158,7 +158,7 @@ bool emit_descriptor(const std::filesystem::path& directory, const char* name,
     for (std::size_t index = 0U; index < manifest.report_count; ++index) {
         if (!reports.empty())
             reports.push_back(',');
-        const mimhid_report_capability& report = manifest.reports[index];
+        const mimusb_report_capability& report = manifest.reports[index];
         reports += report.report_id.enabled != 0U ? "id:" : "idless:";
         reports += std::to_string(report.report_id.value);
         reports.push_back(':');
@@ -174,7 +174,7 @@ bool emit_descriptor(const std::filesystem::path& directory, const char* name,
     stream.close();
     if (!stream) {
         std::fprintf(stderr, "failed to write %s\n", output.string().c_str());
-        mimhid_spec_release(spec);
+        mimusb_spec_release(spec);
         return false;
     }
     if (!golden_directory.empty()) {
@@ -193,24 +193,24 @@ bool emit_descriptor(const std::filesystem::path& directory, const char* name,
         if (!expected_stream || expected != actual) {
             std::fprintf(stderr, "golden descriptor mismatch or missing file: %s\n",
                          expected_path.string().c_str());
-            mimhid_spec_release(spec);
+            mimusb_spec_release(spec);
             return false;
         }
     }
-    mimhid_spec_release(spec);
+    mimusb_spec_release(spec);
     return true;
 }
 
-mimhid_keyboard_options keyboard_options() noexcept {
-    mimhid_keyboard_options options{};
+mimusb_keyboard_options keyboard_options() noexcept {
+    mimusb_keyboard_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.usage_minimum = 0x04U;
     options.usage_maximum = 0x65U;
     return options;
 }
 
-mimhid_touchscreen_options fixed_touchscreen_options() noexcept {
-    mimhid_touchscreen_options options{};
+mimusb_touchscreen_options fixed_touchscreen_options() noexcept {
+    mimusb_touchscreen_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.maximum_contacts = 3U;
     options.contacts_per_report = 3U;
@@ -238,7 +238,7 @@ mimhid_touchscreen_options fixed_touchscreen_options() noexcept {
 
 int main(const int argc, char** argv) {
     if ((argc < 2 || argc > 4) || argv[1] == nullptr || argv[1][0] == '\0') {
-        std::fputs("usage: mimhid_export_descriptors OUTPUT_DIRECTORY [GOLDEN_DIRECTORY] "
+        std::fputs("usage: mimusb_export_descriptors OUTPUT_DIRECTORY [GOLDEN_DIRECTORY] "
                    "[MANIFEST_CATALOG]\n",
                    stderr);
         return 2;
@@ -259,12 +259,12 @@ int main(const int argc, char** argv) {
     }
 
     bool ok = true;
-    mimhid_spec* spec = nullptr;
+    mimusb_spec* spec = nullptr;
 
-    mimhid_keyboard_options keyboard = keyboard_options();
+    mimusb_keyboard_options keyboard = keyboard_options();
     keyboard.report_id = {1U, 7U, {0U, 0U, 0U}};
     ok = emit_descriptor(output_directory, "keyboard",
-                         mimhid_spec_create_keyboard(&keyboard, &spec), spec) &&
+                         mimusb_spec_create_keyboard(&keyboard, &spec), spec) &&
          ok;
     spec = nullptr;
 
@@ -272,11 +272,11 @@ int main(const int argc, char** argv) {
     keyboard.battery.report_id = {1U, 8U, {0U, 0U, 0U}};
     keyboard.battery.strength = {1, 100, 8U, {}};
     ok = emit_descriptor(output_directory, "keyboard-battery",
-                         mimhid_spec_create_keyboard(&keyboard, &spec), spec) &&
+                         mimusb_spec_create_keyboard(&keyboard, &spec), spec) &&
          ok;
     spec = nullptr;
 
-    mimhid_mouse_options mouse{};
+    mimusb_mouse_options mouse{};
     mouse.struct_size = static_cast<std::uint32_t>(sizeof(mouse));
     mouse.button_count = 5U;
     mouse.x = {-32767, 32767, 16U, {}};
@@ -286,7 +286,7 @@ int main(const int argc, char** argv) {
     mouse.enable_pan = 1U;
     mouse.pan = {-127, 127, 8U, {}};
     ok = emit_descriptor(output_directory, "mouse-wheel-pan",
-                         mimhid_spec_create_mouse(&mouse, &spec), spec) &&
+                         mimusb_spec_create_mouse(&mouse, &spec), spec) &&
          ok;
     spec = nullptr;
 
@@ -295,117 +295,117 @@ int main(const int argc, char** argv) {
     // an operating-system mapping.
     static constexpr std::array<std::uint16_t, 6U> consumer_usages{0x00CDU, 0x00E9U, 0x00E2U,
                                                                    0x0201U, 0x00B0U, 0x00BBU};
-    static constexpr std::array<mimhid_usage_semantic, 6U> consumer_semantics{
-        MIMHID_USAGE_ONE_SHOT,        MIMHID_USAGE_RETRIGGER,     MIMHID_USAGE_ON_OFF_MAINTAINED,
-        MIMHID_USAGE_SELECTOR_BITMAP, MIMHID_USAGE_ON_OFF_TOGGLE, MIMHID_USAGE_MOMENTARY};
+    static constexpr std::array<mimusb_usage_semantic, 6U> consumer_semantics{
+        MIMUSB_USAGE_ONE_SHOT,        MIMUSB_USAGE_RETRIGGER,     MIMUSB_USAGE_ON_OFF_MAINTAINED,
+        MIMUSB_USAGE_SELECTOR_BITMAP, MIMUSB_USAGE_ON_OFF_TOGGLE, MIMUSB_USAGE_MOMENTARY};
     static constexpr std::array<const char*, 6U> consumer_linux{
         "TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE",
         "TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE"};
-    mimhid_toggle_options controls{};
+    mimusb_toggle_options controls{};
     controls.struct_size = static_cast<std::uint32_t>(sizeof(controls));
-    controls.application_page = mimhid::hid::usage::page_consumer;
-    controls.application_usage = mimhid::hid::usage::consumer_control;
-    controls.field_page = mimhid::hid::usage::page_consumer;
+    controls.application_page = mimusb::hid::usage::page_consumer;
+    controls.application_usage = mimusb::hid::usage::consumer_control;
+    controls.field_page = mimusb::hid::usage::page_consumer;
     controls.allowed_usages = consumer_usages.data();
     controls.allowed_usage_count = consumer_usages.size();
     controls.usage_semantics = consumer_semantics.data();
     controls.expected_linux_event_types = consumer_linux.data();
     controls.expected_linux_codes = consumer_linux.data();
     ok = emit_descriptor(output_directory, "consumer-controls",
-                         mimhid_spec_create_toggle(&controls, &spec), spec) &&
+                         mimusb_spec_create_toggle(&controls, &spec), spec) &&
          ok;
     spec = nullptr;
 
     static constexpr std::array<std::uint16_t, 4U> system_usages{0x81U, 0x8AU, 0x97U, 0x98U};
-    static constexpr std::array<mimhid_usage_semantic, 4U> system_semantics{
-        MIMHID_USAGE_ONE_SHOT, MIMHID_USAGE_RETRIGGER, MIMHID_USAGE_MOMENTARY,
-        MIMHID_USAGE_ON_OFF_TOGGLE};
+    static constexpr std::array<mimusb_usage_semantic, 4U> system_semantics{
+        MIMUSB_USAGE_ONE_SHOT, MIMUSB_USAGE_RETRIGGER, MIMUSB_USAGE_MOMENTARY,
+        MIMUSB_USAGE_ON_OFF_TOGGLE};
     static constexpr std::array<const char*, 4U> system_linux{"TEST_EVENT_CODE", "TEST_EVENT_CODE",
                                                               "TEST_EVENT_CODE", "TEST_EVENT_CODE"};
-    controls.application_page = mimhid::hid::usage::page_generic_desktop;
-    controls.application_usage = mimhid::hid::usage::system_control;
-    controls.field_page = mimhid::hid::usage::page_generic_desktop;
+    controls.application_page = mimusb::hid::usage::page_generic_desktop;
+    controls.application_usage = mimusb::hid::usage::system_control;
+    controls.field_page = mimusb::hid::usage::page_generic_desktop;
     controls.allowed_usages = system_usages.data();
     controls.allowed_usage_count = system_usages.size();
     controls.usage_semantics = system_semantics.data();
     controls.expected_linux_event_types = system_linux.data();
     controls.expected_linux_codes = system_linux.data();
     ok = emit_descriptor(output_directory, "system-controls",
-                         mimhid_spec_create_toggle(&controls, &spec), spec) &&
+                         mimusb_spec_create_toggle(&controls, &spec), spec) &&
          ok;
     spec = nullptr;
 
     static constexpr std::array<std::uint16_t, 2U> camera_usages{0x20U, 0x21U};
-    static constexpr std::array<mimhid_usage_semantic, 2U> camera_semantics{MIMHID_USAGE_ONE_SHOT,
-                                                                            MIMHID_USAGE_ONE_SHOT};
+    static constexpr std::array<mimusb_usage_semantic, 2U> camera_semantics{MIMUSB_USAGE_ONE_SHOT,
+                                                                            MIMUSB_USAGE_ONE_SHOT};
     static constexpr std::array<const char*, 2U> camera_linux{"TEST_EVENT_CODE", "TEST_EVENT_CODE"};
-    controls.application_page = mimhid::hid::usage::page_consumer;
-    controls.application_usage = mimhid::hid::usage::consumer_control;
-    controls.field_page = mimhid::hid::usage::page_camera_control;
+    controls.application_page = mimusb::hid::usage::page_consumer;
+    controls.application_usage = mimusb::hid::usage::consumer_control;
+    controls.field_page = mimusb::hid::usage::page_camera_control;
     controls.allowed_usages = camera_usages.data();
     controls.allowed_usage_count = camera_usages.size();
     controls.usage_semantics = camera_semantics.data();
     controls.expected_linux_event_types = camera_linux.data();
     controls.expected_linux_codes = camera_linux.data();
     ok = emit_descriptor(output_directory, "camera-keys",
-                         mimhid_spec_create_toggle(&controls, &spec), spec) &&
+                         mimusb_spec_create_toggle(&controls, &spec), spec) &&
          ok;
     spec = nullptr;
 
     static constexpr std::array<std::uint16_t, 4U> telephony_usages{0x20U, 0x21U, 0x24U, 0xB0U};
-    static constexpr std::array<mimhid_usage_semantic, 4U> telephony_semantics{
-        MIMHID_USAGE_ON_OFF_MAINTAINED, MIMHID_USAGE_MOMENTARY, MIMHID_USAGE_ONE_SHOT,
-        MIMHID_USAGE_SELECTOR_BITMAP};
+    static constexpr std::array<mimusb_usage_semantic, 4U> telephony_semantics{
+        MIMUSB_USAGE_ON_OFF_MAINTAINED, MIMUSB_USAGE_MOMENTARY, MIMUSB_USAGE_ONE_SHOT,
+        MIMUSB_USAGE_SELECTOR_BITMAP};
     static constexpr std::array<const char*, 4U> telephony_linux{
         "TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE", "TEST_EVENT_CODE"};
-    controls.application_page = mimhid::hid::usage::page_telephony;
-    controls.application_usage = mimhid::hid::usage::phone;
-    controls.field_page = mimhid::hid::usage::page_telephony;
+    controls.application_page = mimusb::hid::usage::page_telephony;
+    controls.application_usage = mimusb::hid::usage::phone;
+    controls.field_page = mimusb::hid::usage::page_telephony;
     controls.allowed_usages = telephony_usages.data();
     controls.allowed_usage_count = telephony_usages.size();
     controls.usage_semantics = telephony_semantics.data();
     controls.expected_linux_event_types = telephony_linux.data();
     controls.expected_linux_codes = telephony_linux.data();
     ok = emit_descriptor(output_directory, "telephony-keys",
-                         mimhid_spec_create_toggle(&controls, &spec), spec) &&
+                         mimusb_spec_create_toggle(&controls, &spec), spec) &&
          ok;
     spec = nullptr;
 
-    static constexpr std::array<mimhid_gamepad_axis_option, 2U> axes{
-        mimhid_gamepad_axis_option{MIMHID_AXIS_X,
-                                   mimhid::hid::usage::page_generic_desktop,
-                                   mimhid::hid::usage::x,
+    static constexpr std::array<mimusb_gamepad_axis_option, 2U> axes{
+        mimusb_gamepad_axis_option{MIMUSB_AXIS_X,
+                                   mimusb::hid::usage::page_generic_desktop,
+                                   mimusb::hid::usage::x,
                                    {-32767, 32767, 16U, {}},
                                    0,
                                    "ABS_X"},
-        mimhid_gamepad_axis_option{MIMHID_AXIS_Y,
-                                   mimhid::hid::usage::page_generic_desktop,
-                                   mimhid::hid::usage::y,
+        mimusb_gamepad_axis_option{MIMUSB_AXIS_Y,
+                                   mimusb::hid::usage::page_generic_desktop,
+                                   mimusb::hid::usage::y,
                                    {-32767, 32767, 16U, {}},
                                    0,
                                    "ABS_Y"}};
-    mimhid_gamepad_options controller{};
+    mimusb_gamepad_options controller{};
     controller.struct_size = static_cast<std::uint32_t>(sizeof(controller));
     controller.axes = axes.data();
     controller.axis_count = axes.size();
     controller.button_count = 12U;
     controller.button_usage_minimum = 1U;
-    controller.dpad_representation = MIMHID_DPAD_HAT;
+    controller.dpad_representation = MIMUSB_DPAD_HAT;
     controller.hat_logical_minimum = 0;
     controller.hat_logical_maximum = 7;
     controller.hat_bit_width = 4U;
     ok = emit_descriptor(output_directory, "gamepad",
-                         mimhid_spec_create_gamepad(&controller, &spec), spec) &&
+                         mimusb_spec_create_gamepad(&controller, &spec), spec) &&
          ok;
     spec = nullptr;
 
-    mimhid_touchscreen_options touch = fixed_touchscreen_options();
+    mimusb_touchscreen_options touch = fixed_touchscreen_options();
     ok = emit_descriptor(output_directory, "touchscreen-fixed-mt",
-                         mimhid_spec_create_touchscreen(&touch, &spec), spec) &&
+                         mimusb_spec_create_touchscreen(&touch, &spec), spec) &&
          ok;
     spec = nullptr;
 
-    mimhid_touchpad_options touchpad{};
+    mimusb_touchpad_options touchpad{};
     touchpad.struct_size = static_cast<std::uint32_t>(sizeof(touchpad));
     touchpad.report_id = touch.report_id;
     touchpad.maximum_contacts = touch.maximum_contacts;
@@ -430,13 +430,13 @@ int main(const int argc, char** argv) {
     touchpad.enable_multi_packet_frames = touch.enable_multi_packet_frames;
     touchpad.button_count = 2U;
     ok = emit_descriptor(output_directory, "touchpad",
-                         mimhid_spec_create_touchpad(&touchpad, &spec), spec) &&
+                         mimusb_spec_create_touchpad(&touchpad, &spec), spec) &&
          ok;
     spec = nullptr;
 
     static constexpr std::array<std::uint16_t, 2U> barrel_usages{
-        mimhid::hid::usage::barrel_switch, mimhid::hid::usage::secondary_barrel_switch};
-    mimhid_pen_options pen{};
+        mimusb::hid::usage::barrel_switch, mimusb::hid::usage::secondary_barrel_switch};
+    mimusb_pen_options pen{};
     pen.struct_size = static_cast<std::uint32_t>(sizeof(pen));
     pen.x = {0, 32767, 16U, {}};
     pen.y = {0, 32767, 16U, {}};
@@ -450,9 +450,9 @@ int main(const int argc, char** argv) {
     pen.barrel_usage_count = barrel_usages.size();
     pen.enable_eraser = 1U;
     pen.enable_hover = 1U;
-    ok = emit_descriptor(output_directory, "pen", mimhid_spec_create_pen(&pen, &spec), spec) && ok;
+    ok = emit_descriptor(output_directory, "pen", mimusb_spec_create_pen(&pen, &spec), spec) && ok;
     spec = nullptr;
-    mimhid_digitizer_options digitizer{};
+    mimusb_digitizer_options digitizer{};
     digitizer.struct_size = static_cast<std::uint32_t>(sizeof(digitizer));
     digitizer.x = pen.x;
     digitizer.y = pen.y;
@@ -467,15 +467,15 @@ int main(const int argc, char** argv) {
     digitizer.enable_eraser = pen.enable_eraser;
     digitizer.enable_hover = pen.enable_hover;
     ok = emit_descriptor(output_directory, "digitizer",
-                         mimhid_spec_create_digitizer(&digitizer, &spec), spec) &&
+                         mimusb_spec_create_digitizer(&digitizer, &spec), spec) &&
          ok;
     spec = nullptr;
 
     static constexpr std::array<std::uint8_t, 21U> raw_descriptor{
         0x05U, 0x01U, 0x09U, 0x06U, 0xA1U, 0x01U, 0x85U, 0x01U, 0x15U, 0x00U, 0x25U,
         0x01U, 0x75U, 0x01U, 0x95U, 0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U};
-    static constexpr mimhid_raw_report raw_report{{1U, 1U, {}}, 2U};
-    const mimhid_raw_options raw{static_cast<std::uint32_t>(sizeof(mimhid_raw_options)),
+    static constexpr mimusb_raw_report raw_report{{1U, 1U, {}}, 2U};
+    const mimusb_raw_options raw{static_cast<std::uint32_t>(sizeof(mimusb_raw_options)),
                                  0U,
                                  raw_descriptor.data(),
                                  raw_descriptor.size(),
@@ -483,7 +483,7 @@ int main(const int argc, char** argv) {
                                  1U,
                                  0U,
                                  0U};
-    ok = emit_descriptor(output_directory, "raw-validated", mimhid_spec_create_raw(&raw, &spec),
+    ok = emit_descriptor(output_directory, "raw-validated", mimusb_spec_create_raw(&raw, &spec),
                          spec) &&
          ok;
 

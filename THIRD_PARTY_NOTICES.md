@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-`libmimhid` itself is licensed under the MIT License (see [`LICENSE`](LICENSE)).
+`libmimusb` itself is licensed under the MIT License (see [`LICENSE`](LICENSE)).
 
 This document records the third-party software used in or alongside this
 repository, separated by distribution artifact, and reproduces the full
@@ -9,10 +9,10 @@ redistributing source or prebuilt firmware binaries.
 
 ---
 
-## 1. Host Library Archives (`libmimhid-<version>-<platform>-<arch>-*`)
+## 1. Host Library Archives (`libmimusb-<version>-<platform>-<arch>-*`)
 
-The host library (`libmimhid.so`, `libmimhid.dylib`, `mimhid.dll`,
-`libmimhid.a`, `mimhid_static.lib`) is built entirely from first-party MIT
+The host library (`libmimusb.so`, `libmimusb.dylib`, `mimusb.dll`,
+`libmimusb.a`, `mimusb_static.lib`) is built entirely from first-party MIT
 source code (`src/`, `include/`, `proto/`).
 
 - **Third-party library dependencies**: None. Serial I/O and port enumeration
@@ -21,7 +21,7 @@ source code (`src/`, `include/`, `proto/`).
 - **C/C++ runtime**: On Linux, `libstdc++` and `libgcc` are linked statically
   with `-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL` under the
   [GCC Runtime Library Exception, version 3.1](https://www.gnu.org/licenses/gcc-exception-3.1.html),
-  which permits propagating the resulting binary under `libmimhid`'s MIT
+  which permits propagating the resulting binary under `libmimusb`'s MIT
   License because the compilation process uses unmodified GCC.
 
 ---
@@ -60,24 +60,24 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
-## 3. Prebuilt Firmware Images (`mimhid_firmware-<board>-<version>.{uf2,hex,bin}`)
+## 3. Prebuilt Firmware Images (`mimusb_firmware-<board>-<version>.{uf2,hex,bin}`)
 
 Prebuilt microcontroller firmware images published in GitHub Releases link
-`libmimhid`'s MIT firmware core (`firmware/common/`, `firmware/rp/`,
+`libmimusb`'s MIT firmware core (`firmware/common/`, `firmware/rp/`,
 `firmware/ports/`) against the target microcontroller's vendor SDK, USB device
 stack, and bare-metal C runtime. Because raw microcontroller flash images
 (`.uf2`, `.hex`, `.bin`) cannot carry embedded text documentation, this file
-(and the standalone `mimhid_firmware-THIRD_PARTY_NOTICES-<version>.txt` asset
+(and the standalone `mimusb_firmware-THIRD_PARTY_NOTICES-<version>.txt` asset
 published alongside the firmware binaries in every GitHub Release) serves as the
 accompanying documentation required by the licenses below.
 
 | Firmware binary | Linked third-party components |
 | :--- | :--- |
-| `mimhid_firmware-rp2040-<version>.uf2` | TinyUSB 0.18.0 (MIT), Raspberry Pi Pico SDK 2.2.0 (BSD-3-Clause), Arm CMSIS Core (Apache-2.0), Newlib C runtime |
-| `mimhid_firmware-rp2350-<version>.uf2` | TinyUSB 0.18.0 (MIT), Raspberry Pi Pico SDK 2.2.0 (BSD-3-Clause), Arm CMSIS Core (Apache-2.0), Newlib C runtime |
-| `mimhid_firmware-nrf52840-<version>.{hex,bin}` | TinyUSB 0.18.0 (MIT), Nordic `nrfx` (BSD-3-Clause), Arm CMSIS 5 (Apache-2.0), Newlib C runtime |
-| `mimhid_firmware-stm32f4-<version>.{hex,bin}` | TinyUSB 0.18.0 (MIT), STMicroelectronics `cmsis_device_f4` (Apache-2.0 / BSD-3-Clause) & `stm32f4xx_hal_driver` (BSD-3-Clause), Arm CMSIS 5 (Apache-2.0), Newlib C runtime |
-| `mimhid_firmware-esp32s3-<version>.bin` | TinyUSB 0.18.0 (MIT), Espressif ESP-IDF v5.4.2 (Apache-2.0), Amazon FreeRTOS Kernel (MIT), Newlib C runtime |
+| `mimusb_firmware-rp2040-<version>.uf2` | TinyUSB 0.18.0 (MIT), Raspberry Pi Pico SDK 2.2.0 (BSD-3-Clause), Arm CMSIS Core (Apache-2.0), Newlib C runtime |
+| `mimusb_firmware-rp2350-<version>.uf2` | TinyUSB 0.18.0 (MIT), Raspberry Pi Pico SDK 2.2.0 (BSD-3-Clause), Arm CMSIS Core (Apache-2.0), Newlib C runtime |
+| `mimusb_firmware-nrf52840-<version>.{hex,bin}` | TinyUSB 0.18.0 (MIT), Nordic `nrfx` (BSD-3-Clause), Arm CMSIS 5 (Apache-2.0), Newlib C runtime |
+| `mimusb_firmware-stm32f4-<version>.{hex,bin}` | TinyUSB 0.18.0 (MIT), STMicroelectronics `cmsis_device_f4` (Apache-2.0 / BSD-3-Clause) & `stm32f4xx_hal_driver` (BSD-3-Clause), Arm CMSIS 5 (Apache-2.0), Newlib C runtime |
+| `mimusb_firmware-esp32s3-<version>.bin` | TinyUSB 0.18.0 (MIT), Espressif ESP-IDF v5.4.2 (Apache-2.0), Amazon FreeRTOS Kernel (MIT), Newlib C runtime |
 
 ---
 

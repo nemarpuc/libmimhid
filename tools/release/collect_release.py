@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Check that dist/ holds exactly the release's assets, then write the manifest and checksums."""
 
 from __future__ import annotations

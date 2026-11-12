@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // An HID interface written by hand (a vendor usage page, so the session gets no input) on a real
 // board whose target is this machine, to see every control rule action answered to a real host:
 // ANSWER, ANSWER_LAST_SENT, ACCEPT, ASK, a stall for a request no rule matches, a rule's bytes
@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <libusb.h>
 #include <linux/hidraw.h>
-#include <mimhid.h>
+#include <mimusb.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -23,30 +23,30 @@ static const uint8_t rd[] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x0
                              0x00, 0x75, 0x08, 0x95, 0x08, 0x09, 0x01, 0x81, 0x02, 0x09, 0x02,
                              0x91, 0x02, 0x95, 0x04, 0x09, 0x03, 0xB1, 0x02, 0xC0};
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static mimhid_device* g_device;
+static mimusb_device* g_device;
 static int g_setup_accepted, g_data_events, g_out_events, g_asked;
 static uint8_t g_last_setup[8], g_last_data[64], g_last_out[64];
 static size_t g_last_data_len, g_last_out_len;
 
-static void on_event(void* user, const mimhid_event* e) {
+static void on_event(void* user, const mimusb_event* e) {
     (void)user;
     pthread_mutex_lock(&g_lock);
-    if (e->kind == MIMHID_EVENT_CONTROL_SETUP) {
+    if (e->kind == MIMUSB_EVENT_CONTROL_SETUP) {
         if (e->length >= 8)
             memcpy(g_last_setup, e->data, 8);
-        if (e->control_flags & MIMHID_CONTROL_FLAG_ACCEPTED)
+        if (e->control_flags & MIMUSB_CONTROL_FLAG_ACCEPTED)
             g_setup_accepted++;
-        if (e->control_flags & MIMHID_CONTROL_FLAG_HELD) {
+        if (e->control_flags & MIMUSB_CONTROL_FLAG_HELD) {
             g_asked++;
             static const uint8_t answer[] = "answered by the program";
-            mimhid_device_control_reply(g_device, e->control_token, MIMHID_CONTROL_ACTION_ANSWER,
+            mimusb_device_control_reply(g_device, e->control_token, MIMUSB_CONTROL_ACTION_ANSWER,
                                         answer, sizeof(answer), 100);
         }
-    } else if (e->kind == MIMHID_EVENT_CONTROL_DATA) {
+    } else if (e->kind == MIMUSB_EVENT_CONTROL_DATA) {
         g_data_events++;
         g_last_data_len = e->length < 64 ? e->length : 64;
         memcpy(g_last_data, e->data, g_last_data_len);
-    } else if (e->kind == MIMHID_EVENT_ENDPOINT_DATA) {
+    } else if (e->kind == MIMUSB_EVENT_ENDPOINT_DATA) {
         g_out_events++;
         g_last_out_len = e->length < 64 ? e->length : 64;
         memcpy(g_last_out, e->data, g_last_out_len);
@@ -107,39 +107,39 @@ static void hex(const char* what, const uint8_t* b, int n) {
 }
 
 int main(void) {
-    mimhid_discovery* found = NULL;
-    mimhid_result r = mimhid_discover(3000, &found);
-    if (r != MIMHID_OK || mimhid_discovery_count(found) == 0) {
+    mimusb_discovery* found = NULL;
+    mimusb_result r = mimusb_discover(3000, &found);
+    if (r != MIMUSB_OK || mimusb_discovery_count(found) == 0) {
         printf("no board\n");
         return 1;
     }
-    mimhid_device_config config;
-    example_fill_device_config(&config, mimhid_discovery_get(found, 0)->baud_rate,
+    mimusb_device_config config;
+    example_fill_device_config(&config, mimusb_discovery_get(found, 0)->baud_rate,
                                "HW control test");
     config.transport.event_sink = on_event;
-    r = mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &config, &g_device);
-    mimhid_discovery_destroy(found);
-    if (r != MIMHID_OK) {
-        printf("open: %s\n", mimhid_result_name(r));
+    r = mimusb_device_open(mimusb_discovery_get(found, 0)->port_name, &config, &g_device);
+    mimusb_discovery_destroy(found);
+    if (r != MIMUSB_OK) {
+        printf("open: %s\n", mimusb_result_name(r));
         return 1;
     }
-    mimhid_device* device = g_device;
+    mimusb_device* device = g_device;
 
     uint8_t hidd[9];
-    mimhid_hid_descriptor_bytes(0x0111, 0, sizeof(rd), hidd);
-    mimhid_usb_endpoint eps[2];
+    mimusb_hid_descriptor_bytes(0x0111, 0, sizeof(rd), hidd);
+    mimusb_usb_endpoint eps[2];
     memset(eps, 0, sizeof(eps));
     eps[0].address = 0x81;
-    eps[0].transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    eps[0].transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     eps[0].max_packet_size = 8;
     eps[0].interval = 1;
-    eps[0].policy.on_full = MIMHID_FULL_DROP_OLDEST;
+    eps[0].policy.on_full = MIMUSB_FULL_DROP_OLDEST;
     eps[0].policy.depth = 4;
     eps[1].address = 0x01;
-    eps[1].transfer_type = MIMHID_TRANSFER_INTERRUPT;
+    eps[1].transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     eps[1].max_packet_size = 8;
     eps[1].interval = 1;
-    mimhid_usb_interface itf;
+    mimusb_usb_interface itf;
     memset(&itf, 0, sizeof(itf));
     itf.number = 0;
     itf.class_code = 0x03;
@@ -149,9 +149,9 @@ int main(void) {
     itf.endpoints = eps;
     itf.endpoint_count = 2;
     static uint8_t feature[4] = {1, 2, 3, 4};
-    mimhid_control_rule rules[6];
+    mimusb_control_rule rules[6];
     memset(rules, 0, sizeof(rules));
-    mimhid_hid_descriptor_rule(0, 0x22, rd, sizeof(rd), &rules[0]);
+    mimusb_hid_descriptor_rule(0, 0x22, rd, sizeof(rd), &rules[0]);
 #define RULE(i, bm, req, vmask, v)                                                                 \
     rules[i].request_type_mask = 0xFF;                                                             \
     rules[i].request_type_value = bm;                                                              \
@@ -161,39 +161,39 @@ int main(void) {
     rules[i].value_value = v
     RULE(1, 0xA1, 0x01, 0xFF00, 0x0100);
     rules[1].index_mask = 0xFFFF;
-    rules[1].action = MIMHID_CONTROL_ANSWER_LAST_SENT;
+    rules[1].action = MIMUSB_CONTROL_ANSWER_LAST_SENT;
     rules[1].endpoint_address = 0x81;
     RULE(2, 0xA1, 0x01, 0xFF00, 0x0300);
     rules[2].index_mask = 0xFFFF;
-    rules[2].action = MIMHID_CONTROL_ANSWER;
+    rules[2].action = MIMUSB_CONTROL_ANSWER;
     rules[2].data = feature;
     rules[2].length = 4;
     RULE(3, 0x21, 0x09, 0, 0);
-    rules[3].action = MIMHID_CONTROL_ACCEPT;
+    rules[3].action = MIMUSB_CONTROL_ACCEPT;
     RULE(4, 0x21, 0x0A, 0, 0);
-    rules[4].action = MIMHID_CONTROL_ACCEPT;
+    rules[4].action = MIMUSB_CONTROL_ACCEPT;
     RULE(5, 0xC0, 0x42, 0, 0);
-    rules[5].action = MIMHID_CONTROL_ASK;
+    rules[5].action = MIMUSB_CONTROL_ASK;
     rules[5].timeout_ms = 500;
-    rules[5].when_late = MIMHID_CONTROL_ACTION_STALL;
-    mimhid_node_config nc;
-    mimhid_node_config_init(&nc);
+    rules[5].when_late = MIMUSB_CONTROL_ACTION_STALL;
+    mimusb_node_config nc;
+    mimusb_node_config_init(&nc);
     nc.interfaces = &itf;
     nc.interface_count = 1;
     nc.rules = rules;
     nc.rule_count = 6;
-    mimhid_commit_timeouts to;
+    mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
-    mimhid_node* node = NULL;
-    r = mimhid_node_open(device, &nc, &to, &node);
-    if (r != MIMHID_OK) {
-        printf("node_open: %s (%s: %s)\n", mimhid_result_name(r), mimhid_last_error()->field,
-               mimhid_last_error()->reason);
+    mimusb_node* node = NULL;
+    r = mimusb_node_open(device, &nc, &to, &node);
+    if (r != MIMUSB_OK) {
+        printf("node_open: %s (%s: %s)\n", mimusb_result_name(r), mimusb_last_error()->field,
+               mimusb_last_error()->reason);
         return 1;
     }
-    r = mimhid_device_wait_ready(device, 5000);
-    if (r != MIMHID_OK) {
-        printf("wait_ready: %s\n", mimhid_result_name(r));
+    r = mimusb_device_wait_ready(device, 5000);
+    if (r != MIMUSB_OK) {
+        printf("wait_ready: %s\n", mimusb_result_name(r));
         return 1;
     }
     int fd = -1;
@@ -229,8 +229,8 @@ int main(void) {
     n = ioctl(fd, HIDIOCGINPUT(9), b);
     CHECK(n < 0, "before any report: the request fails (stalled), ioctl returned %d", n);
     const uint8_t r1[8] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
-    r = mimhid_node_endpoint_write(node, 0x81, r1, 8, 100);
-    CHECK(r == MIMHID_OK, "an input report is sent: %s", mimhid_result_name(r));
+    r = mimusb_node_endpoint_write(node, 0x81, r1, 8, 100);
+    CHECK(r == MIMUSB_OK, "an input report is sent: %s", mimusb_result_name(r));
     struct pollfd pf = {fd, POLLIN, 0};
     poll(&pf, 1, 500);
     n = (int)read(fd, b, sizeof(b));
@@ -251,8 +251,8 @@ int main(void) {
     if (n > 0)
         hex("returned", b, n);
     const uint8_t f2[4] = {0xA0, 0xA1, 0xA2, 0xA3};
-    r = mimhid_node_set_rule_data(node, 2, f2, 4, 500);
-    CHECK(r == MIMHID_OK, "set_rule_data: %s", mimhid_result_name(r));
+    r = mimusb_node_set_rule_data(node, 2, f2, 4, 500);
+    CHECK(r == MIMUSB_OK, "set_rule_data: %s", mimusb_result_name(r));
     memset(b, 0, sizeof(b));
     n = ioctl(fd, HIDIOCGFEATURE(5), b);
     CHECK(n >= 4 && (memcmp(b + 1, f2, 4) == 0 || memcmp(b, f2, 4) == 0),
@@ -306,10 +306,10 @@ int main(void) {
     }
     libusb_exit(ctx);
     close(fd);
-    r = mimhid_node_close(node, &to, 1000);
-    CHECK(r == MIMHID_OK, "node_close: %s", mimhid_result_name(r));
-    r = mimhid_device_close(device, 500, 1000);
-    CHECK(r == MIMHID_OK, "device_close: %s", mimhid_result_name(r));
+    r = mimusb_node_close(node, &to, 1000);
+    CHECK(r == MIMUSB_OK, "node_close: %s", mimusb_result_name(r));
+    r = mimusb_device_close(device, 500, 1000);
+    CHECK(r == MIMUSB_OK, "device_close: %s", mimusb_result_name(r));
     printf("%s (%d failure(s))\n", fails ? "FAILED" : "PASSED", fails);
     return fails != 0;
 }

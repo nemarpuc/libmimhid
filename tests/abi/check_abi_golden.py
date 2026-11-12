@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Compare the compiler-observed public C ABI with the recorded golden layout.
 
 abi_layout.golden holds every size, field offset and constant that tests/abi/layout_oracle.c
-prints for include/mimhid.h as released in 2.0.x. A change of any of them is an ABI change:
+prints for include/mimusb.h as released in 2.0.x. A change of any of them is an ABI change:
 it fails here until the golden file is edited on purpose, together with SOVERSION. The
-MIMHID_VERSION_* lines are left out because tools/release/sync_version.py and
+MIMUSB_VERSION_* lines are left out because tools/release/sync_version.py and
 validate_release.py already track the version.
 """
 
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 GOLDEN = Path(__file__).with_name("abi_layout.golden")
-IGNORED_PREFIX = "MIMHID_VERSION_"
+IGNORED_PREFIX = "MIMUSB_VERSION_"
 
 
 def parse(output: str, origin: str) -> dict[str, int]:

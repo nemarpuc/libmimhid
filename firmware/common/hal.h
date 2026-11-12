@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-#ifndef MIMHID_HAL_H
-#define MIMHID_HAL_H
+// Copyright (c) 2026 libmimusb contributors
+#ifndef MIMUSB_HAL_H
+#define MIMUSB_HAL_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "mimhid_proto.h"
+#include "mimusb_proto.h"
 
 // Per-MCU services the portable core needs. Each port implements these in its own hal_*.c.
 
-// Brings up clocks, the board, USB PHY if needed, and the UART at MIMHID_BOOT_BAUD, 8N1.
+// Brings up clocks, the board, USB PHY if needed, and the UART at MIMUSB_BOOT_BAUD, 8N1.
 void hal_init(void);
 
 // The rate the UART's divider really gives for a requested baud, or 0 when it cannot be made at
-// all. The core refuses a request whose error is over MIMHID_BAUD_TOLERANCE_PPM.
+// all. The core refuses a request whose error is over MIMUSB_BAUD_TOLERANCE_PPM.
 uint32_t hal_uart_baud_actual(uint32_t baud);
 
 // The fastest rate the UART can make, from its clock and divider limits.
@@ -49,7 +49,7 @@ uint32_t hal_millis(void);
 // Copies the chip's unique identifier into out and returns its length, or 0 if there is none.
 size_t hal_unique_id(uint8_t* out, size_t max);
 
-// The chip, as MIMHID_CHIP_* names it.
+// The chip, as MIMUSB_CHIP_* names it.
 uint8_t hal_chip(void);
 
 // True when hal_enter_bootloader does something on this chip.
@@ -71,4 +71,4 @@ void hal_control_silent_drop(void);
 // no such state.
 void hal_usb_clear_endpoint(uint8_t address);
 
-#endif // MIMHID_HAL_H
+#endif // MIMUSB_HAL_H

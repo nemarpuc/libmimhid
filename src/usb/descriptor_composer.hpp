@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #pragma once
 
 /*
@@ -11,7 +11,7 @@
  * descriptor and the rules that serve it) is made before this, in hid_layer.hpp.
  */
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-namespace mimhid::usb {
+namespace mimusb::usb {
 
 // One interface of a Node.
 struct ComposerInterface {
@@ -29,7 +29,7 @@ struct ComposerInterface {
     std::uint8_t protocol{};
     std::u16string name;                         // empty: the interface has no string
     std::vector<std::uint8_t> class_descriptors; // placed after the Interface descriptor as given
-    std::vector<mimhid_usb_endpoint> endpoints;
+    std::vector<mimusb_usb_endpoint> endpoints;
 };
 
 // The interfaces of one Node and the association that holds them together, if it has one.
@@ -55,13 +55,13 @@ struct ComposerLimits {
 };
 
 struct ComposerInput {
-    mimhid_usb_device device{};
-    mimhid_usb_config config{};
+    mimusb_usb_device device{};
+    mimusb_usb_config config{};
     std::u16string manufacturer;
     std::u16string product;
     std::u16string serial;
     std::u16string configuration;
-    // Strings the caller added (mimhid_device_add_string), by index (5 or more).
+    // Strings the caller added (mimusb_device_add_string), by index (5 or more).
     std::map<std::uint8_t, std::u16string> user_strings;
     std::vector<ComposerGroup> groups; // in node order
     ComposerLimits limits;
@@ -81,7 +81,7 @@ struct ComposedString {
 
 struct ComposedInterface {
     std::uint8_t number{};
-    std::vector<mimhid_usb_endpoint> endpoints;
+    std::vector<mimusb_usb_endpoint> endpoints;
 };
 
 struct Composed {
@@ -94,7 +94,7 @@ struct Composed {
 // What went wrong when a configuration cannot be composed. `offset` carries the number that
 // matters (the missing interface number, the doubled endpoint address, ...).
 struct ComposerError {
-    mimhid_result result{MIMHID_OK};
+    mimusb_result result{MIMUSB_OK};
     const char* field{};
     const char* reason{};
     std::uint32_t offset{};
@@ -115,12 +115,12 @@ std::size_t queue_slots(std::uint8_t depth, std::uint8_t on_full) noexcept;
 
 // The checks of one endpoint that do not depend on how it was given: its address, the transfer
 // type and packet size the board takes, the interval, the reserved fields. The policy of an IN
-// endpoint and the uniqueness of the address are the caller's. MIMHID_OK, or the rule broken, in
+// endpoint and the uniqueness of the address are the caller's. MIMUSB_OK, or the rule broken, in
 // `error`.
-mimhid_result check_endpoint_shape(const mimhid_usb_endpoint& ep, const ComposerLimits& lim,
+mimusb_result check_endpoint_shape(const mimusb_usb_endpoint& ep, const ComposerLimits& lim,
                                    std::uint16_t node_id, ComposerError* error);
 
-// MIMHID_OK and `out` filled, or the first rule that is broken, in `error`.
-mimhid_result compose_descriptors(const ComposerInput& input, Composed* out, ComposerError* error);
+// MIMUSB_OK and `out` filled, or the first rule that is broken, in `error`.
+mimusb_result compose_descriptors(const ComposerInput& input, Composed* out, ComposerError* error);
 
-} // namespace mimhid::usb
+} // namespace mimusb::usb

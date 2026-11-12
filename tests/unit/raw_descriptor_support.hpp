@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Builders for hand-written raw report descriptors, shared by the validator tests. Test-only. */
 #pragma once
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <cstdint>
 #include <vector>
 
-namespace mimhid_test {
+namespace mimusb_test {
 
 inline void append_u32_item(std::vector<std::uint8_t>* descriptor, const std::uint8_t prefix,
                             const std::uint32_t value) {
@@ -31,10 +31,10 @@ inline void append_globals(std::vector<std::uint8_t>* descriptor, const std::uin
     append_u32_item(descriptor, 0x97U, report_count);
 }
 
-inline mimhid_raw_report idless_report(const std::uint32_t wire_length) {
-    mimhid_raw_report report{};
+inline mimusb_raw_report idless_report(const std::uint32_t wire_length) {
+    mimusb_raw_report report{};
     report.wire_length = wire_length;
     return report;
 }
 
-} // namespace mimhid_test
+} // namespace mimusb_test

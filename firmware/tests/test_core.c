@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Host-side test of the portable firmware core with a fake HAL and TinyUSB stubs.
 #include "config.h"
 #include "control.h"
@@ -44,7 +44,7 @@ static uint8_t g_out[16384];
 static size_t g_out_len;
 static uint32_t g_now;
 static int g_has_id = 1;
-static uint32_t g_baud = MIMHID_BOOT_BAUD;
+static uint32_t g_baud = MIMUSB_BOOT_BAUD;
 static int g_baud_changes;
 
 void hal_init(void) {}
@@ -84,7 +84,7 @@ void hal_uart_set_baud(uint32_t baud) {
     g_baud = baud;
     g_baud_changes++;
 }
-uint8_t hal_chip(void) { return MIMHID_CHIP_RP2040; }
+uint8_t hal_chip(void) { return MIMUSB_CHIP_RP2040; }
 size_t hal_unique_id(uint8_t* out, size_t max) {
     if (!g_has_id)
         return 0;
@@ -167,7 +167,7 @@ bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
     return true;
 }
 // The isochronous calls and the stall of endpoint 0 that the generic driver makes (the host test
-// board has none: MIMHID_ISO_BYTES is 0 here, so only the link has to resolve).
+// board has none: MIMUSB_ISO_BYTES is 0 here, so only the link has to resolve).
 bool usbd_edpt_iso_alloc(uint8_t rhport, uint8_t ep_addr, uint16_t largest_packet_size) {
     (void)rhport;
     (void)ep_addr;
@@ -294,22 +294,22 @@ static void put32(uint8_t* p, uint32_t v) {
 static uint8_t g_seq;
 
 static void put_frame(uint8_t type, const uint8_t* p, size_t n) {
-    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
-    g_in[g_in_len++] = MIMHID_SYNC;
+    uint16_t crc = mimusb_crc16_update(MIMUSB_CRC16_INIT, type);
+    g_in[g_in_len++] = MIMUSB_SYNC;
     g_in[g_in_len++] = type;
     if (n < 0x80) {
         g_in[g_in_len++] = (uint8_t)n;
-        crc = mimhid_crc16_update(crc, (uint8_t)n);
+        crc = mimusb_crc16_update(crc, (uint8_t)n);
     } else {
         const uint8_t low = (uint8_t)(0x80 | (n & 0x7F)), high = (uint8_t)(n >> 7);
         g_in[g_in_len++] = low;
         g_in[g_in_len++] = high;
-        crc = mimhid_crc16_update(crc, low);
-        crc = mimhid_crc16_update(crc, high);
+        crc = mimusb_crc16_update(crc, low);
+        crc = mimusb_crc16_update(crc, high);
     }
     for (size_t i = 0; i < n; i++) {
         g_in[g_in_len++] = p[i];
-        crc = mimhid_crc16_update(crc, p[i]);
+        crc = mimusb_crc16_update(crc, p[i]);
     }
     g_in[g_in_len++] = (uint8_t)(crc & 0xFF);
     g_in[g_in_len++] = (uint8_t)(crc >> 8);
@@ -348,8 +348,8 @@ static void complete_started(void) {
 
 static void pump(void) {
     for (int i = 0; i < 4; i++) {
-        mimhid_rx_poll();
-        mimhid_usb_poll();
+        mimusb_rx_poll();
+        mimusb_usb_poll();
         if (g_auto)
             complete_started();
     }
@@ -359,7 +359,7 @@ static void pump(void) {
 static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
     if (*pos + 5 > g_out_len)
         return 0;
-    assert(g_out[*pos] == MIMHID_SYNC);
+    assert(g_out[*pos] == MIMUSB_SYNC);
     uint8_t t = g_out[*pos + 1];
     uint8_t low = g_out[*pos + 2], high = 0;
     size_t header = 3;
@@ -370,13 +370,13 @@ static uint8_t next_out(size_t* pos, uint8_t* payload, uint16_t* len) {
         header = 4;
     }
     assert(*pos + header + n + 2 <= g_out_len);
-    uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, t);
-    crc = mimhid_crc16_update(crc, low);
+    uint16_t crc = mimusb_crc16_update(MIMUSB_CRC16_INIT, t);
+    crc = mimusb_crc16_update(crc, low);
     if (header == 4)
-        crc = mimhid_crc16_update(crc, high);
+        crc = mimusb_crc16_update(crc, high);
     for (uint16_t i = 0; i < n; i++) {
         payload[i] = g_out[*pos + header + i];
-        crc = mimhid_crc16_update(crc, payload[i]);
+        crc = mimusb_crc16_update(crc, payload[i]);
     }
     assert(g_out[*pos + header + n] == (uint8_t)(crc & 0xFF));
     assert(g_out[*pos + header + n + 1] == (uint8_t)(crc >> 8));
@@ -393,7 +393,7 @@ static int lost_reported(void) {
     uint8_t t;
     int lost = 0;
     while ((t = next_out(&pos, p, &n)) != 0) {
-        if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_TRANSFER_LOST) {
+        if (t == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_TRANSFER_LOST) {
             assert(n == 4 && p[1] == 0x81); // the IN endpoint of interface 0
             lost += p[2] | (p[3] << 8);
         }
@@ -412,12 +412,12 @@ static int result_of(uint8_t type) {
     uint16_t n;
     int result = -1;
     while ((t = next_out(&pos, p, &n)) != 0) {
-        if ((t == MIMHID_T_ACK || t == MIMHID_T_NAK) && p[1] == type) {
+        if ((t == MIMUSB_T_ACK || t == MIMUSB_T_NAK) && p[1] == type) {
             assert(p[0] == g_seq);
-            result = t == MIMHID_T_ACK;
-            if (t == MIMHID_T_NAK)
+            result = t == MIMUSB_T_ACK;
+            if (t == MIMUSB_T_NAK)
                 g_nak_code = p[2];
-            if (t == MIMHID_T_ACK) {
+            if (t == MIMUSB_T_ACK) {
                 g_ack_data_len = (uint16_t)(n - 2);
                 memcpy(g_ack_data, &p[2], g_ack_data_len);
             }
@@ -436,7 +436,7 @@ static int command(uint8_t type, const uint8_t* p, size_t n) {
     put_cmd(type, p, n);
     pump();
     const int r = result_of(type);
-    if (type == MIMHID_T_COMMIT && r == 1)
+    if (type == MIMUSB_T_COMMIT && r == 1)
         g_up = !(n >= 1 && p[0] == 1);
     return r;
 }
@@ -454,7 +454,7 @@ static int g_force_out = -1;
 
 static int ep_config(uint8_t address, uint8_t depth, uint8_t policy) {
     const uint8_t p[3] = {address, depth, policy};
-    return command(MIMHID_T_EP_CONFIG, p, sizeof(p));
+    return command(MIMUSB_T_EP_CONFIG, p, sizeof(p));
 }
 // The depth of the queue stage() gives every IN endpoint of the model: 15 transfers may wait.
 static uint8_t g_depth = 15;
@@ -472,14 +472,14 @@ typedef struct {
     uint16_t in_size, out_size;
     uint16_t desc_len, desc_recv;
     uint8_t rd[300];
-    uint16_t name[MIMHID_STRING_MAX + 2];
+    uint16_t name[MIMUSB_STRING_MAX + 2];
     size_t name_len;
 } tnode_t;
 
 static tnode_t g_tn[T_NODES];
 static uint8_t g_dev_flags;
 static uint16_t g_dev_string[4]
-                            [MIMHID_STRING_MAX + 2]; // manufacturer, product, serial, configuration
+                            [MIMUSB_STRING_MAX + 2]; // manufacturer, product, serial, configuration
 static size_t g_dev_string_len[4];
 
 static void put_u16(uint8_t* p, uint16_t v) {
@@ -488,20 +488,20 @@ static void put_u16(uint8_t* p, uint16_t v) {
 }
 
 static void set_units(uint16_t* dst, size_t* len, const uint16_t* units, size_t count) {
-    assert(count <= MIMHID_STRING_MAX + 1);
+    assert(count <= MIMUSB_STRING_MAX + 1);
     memcpy(dst, units, count * sizeof(uint16_t));
     *len = count;
 }
 
 static void set_ascii(uint16_t* dst, size_t* len, const char* text) {
     size_t count = strlen(text);
-    assert(count <= MIMHID_STRING_MAX);
+    assert(count <= MIMUSB_STRING_MAX);
     for (size_t i = 0; i < count; i++)
         dst[i] = (uint8_t)text[i];
     *len = count;
 }
 
-static int desc_reset(void) { return command(MIMHID_T_DESC_RESET, NULL, 0); }
+static int desc_reset(void) { return command(MIMUSB_T_DESC_RESET, NULL, 0); }
 
 static int desc_begin_raw(uint8_t kind, uint8_t index, uint16_t language, uint16_t total,
                           uint8_t flags) {
@@ -512,19 +512,19 @@ static int desc_begin_raw(uint8_t kind, uint8_t index, uint16_t language, uint16
                     (uint8_t)(total & 0xFF),
                     (uint8_t)(total >> 8),
                     flags};
-    return command(MIMHID_T_DESC_BEGIN, p, sizeof(p));
+    return command(MIMUSB_T_DESC_BEGIN, p, sizeof(p));
 }
 
 static int desc_data_raw(uint8_t kind, uint8_t index, uint16_t language, uint16_t off,
                          const uint8_t* d, size_t len) {
-    uint8_t p[6 + MIMHID_DESC_DATA_CHUNK];
-    assert(len <= MIMHID_DESC_DATA_CHUNK);
+    uint8_t p[6 + MIMUSB_DESC_DATA_CHUNK];
+    assert(len <= MIMUSB_DESC_DATA_CHUNK);
     p[0] = kind;
     p[1] = index;
     put_u16(&p[2], language);
     put_u16(&p[4], off);
     memcpy(p + 6, d, len);
-    return command(MIMHID_T_DESC_DATA, p, 6 + len);
+    return command(MIMUSB_T_DESC_DATA, p, 6 + len);
 }
 
 // Announces a descriptor and sends `have` of its `total` bytes in chunks. Returns 1, or the first
@@ -534,8 +534,8 @@ static int send_blob_partial(uint8_t kind, uint8_t index, uint16_t language, con
     int r = desc_begin_raw(kind, index, language, (uint16_t)total, flags);
     if (r != 1)
         return r;
-    for (size_t off = 0; off < have; off += MIMHID_DESC_DATA_CHUNK) {
-        size_t n = have - off < MIMHID_DESC_DATA_CHUNK ? have - off : MIMHID_DESC_DATA_CHUNK;
+    for (size_t off = 0; off < have; off += MIMUSB_DESC_DATA_CHUNK) {
+        size_t n = have - off < MIMUSB_DESC_DATA_CHUNK ? have - off : MIMUSB_DESC_DATA_CHUNK;
         r = desc_data_raw(kind, index, language, (uint16_t)off, d + off, n);
         if (r != 1)
             return r;
@@ -558,9 +558,9 @@ static size_t string_descriptor(uint8_t* out, const uint16_t* units, size_t coun
 }
 
 static int send_string(uint8_t index, const uint16_t* units, size_t count) {
-    uint8_t b[2 + 2 * (MIMHID_STRING_MAX + 2)];
-    assert(count <= MIMHID_STRING_MAX + 1);
-    return send_blob(MIMHID_DESC_STRING, index, g_language, b, string_descriptor(b, units, count));
+    uint8_t b[2 + 2 * (MIMUSB_STRING_MAX + 2)];
+    assert(count <= MIMUSB_STRING_MAX + 1);
+    return send_blob(MIMUSB_DESC_STRING, index, g_language, b, string_descriptor(b, units, count));
 }
 
 // The report descriptor of an interface: the nodes of it in node order, back to back. `total` is
@@ -603,12 +603,12 @@ static int stage(void) {
     dev[15] = g_dev_string_len[1] ? 2 : 0;
     dev[16] = serial_index;
     dev[17] = 1;
-    if ((r = send_blob(MIMHID_DESC_DEVICE, 0, 0, dev, sizeof(dev))) != 1)
+    if ((r = send_blob(MIMUSB_DESC_DEVICE, 0, 0, dev, sizeof(dev))) != 1)
         return r;
 
     // The interfaces in the order of their numbers; an interface takes its settings from its first
     // node.
-    uint8_t cfg[MIMHID_MAX_CONFIG_BYTES + 64];
+    uint8_t cfg[MIMUSB_MAX_CONFIG_BYTES + 64];
     size_t pos = 9;
     uint8_t seen[T_NODES];
     size_t nseen = 0;
@@ -668,13 +668,13 @@ static int stage(void) {
                              50};
     memcpy(cfg, head, sizeof(head));
     put_u16(&cfg[2], (uint16_t)pos);
-    if ((r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, cfg, pos)) != 1)
+    if ((r = send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, cfg, pos)) != 1)
         return r;
 
     for (int i = 0; i < 4; i++) {
         if (i == 2 && serial_from_id) {
-            if ((r = send_blob_partial(MIMHID_DESC_STRING, 3, g_language, NULL, 0, 0,
-                                       MIMHID_DESC_F_SERIAL_FROM_ID)) != 1)
+            if ((r = send_blob_partial(MIMUSB_DESC_STRING, 3, g_language, NULL, 0, 0,
+                                       MIMUSB_DESC_F_SERIAL_FROM_ID)) != 1)
                 return r;
         } else if (g_dev_string_len[i]) {
             if ((r = send_string((uint8_t)(i + 1), g_dev_string[i], g_dev_string_len[i])) != 1)
@@ -697,7 +697,7 @@ static int stage(void) {
     for (size_t k = 0; k < nseen; k++) {
         for (int id = 0; id < T_NODES; id++) {
             if (g_tn[id].used && g_tn[id].iface == seen[k]) {
-                (void)ep_config(g_tn[id].in_addr, g_depth, MIMHID_EP_FULL_DROP_NEWEST);
+                (void)ep_config(g_tn[id].in_addr, g_depth, MIMUSB_EP_FULL_DROP_NEWEST);
                 break;
             }
         }
@@ -714,11 +714,11 @@ static int commit_staged(void) {
     if (g_up) {
         const int disconnects = g_disconnects, connects = g_connects;
         const uint8_t detach[] = {1};
-        assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+        assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
         g_disconnects = disconnects;
         g_connects = connects;
     }
-    const int r = command(MIMHID_T_COMMIT, NULL, 0);
+    const int r = command(MIMUSB_T_COMMIT, NULL, 0);
     if (r == 1)
         set_config();
     return r;
@@ -807,7 +807,7 @@ static void base_node(void) {
 
 // Data for an IN endpoint, by endpoint number.
 static void ep_in(uint8_t number, const uint8_t* d, size_t n) {
-    put_frame((uint8_t)(MIMHID_T_EP_IN_BASE | number), d, n);
+    put_frame((uint8_t)(MIMUSB_T_EP_IN_BASE | number), d, n);
 }
 
 static void expect_nak_at(int r, int code, int line) {
@@ -829,7 +829,7 @@ static void test_descriptors_basic(void) {
     g_disconnects = g_connects = 0;
     assert(commit() == 1);
     assert(g_disconnects == 0 && g_connects == 1);
-    assert(mimhid_active_interfaces() == 2);
+    assert(mimusb_active_interfaces() == 2);
 
     const tusb_desc_device_t* d = (const tusb_desc_device_t*)tud_descriptor_device_cb();
     assert(d->idVendor == 0x1234 && d->idProduct == 0x5678 && d->bcdDevice == 0x0200);
@@ -875,20 +875,20 @@ static void test_strings_utf16(void) {
     for (int i = 0; i < 5; i++)
         assert(s[1 + i] == maker[i]);
 
-    uint16_t longest[MIMHID_STRING_MAX + 2];
-    for (size_t i = 0; i < MIMHID_STRING_MAX + 2; i++)
+    uint16_t longest[MIMUSB_STRING_MAX + 2];
+    for (size_t i = 0; i < MIMUSB_STRING_MAX + 2; i++)
         longest[i] = 0x3042;
-    device_config_units(0, "", longest, MIMHID_STRING_MAX);
+    device_config_units(0, "", longest, MIMUSB_STRING_MAX);
     node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     s = tud_descriptor_string_cb(1, 0x0409);
-    assert((s[0] & 0xFF) == MIMHID_STRING_DESC_MAX && s[MIMHID_STRING_MAX] == 0x3042);
+    assert((s[0] & 0xFF) == MIMUSB_STRING_DESC_MAX && s[MIMUSB_STRING_MAX] == 0x3042);
     // 127 units do not fit the one byte of bLength: refused when the string is announced.
-    device_config_units(0, "", longest, MIMHID_STRING_MAX + 1);
+    device_config_units(0, "", longest, MIMUSB_STRING_MAX + 1);
     node_begin(0, 0, sizeof(k_desc_a), 1, 8, 0, "");
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
-    expect_nak(commit(), MIMHID_NAK_PARAM);
+    expect_nak(commit(), MIMUSB_NAK_PARAM);
 }
 
 static void test_reports(void) {
@@ -906,9 +906,9 @@ static void test_reports(void) {
 
     // a bad CRC is skipped and the next frame is still seen
     reset_io();
-    put_frame(MIMHID_T_EP_IN_BASE | 1, a, sizeof(a));
+    put_frame(MIMUSB_T_EP_IN_BASE | 1, a, sizeof(a));
     g_in[g_in_len - 1] ^= 0xFF;
-    const uint8_t junk[] = {0x00, MIMHID_SYNC, MIMHID_SYNC, 0x13, 0x7F};
+    const uint8_t junk[] = {0x00, MIMUSB_SYNC, MIMUSB_SYNC, 0x13, 0x7F};
     memcpy(g_in + g_in_len, junk, sizeof(junk));
     g_in_len += sizeof(junk);
     ep_in(2, b, sizeof(b));
@@ -962,18 +962,18 @@ static void test_reports(void) {
     // LOSS_CONFIG checks its payload: enabled is 0 or 1, and the interval is 0 while disabled
     {
         const uint8_t bad_flag[3] = {2, 0, 0};
-        expect_nak(command(MIMHID_T_LOSS_CONFIG, bad_flag, 3), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_LOSS_CONFIG, bad_flag, 3), MIMUSB_NAK_PARAM);
         const uint8_t off_with_interval[3] = {0, 5, 0};
-        expect_nak(command(MIMHID_T_LOSS_CONFIG, off_with_interval, 3), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_LOSS_CONFIG, off_with_interval, 3), MIMUSB_NAK_PARAM);
         const uint8_t short_payload[2] = {1, 0};
-        expect_nak(command(MIMHID_T_LOSS_CONFIG, short_payload, 2), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_LOSS_CONFIG, short_payload, 2), MIMUSB_NAK_PARAM);
     }
 
     // enabled with a 50 ms interval: drops are gathered and reported once per interval
     reset_io();
     {
         const uint8_t on[3] = {1, 50, 0};
-        assert(command(MIMHID_T_LOSS_CONFIG, on, 3) == 1);
+        assert(command(MIMUSB_T_LOSS_CONFIG, on, 3) == 1);
     }
     reset_io();
     g_busy[0] = true;
@@ -998,7 +998,7 @@ static void test_reports(void) {
     // disabled again: silent
     {
         const uint8_t off[3] = {0, 0, 0};
-        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+        assert(command(MIMUSB_T_LOSS_CONFIG, off, 3) == 1);
     }
     g_out_len = 0;
     ep_in(1, (const uint8_t[]){1, 0}, 2);
@@ -1011,18 +1011,18 @@ static void test_reports(void) {
     {
         const uint8_t on[3] = {1, 0, 0};
         const uint8_t off[3] = {0, 0, 0};
-        assert(command(MIMHID_T_LOSS_CONFIG, on, 3) == 1);
+        assert(command(MIMUSB_T_LOSS_CONFIG, on, 3) == 1);
         g_seq--;
-        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+        assert(command(MIMUSB_T_LOSS_CONFIG, off, 3) == 1);
         g_out_len = 0;
         ep_in(1, (const uint8_t[]){1, 0}, 2);
         pump();
         assert(lost_reported() == 1);
         // a PING is a new host, whose numbers start anew: the same number runs the command
-        put_frame(MIMHID_T_PING, NULL, 0);
+        put_frame(MIMUSB_T_PING, NULL, 0);
         pump();
         g_seq--;
-        assert(command(MIMHID_T_LOSS_CONFIG, off, 3) == 1);
+        assert(command(MIMUSB_T_LOSS_CONFIG, off, 3) == 1);
         g_out_len = 0;
         ep_in(1, (const uint8_t[]){1, 0}, 2);
         g_now += 1;
@@ -1038,7 +1038,7 @@ static void test_reports(void) {
     pump();
     uint8_t none = 0;
     (void)none;
-    assert(command(MIMHID_T_RESET, NULL, 0) == 1);
+    assert(command(MIMUSB_T_RESET, NULL, 0) == 1);
     g_busy[0] = false;
     g_nsent = 0;
     pump();
@@ -1047,37 +1047,37 @@ static void test_reports(void) {
 
 static void test_ping_and_events(void) {
     reset_io();
-    put_frame(MIMHID_T_PING, NULL, 0);
+    put_frame(MIMUSB_T_PING, NULL, 0);
     pump();
     size_t pos = 0;
     uint8_t p[2048];
     uint16_t n;
-    assert(next_out(&pos, p, &n) == MIMHID_T_PONG && n == MIMHID_PONG_MIN_LEN + 8);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_PONG && n == MIMUSB_PONG_MIN_LEN + 8);
     assert(p[0] == FW_VERSION_MAJOR && p[1] == FW_VERSION_MINOR && p[2] == FW_VERSION_PATCH &&
            p[3] == 1);
     assert(p[4] == 0 && p[5] == 0); // reserved
-    assert(p[6] == MIMHID_PONG_FLAG_UNIQUE_ID && p[7] == MIMHID_CHIP_RP2040 && p[8] == 0);
-    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD && u32at(&p[13]) == g_max_rate);
-    assert(u32at(&p[17]) == MIMHID_PONG_UART_BREAK);
+    assert(p[6] == MIMUSB_PONG_FLAG_UNIQUE_ID && p[7] == MIMUSB_CHIP_RP2040 && p[8] == 0);
+    assert(u32at(&p[9]) == MIMUSB_BOOT_BAUD && u32at(&p[13]) == g_max_rate);
+    assert(u32at(&p[17]) == MIMUSB_PONG_UART_BREAK);
     assert((p[21] | (p[22] << 8)) == 0 && (p[25] | (p[26] << 8)) == 0); // reserved
-    assert((p[23] | (p[24] << 8)) == MIMHID_MAX_REPORT_BYTES && MIMHID_MAX_REPORT_BYTES == 64);
+    assert((p[23] | (p[24] << 8)) == MIMUSB_MAX_REPORT_BYTES && MIMUSB_MAX_REPORT_BYTES == 64);
     assert((p[27] | (p[28] << 8)) == 64);
-    assert((p[29] | (p[30] << 8)) == MIMHID_MAX_FRAME_PAYLOAD &&
-           MIMHID_MAX_FRAME_PAYLOAD >= MIMHID_MIN_FRAME_PAYLOAD);
-    assert((p[31] | (p[32] << 8)) == MIMHID_CONTROL_DATA_MAX && p[33] == MIMHID_CONTROL_RULES);
-    assert(p[34] == MIMHID_MAX_ENDPOINT_NUMBER);
-    assert(p[35] == 8 && p[MIMHID_PONG_MIN_LEN] == 0x01 && p[MIMHID_PONG_MIN_LEN + 7] == 0xEF);
+    assert((p[29] | (p[30] << 8)) == MIMUSB_MAX_FRAME_PAYLOAD &&
+           MIMUSB_MAX_FRAME_PAYLOAD >= MIMUSB_MIN_FRAME_PAYLOAD);
+    assert((p[31] | (p[32] << 8)) == MIMUSB_CONTROL_DATA_MAX && p[33] == MIMUSB_CONTROL_RULES);
+    assert(p[34] == MIMUSB_MAX_ENDPOINT_NUMBER);
+    assert(p[35] == 8 && p[MIMUSB_PONG_MIN_LEN] == 0x01 && p[MIMUSB_PONG_MIN_LEN + 7] == 0xEF);
     // The limits of the generic driver (config.h), then the unique id.
-    assert(p[36] == MIMHID_MAX_INTERFACES && MIMHID_MAX_INTERFACES == 15);
-    assert((p[37] | (p[38] << 8)) == MIMHID_MAX_CONFIG_BYTES && p[39] == MIMHID_MAX_STRINGS);
-    assert((p[40] | (p[41] << 8)) == MIMHID_MAX_TRANSFER_BYTES && MIMHID_MAX_TRANSFER_BYTES == 64);
-    assert((p[42] | (p[43] << 8)) == MIMHID_EP_POOL_SLOTS && MIMHID_EP_POOL_SLOTS == 64);
+    assert(p[36] == MIMUSB_MAX_INTERFACES && MIMUSB_MAX_INTERFACES == 15);
+    assert((p[37] | (p[38] << 8)) == MIMUSB_MAX_CONFIG_BYTES && p[39] == MIMUSB_MAX_STRINGS);
+    assert((p[40] | (p[41] << 8)) == MIMUSB_MAX_TRANSFER_BYTES && MIMUSB_MAX_TRANSFER_BYTES == 64);
+    assert((p[42] | (p[43] << 8)) == MIMUSB_EP_POOL_SLOTS && MIMUSB_EP_POOL_SLOTS == 64);
     assert(p[44] == ((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT)));
     // The answer memory of the control rules (config.h), the last field before the unique id.
-    assert((p[45] | (p[46] << 8)) == MIMHID_ANSWER_BYTES && MIMHID_ANSWER_BYTES == 4096);
+    assert((p[45] | (p[46] << 8)) == MIMUSB_ANSWER_BYTES && MIMUSB_ANSWER_BYTES == 4096);
     // The largest BOS descriptor (config.h), then the unique id.
-    assert((p[47] | (p[48] << 8)) == MIMHID_MAX_BOS_BYTES && MIMHID_MAX_BOS_BYTES == 256);
-    assert(MIMHID_PONG_MIN_LEN == 49 && p[MIMHID_PONG_MIN_LEN] == 0x01);
+    assert((p[47] | (p[48] << 8)) == MIMUSB_MAX_BOS_BYTES && MIMUSB_MAX_BOS_BYTES == 256);
+    assert(MIMUSB_PONG_MIN_LEN == 49 && p[MIMUSB_PONG_MIN_LEN] == 0x01);
 
     // The board's own events: mount, unmount, suspend, resume. (What a class does on the control
     // pipe is reported by the control rules, below.)
@@ -1093,47 +1093,47 @@ static void test_ping_and_events(void) {
     tud_suspend_cb(true);
     tud_resume_cb();
     pos = 0;
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_MOUNTED);
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_UNMOUNTED);
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_SUSPEND && p[1] == 1);
-    assert(next_out(&pos, p, &n) == MIMHID_T_EVENT && p[0] == MIMHID_EV_RESUME);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_MOUNTED);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_UNMOUNTED);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_SUSPEND && p[1] == 1);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_RESUME);
     assert(next_out(&pos, p, &n) == 0); // and nothing else
 
     // remote wakeup only while suspended
     g_suspended = false;
-    assert(command(MIMHID_T_REMOTE_WAKEUP, NULL, 0) == 0 && g_nak_code == MIMHID_NAK_STATE);
+    assert(command(MIMUSB_T_REMOTE_WAKEUP, NULL, 0) == 0 && g_nak_code == MIMUSB_NAK_STATE);
     g_suspended = true;
-    assert(command(MIMHID_T_REMOTE_WAKEUP, NULL, 0) == 1 && g_wakeups == 1);
+    assert(command(MIMUSB_T_REMOTE_WAKEUP, NULL, 0) == 1 && g_wakeups == 1);
     g_suspended = false;
 
     // BOOTLOADER: only with its key, only on a chip that has one; the answer leaves first.
     {
         const uint8_t key[4] = {'B', 'O', 'O', 'T'};
         const uint8_t wrong[4] = {'B', 'O', 'O', 'S'};
-        assert(command(MIMHID_T_BOOTLOADER, wrong, 4) == 0 && g_nak_code == MIMHID_NAK_PARAM);
-        assert(command(MIMHID_T_BOOTLOADER, key, 3) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+        assert(command(MIMUSB_T_BOOTLOADER, wrong, 4) == 0 && g_nak_code == MIMUSB_NAK_PARAM);
+        assert(command(MIMUSB_T_BOOTLOADER, key, 3) == 0 && g_nak_code == MIMUSB_NAK_PARAM);
         assert(g_bootloader_entered == 0);
         g_has_bootloader = false;
-        assert(command(MIMHID_T_BOOTLOADER, key, 4) == 0 && g_nak_code == MIMHID_NAK_UNSUPPORTED);
+        assert(command(MIMUSB_T_BOOTLOADER, key, 4) == 0 && g_nak_code == MIMUSB_NAK_UNSUPPORTED);
         assert(g_bootloader_entered == 0);
         g_has_bootloader = true;
-        assert(command(MIMHID_T_BOOTLOADER, key, 4) == 1 && g_bootloader_entered == 1);
+        assert(command(MIMUSB_T_BOOTLOADER, key, 4) == 1 && g_bootloader_entered == 1);
     }
 }
 
 static int set_baud_cmd(uint32_t baud) {
     uint8_t b[4];
     put32(b, baud);
-    return command(MIMHID_T_SET_BAUD, b, 4);
+    return command(MIMUSB_T_SET_BAUD, b, 4);
 }
 
 static void ping_pong(uint8_t* p) {
     reset_io();
-    put_frame(MIMHID_T_PING, NULL, 0);
+    put_frame(MIMUSB_T_PING, NULL, 0);
     pump();
     size_t pos = 0;
     uint16_t n;
-    assert(next_out(&pos, p, &n) == MIMHID_T_PONG);
+    assert(next_out(&pos, p, &n) == MIMUSB_T_PONG);
 }
 
 static void test_set_baud(void) {
@@ -1141,14 +1141,14 @@ static void test_set_baud(void) {
     uint8_t p[2048];
     // Zero, a rate above the board's maximum, and a rate the divider misses by over 2 % are
     // refused.
-    assert(set_baud_cmd(0) == 0 && g_nak_code == MIMHID_NAK_PARAM);
-    assert(set_baud_cmd(g_max_rate + 1) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(set_baud_cmd(0) == 0 && g_nak_code == MIMUSB_NAK_PARAM);
+    assert(set_baud_cmd(g_max_rate + 1) == 0 && g_nak_code == MIMUSB_NAK_PARAM);
     g_rate_error_ppm = 30000;
-    assert(set_baud_cmd(1000000u) == 0 && g_nak_code == MIMHID_NAK_PARAM);
+    assert(set_baud_cmd(1000000u) == 0 && g_nak_code == MIMUSB_NAK_PARAM);
     // A wrong payload length is refused too.
-    assert(command(MIMHID_T_SET_BAUD, (const uint8_t*)"\1", 1) == 0 &&
-           g_nak_code == MIMHID_NAK_PARAM);
-    assert(g_baud == MIMHID_BOOT_BAUD && g_baud_changes == 0);
+    assert(command(MIMUSB_T_SET_BAUD, (const uint8_t*)"\1", 1) == 0 &&
+           g_nak_code == MIMUSB_NAK_PARAM);
+    assert(g_baud == MIMUSB_BOOT_BAUD && g_baud_changes == 0);
 
     // The ACK carries the rate the divider makes (1.5 % off here) and goes out before the switch.
     g_rate_error_ppm = 15000;
@@ -1160,18 +1160,18 @@ static void test_set_baud(void) {
     assert(set_baud_cmd(g_max_rate) == 1 && g_baud == g_max_rate);
 
     // A valid frame at the new rate keeps it.
-    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+    g_now += MIMUSB_BAUD_CONFIRM_MS - 1;
     ping_pong(p);
     assert(u32at(&p[9]) == g_max_rate);
-    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
+    g_now += 10 * MIMUSB_BAUD_CONFIRM_MS;
     pump();
     assert(g_baud == g_max_rate);
 
     // Back to the boot rate needs no confirmation.
-    assert(set_baud_cmd(MIMHID_BOOT_BAUD) == 1 && g_baud == MIMHID_BOOT_BAUD);
-    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
+    assert(set_baud_cmd(MIMUSB_BOOT_BAUD) == 1 && g_baud == MIMUSB_BOOT_BAUD);
+    g_now += 10 * MIMUSB_BAUD_CONFIRM_MS;
     pump();
-    assert(g_baud == MIMHID_BOOT_BAUD);
+    assert(g_baud == MIMUSB_BOOT_BAUD);
 
     // Nothing valid at the new rate in time: back to the boot rate.
     assert(set_baud_cmd(921600u) == 1 && g_baud == 921600u);
@@ -1179,14 +1179,14 @@ static void test_set_baud(void) {
     const uint8_t junk[] = {0x00, 0xFF, 0x13, 0x37};
     memcpy(g_in, junk, sizeof(junk));
     g_in_len = sizeof(junk);
-    g_now += MIMHID_BAUD_CONFIRM_MS - 1;
+    g_now += MIMUSB_BAUD_CONFIRM_MS - 1;
     pump();
     assert(g_baud == 921600u);
     g_now += 1;
     pump();
-    assert(g_baud == MIMHID_BOOT_BAUD);
+    assert(g_baud == MIMUSB_BOOT_BAUD);
     ping_pong(p);
-    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD);
+    assert(u32at(&p[9]) == MIMUSB_BOOT_BAUD);
 }
 
 // A BREAK returns the board to the boot rate, confirmed or not, and drops what it holds.
@@ -1195,17 +1195,17 @@ static void test_break(void) {
     assert(set_baud_cmd(3000000u) == 1);
     g_now += 1;
     ping_pong(p); // confirmed by a valid frame
-    g_now += 10 * MIMHID_BAUD_CONFIRM_MS;
+    g_now += 10 * MIMUSB_BAUD_CONFIRM_MS;
     pump();
     assert(g_baud == 3000000u);
     reset_io();
-    put_frame(MIMHID_T_PING, NULL, 0); // sent at the old rate, still unread when the BREAK is seen
+    put_frame(MIMUSB_T_PING, NULL, 0); // sent at the old rate, still unread when the BREAK is seen
     g_errors = HAL_UART_ERR_BREAK;
     pump();
-    assert(g_baud == MIMHID_BOOT_BAUD);
+    assert(g_baud == MIMUSB_BOOT_BAUD);
     assert(g_out_len == 0); // the ping was discarded
     ping_pong(p);
-    assert(u32at(&p[9]) == MIMHID_BOOT_BAUD);
+    assert(u32at(&p[9]) == MIMUSB_BOOT_BAUD);
     // A BREAK at the boot rate changes nothing but the discard.
     int changes = g_baud_changes;
     g_errors = HAL_UART_ERR_BREAK;
@@ -1215,33 +1215,33 @@ static void test_break(void) {
 
 // The counters, PROBE and the CRC.
 static void test_counters_and_probe(void) {
-    uint8_t reset = MIMHID_COUNTERS_F_RESET, keep = 0;
-    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1); // start from zero
+    uint8_t reset = MIMUSB_COUNTERS_F_RESET, keep = 0;
+    assert(command(MIMUSB_T_COUNTERS, &reset, 1) == 1); // start from zero
     uint8_t pat[100];
     for (unsigned i = 0; i < sizeof(pat); i++)
-        pat[i] = MIMHID_PROBE_BYTE(i);
+        pat[i] = MIMUSB_PROBE_BYTE(i);
     reset_io();
     for (int i = 0; i < 3; i++)
-        put_frame(MIMHID_T_PROBE, pat, 100);
+        put_frame(MIMUSB_T_PROBE, pat, 100);
     pump();
     assert(g_out_len == 0); // a probe is not answered
     // a probe with a wrong pattern, a frame with a wrong CRC, a framing error and an overrun
     pat[5] ^= 1;
-    put_frame(MIMHID_T_PROBE, pat, 100);
-    put_frame(MIMHID_T_PROBE, pat, 100);
+    put_frame(MIMUSB_T_PROBE, pat, 100);
+    put_frame(MIMUSB_T_PROBE, pat, 100);
     g_in[g_in_len - 1] ^= 0x40;
     g_errors = HAL_UART_ERR_FRAMING | HAL_UART_ERR_OVERRUN;
     pump();
-    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1 && g_ack_data_len == 10);
+    assert(command(MIMUSB_T_COUNTERS, &keep, 1) == 1 && g_ack_data_len == 10);
     assert((g_ack_data[0] | (g_ack_data[1] << 8)) == 3); // probes_good
     assert((g_ack_data[2] | (g_ack_data[3] << 8)) == 2); // bad_crc: wrong pattern + wrong CRC
     assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 1); // framing
     assert((g_ack_data[6] | (g_ack_data[7] << 8)) == 1); // uart_overrun
     assert((g_ack_data[8] | (g_ack_data[9] << 8)) == 0); // ring_overrun
     // Read without reset keeps them; read with reset returns them once more and then zeroes.
-    assert(command(MIMHID_T_COUNTERS, &reset, 1) == 1 &&
+    assert(command(MIMUSB_T_COUNTERS, &reset, 1) == 1 &&
            (g_ack_data[0] | (g_ack_data[1] << 8)) == 3);
-    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1);
+    assert(command(MIMUSB_T_COUNTERS, &keep, 1) == 1);
     for (int i = 0; i < 10; i++)
         assert(g_ack_data[i] == 0);
     // The counters stop at 65535.
@@ -1252,18 +1252,18 @@ static void test_counters_and_probe(void) {
         g_errors = HAL_UART_ERR_FRAMING;
         pump();
     }
-    assert(command(MIMHID_T_COUNTERS, &keep, 1) == 1);
+    assert(command(MIMUSB_T_COUNTERS, &keep, 1) == 1);
     assert((g_ack_data[4] | (g_ack_data[5] << 8)) == 70);
 
     // Two flips in the same bit position cancel in an XOR but not in a CRC.
     reset_io();
     uint8_t d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-    put_cmd(MIMHID_T_EP_CONFIG, d, 2);
+    put_cmd(MIMUSB_T_EP_CONFIG, d, 2);
     g_in[g_in_len - 5] ^= 0x10; // flips one byte of the payload...
     g_in[g_in_len - 4] ^= 0x10; // ...and the same bit of the next
     g_out_len = 0;
     pump();
-    assert(result_of(MIMHID_T_EP_CONFIG) == -1);
+    assert(result_of(MIMUSB_T_EP_CONFIG) == -1);
 }
 
 // The serial number from the chip id (the board makes the string): its hexadecimal digits, one
@@ -1281,17 +1281,17 @@ static void test_serial_from_chip_id(void) {
     // Announced again as it was, it is accepted again; with data it is refused; with a length it
     // is another string.
     assert(desc_reset() == 1);
-    assert(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID) == 1);
-    assert(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID) == 1);
-    expect_nak(desc_data_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, k_desc_a, 4), MIMHID_NAK_STATE);
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 3, 0x0409, 0, 0), MIMHID_NAK_STATE);
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 4, 0x0409, 6, MIMHID_DESC_F_SERIAL_FROM_ID),
-               MIMHID_NAK_PARAM);
+    assert(desc_begin_raw(MIMUSB_DESC_STRING, 3, 0x0409, 0, MIMUSB_DESC_F_SERIAL_FROM_ID) == 1);
+    assert(desc_begin_raw(MIMUSB_DESC_STRING, 3, 0x0409, 0, MIMUSB_DESC_F_SERIAL_FROM_ID) == 1);
+    expect_nak(desc_data_raw(MIMUSB_DESC_STRING, 3, 0x0409, 0, k_desc_a, 4), MIMUSB_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 3, 0x0409, 0, 0), MIMUSB_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 4, 0x0409, 6, MIMUSB_DESC_F_SERIAL_FROM_ID),
+               MIMUSB_NAK_PARAM);
 
     // no id on the chip: nothing to make the string from
     g_has_id = 0;
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 5, 0x0409, 0, MIMHID_DESC_F_SERIAL_FROM_ID),
-               MIMHID_NAK_UNSUPPORTED);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 5, 0x0409, 0, MIMUSB_DESC_F_SERIAL_FROM_ID),
+               MIMUSB_NAK_UNSUPPORTED);
     g_has_id = 1;
 }
 
@@ -1300,14 +1300,14 @@ static void test_detach(void) {
     base_node();
     assert(stage() == 1);
     assert(commit_staged() == 1);
-    assert(mimhid_active_interfaces() == 1);
+    assert(mimusb_active_interfaces() == 1);
     const int connects = g_connects, disconnects = g_disconnects;
 
     // COMMIT with the detach flag leaves the bus at once and forgets the configuration.
     const uint8_t detach[] = {1};
-    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
     assert(g_disconnects == disconnects + 1 && g_connects == connects);
-    assert(mimhid_active_interfaces() == 0);
+    assert(mimusb_active_interfaces() == 0);
     // what the board presents then is the device without an interface, and no string
     const uint8_t* c = tud_descriptor_configuration_cb(0);
     assert((c[2] | (c[3] << 8)) == 9 && c[4] == 0);
@@ -1321,13 +1321,13 @@ static const uint8_t k_zero[64];
 typedef struct {
     uint8_t bm_mask, bm_value, request_mask, request_value;
     uint16_t value_mask, value_value, index_mask, index_value;
-    uint8_t action; // MIMHID_RULE_*
+    uint8_t action; // MIMUSB_RULE_*
     const uint8_t* data; // ANSWER: its bytes
     uint16_t length;     // ANSWER: their number
     uint16_t capacity;   // ANSWER: the answer memory it reserves (rule_answer: its length)
     uint8_t endpoint, filter, first; // ANSWER_LAST_SENT
     uint16_t timeout_ms; // ASK
-    uint8_t after;       // ASK: MIMHID_REPLY_STALL or MIMHID_REPLY_DROP
+    uint8_t after;       // ASK: MIMUSB_REPLY_STALL or MIMUSB_REPLY_DROP
 } trule_t;
 
 // A rule for one request (type byte and bRequest exactly), any wValue and wIndex.
@@ -1342,7 +1342,7 @@ static trule_t rule_of(uint8_t action, uint8_t bm, uint8_t request) {
     return r;
 }
 static trule_t rule_answer(uint8_t bm, uint8_t request, const uint8_t* data, uint16_t length) {
-    trule_t r = rule_of(MIMHID_RULE_ANSWER, bm, request);
+    trule_t r = rule_of(MIMUSB_RULE_ANSWER, bm, request);
     r.data = data;
     r.length = length;
     r.capacity = length;
@@ -1351,7 +1351,7 @@ static trule_t rule_answer(uint8_t bm, uint8_t request, const uint8_t* data, uin
 // ANSWER_LAST_SENT of an IN endpoint; filter 1 keeps only transfers that start with `first`.
 static trule_t rule_last(uint8_t bm, uint8_t request, uint8_t endpoint, uint8_t filter,
                          uint8_t first) {
-    trule_t r = rule_of(MIMHID_RULE_ANSWER_LAST_SENT, bm, request);
+    trule_t r = rule_of(MIMUSB_RULE_ANSWER_LAST_SENT, bm, request);
     r.endpoint = endpoint;
     r.filter = filter;
     r.first = first;
@@ -1359,7 +1359,7 @@ static trule_t rule_last(uint8_t bm, uint8_t request, uint8_t endpoint, uint8_t 
 }
 // ASK with the time the host has and what happens after it.
 static trule_t rule_for(uint8_t bm, uint8_t request, uint16_t timeout_ms, uint8_t after) {
-    trule_t r = rule_of(MIMHID_RULE_ASK, bm, request);
+    trule_t r = rule_of(MIMUSB_RULE_ASK, bm, request);
     r.timeout_ms = timeout_ms;
     r.after = after;
     return r;
@@ -1379,17 +1379,17 @@ static size_t rule_frame(uint8_t index, const trule_t* r, uint8_t* p) {
     k += 8;
     p[k++] = r->action;
     switch (r->action) {
-    case MIMHID_RULE_ANSWER:
+    case MIMUSB_RULE_ANSWER:
         put_u16(&p[k], r->capacity);
         put_u16(&p[k + 2], r->length);
         k += 4;
         break;
-    case MIMHID_RULE_ANSWER_LAST_SENT:
+    case MIMUSB_RULE_ANSWER_LAST_SENT:
         p[k++] = r->endpoint;
         p[k++] = r->filter;
         p[k++] = r->first;
         break;
-    case MIMHID_RULE_ASK:
+    case MIMUSB_RULE_ASK:
         put_u16(&p[k], r->timeout_ms);
         k += 2;
         p[k++] = r->after;
@@ -1404,15 +1404,15 @@ static size_t rule_frame(uint8_t index, const trule_t* r, uint8_t* p) {
 // first answer that was not an ACK.
 static int rule_stage(uint8_t index, const trule_t* r) {
     uint8_t p[32];
-    int res = command(MIMHID_T_RULE, p, rule_frame(index, r, p));
-    if (res != 1 || r->action != MIMHID_RULE_ANSWER || r->length == 0)
+    int res = command(MIMUSB_T_RULE, p, rule_frame(index, r, p));
+    if (res != 1 || r->action != MIMUSB_RULE_ANSWER || r->length == 0)
         return res;
-    return send_blob(MIMHID_DESC_ANSWER, index, 0, r->data, r->length);
+    return send_blob(MIMUSB_DESC_ANSWER, index, 0, r->data, r->length);
 }
 
 static int rules_apply(uint8_t flags, uint8_t count) {
     const uint8_t p[2] = {flags, count};
-    return command(MIMHID_T_RULES_APPLY, p, sizeof(p));
+    return command(MIMUSB_T_RULES_APPLY, p, sizeof(p));
 }
 
 // The table of `n` rules is staged in order and made the active one without a COMMIT.
@@ -1426,47 +1426,47 @@ static int control_config(uint8_t flags, const trule_t* r, int n) {
 }
 
 static int rule_data(uint8_t index, const uint8_t* d, size_t n) {
-    uint8_t p[1 + MIMHID_CONTROL_DATA_MAX + 1];
-    assert(n <= MIMHID_CONTROL_DATA_MAX + 1);
+    uint8_t p[1 + MIMUSB_CONTROL_DATA_MAX + 1];
+    assert(n <= MIMUSB_CONTROL_DATA_MAX + 1);
     p[0] = index;
     if (n)
         memcpy(p + 1, d, n);
-    return command(MIMHID_T_RULE_DATA, p, 1 + n);
+    return command(MIMUSB_T_RULE_DATA, p, 1 + n);
 }
 
 
 // The staging commands: what they accept again, what they refuse, and what no longer fits.
 static void test_desc_commands(void) {
     // DESC_RESET carries nothing but its sequence number.
-    expect_nak(command(MIMHID_T_DESC_RESET, (const uint8_t*)"\1", 1), MIMHID_NAK_PARAM);
+    expect_nak(command(MIMUSB_T_DESC_RESET, (const uint8_t*)"\1", 1), MIMUSB_NAK_PARAM);
     assert(desc_reset() == 1);
 
     // DESC_BEGIN: seven bytes, a known kind, and the index, language and flags the kind needs.
-    expect_nak(command(MIMHID_T_DESC_BEGIN, (const uint8_t*)"\1\0\0\0\0", 5), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(9, 0, 0, 4, 0), MIMHID_NAK_PARAM); // no such kind
-    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 1, 0, 18, 0),
-               MIMHID_NAK_PARAM); // device: index 0
-    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0x0409, 18, 0),
-               MIMHID_NAK_PARAM); // device: no language
-    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 18, 1),
-               MIMHID_NAK_PARAM); // device: no flags
-    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 0, 0), MIMHID_NAK_PARAM); // nothing to send
-    expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 19, 0),
-               MIMHID_NAK_OVERFLOW); // holds 18 bytes
-    expect_nak(desc_begin_raw(MIMHID_DESC_CONFIGURATION, 0, 0, MIMHID_MAX_CONFIG_BYTES + 1, 0),
-               MIMHID_NAK_OVERFLOW);
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 0, 0x0409, 4, 0),
-               MIMHID_NAK_PARAM); // the board makes index 0
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0, 4, 0),
-               MIMHID_NAK_PARAM); // a language is given
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 3, 0),
-               MIMHID_NAK_PARAM); // an even length
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 0, 0),
-               MIMHID_NAK_PARAM); // at least 2 bytes
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, MIMHID_STRING_DESC_MAX + 2, 0),
-               MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0409, 4, 2),
-               MIMHID_NAK_PARAM); // an unknown flag
+    expect_nak(command(MIMUSB_T_DESC_BEGIN, (const uint8_t*)"\1\0\0\0\0", 5), MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(9, 0, 0, 4, 0), MIMUSB_NAK_PARAM); // no such kind
+    expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 1, 0, 18, 0),
+               MIMUSB_NAK_PARAM); // device: index 0
+    expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 0, 0x0409, 18, 0),
+               MIMUSB_NAK_PARAM); // device: no language
+    expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 0, 0, 18, 1),
+               MIMUSB_NAK_PARAM); // device: no flags
+    expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 0, 0, 0, 0), MIMUSB_NAK_PARAM); // nothing to send
+    expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 0, 0, 19, 0),
+               MIMUSB_NAK_OVERFLOW); // holds 18 bytes
+    expect_nak(desc_begin_raw(MIMUSB_DESC_CONFIGURATION, 0, 0, MIMUSB_MAX_CONFIG_BYTES + 1, 0),
+               MIMUSB_NAK_OVERFLOW);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 0, 0x0409, 4, 0),
+               MIMUSB_NAK_PARAM); // the board makes index 0
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0, 4, 0),
+               MIMUSB_NAK_PARAM); // a language is given
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0x0409, 3, 0),
+               MIMUSB_NAK_PARAM); // an even length
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0x0409, 0, 0),
+               MIMUSB_NAK_PARAM); // at least 2 bytes
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0x0409, MIMUSB_STRING_DESC_MAX + 2, 0),
+               MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0x0409, 4, 2),
+               MIMUSB_NAK_PARAM); // an unknown flag
 
     // The kind ANSWER names the bytes of a staged ANSWER rule: the rule is there first, with its
     // length (RULE), the bytes follow as for any descriptor.
@@ -1474,63 +1474,63 @@ static void test_desc_commands(void) {
         assert(desc_reset() == 1);
         const trule_t a = rule_answer(0xC0, 0x42, k_desc_a, sizeof(k_desc_a));
         uint8_t p[32];
-        assert(command(MIMHID_T_RULE, p, rule_frame(0, &a, p)) == 1);
-        const trule_t stall = rule_of(MIMHID_RULE_STALL, 0xC0, 0x43);
-        assert(command(MIMHID_T_RULE, p, rule_frame(1, &stall, p)) == 1);
+        assert(command(MIMUSB_T_RULE, p, rule_frame(0, &a, p)) == 1);
+        const trule_t stall = rule_of(MIMUSB_RULE_STALL, 0xC0, 0x43);
+        assert(command(MIMUSB_T_RULE, p, rule_frame(1, &stall, p)) == 1);
         const trule_t empty = rule_answer(0xC0, 0x44, NULL, 0);
-        assert(command(MIMHID_T_RULE, p, rule_frame(2, &empty, p)) == 1);
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0x0409, sizeof(k_desc_a), 0),
-                   MIMHID_NAK_PARAM); // no language
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 1),
-                   MIMHID_NAK_PARAM); // no flags
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a) + 1, 0),
-                   MIMHID_NAK_PARAM); // not the length the rule was staged with
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 1, 0, 4, 0),
-                   MIMHID_NAK_STATE); // a STALL rule has no bytes
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 3, 0, 4, 0), MIMHID_NAK_STATE); // no rule 3
+        assert(command(MIMUSB_T_RULE, p, rule_frame(2, &empty, p)) == 1);
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0x0409, sizeof(k_desc_a), 0),
+                   MIMUSB_NAK_PARAM); // no language
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 1),
+                   MIMUSB_NAK_PARAM); // no flags
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a) + 1, 0),
+                   MIMUSB_NAK_PARAM); // not the length the rule was staged with
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 1, 0, 4, 0),
+                   MIMUSB_NAK_STATE); // a STALL rule has no bytes
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 3, 0, 4, 0), MIMUSB_NAK_STATE); // no rule 3
         // A descriptor announced again as it was is acknowledged; with another length it is refused.
-        assert(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 0) == 1);
-        assert(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 0) == 1);
-        expect_nak(desc_begin_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a) + 1, 0),
-                   MIMHID_NAK_STATE);
+        assert(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 0) == 1);
+        assert(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a), 0) == 1);
+        expect_nak(desc_begin_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a) + 1, 0),
+                   MIMUSB_NAK_STATE);
         // DESC_DATA: inside the length, without a gap.
-        expect_nak(desc_data_raw(MIMHID_DESC_ANSWER, 1, 0, 0, k_desc_a, 4), MIMHID_NAK_STATE);
-        expect_nak(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 5, k_desc_a, 4), MIMHID_NAK_PARAM); // a gap
-        expect_nak(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 0, k_zero, sizeof(k_desc_a) + 1),
-                   MIMHID_NAK_PARAM);
-        assert(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 0, k_desc_a, 10) == 1);
-        assert(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 0, k_desc_a, 10) == 1); // again
-        assert(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10) == 1);
-        expect_nak(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, sizeof(k_desc_a), k_desc_a, 1),
-                   MIMHID_NAK_PARAM);
+        expect_nak(desc_data_raw(MIMUSB_DESC_ANSWER, 1, 0, 0, k_desc_a, 4), MIMUSB_NAK_STATE);
+        expect_nak(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 5, k_desc_a, 4), MIMUSB_NAK_PARAM); // a gap
+        expect_nak(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 0, k_zero, sizeof(k_desc_a) + 1),
+                   MIMUSB_NAK_PARAM);
+        assert(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 0, k_desc_a, 10) == 1);
+        assert(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 0, k_desc_a, 10) == 1); // again
+        assert(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 10, k_desc_a + 10, sizeof(k_desc_a) - 10) == 1);
+        expect_nak(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, sizeof(k_desc_a), k_desc_a, 1),
+                   MIMUSB_NAK_PARAM);
         // The staged rules are forgotten by DESC_RESET: the bytes of rule 0 have nowhere to go.
         assert(desc_reset() == 1);
-        expect_nak(desc_data_raw(MIMHID_DESC_ANSWER, 0, 0, 0, k_desc_a, 4), MIMHID_NAK_STATE);
+        expect_nak(desc_data_raw(MIMUSB_DESC_ANSWER, 0, 0, 0, k_desc_a, 4), MIMUSB_NAK_STATE);
     }
 
     // DESC_DATA: only for an announced descriptor.
-    expect_nak(desc_data_raw(MIMHID_DESC_STRING, 1, 0x0409, 0, k_desc_a, 4), MIMHID_NAK_STATE);
-    expect_nak(desc_data_raw(MIMHID_DESC_DEVICE, 0, 0, 0, k_desc_a, 4), MIMHID_NAK_STATE);
-    expect_nak(command(MIMHID_T_DESC_DATA, (const uint8_t*)"\4\0\0\0\0", 5),
-               MIMHID_NAK_PARAM); // no bytes
+    expect_nak(desc_data_raw(MIMUSB_DESC_STRING, 1, 0x0409, 0, k_desc_a, 4), MIMUSB_NAK_STATE);
+    expect_nak(desc_data_raw(MIMUSB_DESC_DEVICE, 0, 0, 0, k_desc_a, 4), MIMUSB_NAK_STATE);
+    expect_nak(command(MIMUSB_T_DESC_DATA, (const uint8_t*)"\4\0\0\0\0", 5),
+               MIMUSB_NAK_PARAM); // no bytes
 
-    // The string store holds MIMHID_MAX_STRINGS strings of the longest length, and not one more,
+    // The string store holds MIMUSB_MAX_STRINGS strings of the longest length, and not one more,
     // whatever its index or language: NAK OVERFLOW.
     assert(desc_reset() == 1);
-    for (uint8_t i = 0; i < MIMHID_MAX_STRINGS; i++)
-        assert(desc_begin_raw(MIMHID_DESC_STRING, (uint8_t)(i + 1), 0x0409, MIMHID_STRING_DESC_MAX,
+    for (uint8_t i = 0; i < MIMUSB_MAX_STRINGS; i++)
+        assert(desc_begin_raw(MIMUSB_DESC_STRING, (uint8_t)(i + 1), 0x0409, MIMUSB_STRING_DESC_MAX,
                               0) == 1);
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, MIMHID_MAX_STRINGS + 1, 0x0409, 4, 0),
-               MIMHID_NAK_OVERFLOW);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, MIMUSB_MAX_STRINGS + 1, 0x0409, 4, 0),
+               MIMUSB_NAK_OVERFLOW);
     // the same index in another language is another string
-    expect_nak(desc_begin_raw(MIMHID_DESC_STRING, 1, 0x0407, 4, 0), MIMHID_NAK_OVERFLOW);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, 1, 0x0407, 4, 0), MIMUSB_NAK_OVERFLOW);
     assert(desc_reset() == 1);
 }
 
 // ---- the walk at COMMIT: every refusal, with descriptors written byte by byte ----
 // A configuration descriptor under construction.
 typedef struct {
-    uint8_t b[MIMHID_MAX_CONFIG_BYTES + 64];
+    uint8_t b[MIMUSB_MAX_CONFIG_BYTES + 64];
     size_t n;
     uint8_t interfaces;
 } tcfg_t;
@@ -1591,7 +1591,7 @@ static void stage_endpoints(const tcfg_t* c) {
     size_t pos = 9;
     while (pos + 2 <= c->n && c->b[pos] >= 2 && pos + c->b[pos] <= c->n) {
         if (c->b[pos + 1] == TUSB_DESC_ENDPOINT && c->b[pos] == 7 && (c->b[pos + 2] & 0x80) != 0)
-            (void)ep_config(c->b[pos + 2], 2, MIMHID_EP_FULL_DROP_NEWEST);
+            (void)ep_config(c->b[pos + 2], 2, MIMUSB_EP_FULL_DROP_NEWEST);
         pos += c->b[pos];
     }
 }
@@ -1602,10 +1602,10 @@ static int commit_raw(const uint8_t* dev, size_t dev_len, tcfg_t* c) {
     assert(desc_reset() == 1);
     uint8_t d[18];
     make_device(d);
-    int r = send_blob(MIMHID_DESC_DEVICE, 0, 0, dev != NULL ? dev : d, dev != NULL ? dev_len : 18);
+    int r = send_blob(MIMUSB_DESC_DEVICE, 0, 0, dev != NULL ? dev : d, dev != NULL ? dev_len : 18);
     if (r != 1)
         return r;
-    if ((r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c->b, c->n)) != 1)
+    if ((r = send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, c->b, c->n)) != 1)
         return r;
     stage_endpoints(c);
     return commit_staged();
@@ -1613,7 +1613,7 @@ static int commit_raw(const uint8_t* dev, size_t dev_len, tcfg_t* c) {
 
 // A COMMIT of a configuration that does not hold together is refused, nothing is disconnected and
 // the active configuration is the one before.
-static void expect_refused(int r) { expect_nak(r, MIMHID_NAK_DESCRIPTOR); }
+static void expect_refused(int r) { expect_nak(r, MIMUSB_NAK_DESCRIPTOR); }
 
 static void test_commit_walk(void) {
     // Something committed first, which the harness takes off the bus before each of the commits
@@ -1663,23 +1663,23 @@ static void test_commit_walk(void) {
         }
         // announced longer than the 18 bytes the board holds: refused when it is announced
         assert(desc_reset() == 1);
-        expect_nak(desc_begin_raw(MIMHID_DESC_DEVICE, 0, 0, 19, 0), MIMHID_NAK_OVERFLOW);
+        expect_nak(desc_begin_raw(MIMUSB_DESC_DEVICE, 0, 0, 19, 0), MIMUSB_NAK_OVERFLOW);
         // staged only in part
         make_device(d);
         assert(desc_reset() == 1);
-        assert(send_blob_partial(MIMHID_DESC_DEVICE, 0, 0, d, 18, 10, 0) == 1);
-        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+        assert(send_blob_partial(MIMUSB_DESC_DEVICE, 0, 0, d, 18, 10, 0) == 1);
+        assert(send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
         stage_endpoints(&c);
         expect_refused(commit_staged());
         // no device descriptor at all
         assert(desc_reset() == 1);
-        assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+        assert(send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
         stage_endpoints(&c);
         expect_refused(commit_staged());
         // Through all of those refusals the target saw no connect, and the board, off the bus since
         // the detach before the first of them, serves no configuration.
         assert(g_connects == 0 && g_disconnects == 0);
-        assert(mimhid_active_interfaces() == 0);
+        assert(mimusb_active_interfaces() == 0);
     }
 
     // the configuration descriptor: its own header, wTotalLength, one configuration, attributes
@@ -1743,8 +1743,8 @@ static void test_commit_walk(void) {
         expect_refused(commit_raw(NULL, 0, &t));
         // a configuration too long for the board is refused when it is announced
         assert(desc_reset() == 1);
-        expect_nak(desc_begin_raw(MIMHID_DESC_CONFIGURATION, 0, 0, MIMHID_MAX_CONFIG_BYTES + 1, 0),
-                   MIMHID_NAK_OVERFLOW);
+        expect_nak(desc_begin_raw(MIMUSB_DESC_CONFIGURATION, 0, 0, MIMUSB_MAX_CONFIG_BYTES + 1, 0),
+                   MIMUSB_NAK_OVERFLOW);
     }
 
     // interface numbers: 0, 1, 2, ... in order, alternate setting 0 only
@@ -1797,11 +1797,11 @@ static void test_commit_walk(void) {
         cfg_endpoint(&t, 0x82, TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         assert(commit_raw(NULL, 0, &t) == 1);
-        assert(mimhid_active_layout()->count == 2 && mimhid_active_layout()->itf_alts[0] == 2 &&
-               mimhid_active_layout()->itf_alts[1] == 2);
+        assert(mimusb_active_layout()->count == 2 && mimusb_active_layout()->itf_alts[0] == 2 &&
+               mimusb_active_layout()->itf_alts[1] == 2);
         // the span of an interface takes its settings (TinyUSB opens once per interface)
-        assert(mimhid_active_generic_span(0) == 9 + 7 + 9 + 7);
-        assert(mimhid_active_generic_span(1) == 9 + 9 + 7);
+        assert(mimusb_active_generic_span(0) == 9 + 7 + 9 + 7);
+        assert(mimusb_active_generic_span(1) == 9 + 9 + 7);
         cfg_open(&t); // setting 2 without 1
         cfg_interface(&t, 0, 0, 0, 0xFF);
         cfg_interface(&t, 0, 2, 0, 0xFF);
@@ -1843,7 +1843,7 @@ static void test_commit_walk(void) {
         }
         // more interfaces than the board has (they need no endpoint)
         cfg_open(&t);
-        for (uint8_t i = 0; i <= MIMHID_MAX_INTERFACES; i++)
+        for (uint8_t i = 0; i <= MIMUSB_MAX_INTERFACES; i++)
             cfg_interface(&t, i, 0, 0, 0xFF);
         cfg_close(&t);
         expect_refused(commit_raw(NULL, 0, &t));
@@ -1936,21 +1936,21 @@ static void test_commit_walk(void) {
         cfg_open(&t);
         cfg_interface(&t, 0, 0, 1, 0x03);
         cfg_hid(&t, rd);
-        cfg_endpoint(&t, 0x80 | MIMHID_MAX_ENDPOINT_NUMBER, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x80 | MIMUSB_MAX_ENDPOINT_NUMBER, TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         assert(commit_raw(NULL, 0, &t) == 1);
-#if MIMHID_MAX_ENDPOINT_NUMBER < 15
+#if MIMUSB_MAX_ENDPOINT_NUMBER < 15
         cfg_open(&t);
         cfg_interface(&t, 0, 0, 1, 0x03);
         cfg_hid(&t, rd);
-        cfg_endpoint(&t, 0x80 | (MIMHID_MAX_ENDPOINT_NUMBER + 1), TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, 0x80 | (MIMUSB_MAX_ENDPOINT_NUMBER + 1), TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         expect_refused(commit_raw(NULL, 0, &t));
         cfg_open(&t); // an OUT endpoint above it
         cfg_interface(&t, 0, 0, 2, 0x03);
         cfg_hid(&t, rd);
         cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, 8, 1);
-        cfg_endpoint(&t, MIMHID_MAX_ENDPOINT_NUMBER + 1, TUSB_XFER_INTERRUPT, 8, 1);
+        cfg_endpoint(&t, MIMUSB_MAX_ENDPOINT_NUMBER + 1, TUSB_XFER_INTERRUPT, 8, 1);
         cfg_close(&t);
         expect_refused(commit_raw(NULL, 0, &t));
 #endif
@@ -1985,7 +1985,7 @@ static void test_commit_walk(void) {
             expect_refused(commit_raw(NULL, 0, &t));
         }
         // packet sizes: 1 to what the controller takes
-        static const uint16_t bad_size[] = {0, MIMHID_MAX_ENDPOINT_BYTES + 1, 0x0800 | 8};
+        static const uint16_t bad_size[] = {0, MIMUSB_MAX_ENDPOINT_BYTES + 1, 0x0800 | 8};
         for (size_t i = 0; i < sizeof(bad_size) / sizeof(bad_size[0]); i++) {
             cfg_open(&t);
             cfg_interface(&t, 0, 0, 1, 0x03);
@@ -2003,7 +2003,7 @@ static void test_commit_walk(void) {
         cfg_open(&t);
         cfg_interface(&t, 0, 0, 1, 0x03);
         cfg_hid(&t, rd);
-        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, MIMHID_MAX_ENDPOINT_BYTES,
+        cfg_endpoint(&t, 0x81, TUSB_XFER_INTERRUPT, MIMUSB_MAX_ENDPOINT_BYTES,
                      255 > 16 && !TUD_OPT_HIGH_SPEED ? 255 : 16);
         cfg_close(&t);
         assert(commit_raw(NULL, 0, &t) == 1);
@@ -2027,17 +2027,17 @@ static void test_commit_walk(void) {
         for (int mistake = 0; mistake < 3; mistake++) {
             uint8_t s[6] = {6, 3, 'a', 0, 'b', 0};
             assert(desc_reset() == 1);
-            assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
-            assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, t.b, t.n) == 1);
+            assert(send_blob(MIMUSB_DESC_DEVICE, 0, 0, d, 18) == 1);
+            assert(send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, t.b, t.n) == 1);
             stage_endpoints(&t);
             if (mistake == 0)
                 s[0] = 8; // bLength is not the length
             if (mistake == 1)
                 s[1] = 2;       // not a string descriptor
             if (mistake == 2) { // only part of it
-                assert(send_blob_partial(MIMHID_DESC_STRING, 1, 0x0409, s, 6, 4, 0) == 1);
+                assert(send_blob_partial(MIMUSB_DESC_STRING, 1, 0x0409, s, 6, 4, 0) == 1);
             } else {
-                assert(send_blob(MIMHID_DESC_STRING, 1, 0x0409, s, 6) == 1);
+                assert(send_blob(MIMUSB_DESC_STRING, 1, 0x0409, s, 6) == 1);
             }
             expect_refused(commit_staged());
         }
@@ -2075,10 +2075,10 @@ static int commit_bos(uint16_t bcd_usb, const uint8_t* bos, size_t bos_len, size
     uint8_t d[18];
     make_device(d);
     put_u16(&d[2], bcd_usb);
-    assert(send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18) == 1);
-    assert(send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
+    assert(send_blob(MIMUSB_DESC_DEVICE, 0, 0, d, 18) == 1);
+    assert(send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, c.b, c.n) == 1);
     if (bos != NULL) {
-        const int r = send_blob_partial(MIMHID_DESC_BOS, 0, 0, bos, bos_len, have, 0);
+        const int r = send_blob_partial(MIMUSB_DESC_BOS, 0, 0, bos, bos_len, have, 0);
         if (r != 1)
             return r;
     }
@@ -2107,11 +2107,11 @@ static void test_bos(void) {
     // A detach forgets it too.
     assert(commit_bos(0x0210, good, n, n) == 1);
     const uint8_t detach[] = {1};
-    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
     assert(tud_descriptor_bos_cb() == NULL);
     // A new DESC_RESET forgets a staged one.
     assert(desc_reset() == 1);
-    assert(send_blob(MIMHID_DESC_BOS, 0, 0, good, n) == 1);
+    assert(send_blob(MIMUSB_DESC_BOS, 0, 0, good, n) == 1);
     assert(commit_bos(0x0210, NULL, 0, 0) == 1);
     assert(tud_descriptor_bos_cb() == NULL);
 
@@ -2121,9 +2121,9 @@ static void test_bos(void) {
     assert(tud_descriptor_bos_cb() != NULL && tud_descriptor_bos_cb()[2] == 5);
 
     // Refused at COMMIT: a bcdUSB below 0x0201, and each way the descriptor does not hold together.
-    expect_nak(commit_bos(0x0200, good, n, n), MIMHID_NAK_DESCRIPTOR);
-    expect_nak(commit_bos(0x0110, good, n, n), MIMHID_NAK_DESCRIPTOR);
-    expect_nak(commit_bos(0x0210, good, n, n - 1), MIMHID_NAK_DESCRIPTOR); // only in part
+    expect_nak(commit_bos(0x0200, good, n, n), MIMUSB_NAK_DESCRIPTOR);
+    expect_nak(commit_bos(0x0110, good, n, n), MIMUSB_NAK_DESCRIPTOR);
+    expect_nak(commit_bos(0x0210, good, n, n - 1), MIMUSB_NAK_DESCRIPTOR); // only in part
     uint8_t bad[64];
     const struct {
         size_t at;
@@ -2141,39 +2141,39 @@ static void test_bos(void) {
     for (size_t i = 0; i < sizeof(mistakes) / sizeof(mistakes[0]); i++) {
         memcpy(bad, good, n);
         bad[mistakes[i].at] = mistakes[i].value;
-        expect_nak(commit_bos(0x0210, bad, n, n), MIMHID_NAK_DESCRIPTOR);
+        expect_nak(commit_bos(0x0210, bad, n, n), MIMUSB_NAK_DESCRIPTOR);
     }
 
     // DESC_BEGIN of the kind BOS: index, language and flags are zero, the length is 1 to the
     // board's limit, and the same announcement again is acknowledged again.
     assert(desc_reset() == 1);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 1, 0, 40, 0), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0x0409, 40, 0), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 40, 1), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 0, 0), MIMHID_NAK_PARAM);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES + 1, 0),
-               MIMHID_NAK_OVERFLOW);
-    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES, 0) == 1);
-    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, MIMHID_MAX_BOS_BYTES, 0) == 1);
-    expect_nak(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 40, 0), MIMHID_NAK_STATE);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 1, 0, 40, 0), MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0x0409, 40, 0), MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, 40, 1), MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, 0, 0), MIMUSB_NAK_PARAM);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, MIMUSB_MAX_BOS_BYTES + 1, 0),
+               MIMUSB_NAK_OVERFLOW);
+    assert(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, MIMUSB_MAX_BOS_BYTES, 0) == 1);
+    assert(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, MIMUSB_MAX_BOS_BYTES, 0) == 1);
+    expect_nak(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, 40, 0), MIMUSB_NAK_STATE);
     // The bytes of one that was not announced are refused, and so is more than was announced.
     assert(desc_reset() == 1);
-    expect_nak(desc_data_raw(MIMHID_DESC_BOS, 0, 0, 0, good, 5), MIMHID_NAK_STATE);
-    assert(desc_begin_raw(MIMHID_DESC_BOS, 0, 0, 5, 0) == 1);
-    expect_nak(desc_data_raw(MIMHID_DESC_BOS, 0, 0, 0, good, 6), MIMHID_NAK_PARAM);
+    expect_nak(desc_data_raw(MIMUSB_DESC_BOS, 0, 0, 0, good, 5), MIMUSB_NAK_STATE);
+    assert(desc_begin_raw(MIMUSB_DESC_BOS, 0, 0, 5, 0) == 1);
+    expect_nak(desc_data_raw(MIMUSB_DESC_BOS, 0, 0, 0, good, 6), MIMUSB_NAK_PARAM);
 
     // The largest one the board holds is taken (a header and capabilities that fill it).
     {
-        uint8_t big[MIMHID_MAX_BOS_BYTES];
+        uint8_t big[MIMUSB_MAX_BOS_BYTES];
         memset(big, 0, sizeof(big));
         big[0] = 5;
         big[1] = 0x0F;
-        put_u16(&big[2], MIMHID_MAX_BOS_BYTES);
+        put_u16(&big[2], MIMUSB_MAX_BOS_BYTES);
         big[4] = 1;
-        big[5] = (uint8_t)(MIMHID_MAX_BOS_BYTES - 5); // one capability that fills the rest
+        big[5] = (uint8_t)(MIMUSB_MAX_BOS_BYTES - 5); // one capability that fills the rest
         big[6] = 0x10;
         big[7] = 0x05;
-        assert(MIMHID_MAX_BOS_BYTES - 5 <= 255);
+        assert(MIMUSB_MAX_BOS_BYTES - 5 <= 255);
         assert(commit_bos(0x0300, big, sizeof(big), sizeof(big)) == 1);
         assert(memcmp(tud_descriptor_bos_cb(), big, sizeof(big)) == 0);
     }
@@ -2183,7 +2183,7 @@ static void test_commit_attached_refused(void) {
     device_config(0, "First");
     base_node();
     assert(commit() == 1);
-    assert(g_up && mimhid_active_interfaces() == 1);
+    assert(g_up && mimusb_active_interfaces() == 1);
     uint8_t first[64];
     const uint16_t first_len = (uint16_t)(tud_descriptor_configuration_cb(0)[2] |
                                           (tud_descriptor_configuration_cb(0)[3] << 8));
@@ -2201,30 +2201,30 @@ static void test_commit_attached_refused(void) {
     assert(stage() == 1);
     const int connects = g_connects, disconnects = g_disconnects;
     const uint8_t attach[] = {0};
-    expect_nak(command(MIMHID_T_COMMIT, attach, sizeof(attach)), MIMHID_NAK_STATE);
-    expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_STATE);
+    expect_nak(command(MIMUSB_T_COMMIT, attach, sizeof(attach)), MIMUSB_NAK_STATE);
+    expect_nak(command(MIMUSB_T_COMMIT, NULL, 0), MIMUSB_NAK_STATE);
     assert(g_connects == connects && g_disconnects == disconnects);
-    assert(mimhid_active_interfaces() == 1 && mimhid_core_attached());
+    assert(mimusb_active_interfaces() == 1 && mimusb_core_attached());
     assert(memcmp(tud_descriptor_configuration_cb(0), first, first_len) == 0);
     assert(tud_descriptor_device_cb()[8] == first_device);
 
     // After the detach the same COMMIT is taken, and the second configuration is the active one.
     const uint8_t detach[] = {1};
-    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
-    assert(!mimhid_core_attached() && mimhid_active_interfaces() == 0);
-    assert(command(MIMHID_T_COMMIT, NULL, 0) == 1);
-    assert(mimhid_core_attached() && mimhid_active_interfaces() == 2);
+    assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(!mimusb_core_attached() && mimusb_active_interfaces() == 0);
+    assert(command(MIMUSB_T_COMMIT, NULL, 0) == 1);
+    assert(mimusb_core_attached() && mimusb_active_interfaces() == 2);
     assert(g_connects == connects + 1);
     // A detach of a board that is not attached is no error: it leaves the board off the bus.
-    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
-    assert(command(MIMHID_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
+    assert(command(MIMUSB_T_COMMIT, detach, sizeof(detach)) == 1);
 }
 
 static void test_errors(void) {
     // A COMMIT needs everything staged: nothing at all, then each part missing in turn.
     g_disconnects = 0;
     assert(desc_reset() == 1);
-    expect_nak(commit_staged(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit_staged(), MIMUSB_NAK_DESCRIPTOR);
     assert(g_disconnects == 0);
 
     // an ANSWER rule whose bytes are only partly sent is refused (NAK STATE) and does not
@@ -2235,11 +2235,11 @@ static void test_errors(void) {
     {
         const trule_t a = rule_answer(0xC0, 0x42, k_desc_a, sizeof(k_desc_a));
         uint8_t p[32];
-        assert(command(MIMHID_T_RULE, p, rule_frame(0, &a, p)) == 1);
-        assert(send_blob_partial(MIMHID_DESC_ANSWER, 0, 0, k_desc_a, sizeof(k_desc_a), 10, 0) == 1);
-        expect_nak(commit_staged(), MIMHID_NAK_STATE);
+        assert(command(MIMUSB_T_RULE, p, rule_frame(0, &a, p)) == 1);
+        assert(send_blob_partial(MIMUSB_DESC_ANSWER, 0, 0, k_desc_a, sizeof(k_desc_a), 10, 0) == 1);
+        expect_nak(commit_staged(), MIMUSB_NAK_STATE);
         assert(g_disconnects == 0);
-        assert(send_blob(MIMHID_DESC_ANSWER, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
+        assert(send_blob(MIMUSB_DESC_ANSWER, 0, 0, k_desc_a, sizeof(k_desc_a)) == 1);
         assert(commit_staged() == 1);
     }
 
@@ -2251,7 +2251,7 @@ static void test_errors(void) {
         node_data(0, 0, k_desc_a, sizeof(k_desc_a));
         node_begin(1, 2, sizeof(k_desc_b), 1, 8, 0, "");
         node_data(1, 0, k_desc_b, sizeof(k_desc_b));
-        expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+        expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     }
 
     // Endpoint frames: type 0x40 (endpoint 0) is refused, not queued.
@@ -2260,7 +2260,7 @@ static void test_errors(void) {
     assert(commit() == 1);
     reset_io();
     const uint8_t a[] = {1, 0x02};
-    put_frame(MIMHID_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
+    put_frame(MIMUSB_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
     pump();
     assert(g_nsent == 0);
 }
@@ -2273,7 +2273,7 @@ static void test_packing(void) {
     node_begin(1, 0, sizeof(k_desc_b), 1, 8, 0, "");
     node_data(1, 0, k_desc_b, sizeof(k_desc_b));
     assert(commit() == 1);
-    assert(mimhid_active_interfaces() == 1);
+    assert(mimusb_active_interfaces() == 1);
     const uint8_t* c = tud_descriptor_configuration_cb(0);
     assert((c[2] | (c[3] << 8)) == 9 + 25 && c[9 + 16] == sizeof(k_desc_a) + sizeof(k_desc_b));
     reset_io();
@@ -2316,7 +2316,7 @@ static bool next_control_event(size_t* pos, uint8_t* token, uint8_t* flags, uint
     uint8_t t, p[2048];
     uint16_t n;
     while ((t = next_out(pos, p, &n)) != 0) {
-        if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_CONTROL_SETUP) {
+        if (t == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_CONTROL_SETUP) {
             assert(n == 1 + 2 + 8);
             *token = p[1];
             *flags = p[2];
@@ -2333,7 +2333,7 @@ static int reply(uint8_t token, uint8_t action, const uint8_t* data, size_t n) {
     p[1] = action;
     if (n)
         memcpy(&p[2], data, n);
-    return command(MIMHID_T_CONTROL_REPLY, p, 2 + n);
+    return command(MIMUSB_T_CONTROL_REPLY, p, 2 + n);
 }
 
 // What the board answers by itself when no rule holds a request, where the specifications fix the
@@ -2376,7 +2376,7 @@ static void test_specified_answers(void) {
     g_mounted = true;
 
     // A rule that matches it is stronger: the request is held for the host.
-    trule_t held = rule_for(0x81, TUSB_REQ_GET_STATUS, 100, MIMHID_REPLY_STALL);
+    trule_t held = rule_for(0x81, TUSB_REQ_GET_STATUS, 100, MIMUSB_REPLY_STALL);
     assert(control_config(0, &held, 1) == 1);
     reset_io();
     setup(0x81, TUSB_REQ_GET_STATUS, 0, 0, 2);
@@ -2384,7 +2384,7 @@ static void test_specified_answers(void) {
     pump();
     size_t pos = 0;
     uint8_t token, flags, raw[8];
-    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMHID_CONTROL_F_HELD) &&
+    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMUSB_CONTROL_F_HELD) &&
            raw[0] == 0x81);
     assert(control_config(0, NULL, 0) == 1);
 }
@@ -2413,7 +2413,7 @@ static void test_control(void) {
     assert(raw[0] == 0x80 && raw[1] == TUSB_REQ_GET_DESCRIPTOR && raw[2] == 0x02 &&
            raw[3] == 0x03 && raw[4] == 0x09 && raw[5] == 0x04 && raw[6] == 255 && raw[7] == 0);
     assert(next_control_event(&pos, &token2, &flags, raw) && token2 != token &&
-           flags == MIMHID_CONTROL_F_FIXED);
+           flags == MIMUSB_CONTROL_F_FIXED);
     assert(g_nforwarded == 2);
 
     // Too many for the queue: the next one carries the loss.
@@ -2431,39 +2431,39 @@ static void test_control(void) {
     setup(0x80, TUSB_REQ_GET_STATUS, 0, 0, 2);
     pump();
     pos = 0;
-    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMHID_CONTROL_F_LOST));
+    assert(next_control_event(&pos, &token, &flags, raw) && (flags & MIMUSB_CONTROL_F_LOST));
 
     // A host-to-device data stage longer than the board takes is never held; with the report
     // flag it is reported as too long.
-    trule_t any_class = rule_for(0x20, 0, 50, MIMHID_REPLY_STALL);
+    trule_t any_class = rule_for(0x20, 0, 50, MIMUSB_REPLY_STALL);
     any_class.bm_mask = 0x60; // any class request
     any_class.request_mask = 0;
     assert(control_config(0, &any_class, 1) == 1);
     reset_io();
-    setup(0x21, T_HID_SET_REPORT, 0x0201, 0, MIMHID_CONTROL_DATA_MAX + 1);
+    setup(0x21, T_HID_SET_REPORT, 0x0201, 0, MIMUSB_CONTROL_DATA_MAX + 1);
     pump();
     assert(g_nforwarded == 1 && g_out_len == 0);
     assert(control_config(1, &any_class, 1) == 1);
     reset_io();
-    setup(0x21, T_HID_SET_REPORT, 0x0201, 0, MIMHID_CONTROL_DATA_MAX + 1);
+    setup(0x21, T_HID_SET_REPORT, 0x0201, 0, MIMUSB_CONTROL_DATA_MAX + 1);
     pump();
     pos = 0;
     assert(g_nforwarded == 1 && next_control_event(&pos, &token, &flags, raw) &&
-           flags == MIMHID_CONTROL_F_TOO_LONG);
+           flags == MIMUSB_CONTROL_F_TOO_LONG);
 
     // An answer with data (device to host).
-    trule_t vendor_in = rule_for(0xC0, 0x42, 100, MIMHID_REPLY_STALL);
+    trule_t vendor_in = rule_for(0xC0, 0x42, 100, MIMUSB_REPLY_STALL);
     assert(control_config(0, &vendor_in, 1) == 1);
     reset_io();
     setup(0xC0, 0x42, 5, 6, 64);
     assert(g_nforwarded == 0); // held
     pump();
     pos = 0;
-    assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMHID_CONTROL_F_HELD);
+    assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMUSB_CONTROL_F_HELD);
     assert(raw[0] == 0xC0 && raw[1] == 0x42);
-    expect_nak(reply((uint8_t)(token + 1), MIMHID_REPLY_ANSWER, NULL, 0), MIMHID_NAK_STATE);
+    expect_nak(reply((uint8_t)(token + 1), MIMUSB_REPLY_ANSWER, NULL, 0), MIMUSB_NAK_STATE);
     const uint8_t answer[4] = {1, 2, 3, 4};
-    assert(reply(token, MIMHID_REPLY_ANSWER, answer, sizeof(answer)) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, answer, sizeof(answer)) == 1);
     assert(g_nforwarded == 1);
     assert(g_forwarded[0].setup_received.bmRequestType == 0xC0); // already a vendor request
     {
@@ -2476,7 +2476,7 @@ static void test_control(void) {
         // The same request again, with nobody having been asked, is refused as before.
         assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
     }
-    expect_nak(reply(token, MIMHID_REPLY_ANSWER, answer, 1), MIMHID_NAK_STATE); // too late
+    expect_nak(reply(token, MIMUSB_REPLY_ANSWER, answer, 1), MIMUSB_NAK_STATE); // too late
 
     // A longer answer than wLength is sent whole, as a device that overruns the host's length does.
     reset_io();
@@ -2484,7 +2484,7 @@ static void test_control(void) {
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_ANSWER, answer, sizeof(answer)) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, answer, sizeof(answer)) == 1);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
@@ -2499,7 +2499,7 @@ static void test_control(void) {
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_ANSWER, answer, 2) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, answer, 2) == 1);
     assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0xC0);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
@@ -2512,7 +2512,7 @@ static void test_control(void) {
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_ANSWER, NULL, 0) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
     assert(g_nforwarded == 1 &&
            g_forwarded[0].setup_received.bmRequestType == 0x40); // direction dropped
     {
@@ -2528,7 +2528,7 @@ static void test_control(void) {
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_STALL, NULL, 0) == 1);
+    assert(reply(token, MIMUSB_REPLY_STALL, NULL, 0) == 1);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
@@ -2550,26 +2550,26 @@ static void test_control(void) {
         assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
     }
 
-    trule_t std_leave = rule_for(0x80, TUSB_REQ_GET_DESCRIPTOR, 30, MIMHID_REPLY_STALL);
+    trule_t std_leave = rule_for(0x80, TUSB_REQ_GET_DESCRIPTOR, 30, MIMUSB_REPLY_STALL);
     assert(control_config(0, &std_leave, 1) == 1);
     reset_io();
     setup(0x80, TUSB_REQ_GET_DESCRIPTOR, 0x0300, 0, 4);
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_LEAVE, NULL, 0) == 1);
+    assert(reply(token, MIMUSB_REPLY_LEAVE, NULL, 0) == 1);
     assert(g_nforwarded == 1 && g_forwarded[0].setup_received.bmRequestType == 0x80); // as it came
     assert(g_forwarded[0].setup_received.bRequest == TUSB_REQ_GET_DESCRIPTOR);
 
     // A request without a data stage: ANSWER is a plain acknowledgement.
-    trule_t no_data = rule_for(0x00, TUSB_REQ_SET_FEATURE, 30, MIMHID_REPLY_STALL);
+    trule_t no_data = rule_for(0x00, TUSB_REQ_SET_FEATURE, 30, MIMUSB_REPLY_STALL);
     assert(control_config(0, &no_data, 1) == 1);
     reset_io();
     setup(0x00, TUSB_REQ_SET_FEATURE, 1, 0, 0);
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_ANSWER, NULL, 0) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
@@ -2578,7 +2578,7 @@ static void test_control(void) {
     }
 
     // SET_ADDRESS and SET_CONFIGURATION are never held, whatever the rules say.
-    trule_t everything = rule_for(0, 0, 100, MIMHID_REPLY_STALL);
+    trule_t everything = rule_for(0, 0, 100, MIMUSB_REPLY_STALL);
     everything.bm_mask = 0; // every request
     everything.request_mask = 0;
     assert(control_config(0, &everything, 1) == 1);
@@ -2595,7 +2595,7 @@ static void test_control(void) {
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
     setup(0x80, TUSB_REQ_GET_DESCRIPTOR, 0x0200, 0, 9); // held in turn
-    expect_nak(reply(token, MIMHID_REPLY_ANSWER, NULL, 0), MIMHID_NAK_STATE);
+    expect_nak(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0), MIMUSB_NAK_STATE);
     {
         dcd_event_t bus = {.rhport = 0, .event_id = DCD_EVENT_BUS_RESET};
         __wrap_dcd_event_handler(&bus, true);
@@ -2614,44 +2614,44 @@ static void test_control(void) {
     assert(g_nforwarded == 1); // no rules any more
 
     // Bad rules are refused and change nothing.
-    trule_t bad = rule_for(0xC0, 0x42, 0, MIMHID_REPLY_STALL);
-    expect_nak(rule_stage(0, &bad), MIMHID_NAK_PARAM); // no time
+    trule_t bad = rule_for(0xC0, 0x42, 0, MIMUSB_REPLY_STALL);
+    expect_nak(rule_stage(0, &bad), MIMUSB_NAK_PARAM); // no time
     // USB 2.0 9.2.6.1: 5 seconds is the most any command may take.
-    assert(MIMHID_CONTROL_TIMEOUT_MAX == 5000);
-    bad = rule_for(0xC0, 0x42, MIMHID_CONTROL_TIMEOUT_MAX, MIMHID_REPLY_STALL);
+    assert(MIMUSB_CONTROL_TIMEOUT_MAX == 5000);
+    bad = rule_for(0xC0, 0x42, MIMUSB_CONTROL_TIMEOUT_MAX, MIMUSB_REPLY_STALL);
     assert(control_config(0, &bad, 1) == 1);
     assert(control_config(0, NULL, 0) == 1);
-    bad = rule_for(0xC0, 0x42, MIMHID_CONTROL_TIMEOUT_MAX + 1, MIMHID_REPLY_STALL);
-    expect_nak(rule_stage(0, &bad), MIMHID_NAK_PARAM);
-    bad = rule_for(0xC0, 0x42, 10, MIMHID_REPLY_ANSWER); // only STALL and DROP follow a timeout
-    expect_nak(rule_stage(0, &bad), MIMHID_NAK_PARAM);
-    bad = rule_for(0xC0, 0x42, 10, MIMHID_REPLY_LEAVE);
-    expect_nak(rule_stage(0, &bad), MIMHID_NAK_PARAM);
-    bad = rule_for(0xC0, 0x42, 10, MIMHID_REPLY_STALL);
+    bad = rule_for(0xC0, 0x42, MIMUSB_CONTROL_TIMEOUT_MAX + 1, MIMUSB_REPLY_STALL);
+    expect_nak(rule_stage(0, &bad), MIMUSB_NAK_PARAM);
+    bad = rule_for(0xC0, 0x42, 10, MIMUSB_REPLY_ANSWER); // only STALL and DROP follow a timeout
+    expect_nak(rule_stage(0, &bad), MIMUSB_NAK_PARAM);
+    bad = rule_for(0xC0, 0x42, 10, MIMUSB_REPLY_LEAVE);
+    expect_nak(rule_stage(0, &bad), MIMUSB_NAK_PARAM);
+    bad = rule_for(0xC0, 0x42, 10, MIMUSB_REPLY_STALL);
     bad.value_value = 1; // outside its (zero) mask
-    expect_nak(rule_stage(0, &bad), MIMHID_NAK_PARAM);
-    expect_nak(rules_apply(2, 0), MIMHID_NAK_PARAM); // a reserved flag
-    expect_nak(rules_apply(0, 1), MIMHID_NAK_PARAM); // more rules than are staged
+    expect_nak(rule_stage(0, &bad), MIMUSB_NAK_PARAM);
+    expect_nak(rules_apply(2, 0), MIMUSB_NAK_PARAM); // a reserved flag
+    expect_nak(rules_apply(0, 1), MIMUSB_NAK_PARAM); // more rules than are staged
     {
         uint8_t p[1] = {0}; // a rule without its fields
-        expect_nak(command(MIMHID_T_RULE, p, 1), MIMHID_NAK_PARAM);
-        uint8_t q[2] = {0, MIMHID_CONTROL_RULES + 1};
-        expect_nak(command(MIMHID_T_RULES_APPLY, q, 2), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_RULE, p, 1), MIMUSB_NAK_PARAM);
+        uint8_t q[2] = {0, MIMUSB_CONTROL_RULES + 1};
+        expect_nak(command(MIMUSB_T_RULES_APPLY, q, 2), MIMUSB_NAK_PARAM);
     }
     reset_io();
     setup(0xC0, 0x42, 0, 0, 2);
     assert(g_nforwarded == 1); // still no rules
 
     // Host to device with a data stage: the data is shown and the host gives the verdict.
-    mimhid_control_set_single_context(true);
-    trule_t out_rule = rule_for(0x21, T_HID_SET_REPORT, 100, MIMHID_REPLY_STALL);
+    mimusb_control_set_single_context(true);
+    trule_t out_rule = rule_for(0x21, T_HID_SET_REPORT, 100, MIMUSB_REPLY_STALL);
     assert(control_config(0, &out_rule, 1) == 1);
     reset_io();
     setup(0x21, T_HID_SET_REPORT, 0x0302, 0, 3);
     pump();
     pos = 0;
-    assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMHID_CONTROL_F_HELD);
-    assert(reply(token, MIMHID_REPLY_ANSWER, NULL, 0) == 1);
+    assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMUSB_CONTROL_F_HELD);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(req.bmRequestType == 0x41); // retyped as vendor, direction and recipient kept
@@ -2661,15 +2661,15 @@ static void test_control(void) {
         memcpy(g_xfer.buffer, sent, 3);
         // The host refuses it.
         reset_io();
-        uint8_t v[2] = {token, MIMHID_REPLY_STALL};
-        put_cmd(MIMHID_T_CONTROL_REPLY, v, 2);
+        uint8_t v[2] = {token, MIMUSB_REPLY_STALL};
+        put_cmd(MIMUSB_T_CONTROL_REPLY, v, 2);
         assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
         size_t q = 0;
         uint8_t t, p[2048];
         uint16_t n;
         bool saw_data = false;
         while ((t = next_out(&q, p, &n)) != 0) {
-            if (t == MIMHID_T_EVENT && p[0] == MIMHID_EV_CONTROL_DATA) {
+            if (t == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_CONTROL_DATA) {
                 assert(n == 1 + 1 + 3 && p[1] == token && memcmp(&p[2], sent, 3) == 0);
                 saw_data = true;
             }
@@ -2684,7 +2684,7 @@ static void test_control(void) {
     pump();
     pos = 0;
     assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMHID_REPLY_ANSWER, NULL, 0) == 1);
+    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
     {
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
@@ -2695,7 +2695,7 @@ static void test_control(void) {
 
     // Leaving the control routing: back to nothing.
     assert(control_config(0, NULL, 0) == 1);
-    mimhid_control_set_single_context(false);
+    mimusb_control_set_single_context(false);
 }
 
 // ---- endpoint 0 in the announced packet size ----
@@ -2850,7 +2850,7 @@ static void test_ep0(void) {
 // Every endpoint number the controller has is used: interfaces 0..n-1, each with its own IN
 // endpoint, and each endpoint frame reaches the endpoint of its interface.
 static void test_all_interfaces(void) {
-    const uint8_t count = MIMHID_MAX_ENDPOINT_NUMBER;
+    const uint8_t count = MIMUSB_MAX_ENDPOINT_NUMBER;
     g_depth = 2; // 15 queues of 3 slots fit the pool
     device_config(0, "");
     for (uint8_t i = 0; i < count; i++) {
@@ -2858,11 +2858,11 @@ static void test_all_interfaces(void) {
         node_data(i, 0, k_desc_a, sizeof(k_desc_a));
     }
     assert(commit() == 1);
-    assert(mimhid_active_interfaces() == count);
+    assert(mimusb_active_interfaces() == count);
     reset_io();
     for (uint8_t i = 0; i < count; i++) {
-        const mimhid_ep_info_t* e = mimhid_active_endpoint((uint8_t)(0x81 + i));
-        assert(e != NULL && e->kind == MIMHID_EP_GENERIC && e->interface == i);
+        const mimusb_ep_info_t* e = mimusb_active_endpoint((uint8_t)(0x81 + i));
+        assert(e != NULL && e->kind == MIMUSB_EP_GENERIC && e->interface == i);
         const uint8_t r[2] = {(uint8_t)(i + 1), (uint8_t)(0x10 + i)};
         ep_in((uint8_t)(1 + i), r, sizeof(r));
     }
@@ -2870,13 +2870,13 @@ static void test_all_interfaces(void) {
     assert(g_nsent == count);
     for (uint8_t i = 0; i < count; i++)
         assert(g_sent[i].iface == i && g_sent[i].data[0] == i + 1 && g_sent[i].data[1] == 0x10 + i);
-    assert(mimhid_active_endpoint((uint8_t)(0x81 + count)) == NULL);
+    assert(mimusb_active_endpoint((uint8_t)(0x81 + count)) == NULL);
     // A detach forgets them all again.
     uint8_t detach[1] = {1};
-    assert(command(MIMHID_T_COMMIT, detach, 1) == 1);
-    assert(mimhid_active_interfaces() == 0);
+    assert(command(MIMUSB_T_COMMIT, detach, 1) == 1);
+    assert(mimusb_active_interfaces() == 0);
     for (uint8_t i = 0; i < count; i++)
-        assert(mimhid_active_endpoint((uint8_t)(0x81 + i)) == NULL);
+        assert(mimusb_active_endpoint((uint8_t)(0x81 + i)) == NULL);
     g_depth = 15;
 }
 
@@ -2887,23 +2887,23 @@ static void test_ep_config(void) {
     device_config(0, "");
     base_node();
     assert(desc_reset() == 1);
-    expect_nak(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // nothing staged
+    expect_nak(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE); // nothing staged
     assert(stage() == 1);
-    assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-    assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_NEWEST) == 1); // again: the same
-    expect_nak(ep_config(0x81, 0, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
-    expect_nak(ep_config(0x81, 4, 0), MIMHID_NAK_PARAM);
-    expect_nak(ep_config(0x81, 4, 4), MIMHID_NAK_PARAM);
-    assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_OLDEST) == 1); // all three policies are taken
-    assert(ep_config(0x81, 4, MIMHID_EP_FULL_WAIT) == 1);
-    expect_nak(ep_config(0x01, 4, MIMHID_EP_FULL_DROP_NEWEST),
-               MIMHID_NAK_UNSUPPORTED); // an OUT address
-    expect_nak(ep_config(0x00, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
-    expect_nak(ep_config(0x91, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
-    expect_nak(ep_config(0x8F + 1, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_PARAM);
-    expect_nak(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // not in it
-    expect_nak(ep_config(0x81, 255, MIMHID_EP_FULL_DROP_NEWEST),
-               MIMHID_NAK_OVERFLOW); // deeper than the queue
+    assert(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+    assert(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_NEWEST) == 1); // again: the same
+    expect_nak(ep_config(0x81, 0, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
+    expect_nak(ep_config(0x81, 4, 0), MIMUSB_NAK_PARAM);
+    expect_nak(ep_config(0x81, 4, 4), MIMUSB_NAK_PARAM);
+    assert(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_OLDEST) == 1); // all three policies are taken
+    assert(ep_config(0x81, 4, MIMUSB_EP_FULL_WAIT) == 1);
+    expect_nak(ep_config(0x01, 4, MIMUSB_EP_FULL_DROP_NEWEST),
+               MIMUSB_NAK_UNSUPPORTED); // an OUT address
+    expect_nak(ep_config(0x00, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
+    expect_nak(ep_config(0x91, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
+    expect_nak(ep_config(0x8F + 1, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
+    expect_nak(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE); // not in it
+    expect_nak(ep_config(0x81, 255, MIMUSB_EP_FULL_DROP_NEWEST),
+               MIMUSB_NAK_OVERFLOW); // deeper than the queue
     assert(commit_staged() == 1);
 }
 
@@ -2914,7 +2914,7 @@ static void test_ep_frames(void) {
     assert(commit() == 1);
     reset_io();
     const uint8_t a[] = {1, 0x02};
-    put_frame(MIMHID_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
+    put_frame(MIMUSB_T_EP_IN_BASE, a, sizeof(a)); // endpoint 0
     ep_in(1, a, sizeof(a));
     ep_in(2, a, sizeof(a)); // an endpoint that is none of the configuration's
     pump();
@@ -2927,22 +2927,22 @@ static void test_nothing_is_filled_in(void) {
     g_bcd_usb = 0;
     device_config(0, "");
     base_node();
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_bcd_usb = 0x0200;
     g_bm_attributes = 0;
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_bm_attributes = 0x20; // bit 7 clear
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_bm_attributes = 0xA0;
     g_config_value = 0;
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_config_value = 1;
     node_begin(0, 0, sizeof(k_desc_a), 0, 8, 0, ""); // bInterval 0
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     node_begin(0, 0, sizeof(k_desc_a), 1, 0, 0, ""); // packet size 0
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     base_node();
     assert(commit() == 1);
 }
@@ -2951,14 +2951,14 @@ static void test_nothing_is_filled_in(void) {
 // A high-speed build: the rules of USB 2.0 that only a high-speed device has. The tests above
 // assume full-speed packet sizes, so this build runs these alone.
 static void test_high_speed(void) {
-    assert(MIMHID_MAX_ENDPOINT_BYTES == 1024);
+    assert(MIMUSB_MAX_ENDPOINT_BYTES == 1024);
     // 9.6.1: the control endpoint of a high-speed device is 64 bytes, and only that.
     device_config(0, "");
     base_node();
     g_ep0_size = 8;
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_ep0_size = 32;
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     g_ep0_size = 64;
     assert(commit() == 1);
     // 9.6.6: bInterval of an interrupt endpoint is an exponent, 1 to 16.
@@ -2966,14 +2966,14 @@ static void test_high_speed(void) {
     for (size_t i = 0; i < sizeof(bad); i++) {
         node_begin(0, 0, sizeof(k_desc_a), bad[i], 8, 0, "");
         node_data(0, 0, k_desc_a, sizeof(k_desc_a));
-        expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+        expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
     }
     node_begin(0, 0, sizeof(k_desc_a), 16, 1024, 0, ""); // the largest interval and endpoint packet
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
     assert(commit() == 1);
     node_begin(0, 0, sizeof(k_desc_a), 16, 1025, 0, "");
     node_data(0, 0, k_desc_a, sizeof(k_desc_a));
-    expect_nak(commit(), MIMHID_NAK_DESCRIPTOR);
+    expect_nak(commit(), MIMUSB_NAK_DESCRIPTOR);
 }
 #endif
 
@@ -3045,9 +3045,9 @@ static unsigned event_sum(uint8_t kind, uint8_t address) {
     uint8_t t;
     unsigned sum = 0;
     while ((t = next_out(&pos, p, &n)) != 0) {
-        if (t != MIMHID_T_EVENT || p[0] != kind || p[1] != address)
+        if (t != MIMUSB_T_EVENT || p[0] != kind || p[1] != address)
             continue;
-        sum += kind == MIMHID_EV_EP_HALT ? 1u : (unsigned)(p[2] | (p[3] << 8));
+        sum += kind == MIMUSB_EV_EP_HALT ? 1u : (unsigned)(p[2] | (p[3] << 8));
     }
     return sum;
 }
@@ -3058,7 +3058,7 @@ static unsigned out_frames(uint8_t number, const uint8_t* want, uint16_t want_le
     uint8_t t;
     unsigned found = 0;
     while ((t = next_out(&pos, p, &n)) != 0) {
-        if (t == (uint8_t)(MIMHID_T_EP_OUT_BASE | number)) {
+        if (t == (uint8_t)(MIMUSB_T_EP_OUT_BASE | number)) {
             assert(n == want_len && memcmp(p, want, n) == 0);
             found++;
         }
@@ -3088,9 +3088,9 @@ static int stage_cfg(tcfg_t* c) {
         return r;
     uint8_t d[18];
     make_device(d);
-    if ((r = send_blob(MIMHID_DESC_DEVICE, 0, 0, d, 18)) != 1)
+    if ((r = send_blob(MIMUSB_DESC_DEVICE, 0, 0, d, 18)) != 1)
         return r;
-    r = send_blob(MIMHID_DESC_CONFIGURATION, 0, 0, c->b, c->n);
+    r = send_blob(MIMUSB_DESC_CONFIGURATION, 0, 0, c->b, c->n);
     return r;
 }
 
@@ -3113,7 +3113,7 @@ static void vendor_commit(uint8_t depth1, uint8_t policy1, uint8_t depth3, uint8
     vendor_config(&c);
     assert(stage_cfg(&c) == 1);
     assert(ep_config(0x81, depth1, policy1) == 1);
-    assert(ep_config(0x82, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(ep_config(0x82, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
     assert(ep_config(0x83, depth3, policy3) == 1);
     assert(commit_staged() == 1);
     set_config();
@@ -3122,7 +3122,7 @@ static void vendor_commit(uint8_t depth1, uint8_t policy1, uint8_t depth3, uint8
 
 static void start_loss_counting(void) {
     const uint8_t on[3] = {1, 0, 0};
-    assert(command(MIMHID_T_LOSS_CONFIG, on, sizeof(on)) == 1);
+    assert(command(MIMUSB_T_LOSS_CONFIG, on, sizeof(on)) == 1);
 }
 
 // ---- control rules, one action at a time ----
@@ -3147,7 +3147,7 @@ static bool serve(uint8_t bm, uint8_t request, uint16_t value, uint16_t index, u
 
 static void test_rules(void) {
     g_auto = true;
-    vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+    vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
     static const uint8_t A[3] = {0xA1, 0xA2, 0xA3}, B[2] = {0xB1, 0xB2};
     static const uint8_t R1[4] = {0x01, 1, 2, 3}, R2[4] = {0x02, 4, 5, 6};
 
@@ -3172,19 +3172,19 @@ static void test_rules(void) {
         // ANSWER rule of the active table.
         assert(rule_data(2, A, 1) == 1);
         assert(serve(0xC0, 0x51, 0, 0, 8, A, 1));
-        expect_nak(rule_data(2, A, 3), MIMHID_NAK_OVERFLOW);
-        expect_nak(rule_data(3, A, 1), MIMHID_NAK_PARAM); // no such rule
+        expect_nak(rule_data(2, A, 3), MIMUSB_NAK_OVERFLOW);
+        expect_nak(rule_data(3, A, 1), MIMUSB_NAK_PARAM); // no such rule
         // It is not a rule of the Node: a STALL rule has no bytes.
-        trule_t u[2] = {rule_of(MIMHID_RULE_STALL, 0xC0, 0x53), rule_answer(0xC0, 0x54, A, 3)};
+        trule_t u[2] = {rule_of(MIMUSB_RULE_STALL, 0xC0, 0x53), rule_answer(0xC0, 0x54, A, 3)};
         assert(control_config(0, u, 2) == 1);
-        expect_nak(rule_data(0, A, 1), MIMHID_NAK_PARAM);
+        expect_nak(rule_data(0, A, 1), MIMUSB_NAK_PARAM);
         // BUSY while the rule is being sent (RULE_DATA and RULES_APPLY both), fine after.
         reset_io();
         setup(0xC0, 0x54, 0, 0, 8);
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
-        expect_nak(rule_data(1, B, 2), MIMHID_NAK_BUSY);
-        expect_nak(rules_apply(0, 2), MIMHID_NAK_BUSY);
+        expect_nak(rule_data(1, B, 2), MIMUSB_NAK_BUSY);
+        expect_nak(rules_apply(0, 2), MIMUSB_NAK_BUSY);
         assert(g_xfer.length == 3 && memcmp(g_xfer.buffer, A, 3) == 0); // still the old bytes
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
@@ -3219,7 +3219,7 @@ static void test_rules(void) {
         assert(rule_data(0, NULL, 0) == 1); // none at all, and back
         assert(serve(0xC0, 0x56, 0, 0, 8, NULL, 0));
         assert(rule_data(0, L, CAP) == 1);
-        expect_nak(rule_data(0, L, CAP + 1), MIMHID_NAK_OVERFLOW); // past the capacity
+        expect_nak(rule_data(0, L, CAP + 1), MIMUSB_NAK_OVERFLOW); // past the capacity
         assert(serve(0xC0, 0x56, 0, 0, 8, L, CAP)); // the refused call changed nothing
         // The next rule's bytes were not touched by the growth of this one.
         assert(serve(0xC0, 0x57, 0, 0, 8, B, sizeof(B)));
@@ -3228,20 +3228,20 @@ static void test_rules(void) {
         trule_t bad = t[0];
         bad.length = bad.capacity + 1;
         uint8_t p[32];
-        expect_nak(command(MIMHID_T_RULE, p, rule_frame(0, &bad, p)), MIMHID_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_RULE, p, rule_frame(0, &bad, p)), MIMUSB_NAK_PARAM);
 
         // The capacity is what the answer memory is counted in, not the length.
         trule_t big = rule_answer(0xC0, 0x58, L, 1);
-        big.capacity = MIMHID_ANSWER_BYTES;
+        big.capacity = MIMUSB_ANSWER_BYTES;
         assert(control_config(0, &big, 1) == 1);
         trule_t two[2] = {big, rule_answer(0xC0, 0x59, B, 1)};
-        expect_nak(control_config(0, two, 2), MIMHID_NAK_OVERFLOW);
+        expect_nak(control_config(0, two, 2), MIMUSB_NAK_OVERFLOW);
         assert(control_config(0, t, 2) == 1);
     }
 
     // STALL: the stack stalls the data or status stage.
     {
-        trule_t t = rule_of(MIMHID_RULE_STALL, 0xC0, 0x55);
+        trule_t t = rule_of(MIMUSB_RULE_STALL, 0xC0, 0x55);
         assert(control_config(0, &t, 1) == 1);
         assert(!serve(0xC0, 0x55, 0, 0, 8, NULL, 0));
     }
@@ -3273,7 +3273,7 @@ static void test_rules(void) {
         // (COMMIT) starts it empty.
         assert(rules_apply(0, 1) == 1);
         assert(serve(0xC0, 0x56, 0, 0, 8, R2, sizeof(R2)));
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         assert(control_config(0, &t, 1) == 1);
         assert(!serve(0xC0, 0x56, 0, 0, 8, NULL, 0));
     }
@@ -3296,19 +3296,19 @@ static void test_rules(void) {
         // The rule must name an IN endpoint of the configuration.
         trule_t bad = rule_last(0xC0, 0x59, 0x84, 0, 0);
         assert(rule_stage(0, &bad) == 1);
-        expect_nak(rules_apply(0, 1), MIMHID_NAK_STATE);
+        expect_nak(rules_apply(0, 1), MIMUSB_NAK_STATE);
         assert(rules_apply(0, 0) == 1);
     }
 
     // ACCEPT without a data stage: acknowledged and reported with the ACCEPTED flag, nothing held.
     {
-        trule_t t = rule_of(MIMHID_RULE_ACCEPT, 0x40, 0x5A);
+        trule_t t = rule_of(MIMUSB_RULE_ACCEPT, 0x40, 0x5A);
         assert(control_config(0, &t, 1) == 1);
         assert(serve(0x40, 0x5A, 7, 0, 0, NULL, 0));
         pump();
         size_t pos = 0;
         uint8_t token, flags, raw[8];
-        assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMHID_CONTROL_F_ACCEPTED &&
+        assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMUSB_CONTROL_F_ACCEPTED &&
                raw[1] == 0x5A && raw[2] == 7);
         // With a data stage the bytes come as CONTROL_DATA of the same token.
         reset_io();
@@ -3326,14 +3326,14 @@ static void test_rules(void) {
         bool setup_seen = false, data_seen = false;
         uint8_t setup_token = 0;
         while ((type = next_out(&q, p, &n)) != 0) {
-            if (type != MIMHID_T_EVENT)
+            if (type != MIMUSB_T_EVENT)
                 continue;
-            if (p[0] == MIMHID_EV_CONTROL_SETUP) {
-                assert(p[2] == MIMHID_CONTROL_F_ACCEPTED);
+            if (p[0] == MIMUSB_EV_CONTROL_SETUP) {
+                assert(p[2] == MIMUSB_CONTROL_F_ACCEPTED);
                 setup_seen = true;
                 setup_token = p[1];
             }
-            if (p[0] == MIMHID_EV_CONTROL_DATA) {
+            if (p[0] == MIMUSB_EV_CONTROL_DATA) {
                 assert(n == 1 + 1 + 3 && memcmp(&p[2], A, 3) == 0 && p[1] == setup_token);
                 data_seen = true;
             }
@@ -3343,22 +3343,22 @@ static void test_rules(void) {
 
     // ASK is the held request of test_control; with a rule in front of it the rule wins.
     {
-        trule_t t[2] = {rule_answer(0xC0, 0x5B, A, sizeof(A)), rule_for(0xC0, 0x5B, 100, MIMHID_REPLY_STALL)};
+        trule_t t[2] = {rule_answer(0xC0, 0x5B, A, sizeof(A)), rule_for(0xC0, 0x5B, 100, MIMUSB_REPLY_STALL)};
         assert(control_config(0, t, 2) == 1);
         assert(serve(0xC0, 0x5B, 0, 0, 8, A, sizeof(A)));
     }
 
     // The limits: the rule count, the answer memory and the order the table is written in.
     {
-        trule_t t = rule_of(MIMHID_RULE_STALL, 0xC0, 0x60);
-        for (int i = 0; i < MIMHID_CONTROL_RULES; i++)
+        trule_t t = rule_of(MIMUSB_RULE_STALL, 0xC0, 0x60);
+        for (int i = 0; i < MIMUSB_CONTROL_RULES; i++)
             assert(rule_stage((uint8_t)i, &t) == 1);
-        expect_nak(rule_stage(MIMHID_CONTROL_RULES, &t), MIMHID_NAK_OVERFLOW);
-        assert(rules_apply(0, MIMHID_CONTROL_RULES) == 1);
+        expect_nak(rule_stage(MIMUSB_CONTROL_RULES, &t), MIMUSB_NAK_OVERFLOW);
+        assert(rules_apply(0, MIMUSB_CONTROL_RULES) == 1);
         assert(rule_stage(0, &t) == 1);
-        expect_nak(rule_stage(2, &t), MIMHID_NAK_PARAM); // not in order
-        trule_t huge = rule_answer(0xC0, 0x61, NULL, MIMHID_ANSWER_BYTES + 1);
-        expect_nak(rule_stage(0, &huge), MIMHID_NAK_OVERFLOW);
+        expect_nak(rule_stage(2, &t), MIMUSB_NAK_PARAM); // not in order
+        trule_t huge = rule_answer(0xC0, 0x61, NULL, MIMUSB_ANSWER_BYTES + 1);
+        expect_nak(rule_stage(0, &huge), MIMUSB_NAK_OVERFLOW);
         assert(control_config(0, NULL, 0) == 1);
     }
 }
@@ -3376,27 +3376,27 @@ static void test_generic(void) {
         vendor_config(&c);
         assert(stage_cfg(&c) == 1);
         // every IN endpoint needs its EP_CONFIG, the HID interface's too
-        expect_nak(commit_staged(), MIMHID_NAK_STATE);
-        assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-        expect_nak(commit_staged(), MIMHID_NAK_STATE); // 0x82 and 0x83 still have none
-        assert(ep_config(0x83, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-        expect_nak(commit_staged(), MIMHID_NAK_STATE); // 0x82 still has none
-        assert(ep_config(0x82, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(commit_staged(), MIMUSB_NAK_STATE);
+        assert(ep_config(0x81, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(commit_staged(), MIMUSB_NAK_STATE); // 0x82 and 0x83 still have none
+        assert(ep_config(0x83, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(commit_staged(), MIMUSB_NAK_STATE); // 0x82 still has none
+        assert(ep_config(0x82, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
         assert(commit_staged() == 1);
-        assert(mimhid_active_interfaces() == 2);
-        const mimhid_ep_info_t* e = mimhid_active_endpoint(0x81);
-        assert(e && e->kind == MIMHID_EP_GENERIC && e->type == TUSB_XFER_BULK && e->packet_size == 64 &&
+        assert(mimusb_active_interfaces() == 2);
+        const mimusb_ep_info_t* e = mimusb_active_endpoint(0x81);
+        assert(e && e->kind == MIMUSB_EP_GENERIC && e->type == TUSB_XFER_BULK && e->packet_size == 64 &&
                e->interface == 0);
-        e = mimhid_active_endpoint(0x01);
-        assert(e && e->kind == MIMHID_EP_GENERIC);
-        e = mimhid_active_endpoint(0x82);
-        assert(e && e->kind == MIMHID_EP_GENERIC && e->type == TUSB_XFER_INTERRUPT &&
+        e = mimusb_active_endpoint(0x01);
+        assert(e && e->kind == MIMUSB_EP_GENERIC);
+        e = mimusb_active_endpoint(0x82);
+        assert(e && e->kind == MIMUSB_EP_GENERIC && e->type == TUSB_XFER_INTERRUPT &&
                e->interface == 1);
-        assert(mimhid_active_endpoint(0x02) == NULL && mimhid_active_endpoint(0x84) == NULL);
-        assert(mimhid_active_generic_span(0) == 9 + 5 + 3 * 7 &&
-               mimhid_active_generic_span(1) == 9 + 9 + 7);
+        assert(mimusb_active_endpoint(0x02) == NULL && mimusb_active_endpoint(0x84) == NULL);
+        assert(mimusb_active_generic_span(0) == 9 + 5 + 3 * 7 &&
+               mimusb_active_generic_span(1) == 9 + 9 + 7);
         // the open call
-        const uint8_t* cfg = mimhid_active_config_bytes();
+        const uint8_t* cfg = mimusb_active_config_bytes();
         memset(g_ep, 0, sizeof(g_ep));
         gen_driver()->reset(0); // the stack resets its drivers before it opens them
         assert(gen_driver()->open(0, (const tusb_desc_interface_t*)&cfg[9], 100) == 9 + 5 + 3 * 7);
@@ -3414,7 +3414,7 @@ static void test_generic(void) {
     // DROP_NEWEST: depth 2 waiting, and one on the bus. Frames go to the controller in order, one
     // at a time.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         start_loss_counting();
         reset_io();
         ep_in(1, A, 4);
@@ -3425,7 +3425,7 @@ static void test_generic(void) {
         ep_in(1, C, 4);
         ep_in(1, D, 4); // the third that waits: dropped
         pump();
-        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 1);
+        assert(event_sum(MIMUSB_EV_TRANSFER_LOST, 0x81) == 1);
         assert(EPSTATE(0x81).xfers == 1); // one at a time
         complete_in(1);
         assert(EPSTATE(0x81).xfers == 2 && memcmp(EPSTATE(0x81).buffer, B, 4) == 0);
@@ -3441,7 +3441,7 @@ static void test_generic(void) {
 
     // DROP_OLDEST: the oldest that is not on the bus goes.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_OLDEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_OLDEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         start_loss_counting();
         reset_io();
         ep_in(1, A, 4);
@@ -3452,7 +3452,7 @@ static void test_generic(void) {
         ep_in(1, E, 4);
         ep_in(1, F, 4); // the ring is full: this one is dropped when it arrives
         pump();         // and the board drops B and C: two waiting are left
-        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 3);
+        assert(event_sum(MIMUSB_EV_TRANSFER_LOST, 0x81) == 3);
         assert(memcmp(EPSTATE(0x81).buffer, A, 4) == 0); // what is on the bus stays untouched
         complete_in(1);
         assert(memcmp(EPSTATE(0x81).buffer, D, 4) == 0);
@@ -3465,7 +3465,7 @@ static void test_generic(void) {
     // DROP_OLDEST with a target that does not take the transfer on the bus: however many
     // transfers arrive and are dropped behind it, the bytes on the bus stay what they were.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_OLDEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_OLDEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         reset_io();
         ep_in(1, A, 4);
         pump(); // on the bus
@@ -3488,7 +3488,7 @@ static void test_generic(void) {
     // WAIT: nothing is dropped that the host may send (it counts), and the board reports every
     // transfer that completed.
     {
-        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_WAIT, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         reset_io();
         ep_in(1, A, 4);
         pump(); // A is on the bus
@@ -3498,37 +3498,37 @@ static void test_generic(void) {
         complete_in(1);
         complete_in(1);
         pump();
-        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 2);
+        assert(event_sum(MIMUSB_EV_EP_DONE, 0x81) == 2);
         complete_in(1);
         reset_io();
         pump();
-        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 1);
+        assert(event_sum(MIMUSB_EV_EP_DONE, 0x81) == 1);
         // an endpoint that does not wait reports no completions
         reset_io();
         ep_in(3, A, 4);
         pump();
         complete_in(3);
         pump();
-        assert(event_sum(MIMHID_EV_EP_DONE, 0x83) == 0);
+        assert(event_sum(MIMUSB_EV_EP_DONE, 0x83) == 0);
     }
 
     // A zero-length transfer is a zero-length packet (USB 2.0 5.8.3); a full-size one is one
     // transfer; a frame longer than the largest transfer is not accepted.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         reset_io();
         ep_in(1, NULL, 0);
         pump();
         assert(EPSTATE(0x81).busy && EPSTATE(0x81).length == 0 && EPSTATE(0x81).xfers == 1);
         complete_in(1);
-        uint8_t big[MIMHID_MAX_TRANSFER_BYTES];
+        uint8_t big[MIMUSB_MAX_TRANSFER_BYTES];
         for (size_t i = 0; i < sizeof(big); i++)
             big[i] = (uint8_t)(i * 3);
         ep_in(1, big, sizeof(big));
         pump();
         assert(EPSTATE(0x81).length == sizeof(big) && memcmp(EPSTATE(0x81).buffer, big, sizeof(big)) == 0);
         complete_in(1);
-        uint8_t over[MIMHID_MAX_TRANSFER_BYTES + 1] = {0};
+        uint8_t over[MIMUSB_MAX_TRANSFER_BYTES + 1] = {0};
         ep_in(1, over, sizeof(over));
         pump();
         assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 2);
@@ -3545,7 +3545,7 @@ static void test_generic(void) {
 
     // OUT: a packet goes to the host as it came and the endpoint is armed again after it.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         assert(EPSTATE(0x01).busy && EPSTATE(0x01).xfers == 1);
         const uint8_t pkt[5] = {9, 8, 7, 6, 5};
         out_packet(1, pkt, sizeof(pkt));
@@ -3557,7 +3557,7 @@ static void test_generic(void) {
 
     // The Halt feature: set by the board (EP_STALL) or by the target (USB 2.0 9.4.1, 9.4.5).
     {
-        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_WAIT, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         start_loss_counting();
         reset_io();
         ep_in(1, A, 4);
@@ -3565,12 +3565,12 @@ static void test_generic(void) {
         ep_in(1, B, 4);
         pump(); // A on the bus, B waits
         const uint8_t st[2] = {0x81, 1}, cl[2] = {0x81, 0};
-        assert(command(MIMHID_T_EP_STALL, st, 2) == 1);
+        assert(command(MIMUSB_T_EP_STALL, st, 2) == 1);
         assert(EPSTATE(0x81).stalled);
         ep_in(1, C, 4);
         pump(); // queued while stalled, not started
         assert(EPSTATE(0x81).xfers == 1);
-        assert(command(MIMHID_T_EP_STALL, cl, 2) == 1);
+        assert(command(MIMUSB_T_EP_STALL, cl, 2) == 1);
         assert(!EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 2 &&
                memcmp(EPSTATE(0x81).buffer, C, 4) == 0); // what waited at the stall is gone
         complete_in(1);
@@ -3583,13 +3583,13 @@ static void test_generic(void) {
         reset_io();
         target_halt(0x81, true);
         pump();
-        assert(event_sum(MIMHID_EV_EP_HALT, 0x81) == 1);
-        assert(event_sum(MIMHID_EV_TRANSFER_LOST, 0x81) == 1); // D was on the bus
+        assert(event_sum(MIMUSB_EV_EP_HALT, 0x81) == 1);
+        assert(event_sum(MIMUSB_EV_TRANSFER_LOST, 0x81) == 1); // D was on the bus
         assert(EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 3);
         reset_io();
         target_halt(0x81, false);
         pump();
-        assert(event_sum(MIMHID_EV_EP_HALT, 0x81) == 1);
+        assert(event_sum(MIMUSB_EV_EP_HALT, 0x81) == 1);
         assert(!EPSTATE(0x81).stalled && EPSTATE(0x81).xfers == 4 &&
                memcmp(EPSTATE(0x81).buffer, E, 4) == 0); // what waited goes on
         // the same on an OUT endpoint: not armed while halted, armed again when cleared
@@ -3614,7 +3614,7 @@ static void test_generic(void) {
 
     // EP_FLUSH and the refusals of EP_STALL / EP_FLUSH.
     {
-        vendor_commit(2, MIMHID_EP_FULL_WAIT, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_WAIT, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         reset_io();
         ep_in(1, A, 4);
         pump();
@@ -3622,24 +3622,24 @@ static void test_generic(void) {
         ep_in(1, C, 4);
         pump();
         const uint8_t fl[1] = {0x81};
-        assert(command(MIMHID_T_EP_FLUSH, fl, 1) == 1);
+        assert(command(MIMUSB_T_EP_FLUSH, fl, 1) == 1);
         complete_in(1); // the one on the bus goes on; nothing follows
         assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == 1);
         reset_io();
         pump();
-        assert(event_sum(MIMHID_EV_EP_DONE, 0x81) == 0); // a flushed transfer is not counted
+        assert(event_sum(MIMUSB_EV_EP_DONE, 0x81) == 0); // a flushed transfer is not counted
         const uint8_t out1[1] = {0x01}, hid[2] = {0x82, 1}, none[2] = {0x84, 1}, bad[2] = {0x81, 2};
-        expect_nak(command(MIMHID_T_EP_FLUSH, out1, 1), MIMHID_NAK_PARAM);
-        assert(command(MIMHID_T_EP_STALL, hid, 2) == 1); // the HID interface's endpoint: the same
+        expect_nak(command(MIMUSB_T_EP_FLUSH, out1, 1), MIMUSB_NAK_PARAM);
+        assert(command(MIMUSB_T_EP_STALL, hid, 2) == 1); // the HID interface's endpoint: the same
         assert(EPSTATE(0x82).stalled);
         const uint8_t hid_clear[2] = {0x82, 0};
-        assert(command(MIMHID_T_EP_STALL, hid_clear, 2) == 1 && !EPSTATE(0x82).stalled);
-        expect_nak(command(MIMHID_T_EP_STALL, none, 2), MIMHID_NAK_STATE);
-        expect_nak(command(MIMHID_T_EP_STALL, bad, 2), MIMHID_NAK_PARAM);
+        assert(command(MIMUSB_T_EP_STALL, hid_clear, 2) == 1 && !EPSTATE(0x82).stalled);
+        expect_nak(command(MIMUSB_T_EP_STALL, none, 2), MIMUSB_NAK_STATE);
+        expect_nak(command(MIMUSB_T_EP_STALL, bad, 2), MIMUSB_NAK_PARAM);
         const uint8_t zero[1] = {0x00}, dirbit[1] = {0x91};
-        expect_nak(command(MIMHID_T_EP_FLUSH, zero, 1), MIMHID_NAK_PARAM);
-        expect_nak(command(MIMHID_T_EP_FLUSH, dirbit, 1), MIMHID_NAK_PARAM);
-        expect_nak(command(MIMHID_T_EP_FLUSH, hid, 2), MIMHID_NAK_PARAM); // the length
+        expect_nak(command(MIMUSB_T_EP_FLUSH, zero, 1), MIMUSB_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_EP_FLUSH, dirbit, 1), MIMUSB_NAK_PARAM);
+        expect_nak(command(MIMUSB_T_EP_FLUSH, hid, 2), MIMUSB_NAK_PARAM); // the length
         // RESET drops what waits on every endpoint
         ep_in(1, A, 4);
         pump();
@@ -3647,7 +3647,7 @@ static void test_generic(void) {
         ep_in(1, A, 4);
         ep_in(1, B, 4);
         pump();
-        assert(command(MIMHID_T_RESET, NULL, 0) == 1);
+        assert(command(MIMUSB_T_RESET, NULL, 0) == 1);
         const int xfers = EPSTATE(0x81).xfers;
         complete_in(1);
         assert(EPSTATE(0x81).xfers == xfers && !EPSTATE(0x81).busy);
@@ -3660,33 +3660,33 @@ static void test_generic(void) {
         tcfg_t c;
         vendor_config(&c);
         assert(stage_cfg(&c) == 1);
-        assert(ep_config(0x81, 4, MIMHID_EP_FULL_DROP_OLDEST) == 1);
-        assert(ep_config(0x81, 4, MIMHID_EP_FULL_WAIT) == 1);
-        expect_nak(ep_config(0x81, MIMHID_EP_POOL_SLOTS, MIMHID_EP_FULL_DROP_NEWEST),
-                   MIMHID_NAK_OVERFLOW);
-        expect_nak(ep_config(0x81, MIMHID_EP_POOL_SLOTS / 2, MIMHID_EP_FULL_DROP_OLDEST),
-                   MIMHID_NAK_OVERFLOW);
-        expect_nak(ep_config(0x01, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_UNSUPPORTED); // OUT
-        assert(ep_config(0x82, 4, MIMHID_EP_FULL_WAIT) == 1); // the HID interface's: any policy
-        assert(ep_config(0x82, 1, MIMHID_EP_FULL_DROP_NEWEST) == 1); // 2 slots
+        assert(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_OLDEST) == 1);
+        assert(ep_config(0x81, 4, MIMUSB_EP_FULL_WAIT) == 1);
+        expect_nak(ep_config(0x81, MIMUSB_EP_POOL_SLOTS, MIMUSB_EP_FULL_DROP_NEWEST),
+                   MIMUSB_NAK_OVERFLOW);
+        expect_nak(ep_config(0x81, MIMUSB_EP_POOL_SLOTS / 2, MIMUSB_EP_FULL_DROP_OLDEST),
+                   MIMUSB_NAK_OVERFLOW);
+        expect_nak(ep_config(0x01, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_UNSUPPORTED); // OUT
+        assert(ep_config(0x82, 4, MIMUSB_EP_FULL_WAIT) == 1); // the HID interface's: any policy
+        assert(ep_config(0x82, 1, MIMUSB_EP_FULL_DROP_NEWEST) == 1); // 2 slots
         // together the queues must fit the pool: 0x81 takes depth + 1 slots, 0x83 takes 2 * depth + 1
-        const int d1 = MIMHID_EP_POOL_SLOTS - 11;
-        assert(ep_config(0x81, (uint8_t)d1, MIMHID_EP_FULL_DROP_NEWEST) == 1); // d1 + 1 slots
-        assert(ep_config(0x83, 5, MIMHID_EP_FULL_DROP_OLDEST) == 1);          // 11 slots
-        expect_nak(commit_staged(), MIMHID_NAK_OVERFLOW);
-        assert(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_OLDEST) == 1); // 9 slots
-        assert(ep_config(0x81, (uint8_t)d1, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        const int d1 = MIMUSB_EP_POOL_SLOTS - 11;
+        assert(ep_config(0x81, (uint8_t)d1, MIMUSB_EP_FULL_DROP_NEWEST) == 1); // d1 + 1 slots
+        assert(ep_config(0x83, 5, MIMUSB_EP_FULL_DROP_OLDEST) == 1);          // 11 slots
+        expect_nak(commit_staged(), MIMUSB_NAK_OVERFLOW);
+        assert(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_OLDEST) == 1); // 9 slots
+        assert(ep_config(0x81, (uint8_t)d1, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
         // 0x81: d1 + 1 = pool - 10 slots, 0x82: 2, 0x83: 9: together pool + 1: still too many
-        expect_nak(commit_staged(), MIMHID_NAK_OVERFLOW);
-        assert(ep_config(0x81, (uint8_t)(d1 - 1), MIMHID_EP_FULL_DROP_NEWEST) == 1); // exactly the pool
+        expect_nak(commit_staged(), MIMUSB_NAK_OVERFLOW);
+        assert(ep_config(0x81, (uint8_t)(d1 - 1), MIMUSB_EP_FULL_DROP_NEWEST) == 1); // exactly the pool
         assert(commit_staged() == 1);
         set_config();
         // live: 0x83 holds 9 slots, so DROP_NEWEST of depth 8 fits and depth 9 does not
-        assert(ep_config(0x83, 8, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-        expect_nak(ep_config(0x83, 9, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_OVERFLOW);
+        assert(ep_config(0x83, 8, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        expect_nak(ep_config(0x83, 9, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_OVERFLOW);
         // staging a new configuration does not change a running queue
         assert(desc_reset() == 1);
-        expect_nak(ep_config(0x83, 4, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE);
+        expect_nak(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE);
     }
 
     // A COMMIT the board refuses leaves the queues and endpoints of the active configuration as
@@ -3694,14 +3694,14 @@ static void test_generic(void) {
     // as it is, with no detach before it, and is refused for that (the missing EP_CONFIG would
     // refuse it too).
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         reset_io();
         ep_in(1, A, 4);
         pump();
         tcfg_t c;
         vendor_config(&c);
         assert(stage_cfg(&c) == 1);
-        expect_nak(command(MIMHID_T_COMMIT, NULL, 0), MIMHID_NAK_STATE);
+        expect_nak(command(MIMUSB_T_COMMIT, NULL, 0), MIMUSB_NAK_STATE);
         assert(EPSTATE(0x81).busy && memcmp(EPSTATE(0x81).buffer, A, 4) == 0);
         ep_in(1, B, 4);
         pump();
@@ -3712,7 +3712,7 @@ static void test_generic(void) {
     // A bus reset or a new configuration closes the endpoints: what waited is dropped and the
     // endpoints are opened again by set_config.
     {
-        vendor_commit(2, MIMHID_EP_FULL_DROP_NEWEST, 2, MIMHID_EP_FULL_DROP_NEWEST);
+        vendor_commit(2, MIMUSB_EP_FULL_DROP_NEWEST, 2, MIMUSB_EP_FULL_DROP_NEWEST);
         ep_in(1, A, 4);
         ep_in(1, B, 4);
         pump();
@@ -3740,7 +3740,7 @@ static void test_generic(void) {
         cfg_endpoint(&c, 0x81, TUSB_XFER_BULK, 48, 0);
         cfg_close(&c);
         assert(stage_cfg(&c) == 1);
-        expect_nak(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST), MIMHID_NAK_STATE); // no walk
+        expect_nak(ep_config(0x81, 2, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE); // no walk
         expect_refused(commit_staged());
         // isochronous and control endpoints
         for (uint8_t type = TUSB_XFER_CONTROL; type <= TUSB_XFER_ISOCHRONOUS; type = (uint8_t)(type + 1)) {
@@ -3773,7 +3773,7 @@ static void test_generic(void) {
         // an endpoint number the controller does not have
         cfg_open(&c);
         cfg_interface(&c, 0, 0, 1, 0xFF);
-        cfg_endpoint(&c, (uint8_t)(0x80 | (MIMHID_MAX_ENDPOINT_NUMBER + 1)), TUSB_XFER_BULK, 64, 0);
+        cfg_endpoint(&c, (uint8_t)(0x80 | (MIMUSB_MAX_ENDPOINT_NUMBER + 1)), TUSB_XFER_BULK, 64, 0);
         cfg_close(&c);
         assert(stage_cfg(&c) == 1);
         expect_refused(commit_staged());
@@ -3839,22 +3839,22 @@ static void test_generic(void) {
         expect_refused(commit_staged());
         // too many interfaces of any class
         cfg_open(&c);
-        for (uint8_t i = 0; i <= MIMHID_MAX_INTERFACES; i++)
+        for (uint8_t i = 0; i <= MIMUSB_MAX_INTERFACES; i++)
             cfg_interface(&c, i, 0, 0, 0xFF);
         cfg_close(&c);
         assert(stage_cfg(&c) == 1);
         expect_refused(commit_staged());
-        // MIMHID_MAX_INTERFACES interfaces of any class are a valid configuration
+        // MIMUSB_MAX_INTERFACES interfaces of any class are a valid configuration
         cfg_open(&c);
-        for (uint8_t i = 0; i < MIMHID_MAX_INTERFACES; i++)
+        for (uint8_t i = 0; i < MIMUSB_MAX_INTERFACES; i++)
             cfg_interface(&c, i, 0, 0, 0xFF);
         cfg_close(&c);
         assert(stage_cfg(&c) == 1);
         assert(commit_staged() == 1);
-        assert(mimhid_active_interfaces() == MIMHID_MAX_INTERFACES);
+        assert(mimusb_active_interfaces() == MIMUSB_MAX_INTERFACES);
     }
 
-#if MIMHID_MAX_ENDPOINT_NUMBER >= 5
+#if MIMUSB_MAX_ENDPOINT_NUMBER >= 5
     // A function of two interfaces behind an association (a CDC-ACM shape: a control interface
     // with an interrupt IN endpoint and class descriptors, a data interface with two bulk
     // endpoints), then a HID interface: the stack calls open once for the group, which takes all
@@ -3873,14 +3873,14 @@ static void test_generic(void) {
         cfg_hid_interface(&c, 2, 5, sizeof(k_desc_a));
         cfg_close(&c);
         assert(stage_cfg(&c) == 1);
-        assert(ep_config(0x83, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-        assert(ep_config(0x84, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
-        assert(ep_config(0x85, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+        assert(ep_config(0x83, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        assert(ep_config(0x84, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        assert(ep_config(0x85, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
         assert(commit_staged() == 1);
         // from the first interface descriptor (the association descriptor is stepped over by the stack)
         const uint16_t group = 9 + 5 + 4 + 7 + 9 + 7 + 7;
-        assert(mimhid_active_generic_span(0) == group);
-        assert(mimhid_active_generic_span(1) == 9 + 7 + 7); // the second one of the group on its own
+        assert(mimusb_active_generic_span(0) == group);
+        assert(mimusb_active_generic_span(1) == 9 + 7 + 7); // the second one of the group on its own
         set_config();
         assert(EPSTATE(0x83).opened && EPSTATE(0x84).opened && EPSTATE(0x02).opened &&
                EPSTATE(0x85).opened); // the HID interface is opened by the same driver
@@ -3892,7 +3892,7 @@ static void test_generic(void) {
         assert(EPSTATE(0x83).busy && EPSTATE(0x84).busy);
         ep_in(5, B, 4);
         pump();
-        assert(EPSTATE(0x85).busy && mimhid_active_generic_span(2) == 9 + 9 + 7);
+        assert(EPSTATE(0x85).busy && mimusb_active_generic_span(2) == 9 + 9 + 7);
     }
 #endif
 }
@@ -3917,7 +3917,7 @@ static void test_generic_hs(void) {
     cfg_endpoint(&c, 0x02, TUSB_XFER_INTERRUPT, 1024, 16);
     cfg_close(&c);
     assert(stage_cfg(&c) == 1);
-    assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(ep_config(0x81, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
     assert(commit_staged() == 1);
     static const uint8_t bad[] = {0, 17};
     for (size_t i = 0; i < sizeof(bad); i++) {
@@ -3936,7 +3936,7 @@ static void test_generic_hs(void) {
     cfg_endpoint(&c, 0x02, TUSB_XFER_INTERRUPT, 1024, 16);
     cfg_close(&c);
     assert(stage_cfg(&c) == 1);
-    assert(ep_config(0x81, 2, MIMHID_EP_FULL_DROP_NEWEST) == 1);
+    assert(ep_config(0x81, 2, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
     assert(commit_staged() == 1);
     // a slot holds the largest transfer, which is the largest packet of the endpoint: 512 here
     set_config();
@@ -3952,8 +3952,8 @@ static void test_generic_hs(void) {
 #endif
 
 int main(void) {
-    printf("firmware core, endpoint numbers 1 to %d\n", MIMHID_MAX_ENDPOINT_NUMBER);
-    mimhid_core_init();
+    printf("firmware core, endpoint numbers 1 to %d\n", MIMUSB_MAX_ENDPOINT_NUMBER);
+    mimusb_core_init();
 #if TUD_OPT_HIGH_SPEED
     test_high_speed();
     test_generic_hs();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Runs the scripted-board suites: the serial port, the link and the handshake below the C ABI,
  * and the C ABI against a board that NAKs, stays silent, stops reading or is unplugged. Each test
  * starts its own board on a new pseudo-terminal. */

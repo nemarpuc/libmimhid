@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * This file implements compact HID 1.11 short-item encoding. It does not know
  * about profiles, report state, or USB transport.
@@ -9,7 +9,7 @@
 
 #include <limits>
 
-namespace mimhid::hid {
+namespace mimusb::hid {
 
 namespace {
 constexpr std::uint8_t kInput = 0x80U;
@@ -143,4 +143,4 @@ bool ItemWriter::end_collection() noexcept { return emit(EncodedItem{kEndCollect
 bool ItemWriter::good() const noexcept { return good_; }
 std::size_t ItemWriter::size() const noexcept { return position_; }
 
-} // namespace mimhid::hid
+} // namespace mimusb::hid

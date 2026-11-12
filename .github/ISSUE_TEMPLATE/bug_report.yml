@@ -14,7 +14,7 @@ body:
   - type: input
     id: revision
     attributes:
-      label: libmimhid revision
+      label: libmimusb revision
       description: Commit SHA or release version of the host library, and the firmware version the board reports.
     validations:
       required: true
@@ -29,7 +29,7 @@ body:
     id: reproduction
     attributes:
       label: Minimal reproduction
-      description: Include explicit option values, call order, result codes, `mimhid_last_error()` output, and sanitized diagnostics.
+      description: Include explicit option values, call order, result codes, `mimusb_last_error()` output, and sanitized diagnostics.
     validations:
       required: true
   - type: textarea

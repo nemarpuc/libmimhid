@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """The single list of files that must agree on the release version.
 
 validate_release.py reads this list to reject a mismatch; sync_version.py
@@ -62,24 +62,24 @@ class VersionSite:
 
 # Every location a release version must match. Order is documentation order, not evaluation
 # order. The constants inside the generated binding files are not listed: they come from
-# include/mimhid.h through tools/bindings/generate.py, whose --check pins them.
+# include/mimusb.h through tools/bindings/generate.py, whose --check pins them.
 SITES: tuple[VersionSite, ...] = (
-    VersionSite("CMakeLists.txt", r"project\(libmimhid VERSION (\d+\.\d+\.\d+)"),
-    VersionSite("include/mimhid.h", r"^#define MIMHID_VERSION_MAJOR (\d+)$", "major"),
-    VersionSite("include/mimhid.h", r"^#define MIMHID_VERSION_MINOR (\d+)$", "minor"),
-    VersionSite("include/mimhid.h", r"^#define MIMHID_VERSION_PATCH (\d+)$", "patch"),
+    VersionSite("CMakeLists.txt", r"project\(libmimusb VERSION (\d+\.\d+\.\d+)"),
+    VersionSite("include/mimusb.h", r"^#define MIMUSB_VERSION_MAJOR (\d+)$", "major"),
+    VersionSite("include/mimusb.h", r"^#define MIMUSB_VERSION_MINOR (\d+)$", "minor"),
+    VersionSite("include/mimusb.h", r"^#define MIMUSB_VERSION_PATCH (\d+)$", "patch"),
     VersionSite("firmware/common/core.h", r"^#define FW_VERSION_MAJOR (\d+)$", "major"),
     VersionSite("firmware/common/core.h", r"^#define FW_VERSION_MINOR (\d+)$", "minor"),
     VersionSite("firmware/common/core.h", r"^#define FW_VERSION_PATCH (\d+)$", "patch"),
     VersionSite("README.md", r"^> Version (\d+\.\d+\.\d+)\."),
     VersionSite("bindings/python/pyproject.toml", r'^version = "(\d+\.\d+\.\d+)"$'),
-    VersionSite("bindings/csharp/MimHid/MimHid.csproj", r"<Version>(\d+\.\d+\.\d+)</Version>"),
-    VersionSite("bindings/rust/mimhid/Cargo.toml", r'^version = "(\d+\.\d+\.\d+)"$'),
+    VersionSite("bindings/csharp/MimUsb/MimUsb.csproj", r"<Version>(\d+\.\d+\.\d+)</Version>"),
+    VersionSite("bindings/rust/mimusb/Cargo.toml", r'^version = "(\d+\.\d+\.\d+)"$'),
     VersionSite(
-        "bindings/rust/mimhid/Cargo.toml",
-        r'mimhid-sys = \{ path = "\.\./mimhid-sys", version = "(\d+\.\d+\.\d+)" \}',
+        "bindings/rust/mimusb/Cargo.toml",
+        r'mimusb-sys = \{ path = "\.\./mimusb-sys", version = "(\d+\.\d+\.\d+)" \}',
     ),
-    VersionSite("bindings/rust/mimhid-sys/Cargo.toml", r'^version = "(\d+\.\d+\.\d+)"$'),
+    VersionSite("bindings/rust/mimusb-sys/Cargo.toml", r'^version = "(\d+\.\d+\.\d+)"$'),
 )
 
 

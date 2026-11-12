@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Finding a board and agreeing the line rate with it (see handshaker.hpp).
 #include "transport/handshaker.hpp"
 
@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 namespace {
 constexpr std::uint32_t kBreakMs = 10;
@@ -42,7 +42,7 @@ template <typename F> bool read_until(SerialPort& port, std::uint32_t wait_ms, F
 
 bool Handshaker::ping(BoardInfo* out) {
     std::uint8_t frame[8];
-    const std::size_t n = encode_frame(MIMHID_T_PING, nullptr, 0, frame);
+    const std::size_t n = encode_frame(MIMUSB_T_PING, nullptr, 0, frame);
     port_.discard_input();
     if (port_.write_all(frame, n, wait_ms_, nullptr) != IoStatus::ok)
         return false;
@@ -65,10 +65,10 @@ CommandStatus Handshaker::command(std::uint8_t type, const std::uint8_t* payload
     if (data_length != nullptr)
         *data_length = 0;
     read_until(port_, wait_ms_ + reply_extra_ms_, [&](const Frame& f) {
-        if ((f.type != MIMHID_T_ACK && f.type != MIMHID_T_NAK) || f.length < 2 ||
+        if ((f.type != MIMUSB_T_ACK && f.type != MIMUSB_T_NAK) || f.length < 2 ||
             f.payload[0] != seq || f.payload[1] != type)
             return false;
-        status = f.type == MIMHID_T_ACK ? CommandStatus::ack : CommandStatus::nak;
+        status = f.type == MIMUSB_T_ACK ? CommandStatus::ack : CommandStatus::nak;
         if (status == CommandStatus::ack && data != nullptr && data_length != nullptr) {
             const std::size_t got = std::min<std::size_t>(f.length - 2U, 16U);
             std::memcpy(data, &f.payload[2], got);
@@ -83,12 +83,12 @@ CommandStatus Handshaker::command(std::uint8_t type, const std::uint8_t* payload
 // falls back by itself when the rate it was moved to is not confirmed in time, so the wait runs
 // out that window before it gives up.
 bool Handshaker::recover(BoardInfo* info) {
-    rate_ = MIMHID_BOOT_BAUD;
-    if (!port_.set_baud(MIMHID_BOOT_BAUD))
+    rate_ = MIMUSB_BOOT_BAUD;
+    if (!port_.set_baud(MIMUSB_BOOT_BAUD))
         return false;
     (void)port_.send_break(kBreakMs);
     const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(MIMHID_BAUD_CONFIRM_MS + 30);
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(MIMUSB_BAUD_CONFIRM_MS + 30);
     do {
         if (ping(info))
             return true;
@@ -97,13 +97,13 @@ bool Handshaker::recover(BoardInfo* info) {
 }
 
 bool Handshaker::to_boot(BoardInfo* info) {
-    if (rate_ == MIMHID_BOOT_BAUD)
+    if (rate_ == MIMUSB_BOOT_BAUD)
         return ping(info);
     std::uint8_t boot[4];
-    put_u32(boot, MIMHID_BOOT_BAUD);
-    const bool asked = command(MIMHID_T_SET_BAUD, boot, 4, nullptr, nullptr) == CommandStatus::ack;
-    if (asked && port_.set_baud(MIMHID_BOOT_BAUD)) {
-        rate_ = MIMHID_BOOT_BAUD;
+    put_u32(boot, MIMUSB_BOOT_BAUD);
+    const bool asked = command(MIMUSB_T_SET_BAUD, boot, 4, nullptr, nullptr) == CommandStatus::ack;
+    if (asked && port_.set_baud(MIMUSB_BOOT_BAUD)) {
+        rate_ = MIMUSB_BOOT_BAUD;
         if (ping(info))
             return true;
     }
@@ -118,15 +118,15 @@ bool Handshaker::find(BoardInfo* out, std::uint32_t hint_baud) {
         return true;
     // The port cannot send a BREAK (or the board did not take it): the caller may know the rate
     // the board was last on. Ask it back to the boot rate there.
-    if (hint_baud > MIMHID_BOOT_BAUD && port_.set_baud(hint_baud)) {
+    if (hint_baud > MIMUSB_BOOT_BAUD && port_.set_baud(hint_baud)) {
         rate_ = hint_baud;
         if (ping(out)) {
             if (!out->compatible)
                 return true;
             return to_boot(out);
         }
-        rate_ = MIMHID_BOOT_BAUD;
-        port_.set_baud(MIMHID_BOOT_BAUD);
+        rate_ = MIMUSB_BOOT_BAUD;
+        port_.set_baud(MIMUSB_BOOT_BAUD);
     }
     return false;
 }
@@ -135,19 +135,19 @@ bool Handshaker::run_test(const BoardInfo& board, const LinkTest& test) {
     LinkCounters counters;
     std::uint8_t data[16];
     std::uint8_t data_length = 0;
-    const std::uint8_t reset[1] = {MIMHID_COUNTERS_F_RESET};
-    if (command(MIMHID_T_COUNTERS, reset, 1, data, &data_length) != CommandStatus::ack)
+    const std::uint8_t reset[1] = {MIMUSB_COUNTERS_F_RESET};
+    if (command(MIMUSB_T_COUNTERS, reset, 1, data, &data_length) != CommandStatus::ack)
         return false;
 
     const std::size_t probe_bytes =
         std::min<std::size_t>(test.probe_bytes, board.max_frame_payload);
     if (probe_bytes == 0U)
         return false;
-    std::uint8_t pattern[MIMHID_PROTO_MAX_PAYLOAD];
+    std::uint8_t pattern[MIMUSB_PROTO_MAX_PAYLOAD];
     for (std::size_t i = 0; i < probe_bytes; ++i)
-        pattern[i] = MIMHID_PROBE_BYTE(i);
-    std::uint8_t one[8 + MIMHID_PROTO_MAX_PAYLOAD];
-    const std::size_t frame_bytes = encode_frame(MIMHID_T_PROBE, pattern, probe_bytes, one);
+        pattern[i] = MIMUSB_PROBE_BYTE(i);
+    std::uint8_t one[8 + MIMUSB_PROTO_MAX_PAYLOAD];
+    const std::size_t frame_bytes = encode_frame(MIMUSB_T_PROBE, pattern, probe_bytes, one);
 
     // As many frames as fill the test's line time, within what a 16-bit counter holds.
     std::uint64_t frames =
@@ -171,7 +171,7 @@ bool Handshaker::run_test(const BoardInfo& board, const LinkTest& test) {
     reply_extra_ms_ = static_cast<std::uint32_t>(
         std::min<std::uint64_t>(10000U, 100U + frames * frame_bytes * 10000U / rate_));
     const std::uint8_t keep[1] = {0};
-    const CommandStatus got = command(MIMHID_T_COUNTERS, keep, 1, data, &data_length);
+    const CommandStatus got = command(MIMUSB_T_COUNTERS, keep, 1, data, &data_length);
     reply_extra_ms_ = 0;
     return got == CommandStatus::ack && decode_counters(data, data_length, &counters) &&
            counters.probes_good == frames && counters.errors() == 0U;
@@ -180,16 +180,16 @@ bool Handshaker::run_test(const BoardInfo& board, const LinkTest& test) {
 Handshake Handshaker::try_rate(std::uint32_t baud, const LinkTest& test, BoardInfo* info) {
     // A rate the port cannot be set to is not asked of the board.
     if (!port_.set_baud(baud)) {
-        port_.set_baud(MIMHID_BOOT_BAUD);
+        port_.set_baud(MIMUSB_BOOT_BAUD);
         return Handshake::rate_refused;
     }
-    if (!port_.set_baud(MIMHID_BOOT_BAUD))
+    if (!port_.set_baud(MIMUSB_BOOT_BAUD))
         return Handshake::io_error;
     std::uint8_t ask[4];
     put_u32(ask, baud);
     std::uint8_t data[16];
     std::uint8_t data_length = 0;
-    const CommandStatus asked = command(MIMHID_T_SET_BAUD, ask, 4, data, &data_length);
+    const CommandStatus asked = command(MIMUSB_T_SET_BAUD, ask, 4, data, &data_length);
     if (asked == CommandStatus::nak)
         return Handshake::rate_refused;
     if (asked != CommandStatus::ack || data_length < 4U)
@@ -212,11 +212,11 @@ Handshake Handshaker::try_rate(std::uint32_t baud, const LinkTest& test, BoardIn
 Handshake Handshaker::switch_to(std::uint32_t baud, BoardInfo* info) {
     if (baud == 0U || baud > info->max_baud)
         return Handshake::rate_refused;
-    return baud == MIMHID_BOOT_BAUD ? Handshake::ok : try_rate(baud, kScreen, info);
+    return baud == MIMUSB_BOOT_BAUD ? Handshake::ok : try_rate(baud, kScreen, info);
 }
 
 std::uint32_t Handshaker::fastest(BoardInfo* info) {
-    const std::uint32_t floor = MIMHID_BOOT_BAUD + MIMHID_BOOT_BAUD / 20U;
+    const std::uint32_t floor = MIMUSB_BOOT_BAUD + MIMUSB_BOOT_BAUD / 20U;
     std::uint32_t pass = 0;
     std::uint32_t fail = 0;
     // Coarse: down from the board's fastest rate in steps of 20 % to the first rate that carries.
@@ -231,7 +231,7 @@ std::uint32_t Handshaker::fastest(BoardInfo* info) {
         fail = r;
     }
     if (pass == 0U)
-        return MIMHID_BOOT_BAUD;
+        return MIMUSB_BOOT_BAUD;
     // Fine: between the last failure and the first pass, to 2 %.
     while (fail != 0U &&
            static_cast<std::uint64_t>(fail) * 100U > static_cast<std::uint64_t>(pass) * 102U) {
@@ -248,7 +248,7 @@ std::uint32_t Handshaker::fastest(BoardInfo* info) {
     }
     // The rate must hold a longer burst; if not, 5 % lower, until one does.
     for (int step = 0; step < 8 && pass > floor; ++step) {
-        if (rate_ != MIMHID_BOOT_BAUD && !to_boot(info))
+        if (rate_ != MIMUSB_BOOT_BAUD && !to_boot(info))
             return 0U;
         const Handshake h = try_rate(pass, kConfirm, info);
         if (h == Handshake::ok)
@@ -257,7 +257,7 @@ std::uint32_t Handshaker::fastest(BoardInfo* info) {
             return 0U;
         pass = pass / 20U * 19U;
     }
-    return MIMHID_BOOT_BAUD;
+    return MIMUSB_BOOT_BAUD;
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Names only USB-IF-audited Usage values needed by implemented profiles; it
  * does not assert Linux support for those Usages. */
 #pragma once
@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace mimhid::hid::usage {
+namespace mimusb::hid::usage {
 
 constexpr std::uint16_t page_generic_desktop = 0x01U;
 constexpr std::uint16_t page_simulation = 0x02U;
@@ -87,4 +87,4 @@ constexpr std::uint16_t keyboard_right_gui = 0xE7U;
 constexpr std::uint16_t background_nonuser_controls = 0x01U;
 constexpr std::uint16_t battery_strength = 0x20U;
 
-} // namespace mimhid::hid::usage
+} // namespace mimusb::hid::usage

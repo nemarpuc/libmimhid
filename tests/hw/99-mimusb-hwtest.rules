@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 libmimusb contributors
+#
+# For the programs in tests/hw when the target is the machine that runs them: lets the uucp group
+# (the group of the serial ports on Arch; use dialout on Debian and Ubuntu) reach the USB node, the
+# hidraw node and the input events of the device the programs present, which carries the pid.codes
+# pair set aside for testing (1209:0001). Without it those nodes are root's.
+#
+#   sudo cp tests/hw/99-mimusb-hwtest.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1209", ATTR{idProduct}=="0001", MODE="0660", GROUP="uucp"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", MODE="0660", GROUP="uucp"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", MODE="0660", GROUP="uucp"

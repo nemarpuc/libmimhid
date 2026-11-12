@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Types a short message repeatedly, so a person watching the target can
  * confirm real key presses actually arrive as text.
  *
@@ -27,46 +27,46 @@ static uint16_t usage_for_char(char c) {
     return 0;
 }
 
-static int type_char(mimhid_node* node, char c) {
+static int type_char(mimusb_node* node, char c) {
     const uint16_t usage = usage_for_char(c);
     if (usage == 0)
         return 0; /* Silently skip characters this small demo does not map. */
-    mimhid_result result = mimhid_keyboard_key(node, usage, 1U);
-    if (result != MIMHID_OK)
+    mimusb_result result = mimusb_keyboard_key(node, usage, 1U);
+    if (result != MIMUSB_OK)
         return verify_fail("key down", result);
     result = verify_submit(node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit key down", result);
     verify_sleep_ms(60);
-    result = mimhid_keyboard_key(node, usage, 0U);
-    if (result != MIMHID_OK)
+    result = mimusb_keyboard_key(node, usage, 0U);
+    if (result != MIMUSB_OK)
         return verify_fail("key up", result);
     result = verify_submit(node);
-    if (result != MIMHID_OK)
+    if (result != MIMUSB_OK)
         return verify_fail("submit key up", result);
     verify_sleep_ms(120);
     return 0;
 }
 
 int main(void) {
-    mimhid_device* device = NULL;
+    mimusb_device* device = NULL;
     if (verify_open_first_board(&device) != 0)
         return 1;
 
-    mimhid_keyboard_options options;
+    mimusb_keyboard_options options;
     example_fill_keyboard_options(&options);
-    mimhid_spec* spec = NULL;
-    mimhid_result result = mimhid_spec_create_keyboard(&options, &spec);
-    if (result != MIMHID_OK) {
-        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    mimusb_spec* spec = NULL;
+    mimusb_result result = mimusb_spec_create_keyboard(&options, &spec);
+    if (result != MIMUSB_OK) {
+        mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("keyboard spec create", result);
     }
 
-    mimhid_node* node = NULL;
+    mimusb_node* node = NULL;
     result = verify_open_node(device, spec, 0U, &node);
-    mimhid_spec_release(spec);
-    if (result != MIMHID_OK) {
-        mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    mimusb_spec_release(spec);
+    if (result != MIMUSB_OK) {
+        mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
         return verify_fail("keyboard node open", result);
     }
 
@@ -74,17 +74,17 @@ int main(void) {
     printf("Typing in 3 seconds...\n");
     verify_sleep_ms(3000);
 
-    const char* message = "hello from libmimhid\n";
+    const char* message = "hello from libmimusb\n";
     for (int round = 0; round < 3; ++round) {
         for (const char* p = message; *p != '\0'; ++p) {
             if (type_char(node, *p) != 0) {
-                mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+                mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
                 return 1;
             }
         }
     }
 
-    printf("done. Expected result: \"%s\" typed 3 times.\n", "hello from libmimhid");
-    mimhid_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
+    printf("done. Expected result: \"%s\" typed 3 times.\n", "hello from libmimusb");
+    mimusb_device_close(device, EXAMPLE_CONTROL_TIMEOUT_MS, EXAMPLE_DRAIN_TIMEOUT_MS);
     return 0;
 }

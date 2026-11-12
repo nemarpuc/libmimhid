@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=ON
+          cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=ON
 
       - name: Build
         run: cmake --build build_host --config Release --parallel
@@ -46,14 +46,14 @@ jobs:
           set -euo pipefail
           cmake --install build_host --config Release --prefix "$PWD/stage"
           mv stage moved
-          pc="$(dirname "$(find "$PWD/moved" -name mimhid.pc)")"
+          pc="$(dirname "$(find "$PWD/moved" -name mimusb.pc)")"
           export PKG_CONFIG_PATH="$pc"
-          pkg-config --cflags --libs mimhid
-          pkg-config --static --cflags --libs mimhid-static
-          printf '#include <mimhid.h>\nint main(void) { return mimhid_version() == 0; }\n' > pkgconfig_check.c
-          cc $(pkg-config --cflags mimhid-static) pkgconfig_check.c $(pkg-config --static --libs mimhid-static) -o pkgconfig_check
+          pkg-config --cflags --libs mimusb
+          pkg-config --static --cflags --libs mimusb-static
+          printf '#include <mimusb.h>\nint main(void) { return mimusb_version() == 0; }\n' > pkgconfig_check.c
+          cc $(pkg-config --cflags mimusb-static) pkgconfig_check.c $(pkg-config --static --libs mimusb-static) -o pkgconfig_check
           ./pkgconfig_check
-          cc $(pkg-config --cflags mimhid) pkgconfig_check.c $(pkg-config --libs mimhid) -o pkgconfig_check_shared
+          cc $(pkg-config --cflags mimusb) pkgconfig_check.c $(pkg-config --libs mimusb) -o pkgconfig_check_shared
           LD_LIBRARY_PATH="$(dirname "$pc")" ./pkgconfig_check_shared
 
   sim:
@@ -75,7 +75,7 @@ jobs:
       - name: Build the host library against the firmware core
         run: |
           set -euo pipefail
-          cmake -B build_sim -S . -DCMAKE_BUILD_TYPE=Release -DMIMHID_BUILD_TESTS=ON -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_sim -S . -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
           cmake --build build_sim --parallel
 
       - name: Run the simulated-board tests
@@ -100,8 +100,8 @@ jobs:
       - name: Build every test with coverage instrumentation
         run: |
           set -euo pipefail
-          cmake -B build_cov -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
-            -DMIMHID_BUILD_EXAMPLES=OFF -DMIMHID_COVERAGE=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_cov -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIMUSB_BUILD_TESTS=ON \
+            -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_COVERAGE=ON -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
           cmake --build build_cov --parallel
 
       - name: Run the tests
@@ -115,7 +115,7 @@ jobs:
           status=0
           gcovr --root . --object-directory build_cov --filter 'src/' \
             --exclude-throw-branches --exclude-unreachable-branches \
-            --exclude-lines-by-pattern '.*MIMHID_C_(RESULT|VALUE|VOID)_CATCH.*' \
+            --exclude-lines-by-pattern '.*MIMUSB_C_(RESULT|VALUE|VOID)_CATCH.*' \
             --txt build_cov/coverage/coverage.txt \
             --markdown build_cov/coverage/coverage.md \
             --cobertura build_cov/coverage/coverage.xml \
@@ -147,15 +147,15 @@ jobs:
           -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DCMAKE_C_COMPILER=clang
           -DCMAKE_CXX_COMPILER=clang++
-          -DMIMHID_BUILD_SHARED=OFF
-          -DMIMHID_BUILD_TESTS=OFF
-          -DMIMHID_BUILD_EXAMPLES=OFF
-          -DMIMHID_BUILD_FUZZ=ON
+          -DMIMUSB_BUILD_SHARED=OFF
+          -DMIMUSB_BUILD_TESTS=OFF
+          -DMIMUSB_BUILD_EXAMPLES=OFF
+          -DMIMUSB_BUILD_FUZZ=ON
 
       - name: Run bounded fuzz smoke
         run: |
-          cmake --build build_fuzz --target mimhid_fuzz_descriptor --parallel
-          ./build_fuzz/mimhid_fuzz_descriptor -runs=10000 -max_len=4096 -timeout=5 -print_final_stats=1
+          cmake --build build_fuzz --target mimusb_fuzz_descriptor --parallel
+          ./build_fuzz/mimusb_fuzz_descriptor -runs=10000 -max_len=4096 -timeout=5 -print_final_stats=1
 
   bindings:
     name: Language bindings (Python, C#, Rust)
@@ -183,33 +183,33 @@ jobs:
           mkdir -p build_bindings
           cc -std=c11 -Wall -Wextra -Werror -Iinclude tests/abi/layout_oracle.c -o build_bindings/layout_oracle
           cmake -S . -B build_bindings/lib -DCMAKE_BUILD_TYPE=Release \
-            -DMIMHID_BUILD_STATIC=OFF -DMIMHID_BUILD_TESTS=OFF -DMIMHID_BUILD_EXAMPLES=OFF
+            -DMIMUSB_BUILD_STATIC=OFF -DMIMUSB_BUILD_TESTS=OFF -DMIMUSB_BUILD_EXAMPLES=OFF
           cmake --build build_bindings/lib --parallel
 
-      # No step runs the enumerate examples: mimhid_discover messages every serial port of the
+      # No step runs the enumerate examples: mimusb_discover messages every serial port of the
       # host, and these runners are no place for that. They are built, and Python imports them.
       - name: Python layout and example
         run: |
           set -euo pipefail
           PYTHONPATH=bindings/python python3 bindings/python/tests/test_contract.py
-          PYTHONPATH=bindings/python MIMHID_ABI_ORACLE="$PWD/build_bindings/layout_oracle" \
+          PYTHONPATH=bindings/python MIMUSB_ABI_ORACLE="$PWD/build_bindings/layout_oracle" \
             python3 bindings/python/tests/test_layout.py
           PYTHONPATH=bindings/python python3 -c "
-          import mimhid
-          mimhid.load('$PWD/build_bindings/lib/libmimhid.so')"
+          import mimusb
+          mimusb.load('$PWD/build_bindings/lib/libmimusb.so')"
           python3 -m py_compile examples/python/enumerate.py
 
       - name: C# layout against compiled C, and the example
         run: |
           set -euo pipefail
-          dotnet run --project bindings/csharp/MimHid.Tests/MimHid.Tests.csproj \
+          dotnet run --project bindings/csharp/MimUsb.Tests/MimUsb.Tests.csproj \
             --configuration Release -- "$PWD/build_bindings/layout_oracle"
           dotnet build examples/csharp/Enumerate.csproj --configuration Release
 
       - name: Rust FFI layout against compiled C, and the example
         env:
-          MIMHID_ABI_ORACLE: ${{ github.workspace }}/build_bindings/layout_oracle
-          MIMHID_LIB_DIR: ${{ github.workspace }}/build_bindings/lib
+          MIMUSB_ABI_ORACLE: ${{ github.workspace }}/build_bindings/layout_oracle
+          MIMUSB_LIB_DIR: ${{ github.workspace }}/build_bindings/lib
           LD_LIBRARY_PATH: ${{ github.workspace }}/build_bindings/lib
         run: |
           set -euo pipefail
@@ -251,23 +251,23 @@ jobs:
               apk add --no-cache build-base cmake python3 linux-headers
               cmake -S . -B build/musl -G "Unix Makefiles" \
                 -DCMAKE_BUILD_TYPE=Release \
-                -DMIMHID_WERROR=ON \
-                -DMIMHID_BUILD_SHARED=ON \
-                -DMIMHID_BUILD_STATIC=ON \
-                -DMIMHID_BUILD_TESTS=ON \
-                -DMIMHID_BUILD_EXAMPLES=ON \
+                -DMIMUSB_WERROR=ON \
+                -DMIMUSB_BUILD_SHARED=ON \
+                -DMIMUSB_BUILD_STATIC=ON \
+                -DMIMUSB_BUILD_TESTS=ON \
+                -DMIMUSB_BUILD_EXAMPLES=ON \
                 -DCMAKE_INSTALL_LIBDIR=lib
               cmake --build build/musl --parallel
               ctest --test-dir build/musl --output-on-failure
               cmake --install build/musl --prefix build/musl-stage
-              version="$(sed -n "s/^project(libmimhid VERSION \([0-9.]*\).*/\1/p" CMakeLists.txt)"
+              version="$(sed -n "s/^project(libmimusb VERSION \([0-9.]*\).*/\1/p" CMakeLists.txt)"
               cmake -S tools/release/consumer -B build/musl-consumer \
                 -DCMAKE_PREFIX_PATH=/src/build/musl-stage \
-                -DMIMHID_VERSION="$version" -DMIMHID_COMPONENT=shared
+                -DMIMUSB_VERSION="$version" -DMIMUSB_COMPONENT=shared
               cmake --build build/musl-consumer --parallel
               LD_LIBRARY_PATH=/src/build/musl-stage/lib \
                 ./build/musl-consumer/consumer
-              ldd build/musl/libmimhid.so | grep -E "musl|ld-musl"
+              ldd build/musl/libmimusb.so | grep -E "musl|ld-musl"
             '
 
   hid-tools:
@@ -309,13 +309,13 @@ jobs:
         run: |
           cmake -S . -B build/hid-parse -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DMIMHID_WERROR=ON \
-            -DMIMHID_BUILD_SHARED=OFF \
-            -DMIMHID_BUILD_STATIC=ON \
-            -DMIMHID_BUILD_TESTS=ON \
-            -DMIMHID_BUILD_EXAMPLES=OFF
-          cmake --build build/hid-parse --target mimhid_export_descriptors --parallel
-          ./build/hid-parse/mimhid_export_descriptors build/hid-descriptors
+            -DMIMUSB_WERROR=ON \
+            -DMIMUSB_BUILD_SHARED=OFF \
+            -DMIMUSB_BUILD_STATIC=ON \
+            -DMIMUSB_BUILD_TESTS=ON \
+            -DMIMUSB_BUILD_EXAMPLES=OFF
+          cmake --build build/hid-parse --target mimusb_export_descriptors --parallel
+          ./build/hid-parse/mimusb_export_descriptors build/hid-descriptors
           generated_count="$(find build/hid-descriptors -maxdepth 1 -type f -name '*.bin' | wc -l)"
           golden_count="$(find tests/golden -maxdepth 1 -type f -name '*.hex' | wc -l)"
           test "$generated_count" -eq "$golden_count"
@@ -357,8 +357,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_CXX_COMPILER=clang++-14 \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DMIMHID_BUILD_TESTS=ON \
-            -DMIMHID_BUILD_EXAMPLES=ON
+            -DMIMUSB_BUILD_TESTS=ON \
+            -DMIMUSB_BUILD_EXAMPLES=ON
           cmake --build build_tidy --parallel
           ctest --test-dir build_tidy --output-on-failure
 
@@ -380,9 +380,9 @@ jobs:
       matrix:
         include:
           - name: address,undefined
-            flag: MIMHID_SANITIZE
+            flag: MIMUSB_SANITIZE
           - name: thread
-            flag: MIMHID_TSAN
+            flag: MIMUSB_TSAN
 
     steps:
       - name: Check out source
@@ -394,8 +394,8 @@ jobs:
       - name: Build every test with the sanitizers
         run: |
           set -euo pipefail
-          cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMHID_BUILD_TESTS=ON \
-            -D${{ matrix.flag }}=ON -DMIMHID_TINYUSB_PATH="$HOME/tinyusb"
+          cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMUSB_BUILD_TESTS=ON \
+            -D${{ matrix.flag }}=ON -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
           cmake --build build_san --parallel
 
       - name: Run the tests
@@ -428,7 +428,7 @@ jobs:
           python3 tests/release/test_release_tools.py
           python3 tests/docs/test_doc_references.py
           python3 tools/check_doc_references.py
-          python3 tools/symbol-lint/symbol_lint.py --header include/mimhid.h
+          python3 tools/symbol-lint/symbol_lint.py --header include/mimusb.h
 
   firmware-core:
     name: Firmware core tests
@@ -458,9 +458,9 @@ jobs:
       matrix:
         include:
           - name: rp2040
-            args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1"
+            args: "-DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico -DMIMUSB_UART_ID=uart0 -DMIMUSB_UART_TX_PIN=0 -DMIMUSB_UART_RX_PIN=1"
           - name: rp2350
-            args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMHID_UART_ID=uart0 -DMIMHID_UART_TX_PIN=0 -DMIMHID_UART_RX_PIN=1"
+            args: "-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2 -DMIMUSB_UART_ID=uart0 -DMIMUSB_UART_TX_PIN=0 -DMIMUSB_UART_RX_PIN=1"
 
     steps:
       - name: Check out source
@@ -542,5 +542,5 @@ jobs:
           set -euo pipefail
           . "$IDF_PATH/export.sh"
           export TINYUSB_PATH="$HOME/tinyusb"
-          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 set-target esp32s3
-          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMHID_UART_TX_PIN=17 -DMIMHID_UART_RX_PIN=18 build
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMUSB_UART_TX_PIN=17 -DMIMUSB_UART_RX_PIN=18 set-target esp32s3
+          idf.py -C firmware/ports/esp32s3 -B build_fw -DMIMUSB_UART_TX_PIN=17 -DMIMUSB_UART_RX_PIN=18 build

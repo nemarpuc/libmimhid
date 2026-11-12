@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Fail when the documentation names a CMake option the build does not declare.
 
 CMake accepts an unknown -D variable as an unused cache entry and silently leaves the real option at
 its default, so a misspelled or removed option in a command example is a bug that no build shows. This
-reads the options declared in CMakeLists.txt, cmake/*.cmake and the firmware build files and checks every MIMHID_* option that
+reads the options declared in CMakeLists.txt, cmake/*.cmake and the firmware build files and checks every MIMUSB_* option that
 README.md, CONTRIBUTING.md, docs/*.md and examples/README.md mention: in a -D argument, or in code
 quotes when the name looks like an option. It also fails on a misspelled prefix.
 """
@@ -16,9 +16,9 @@ import argparse
 import re
 from pathlib import Path
 
-PREFIX = "MIMHID"
+PREFIX = "MIMUSB"
 TYPO = "M" + "IHID_"
-# Names in code quotes that are options (the other MIMHID_ names are constants, macros and functions).
+# Names in code quotes that are options (the other MIMUSB_ names are constants, macros and functions).
 OPTION_SHAPE = re.compile(
     PREFIX + r"_(?:BUILD_[A-Z_]+|WERROR|SANITIZE|TSAN|COVERAGE|TINYUSB_PATH)\b"
 )

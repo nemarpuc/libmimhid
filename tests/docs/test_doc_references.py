@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Tests of tools/check_doc_references.py; they need nothing but the standard library."""
 
 from pathlib import Path
@@ -25,9 +25,9 @@ class DocReferenceTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        write(root, "include/mimhid.h", "int mimhid_device_open(void);\n#define MIMHID_OK 0\n")
-        write(root, "include/mimhid.hpp", "namespace mimhid { inline int device_open(); }\n")
-        write(root, "cmake/tests.cmake", "add_executable(mimhid_sim_${itfs} a.c)\n")
+        write(root, "include/mimusb.h", "int mimusb_device_open(void);\n#define MIMUSB_OK 0\n")
+        write(root, "include/mimusb.hpp", "namespace mimusb { inline int device_open(); }\n")
+        write(root, "cmake/tests.cmake", "add_executable(mimusb_sim_${itfs} a.c)\n")
         write(root, "src/a.cpp", "\n")
         return root
 
@@ -37,18 +37,18 @@ class DocReferenceTests(unittest.TestCase):
 
     def test_existing_references_pass(self) -> None:
         root = self.tree()
-        text = ("`mimhid_device_open`, `MIMHID_OK`, `MIMHID_`, `mimhid::device_open`, "
-                "`mimhid_device_*`, `mimhid_sim_15`, `src/a.cpp`, `src/*.cpp`\n")
+        text = ("`mimusb_device_open`, `MIMUSB_OK`, `MIMUSB_`, `mimusb::device_open`, "
+                "`mimusb_device_*`, `mimusb_sim_15`, `src/a.cpp`, `src/*.cpp`\n")
         self.assertEqual(self.problems(root, text), [])
 
     def test_missing_identifier_is_reported(self) -> None:
         root = self.tree()
-        self.assertEqual(self.problems(root, "`mimhid_device_ping`\n"), ["mimhid_device_ping"])
+        self.assertEqual(self.problems(root, "`mimusb_device_ping`\n"), ["mimusb_device_ping"])
 
     def test_identifier_in_a_fenced_block_is_checked(self) -> None:
         root = self.tree()
-        text = "```c\nmimhid_device_open();\nMIMHID_ERR_GONE;\n```\n"
-        self.assertEqual(self.problems(root, text), ["MIMHID_ERR_GONE"])
+        text = "```c\nmimusb_device_open();\nMIMUSB_ERR_GONE;\n```\n"
+        self.assertEqual(self.problems(root, text), ["MIMUSB_ERR_GONE"])
 
     def test_missing_path_is_reported(self) -> None:
         root = self.tree()
@@ -56,14 +56,14 @@ class DocReferenceTests(unittest.TestCase):
 
     def test_generated_prefix_needs_a_suffix(self) -> None:
         root = self.tree()
-        self.assertEqual(self.problems(root, "`mimhid_sim_`x `mimhid_simx`\n"), ["mimhid_simx"])
+        self.assertEqual(self.problems(root, "`mimusb_sim_`x `mimusb_simx`\n"), ["mimusb_simx"])
 
     def test_allowlist_needs_a_reason(self) -> None:
         root = self.tree()
-        write(root, "tools/doc_reference_allowlist.txt", "MIMHID_GONE # removed\nMIMHID_BARE\n")
+        write(root, "tools/doc_reference_allowlist.txt", "MIMUSB_GONE # removed\nMIMUSB_BARE\n")
         found = checker.find_problems(root)
         self.assertEqual(len([p for p in found if "reason" in p.message]), 1)
-        write(root, "docs/PAGE.md", "`MIMHID_GONE`\n")
+        write(root, "docs/PAGE.md", "`MIMUSB_GONE`\n")
         self.assertEqual([p.reference for p in checker.find_problems(root) if p.reference], [])
 
     def test_the_repository_passes(self) -> None:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * One bounded libFuzzer process exercises the four pure paths: descriptor
  * construction, report serialization, raw-descriptor validation, and the parser
@@ -11,7 +11,7 @@
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
-#include "mimhid.h"
+#include "mimusb.h"
 #include "transport/link.hpp"
 
 #include <array>
@@ -24,36 +24,36 @@ namespace {
 
 void fuzz_builder(const std::uint8_t* data, const std::size_t size) {
     std::array<std::uint8_t, 512U> descriptor{};
-    mimhid::hid::ReportLayout layout{};
-    mimhid::hid::DescriptorBuilder builder(descriptor.data(), descriptor.size(), &layout);
+    mimusb::hid::ReportLayout layout{};
+    mimusb::hid::DescriptorBuilder builder(descriptor.data(), descriptor.size(), &layout);
     const std::uint8_t selector = size == 0U ? 0U : data[0];
-    static_cast<void>(builder.begin_application(mimhid::hid::usage::page_generic_desktop,
-                                                mimhid::hid::usage::mouse));
+    static_cast<void>(builder.begin_application(mimusb::hid::usage::page_generic_desktop,
+                                                mimusb::hid::usage::mouse));
     static_cast<void>(builder.set_report_id((selector & 1U) != 0U,
                                             static_cast<std::uint8_t>(1U + selector % 254U)));
-    static_cast<void>(builder.begin_physical(mimhid::hid::usage::page_generic_desktop,
-                                             mimhid::hid::usage::pointer));
-    static_cast<void>(builder.variable_range(mimhid::hid::usage::page_button, 1U,
+    static_cast<void>(builder.begin_physical(mimusb::hid::usage::page_generic_desktop,
+                                             mimusb::hid::usage::pointer));
+    static_cast<void>(builder.variable_range(mimusb::hid::usage::page_button, 1U,
                                              static_cast<std::uint16_t>(1U + selector % 32U), 1U,
-                                             mimhid::hid::FieldSemantic::buttons));
+                                             mimusb::hid::FieldSemantic::buttons));
     static_cast<void>(builder.constant_padding(static_cast<std::uint16_t>(selector % 8U)));
     static_cast<void>(builder.variable(
-        mimhid::hid::usage::page_generic_desktop, mimhid::hid::usage::x, -32767, 32767, 16U,
-        (selector & 2U) != 0U, false, mimhid::hid::FieldSemantic::x, 0U));
+        mimusb::hid::usage::page_generic_desktop, mimusb::hid::usage::x, -32767, 32767, 16U,
+        (selector & 2U) != 0U, false, mimusb::hid::FieldSemantic::x, 0U));
     static_cast<void>(builder.variable(
-        mimhid::hid::usage::page_generic_desktop, mimhid::hid::usage::y, -32767, 32767, 16U,
-        (selector & 4U) != 0U, false, mimhid::hid::FieldSemantic::y, 0U));
+        mimusb::hid::usage::page_generic_desktop, mimusb::hid::usage::y, -32767, 32767, 16U,
+        (selector & 4U) != 0U, false, mimusb::hid::FieldSemantic::y, 0U));
     static_cast<void>(builder.end_collection());
     static_cast<void>(builder.end_collection());
     builder.finish();
     if (builder.good()) {
         static_cast<void>(
-            mimhid::hid::validate_generated(descriptor.data(), builder.descriptor_size(), layout));
+            mimusb::hid::validate_generated(descriptor.data(), builder.descriptor_size(), layout));
     }
 }
 
 void fuzz_serializer(const std::uint8_t* data, const std::size_t size) {
-    mimhid_mouse_options options{};
+    mimusb_mouse_options options{};
     options.struct_size = static_cast<std::uint32_t>(sizeof(options));
     options.button_count = 8U;
     options.x = {-32767, 32767, 16U, {}};
@@ -62,12 +62,12 @@ void fuzz_serializer(const std::uint8_t* data, const std::size_t size) {
     options.wheel = {-127, 127, 8U, {}};
     options.enable_pan = 1U;
     options.pan = {-127, 127, 8U, {}};
-    mimhid_spec* spec = nullptr;
-    if (mimhid_spec_create_mouse(&options, &spec) != MIMHID_OK || spec == nullptr) {
+    mimusb_spec* spec = nullptr;
+    if (mimusb_spec_create_mouse(&options, &spec) != MIMUSB_OK || spec == nullptr) {
         return;
     }
 
-    mimhid::detail::MouseState state{};
+    mimusb::detail::MouseState state{};
     state.buttons.resize(options.button_count);
     for (std::size_t index = 0U; index < state.buttons.size() && index < size; ++index) {
         state.buttons[index] = static_cast<std::uint8_t>(data[index] & 1U);
@@ -80,17 +80,17 @@ void fuzz_serializer(const std::uint8_t* data, const std::size_t size) {
         state.wheel = static_cast<std::int8_t>(data[10U]);
     if (size > 11U)
         state.pan = static_cast<std::int8_t>(data[11U]);
-    mimhid_node node{};
+    mimusb_node node{};
     node.spec = spec;
     node.state = std::move(state);
     std::array<std::uint8_t, 256U> report{};
     std::size_t report_length = 0U;
-    if (mimhid::detail::serialize_node(&node, report.data(), report.size(), &report_length) ==
-        MIMHID_OK) {
+    if (mimusb::detail::serialize_node(&node, report.data(), report.size(), &report_length) ==
+        MIMUSB_OK) {
         static_cast<void>(
-            mimhid::detail::validate_serialized_report(spec, report.data(), report_length));
+            mimusb::detail::validate_serialized_report(spec, report.data(), report_length));
     }
-    mimhid_spec_release(spec);
+    mimusb_spec_release(spec);
 }
 
 void fuzz_raw_validator(const std::uint8_t* data, const std::size_t size) {
@@ -99,7 +99,7 @@ void fuzz_raw_validator(const std::uint8_t* data, const std::size_t size) {
     }
 
     constexpr std::size_t maximum_reports = 4U;
-    std::array<mimhid_raw_report, maximum_reports> reports{};
+    std::array<mimusb_raw_report, maximum_reports> reports{};
     const std::size_t report_count = 1U + static_cast<std::size_t>(data[0] % maximum_reports);
     std::size_t cursor = 1U;
     for (std::size_t index = 0U; index < report_count; ++index) {
@@ -116,14 +116,14 @@ void fuzz_raw_validator(const std::uint8_t* data, const std::size_t size) {
     const std::uint8_t* descriptor = cursor < size ? data + cursor : data;
     const std::size_t descriptor_length = cursor < size ? size - cursor : size;
     static_cast<void>(
-        mimhid::hid::validate_raw(descriptor, descriptor_length, reports.data(), report_count));
+        mimusb::hid::validate_raw(descriptor, descriptor_length, reports.data(), report_count));
 }
 
 void fuzz_frame_parser(const std::uint8_t* data, const std::size_t size) {
     // On the heap: a parser holds a 16 KiB ring.
-    const auto parser = std::make_unique<mimhid::transport::FrameParser>();
+    const auto parser = std::make_unique<mimusb::transport::FrameParser>();
     std::size_t frames = 0U;
-    const auto count = [&frames](const mimhid::transport::Frame&) { ++frames; };
+    const auto count = [&frames](const mimusb::transport::Frame&) { ++frames; };
     // The input in two pieces, so a frame split anywhere is parsed.
     const std::size_t split = size / 2U;
     parser->feed(data, split, count);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * Public C ABI: discovery, device lifetime and configuration, and control transfers.
  */
@@ -15,80 +15,80 @@
 #include <optional>
 #include <thread>
 
-namespace tr = mimhid::transport;
+namespace tr = mimusb::transport;
 
-using mimhid::detail::command_error;
-using mimhid::detail::commit_device;
-using mimhid::detail::CommitWaits;
-using mimhid::detail::deliver_event;
-using mimhid::detail::describe_board;
-using mimhid::detail::kCommandAttempts;
-using mimhid::detail::kMaximumReportBytes;
-using mimhid::detail::live_nodes;
-using mimhid::detail::prepare_device_config;
-using mimhid::detail::read_commit_timeouts;
-using mimhid::detail::require_timeout;
-using mimhid::detail::reserved_is_zero;
-using mimhid::detail::send_neutral;
-using mimhid::detail::set_error;
-using mimhid::detail::validate_usb_identity;
-using mimhid::detail::validate_usb_identity_on_board;
+using mimusb::detail::command_error;
+using mimusb::detail::commit_device;
+using mimusb::detail::CommitWaits;
+using mimusb::detail::deliver_event;
+using mimusb::detail::describe_board;
+using mimusb::detail::kCommandAttempts;
+using mimusb::detail::kMaximumReportBytes;
+using mimusb::detail::live_nodes;
+using mimusb::detail::prepare_device_config;
+using mimusb::detail::read_commit_timeouts;
+using mimusb::detail::require_timeout;
+using mimusb::detail::reserved_is_zero;
+using mimusb::detail::send_neutral;
+using mimusb::detail::set_error;
+using mimusb::detail::validate_usb_identity;
+using mimusb::detail::validate_usb_identity_on_board;
 
 // The public header repeats the wire protocol's tables.
-static_assert(MIMHID_BOOT_BAUD == 115200U);
+static_assert(MIMUSB_BOOT_BAUD == 115200U);
 // The wire flag and the public one are the same bit.
-static_assert(MIMHID_UART_FLAG_BREAK == MIMHID_PONG_UART_BREAK);
-static_assert(MIMHID_CHIP_RP2040 == 1 && MIMHID_CHIP_RP2350 == 2 && MIMHID_CHIP_ESP32S3 == 3 &&
-              MIMHID_CHIP_NRF52840 == 4 && MIMHID_CHIP_STM32F4 == 5);
-static_assert(sizeof(mimhid_device_info::unique_id) == MIMHID_UNIQUE_ID_MAX);
-static_assert(MIMHID_CONTROL_MAX_TIMEOUT_MS == MIMHID_CONTROL_TIMEOUT_MAX);
-static_assert(static_cast<int>(MIMHID_CONTROL_ANSWER) == MIMHID_RULE_ANSWER &&
-              static_cast<int>(MIMHID_CONTROL_ANSWER_LAST_SENT) == MIMHID_RULE_ANSWER_LAST_SENT &&
-              static_cast<int>(MIMHID_CONTROL_ACCEPT) == MIMHID_RULE_ACCEPT &&
-              static_cast<int>(MIMHID_CONTROL_ASK) == MIMHID_RULE_ASK &&
-              static_cast<int>(MIMHID_CONTROL_STALL) == MIMHID_RULE_STALL);
-static_assert(MIMHID_EVENT_CONTROL_SETUP == MIMHID_EV_CONTROL_SETUP &&
-              MIMHID_EVENT_CONTROL_DATA == MIMHID_EV_CONTROL_DATA);
-static_assert(MIMHID_CONTROL_FLAG_HELD == MIMHID_CONTROL_F_HELD &&
-              MIMHID_CONTROL_FLAG_TOO_LONG == MIMHID_CONTROL_F_TOO_LONG &&
-              MIMHID_CONTROL_FLAG_FIXED == MIMHID_CONTROL_F_FIXED &&
-              MIMHID_CONTROL_FLAG_LOST == MIMHID_CONTROL_F_LOST &&
-              MIMHID_CONTROL_FLAG_ACCEPTED == MIMHID_CONTROL_F_ACCEPTED);
-static_assert(MIMHID_CONTROL_ACTION_LEAVE == MIMHID_REPLY_LEAVE + 1 &&
-              MIMHID_CONTROL_ACTION_ANSWER == MIMHID_REPLY_ANSWER + 1 &&
-              MIMHID_CONTROL_ACTION_STALL == MIMHID_REPLY_STALL + 1 &&
-              MIMHID_CONTROL_ACTION_DROP == MIMHID_REPLY_DROP + 1);
+static_assert(MIMUSB_UART_FLAG_BREAK == MIMUSB_PONG_UART_BREAK);
+static_assert(MIMUSB_CHIP_RP2040 == 1 && MIMUSB_CHIP_RP2350 == 2 && MIMUSB_CHIP_ESP32S3 == 3 &&
+              MIMUSB_CHIP_NRF52840 == 4 && MIMUSB_CHIP_STM32F4 == 5);
+static_assert(sizeof(mimusb_device_info::unique_id) == MIMUSB_UNIQUE_ID_MAX);
+static_assert(MIMUSB_CONTROL_MAX_TIMEOUT_MS == MIMUSB_CONTROL_TIMEOUT_MAX);
+static_assert(static_cast<int>(MIMUSB_CONTROL_ANSWER) == MIMUSB_RULE_ANSWER &&
+              static_cast<int>(MIMUSB_CONTROL_ANSWER_LAST_SENT) == MIMUSB_RULE_ANSWER_LAST_SENT &&
+              static_cast<int>(MIMUSB_CONTROL_ACCEPT) == MIMUSB_RULE_ACCEPT &&
+              static_cast<int>(MIMUSB_CONTROL_ASK) == MIMUSB_RULE_ASK &&
+              static_cast<int>(MIMUSB_CONTROL_STALL) == MIMUSB_RULE_STALL);
+static_assert(MIMUSB_EVENT_CONTROL_SETUP == MIMUSB_EV_CONTROL_SETUP &&
+              MIMUSB_EVENT_CONTROL_DATA == MIMUSB_EV_CONTROL_DATA);
+static_assert(MIMUSB_CONTROL_FLAG_HELD == MIMUSB_CONTROL_F_HELD &&
+              MIMUSB_CONTROL_FLAG_TOO_LONG == MIMUSB_CONTROL_F_TOO_LONG &&
+              MIMUSB_CONTROL_FLAG_FIXED == MIMUSB_CONTROL_F_FIXED &&
+              MIMUSB_CONTROL_FLAG_LOST == MIMUSB_CONTROL_F_LOST &&
+              MIMUSB_CONTROL_FLAG_ACCEPTED == MIMUSB_CONTROL_F_ACCEPTED);
+static_assert(MIMUSB_CONTROL_ACTION_LEAVE == MIMUSB_REPLY_LEAVE + 1 &&
+              MIMUSB_CONTROL_ACTION_ANSWER == MIMUSB_REPLY_ANSWER + 1 &&
+              MIMUSB_CONTROL_ACTION_STALL == MIMUSB_REPLY_STALL + 1 &&
+              MIMUSB_CONTROL_ACTION_DROP == MIMUSB_REPLY_DROP + 1);
 // The largest report this library sends: a high-speed interrupt endpoint packet.
 
 extern "C" {
 
 // ---- discovery -------------------------------------------------------------------------
 
-mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
-                                          mimhid_discovery** out_discovery) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_discover(const std::uint32_t timeout_ms,
+                                          mimusb_discovery** out_discovery) try {
+    mimusb::detail::clear_error();
     if (out_discovery == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "out_discovery", "The output pointer is null.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "out_discovery", "The output pointer is null.");
+        return MIMUSB_ERR_PARAM;
     }
     *out_discovery = nullptr;
-    if (const mimhid_result t = require_timeout(timeout_ms, "timeout_ms"); t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(timeout_ms, "timeout_ms"); t != MIMUSB_OK)
         return t;
-    auto discovery = std::make_unique<mimhid_discovery>();
+    auto discovery = std::make_unique<mimusb_discovery>();
     std::vector<tr::PortCandidate> ports = tr::list_candidate_ports();
     std::sort(ports.begin(), ports.end(),
               [](const auto& a, const auto& b) { return a.path < b.path; });
     // Each port is searched on its own thread; a board's rate is measured and the board left
     // on the boot rate.
-    std::vector<std::optional<mimhid_device_info>> found(ports.size());
+    std::vector<std::optional<mimusb_device_info>> found(ports.size());
     std::vector<std::thread> searches;
     searches.reserve(ports.size());
     for (std::size_t i = 0; i < ports.size(); ++i) {
-        if (ports[i].path.size() >= sizeof(mimhid_device_info::port_name))
+        if (ports[i].path.size() >= sizeof(mimusb_device_info::port_name))
             continue;
         searches.emplace_back([&, i] {
             tr::SerialPort port;
-            if (!port.open(ports[i].path.c_str(), MIMHID_BOOT_BAUD).ok)
+            if (!port.open(ports[i].path.c_str(), MIMUSB_BOOT_BAUD).ok)
                 return;
             tr::Handshaker handshake(port, timeout_ms);
             tr::BoardInfo board;
@@ -100,7 +100,7 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
                 fastest = handshake.fastest(&board);
                 // A link that could not be measured is listed on the boot rate, not dropped.
                 if (fastest == 0U) {
-                    fastest = MIMHID_BOOT_BAUD;
+                    fastest = MIMUSB_BOOT_BAUD;
                     if (!handshake.to_boot(&board) && !handshake.find(&board))
                         return;
                 } else if (!handshake.to_boot(&board)) {
@@ -117,64 +117,64 @@ mimhid_result MIMHID_CALL mimhid_discover(const std::uint32_t timeout_ms,
             discovery->entries.push_back(*entry);
     }
     *out_discovery = discovery.release();
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("discover")
+MIMUSB_C_RESULT_CATCH("discover")
 
-std::size_t MIMHID_CALL mimhid_discovery_count(const mimhid_discovery* discovery) try {
-    mimhid::detail::clear_error();
+std::size_t MIMUSB_CALL mimusb_discovery_count(const mimusb_discovery* discovery) try {
+    mimusb::detail::clear_error();
     if (discovery == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "discovery", "The discovery handle is null.");
+        set_error(MIMUSB_ERR_PARAM, "discovery", "The discovery handle is null.");
         return 0U;
     }
     return discovery->entries.size();
 }
-MIMHID_C_VALUE_CATCH("discovery.count", 0U)
+MIMUSB_C_VALUE_CATCH("discovery.count", 0U)
 
-const mimhid_device_info* MIMHID_CALL mimhid_discovery_get(const mimhid_discovery* discovery,
+const mimusb_device_info* MIMUSB_CALL mimusb_discovery_get(const mimusb_discovery* discovery,
                                                            const std::size_t index) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (discovery == nullptr || index >= discovery->entries.size()) {
-        set_error(MIMHID_ERR_PARAM, "discovery",
+        set_error(MIMUSB_ERR_PARAM, "discovery",
                   "A discovery handle and an index in range are required.");
         return nullptr;
     }
     return &discovery->entries[index];
 }
-MIMHID_C_VALUE_CATCH("discovery.get", nullptr)
+MIMUSB_C_VALUE_CATCH("discovery.get", nullptr)
 
-void MIMHID_CALL mimhid_discovery_destroy(mimhid_discovery* discovery) try {
-    mimhid::detail::clear_error();
+void MIMUSB_CALL mimusb_discovery_destroy(mimusb_discovery* discovery) try {
+    mimusb::detail::clear_error();
     if (discovery == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "discovery", "The discovery handle is null.");
+        set_error(MIMUSB_ERR_PARAM, "discovery", "The discovery handle is null.");
         return;
     }
     delete discovery;
 }
-MIMHID_C_VOID_CATCH("discovery.destroy")
+MIMUSB_C_VOID_CATCH("discovery.destroy")
 
 // ---- device ----------------------------------------------------------------------------
 
-mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
-                                             const mimhid_device_config* config,
-                                             mimhid_device** out_device) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_open(const char* port_path,
+                                             const mimusb_device_config* config,
+                                             mimusb_device** out_device) try {
+    mimusb::detail::clear_error();
     if (out_device == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "out_device", "The output pointer is null.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "out_device", "The output pointer is null.");
+        return MIMUSB_ERR_PARAM;
     }
     *out_device = nullptr;
     if (port_path == nullptr || port_path[0] == '\0') {
-        set_error(MIMHID_ERR_PARAM, "port_path", "A non-empty port_path is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "port_path", "A non-empty port_path is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    mimhid_device_config effective{};
-    if (const mimhid_result prepared = prepare_device_config(config, &effective);
-        prepared != MIMHID_OK) {
+    mimusb_device_config effective{};
+    if (const mimusb_result prepared = prepare_device_config(config, &effective);
+        prepared != MIMUSB_OK) {
         return prepared;
     }
 
-    auto device = std::make_unique<mimhid_device>();
+    auto device = std::make_unique<mimusb_device>();
     device->config = effective;
     device->manufacturer =
         effective.usb_device.manufacturer != nullptr ? effective.usb_device.manufacturer : "";
@@ -190,39 +190,39 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     const tr::OpenResult opened = device->link.open(port_path);
     if (!opened.ok) {
         if (opened.step == tr::OpenStep::open) {
-            set_error(MIMHID_ERR_ACCESS, "port",
+            set_error(MIMUSB_ERR_ACCESS, "port",
                       "Failed to open the serial port (it may be in use by another program).",
                       opened.os_error);
-            return MIMHID_ERR_ACCESS;
+            return MIMUSB_ERR_ACCESS;
         }
-        set_error(MIMHID_ERR_IO, "port", "Failed to configure the serial port.", opened.os_error);
-        return MIMHID_ERR_IO;
+        set_error(MIMUSB_ERR_IO, "port", "Failed to configure the serial port.", opened.os_error);
+        return MIMUSB_ERR_IO;
     }
     // The board's own limits and the line rate come from talking to it.
     tr::Handshaker handshake(device->link.port(), device->config.transport.handshake_timeout_ms);
-    if (!handshake.find(&device->board, effective.transport.baud_rate == MIMHID_BAUD_FASTEST
+    if (!handshake.find(&device->board, effective.transport.baud_rate == MIMUSB_BAUD_FASTEST
                                             ? 0U
                                             : effective.transport.baud_rate)) {
-        set_error(MIMHID_ERR_TIMEOUT, "port",
+        set_error(MIMUSB_ERR_TIMEOUT, "port",
                   "No board answered on this port, not even after a BREAK (check that the firmware "
-                  "is from this libmimhid release, the wiring, and the port; a board a crashed "
+                  "is from this libmimusb release, the wiring, and the port; a board a crashed "
                   "program left on a fast rate behind an adapter that cannot send a BREAK needs "
                   "its power cycled, or baud_rate set to the rate it was on).");
-        return MIMHID_ERR_TIMEOUT;
+        return MIMUSB_ERR_TIMEOUT;
     }
     if (!device->board.compatible) {
         set_error(
-            MIMHID_ERR_PROTOCOL, "port",
+            MIMUSB_ERR_PROTOCOL, "port",
             "The board's firmware has another major or minor version than this library: "
-            "flash the firmware of this libmimhid release.",
+            "flash the firmware of this libmimusb release.",
             0, 0, 0, 0,
-            static_cast<std::uint32_t>(MIMHID_VERSION_MAJOR << 8 | MIMHID_VERSION_MINOR),
+            static_cast<std::uint32_t>(MIMUSB_VERSION_MAJOR << 8 | MIMUSB_VERSION_MINOR),
             static_cast<std::uint32_t>(device->board.version[0] << 8 | device->board.version[1]));
-        return MIMHID_ERR_PROTOCOL;
+        return MIMUSB_ERR_PROTOCOL;
     }
     std::uint32_t baud = effective.transport.baud_rate;
     tr::Handshake agreed = tr::Handshake::ok;
-    if (baud == MIMHID_BAUD_FASTEST) {
+    if (baud == MIMUSB_BAUD_FASTEST) {
         baud = handshake.fastest(&device->board);
         if (baud == 0U)
             agreed = tr::Handshake::io_error;
@@ -234,61 +234,61 @@ mimhid_result MIMHID_CALL mimhid_device_open(const char* port_path,
     case tr::Handshake::ok:
         break;
     case tr::Handshake::rate_refused:
-        set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
+        set_error(MIMUSB_ERR_UNSUPPORTED, "baud_rate",
                   "The board cannot run at this rate, or the serial port refused to be set to it.");
-        return MIMHID_ERR_UNSUPPORTED;
+        return MIMUSB_ERR_UNSUPPORTED;
     case tr::Handshake::rate_failed:
-        set_error(MIMHID_ERR_UNSUPPORTED, "baud_rate",
+        set_error(MIMUSB_ERR_UNSUPPORTED, "baud_rate",
                   "The link did not carry this rate without loss: the serial adapter or the wiring "
-                  "does not support it. MIMHID_BAUD_FASTEST measures the fastest rate that works.");
-        return MIMHID_ERR_UNSUPPORTED;
+                  "does not support it. MIMUSB_BAUD_FASTEST measures the fastest rate that works.");
+        return MIMUSB_ERR_UNSUPPORTED;
     case tr::Handshake::no_board:
     case tr::Handshake::io_error:
-        set_error(MIMHID_ERR_IO, "port", "The board stopped answering while the rate was agreed.");
-        return MIMHID_ERR_IO;
+        set_error(MIMUSB_ERR_IO, "port", "The board stopped answering while the rate was agreed.");
+        return MIMUSB_ERR_IO;
     }
 
     if (effective.transport.maximum_report_bytes > device->board.max_report_bytes ||
         effective.transport.maximum_report_bytes > kMaximumReportBytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "transport.maximum_report_bytes",
+        set_error(MIMUSB_ERR_OVERFLOW, "transport.maximum_report_bytes",
                   "The limit exceeds what the board accepts.");
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
-    if (const mimhid_result r = validate_usb_identity_on_board(device->board, effective.usb_device);
-        r != MIMHID_OK) {
+    if (const mimusb_result r = validate_usb_identity_on_board(device->board, effective.usb_device);
+        r != MIMUSB_OK) {
         return r;
     }
     device->maximum_report_bytes = effective.transport.maximum_report_bytes;
     device->info = describe_board(port_path, "", device->board, effective.transport.baud_rate);
 
-    mimhid_device* raw = device.get();
+    mimusb_device* raw = device.get();
     device->link.start([raw](const tr::BoardEvent& event) { deliver_event(raw, event); });
 
-    mimhid::detail::log_message(raw, MIMHID_LOG_INFO, "device opened");
+    mimusb::detail::log_message(raw, MIMUSB_LOG_INFO, "device opened");
     *out_device = device.release();
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.open")
+MIMUSB_C_RESULT_CATCH("device.open")
 
-mimhid_result MIMHID_CALL mimhid_device_set_usb_identity(
-    mimhid_device* device, const mimhid_usb_device* usb_device, const mimhid_usb_config* usb_config,
-    const mimhid_commit_timeouts* timeouts) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_set_usb_identity(
+    mimusb_device* device, const mimusb_usb_device* usb_device, const mimusb_usb_config* usb_config,
+    const mimusb_commit_timeouts* timeouts) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     CommitWaits waits;
-    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+    if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
         return r;
     if (usb_device == nullptr || usb_config == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "usb_identity", "usb_device and usb_config are required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "usb_identity", "usb_device and usb_config are required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result r = validate_usb_identity(*usb_device, *usb_config); r != MIMHID_OK)
+    if (const mimusb_result r = validate_usb_identity(*usb_device, *usb_config); r != MIMUSB_OK)
         return r;
-    if (const mimhid_result r = validate_usb_identity_on_board(device->board, *usb_device);
-        r != MIMHID_OK) {
+    if (const mimusb_result r = validate_usb_identity_on_board(device->board, *usb_device);
+        r != MIMUSB_OK) {
         return r;
     }
 
@@ -304,101 +304,101 @@ mimhid_result MIMHID_CALL mimhid_device_set_usb_identity(
     device->dirty = true;
     if (!device->batch_open)
         return commit_device(device, 0U, waits);
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.set_usb_identity")
+MIMUSB_C_RESULT_CATCH("device.set_usb_identity")
 
-mimhid_result MIMHID_CALL mimhid_device_commit(mimhid_device* device, uint32_t reconnect_delay_ms,
-                                               const mimhid_commit_timeouts* timeouts) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_commit(mimusb_device* device, uint32_t reconnect_delay_ms,
+                                               const mimusb_commit_timeouts* timeouts) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     CommitWaits waits;
-    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+    if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
         return r;
-    const mimhid_result res = commit_device(device, reconnect_delay_ms, waits);
-    if (res == MIMHID_OK) {
+    const mimusb_result res = commit_device(device, reconnect_delay_ms, waits);
+    if (res == MIMUSB_OK) {
         device->batch_open = false;
         std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        for (mimhid_node* node : device->slots) {
+        for (mimusb_node* node : device->slots) {
             if (node != nullptr)
                 node->staged_only = false;
         }
     }
     return res;
 }
-MIMHID_C_RESULT_CATCH("device.commit")
+MIMUSB_C_RESULT_CATCH("device.commit")
 
-mimhid_result MIMHID_CALL mimhid_device_connect(mimhid_device* device,
-                                                const mimhid_commit_timeouts* timeouts) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_connect(mimusb_device* device,
+                                                const mimusb_commit_timeouts* timeouts) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     CommitWaits waits;
-    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+    if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
         return r;
     if (!device->configured)
         return commit_device(device, 0U, waits);
     // The board's USB device is on the target already (a disconnect or a detaching commit clears
     // `configured`). The board refuses a COMMIT that attaches while it is attached: it would change
     // descriptors under a device the target has enumerated.
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.connect")
+MIMUSB_C_RESULT_CATCH("device.connect")
 
-mimhid_result MIMHID_CALL mimhid_device_disconnect(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_disconnect(mimusb_device* device,
                                                    const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    const mimhid_result r =
+    const mimusb_result r =
         command_error(device->link.disconnect(control_timeout_ms), "device.disconnect",
-                      "The board did not acknowledge disconnect.", MIMHID_T_COMMIT);
-    if (r == MIMHID_OK) {
+                      "The board did not acknowledge disconnect.", MIMUSB_T_COMMIT);
+    if (r == MIMUSB_OK) {
         device->configured = false;
     }
     return r;
 }
-MIMHID_C_RESULT_CATCH("device.disconnect")
+MIMUSB_C_RESULT_CATCH("device.disconnect")
 
-mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_close(mimusb_device* device,
                                               const uint32_t control_timeout_ms,
                                               const uint32_t drain_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "device", "The Device handle is null.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "The Device handle is null.");
+        return MIMUSB_ERR_PARAM;
     }
     // A refused timeout consumes nothing.
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    if (const mimhid_result t = require_timeout(drain_timeout_ms, "drain_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(drain_timeout_ms, "drain_timeout_ms");
+        t != MIMUSB_OK)
         return t;
     if (device->closing.exchange(true, std::memory_order_acq_rel)) {
-        set_error(MIMHID_ERR_PARAM, "device", "The Device is already closing.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "The Device is already closing.");
+        return MIMUSB_ERR_PARAM;
     }
-    mimhid_result retained = MIMHID_OK;
+    mimusb_result retained = MIMUSB_OK;
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(drain_timeout_ms);
-    for (mimhid_node* node : live_nodes(device)) {
+    for (mimusb_node* node : live_nodes(device)) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
         const std::uint32_t budget =
             left.count() > 0 ? static_cast<std::uint32_t>(left.count()) : 1U;
-        const mimhid_result neutral = send_neutral(node, budget);
-        if (neutral != MIMHID_OK && retained == MIMHID_OK)
+        const mimusb_result neutral = send_neutral(node, budget);
+        if (neutral != MIMUSB_OK && retained == MIMUSB_OK)
             retained = neutral;
     }
     if (!device->link.failed() && device->control_routed.load(std::memory_order_acquire)) {
@@ -411,239 +411,239 @@ mimhid_result MIMHID_CALL mimhid_device_close(mimhid_device* device,
                 device->table.size() - std::min(device->table.size(), device->device_rules.size());
         }
         const std::uint8_t apply[2] = {0U, static_cast<std::uint8_t>(kept)};
-        (void)device->link.command(MIMHID_T_RULES_APPLY, apply, sizeof(apply), control_timeout_ms,
+        (void)device->link.command(MIMUSB_T_RULES_APPLY, apply, sizeof(apply), control_timeout_ms,
                                    1);
     }
     if (!device->link.failed() && device->loss_reported.load(std::memory_order_acquire)) {
         const std::uint8_t off[3] = {0U, 0U, 0U};
-        (void)device->link.command(MIMHID_T_LOSS_CONFIG, off, sizeof(off), control_timeout_ms, 1);
+        (void)device->link.command(MIMUSB_T_LOSS_CONFIG, off, sizeof(off), control_timeout_ms, 1);
     }
     if (!device->link.failed() && device->configured &&
         device->config.transport.keep_attached == 0U) {
         const std::uint8_t detach[3] = {1U, 0U, 0U};
-        const tr::CommandResult sent = device->link.command(MIMHID_T_COMMIT, detach, sizeof(detach),
+        const tr::CommandResult sent = device->link.command(MIMUSB_T_COMMIT, detach, sizeof(detach),
                                                             control_timeout_ms, kCommandAttempts);
-        if (sent.status != tr::CommandStatus::ack && retained == MIMHID_OK)
+        if (sent.status != tr::CommandStatus::ack && retained == MIMUSB_OK)
             retained = command_error(sent, "device.close", "The board did not go off the bus.",
-                                     MIMHID_T_COMMIT);
+                                     MIMUSB_T_COMMIT);
     }
     // The next program to open the board, or a search, finds it at once on the boot rate.
-    if (!device->link.failed() && device->info.baud_rate != MIMHID_BOOT_BAUD) {
-        const std::uint8_t boot[4] = {static_cast<std::uint8_t>(MIMHID_BOOT_BAUD & 0xFFU),
-                                      static_cast<std::uint8_t>((MIMHID_BOOT_BAUD >> 8) & 0xFFU),
-                                      static_cast<std::uint8_t>((MIMHID_BOOT_BAUD >> 16) & 0xFFU),
-                                      static_cast<std::uint8_t>(MIMHID_BOOT_BAUD >> 24)};
-        (void)device->link.command(MIMHID_T_SET_BAUD, boot, sizeof(boot), control_timeout_ms, 1);
+    if (!device->link.failed() && device->info.baud_rate != MIMUSB_BOOT_BAUD) {
+        const std::uint8_t boot[4] = {static_cast<std::uint8_t>(MIMUSB_BOOT_BAUD & 0xFFU),
+                                      static_cast<std::uint8_t>((MIMUSB_BOOT_BAUD >> 8) & 0xFFU),
+                                      static_cast<std::uint8_t>((MIMUSB_BOOT_BAUD >> 16) & 0xFFU),
+                                      static_cast<std::uint8_t>(MIMUSB_BOOT_BAUD >> 24)};
+        (void)device->link.command(MIMUSB_T_SET_BAUD, boot, sizeof(boot), control_timeout_ms, 1);
     }
-    if (device->link.failed() && retained == MIMHID_OK) {
-        set_error(MIMHID_ERR_NO_DEVICE, "device.close",
+    if (device->link.failed() && retained == MIMUSB_OK) {
+        set_error(MIMUSB_ERR_NO_DEVICE, "device.close",
                   "The serial link was gone, so the board could not be reset.");
-        retained = MIMHID_ERR_NO_DEVICE;
+        retained = MIMUSB_ERR_NO_DEVICE;
     }
-    mimhid::detail::stop_rule_updater(device); // it sends on the link
+    mimusb::detail::stop_rule_updater(device); // it sends on the link
     device->link.drain();
     device->link.close();
-    for (mimhid_node*& node : device->slots) {
+    for (mimusb_node*& node : device->slots) {
         if (node != nullptr) {
             if (node->spec != nullptr)
-                mimhid::detail::release_spec(node->spec);
+                mimusb::detail::release_spec(node->spec);
             delete node;
             node = nullptr;
         }
     }
-    mimhid::detail::log_message(device, MIMHID_LOG_INFO, "device closed");
+    mimusb::detail::log_message(device, MIMUSB_LOG_INFO, "device closed");
     delete device;
-    if (retained == MIMHID_OK)
-        mimhid::detail::clear_error();
+    if (retained == MIMUSB_OK)
+        mimusb::detail::clear_error();
     return retained;
 }
-MIMHID_C_RESULT_CATCH("device.close")
+MIMUSB_C_RESULT_CATCH("device.close")
 
-mimhid_result MIMHID_CALL mimhid_device_latched_error(mimhid_device* device) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_latched_error(mimusb_device* device) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     if (device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
-        return MIMHID_ERR_NO_DEVICE;
+        set_error(MIMUSB_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
+        return MIMUSB_ERR_NO_DEVICE;
     }
-    const mimhid_result latched = device->latched.exchange(MIMHID_OK, std::memory_order_acq_rel);
-    if (latched != MIMHID_OK)
+    const mimusb_result latched = device->latched.exchange(MIMUSB_OK, std::memory_order_acq_rel);
+    if (latched != MIMUSB_OK)
         set_error(latched, "device", "A serial write failed earlier.");
     return latched;
 }
-MIMHID_C_RESULT_CATCH("device.latched_error")
+MIMUSB_C_RESULT_CATCH("device.latched_error")
 
-int32_t MIMHID_CALL mimhid_device_is_ready(const mimhid_device* device) {
+int32_t MIMUSB_CALL mimusb_device_is_ready(const mimusb_device* device) {
     return device != nullptr && device->link.ready() ? 1 : 0;
 }
 
-mimhid_result MIMHID_CALL mimhid_device_wait_ready(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_wait_ready(mimusb_device* device,
                                                    const uint32_t timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     if (device->link.wait_ready(timeout_ms))
-        return MIMHID_OK;
+        return MIMUSB_OK;
     if (device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
-        return MIMHID_ERR_NO_DEVICE;
+        set_error(MIMUSB_ERR_NO_DEVICE, "device", "The serial link failed or was unplugged.");
+        return MIMUSB_ERR_NO_DEVICE;
     }
-    set_error(MIMHID_ERR_TIMEOUT, "device.wait_ready",
+    set_error(MIMUSB_ERR_TIMEOUT, "device.wait_ready",
               "The target did not mount the device in time.");
-    return MIMHID_ERR_TIMEOUT;
+    return MIMUSB_ERR_TIMEOUT;
 }
-MIMHID_C_RESULT_CATCH("device.wait_ready")
+MIMUSB_C_RESULT_CATCH("device.wait_ready")
 
-mimhid_result MIMHID_CALL mimhid_device_batch_begin(mimhid_device* device) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_batch_begin(mimusb_device* device) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     if (device->batch_open) {
-        set_error(MIMHID_ERR_BUSY, "device.batch", "A batch is already open.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, "device.batch", "A batch is already open.");
+        return MIMUSB_ERR_BUSY;
     }
     device->batch_open = true;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.batch_begin")
+MIMUSB_C_RESULT_CATCH("device.batch_begin")
 
-mimhid_result MIMHID_CALL mimhid_device_batch_end(mimhid_device* device,
-                                                  const mimhid_commit_timeouts* timeouts) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_batch_end(mimusb_device* device,
+                                                  const mimusb_commit_timeouts* timeouts) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     CommitWaits waits;
-    if (const mimhid_result r = read_commit_timeouts(timeouts, &waits); r != MIMHID_OK)
+    if (const mimusb_result r = read_commit_timeouts(timeouts, &waits); r != MIMUSB_OK)
         return r;
     if (!device->batch_open) {
-        set_error(MIMHID_ERR_BUSY, "device.batch", "No batch is open.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, "device.batch", "No batch is open.");
+        return MIMUSB_ERR_BUSY;
     }
     device->batch_open = false;
     if (!device->dirty)
-        return MIMHID_OK;
-    const mimhid_result committed = commit_device(device, 0U, waits);
-    if (committed != MIMHID_OK) {
+        return MIMUSB_OK;
+    const mimusb_result committed = commit_device(device, 0U, waits);
+    if (committed != MIMUSB_OK) {
         device->batch_open = true; // staged changes stay; the caller may retry or close nodes
         return committed;
     }
     {
         std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        for (mimhid_node* node : device->slots) {
+        for (mimusb_node* node : device->slots) {
             if (node != nullptr)
                 node->staged_only = false;
         }
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.batch_end")
+MIMUSB_C_RESULT_CATCH("device.batch_end")
 
-mimhid_result MIMHID_CALL mimhid_device_remote_wakeup(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_remote_wakeup(mimusb_device* device,
                                                       const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    const tr::CommandResult result = device->link.command(MIMHID_T_REMOTE_WAKEUP, nullptr, 0,
+    const tr::CommandResult result = device->link.command(MIMUSB_T_REMOTE_WAKEUP, nullptr, 0,
                                                           control_timeout_ms, kCommandAttempts);
     return command_error(result, "device.remote_wakeup", "The target has not suspended the device.",
-                         MIMHID_T_REMOTE_WAKEUP);
+                         MIMUSB_T_REMOTE_WAKEUP);
 }
-MIMHID_C_RESULT_CATCH("device.remote_wakeup")
+MIMUSB_C_RESULT_CATCH("device.remote_wakeup")
 
-mimhid_result MIMHID_CALL mimhid_device_enter_bootloader(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_enter_bootloader(mimusb_device* device,
                                                          const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
     static const std::uint8_t key[4] = {'B', 'O', 'O', 'T'};
     // Sent once: a board that restarted cannot answer a second frame.
     const tr::CommandResult result =
-        device->link.command(MIMHID_T_BOOTLOADER, key, sizeof(key), control_timeout_ms, 1);
+        device->link.command(MIMUSB_T_BOOTLOADER, key, sizeof(key), control_timeout_ms, 1);
     return command_error(result, "device.enter_bootloader",
-                         "The board refused to enter its bootloader.", MIMHID_T_BOOTLOADER);
+                         "The board refused to enter its bootloader.", MIMUSB_T_BOOTLOADER);
 }
-MIMHID_C_RESULT_CATCH("device.enter_bootloader")
+MIMUSB_C_RESULT_CATCH("device.enter_bootloader")
 
-mimhid_result MIMHID_CALL mimhid_device_board_info(const mimhid_device* device,
-                                                   mimhid_device_info* out_info) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_board_info(const mimusb_device* device,
+                                                   mimusb_device_info* out_info) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
         out_info == nullptr) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device and an output pointer are required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device and an output pointer are required.");
+        return MIMUSB_ERR_PARAM;
     }
     *out_info = device->info;
     out_info->is_ready = device->link.ready() ? 1U : 0U;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.board_info")
+MIMUSB_C_RESULT_CATCH("device.board_info")
 
-mimhid_result MIMHID_CALL mimhid_device_link_counters(mimhid_device* device, const uint32_t reset,
+mimusb_result MIMUSB_CALL mimusb_device_link_counters(mimusb_device* device, const uint32_t reset,
                                                       const uint32_t control_timeout_ms,
-                                                      mimhid_link_counters* out_counters) try {
-    mimhid::detail::clear_error();
+                                                      mimusb_link_counters* out_counters) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
         out_counters == nullptr ||
-        !mimhid::detail::valid_struct(out_counters, out_counters->struct_size,
+        !mimusb::detail::valid_struct(out_counters, out_counters->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*out_counters)),
                                       "link_counters")) {
-        set_error(MIMHID_ERR_PARAM, "device",
+        set_error(MIMUSB_ERR_PARAM, "device",
                   "A live Device and an output with its struct_size set are required.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!reserved_is_zero(out_counters->reserved, "link_counters.reserved"))
-        return MIMHID_ERR_PARAM;
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+        return MIMUSB_ERR_PARAM;
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
     tr::LinkCounters counters;
     const tr::CommandResult sent =
         device->link.counters(reset != 0U, control_timeout_ms, &counters);
     if (!sent.ok())
         return command_error(sent, "device.link_counters", "The board did not report its counters.",
-                             MIMHID_T_COUNTERS);
+                             MIMUSB_T_COUNTERS);
     out_counters->bad_crc = counters.bad_crc;
     out_counters->framing = counters.framing;
     out_counters->uart_overrun = counters.uart_overrun;
     out_counters->ring_overrun = counters.ring_overrun;
     out_counters->probes_good = counters.probes_good;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.link_counters")
+MIMUSB_C_RESULT_CATCH("device.link_counters")
 
-mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
-                                               mimhid_board_limits* out_limits) try {
-    mimhid::detail::clear_error();
+mimusb_result MIMUSB_CALL mimusb_device_limits(const mimusb_device* device,
+                                               mimusb_board_limits* out_limits) try {
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire) ||
         out_limits == nullptr ||
-        !mimhid::detail::valid_struct(out_limits, out_limits->struct_size,
+        !mimusb::detail::valid_struct(out_limits, out_limits->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*out_limits)),
                                       "board_limits")) {
-        set_error(MIMHID_ERR_PARAM, "device",
+        set_error(MIMUSB_ERR_PARAM, "device",
                   "A live Device and an output with its struct_size set are required.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!reserved_is_zero(out_limits->reserved, "board_limits.reserved"))
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     out_limits->max_report_bytes = device->board.max_report_bytes;
     out_limits->max_feature_bytes = device->board.max_control_data_bytes;
     out_limits->max_endpoint_bytes = device->board.max_endpoint_bytes;
@@ -659,27 +659,27 @@ mimhid_result MIMHID_CALL mimhid_device_limits(const mimhid_device* device,
     out_limits->endpoint_queue_slots = device->board.endpoint_queue_slots;
     out_limits->transfer_types = device->board.transfer_types;
     out_limits->max_bos_bytes = device->board.max_bos_bytes;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.limits")
+MIMUSB_C_RESULT_CATCH("device.limits")
 
 // ---- strings -----------------------------------------------------------------------------
 
-mimhid_result MIMHID_CALL mimhid_device_add_string(mimhid_device* device, const char* utf8,
+mimusb_result MIMUSB_CALL mimusb_device_add_string(mimusb_device* device, const char* utf8,
                                                    uint8_t* out_index) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (out_index == nullptr || utf8 == nullptr || device == nullptr ||
         device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device.add_string",
+        set_error(MIMUSB_ERR_PARAM, "device.add_string",
                   "A live Device, text and an output pointer are required.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     *out_index = 0U;
-    if (!mimhid::detail::valid_usb_string(utf8)) {
-        set_error(MIMHID_ERR_PARAM, "device.add_string",
+    if (!mimusb::detail::valid_usb_string(utf8)) {
+        set_error(MIMUSB_ERR_PARAM, "device.add_string",
                   "The text must be UTF-8 without control characters, at most 126 UTF-16 code "
                   "units.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     // The indices from 5 up; the names of interfaces take theirs at the commit from what is left
     // over, so this one is the lowest not given yet. The board's max_strings counts the four of
@@ -689,155 +689,155 @@ mimhid_result MIMHID_CALL mimhid_device_add_string(mimhid_device* device, const 
     while (index <= 255U && device->user_strings.count(static_cast<std::uint8_t>(index)) != 0U)
         ++index;
     if (index > 255U || device->user_strings.size() + 4U >= device->board.max_strings) {
-        set_error(MIMHID_ERR_OVERFLOW, "device.add_string",
+        set_error(MIMUSB_ERR_OVERFLOW, "device.add_string",
                   "The board's string descriptors (max_strings) or the index space are used up.", 0,
                   0, 0, 0, device->board.max_strings, 0);
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
     device->user_strings[static_cast<std::uint8_t>(index)] = utf8;
     device->dirty = true;
     *out_index = static_cast<std::uint8_t>(index);
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.add_string")
+MIMUSB_C_RESULT_CATCH("device.add_string")
 
-mimhid_result MIMHID_CALL mimhid_device_remove_string(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_remove_string(mimusb_device* device,
                                                       const uint8_t index) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device.remove_string", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device.remove_string", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
     if (device->user_strings.erase(index) == 0U) {
-        set_error(MIMHID_ERR_PARAM, "device.remove_string",
-                  "The index was not given by mimhid_device_add_string.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device.remove_string",
+                  "The index was not given by mimusb_device_add_string.");
+        return MIMUSB_ERR_PARAM;
     }
     device->dirty = true;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
-MIMHID_C_RESULT_CATCH("device.remove_string")
+MIMUSB_C_RESULT_CATCH("device.remove_string")
 
 // ---- control transfers of the target ---------------------------------------------------
 
-mimhid_result MIMHID_CALL mimhid_device_set_control_rules(
-    mimhid_device* device, const uint32_t report_all, const mimhid_control_rule* rules,
+mimusb_result MIMUSB_CALL mimusb_device_set_control_rules(
+    mimusb_device* device, const uint32_t report_all, const mimusb_control_rule* rules,
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const size_t rule_count, const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    if (!mimhid::detail::valid_boolean(report_all)) {
-        set_error(MIMHID_ERR_PARAM, "report_all", "report_all must be 0 or 1.");
-        return MIMHID_ERR_PARAM;
+    if (!mimusb::detail::valid_boolean(report_all)) {
+        set_error(MIMUSB_ERR_PARAM, "report_all", "report_all must be 0 or 1.");
+        return MIMUSB_ERR_PARAM;
     }
-    std::vector<mimhid::usb::BoardRule> copied;
-    if (const mimhid_result c =
-            mimhid::detail::copy_control_rules(device, rules, rule_count, "rules", &copied);
-        c != MIMHID_OK)
+    std::vector<mimusb::usb::BoardRule> copied;
+    if (const mimusb_result c =
+            mimusb::detail::copy_control_rules(device, rules, rule_count, "rules", &copied);
+        c != MIMUSB_OK)
         return c;
-    const std::vector<mimhid::usb::BoardRule> old_rules = std::move(device->device_rules);
+    const std::vector<mimusb::usb::BoardRule> old_rules = std::move(device->device_rules);
     const bool old_report_all = device->report_all;
     device->device_rules = std::move(copied);
     device->report_all = report_all != 0U;
     if (!device->configured) {
         device->control_routed.store(device->report_all || !device->device_rules.empty(),
                                      std::memory_order_release);
-        return MIMHID_OK; // they go with the first commit
+        return MIMUSB_OK; // they go with the first commit
     }
     if (device->batch_open) {
         device->dirty = true; // they go with the commit that ends the batch
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
-    const mimhid_result result = mimhid::detail::rebuild_rules(device, control_timeout_ms);
-    if (result != MIMHID_OK) {
+    const mimusb_result result = mimusb::detail::rebuild_rules(device, control_timeout_ms);
+    if (result != MIMUSB_OK) {
         device->device_rules = old_rules; // the board still holds the old table
         device->report_all = old_report_all;
     }
     return result;
 }
-MIMHID_C_RESULT_CATCH("device.set_control_rules")
+MIMUSB_C_RESULT_CATCH("device.set_control_rules")
 
-mimhid_result MIMHID_CALL mimhid_device_set_rule_data(mimhid_device* device,
+mimusb_result MIMUSB_CALL mimusb_device_set_rule_data(mimusb_device* device,
                                                       const size_t rule_index, const uint8_t* data,
                                                       const size_t length,
                                                       const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    return mimhid::detail::change_rule_data(device, nullptr, rule_index, data, length,
+    return mimusb::detail::change_rule_data(device, nullptr, rule_index, data, length,
                                             control_timeout_ms);
 }
-MIMHID_C_RESULT_CATCH("device.set_rule_data")
+MIMUSB_C_RESULT_CATCH("device.set_rule_data")
 
-mimhid_result MIMHID_CALL mimhid_device_set_loss_reporting(
-    mimhid_device* device, const uint32_t enabled,
+mimusb_result MIMUSB_CALL mimusb_device_set_loss_reporting(
+    mimusb_device* device, const uint32_t enabled,
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     const uint32_t interval_ms, const uint32_t control_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
-        t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(control_timeout_ms, "control_timeout_ms");
+        t != MIMUSB_OK)
         return t;
-    if (!mimhid::detail::valid_boolean(enabled)) {
-        set_error(MIMHID_ERR_PARAM, "enabled", "enabled must be 0 or 1.");
-        return MIMHID_ERR_PARAM;
+    if (!mimusb::detail::valid_boolean(enabled)) {
+        set_error(MIMUSB_ERR_PARAM, "enabled", "enabled must be 0 or 1.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (interval_ms > MIMHID_LOSS_MAX_INTERVAL_MS || (enabled == 0U && interval_ms != 0U)) {
-        set_error(MIMHID_ERR_PARAM, "interval_ms",
-                  "The interval is 0 to MIMHID_LOSS_MAX_INTERVAL_MS, and 0 while disabled.");
-        return MIMHID_ERR_PARAM;
+    if (interval_ms > MIMUSB_LOSS_MAX_INTERVAL_MS || (enabled == 0U && interval_ms != 0U)) {
+        set_error(MIMUSB_ERR_PARAM, "interval_ms",
+                  "The interval is 0 to MIMUSB_LOSS_MAX_INTERVAL_MS, and 0 while disabled.");
+        return MIMUSB_ERR_PARAM;
     }
     const std::uint8_t payload[3] = {static_cast<std::uint8_t>(enabled),
                                      static_cast<std::uint8_t>(interval_ms & 0xFFU),
                                      static_cast<std::uint8_t>(interval_ms >> 8)};
-    const mimhid_result result =
-        command_error(device->link.command(MIMHID_T_LOSS_CONFIG, payload, sizeof(payload),
+    const mimusb_result result =
+        command_error(device->link.command(MIMUSB_T_LOSS_CONFIG, payload, sizeof(payload),
                                            control_timeout_ms, kCommandAttempts),
                       "device.set_loss_reporting", "The board did not accept the loss reporting.",
-                      MIMHID_T_LOSS_CONFIG);
-    if (result == MIMHID_OK)
+                      MIMUSB_T_LOSS_CONFIG);
+    if (result == MIMUSB_OK)
         device->loss_reported.store(enabled != 0U, std::memory_order_release);
     return result;
 }
-MIMHID_C_RESULT_CATCH("device.set_loss_reporting")
+MIMUSB_C_RESULT_CATCH("device.set_loss_reporting")
 
-mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, const uint32_t token,
-                                                      const mimhid_control_action action,
+mimusb_result MIMUSB_CALL mimusb_device_control_reply(mimusb_device* device, const uint32_t token,
+                                                      const mimusb_control_action action,
                                                       const uint8_t* data, const size_t length,
                                                       const uint32_t send_timeout_ms) try {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     if (device == nullptr || device->closing.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_PARAM, "device", "A live Device is required.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "device", "A live Device is required.");
+        return MIMUSB_ERR_PARAM;
     }
-    if (const mimhid_result t = require_timeout(send_timeout_ms, "send_timeout_ms"); t != MIMHID_OK)
+    if (const mimusb_result t = require_timeout(send_timeout_ms, "send_timeout_ms"); t != MIMUSB_OK)
         return t;
-    if (token == 0U || token > 255U || action < MIMHID_CONTROL_ACTION_LEAVE ||
-        action > MIMHID_CONTROL_ACTION_DROP ||
-        (length != 0U && (data == nullptr || action != MIMHID_CONTROL_ACTION_ANSWER))) {
-        set_error(MIMHID_ERR_PARAM, "reply",
+    if (token == 0U || token > 255U || action < MIMUSB_CONTROL_ACTION_LEAVE ||
+        action > MIMUSB_CONTROL_ACTION_DROP ||
+        (length != 0U && (data == nullptr || action != MIMUSB_CONTROL_ACTION_ANSWER))) {
+        set_error(MIMUSB_ERR_PARAM, "reply",
                   "A token of 1 to 255, a known action, and data only with ANSWER are required.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (length > device->board.max_control_data_bytes) {
-        set_error(MIMHID_ERR_OVERFLOW, "reply", "The data is longer than the board takes.", 0,
-                  MIMHID_T_CONTROL_REPLY, 0, 0, 0, static_cast<std::uint32_t>(length));
-        return MIMHID_ERR_OVERFLOW;
+        set_error(MIMUSB_ERR_OVERFLOW, "reply", "The data is longer than the board takes.", 0,
+                  MIMUSB_T_CONTROL_REPLY, 0, 0, 0, static_cast<std::uint32_t>(length));
+        return MIMUSB_ERR_OVERFLOW;
     }
     std::int32_t os_error = 0;
     const tr::IoStatus status = device->link.send_control_reply(
@@ -845,26 +845,26 @@ mimhid_result MIMHID_CALL mimhid_device_control_reply(mimhid_device* device, con
         send_timeout_ms, &os_error);
     switch (status) {
     case tr::IoStatus::ok:
-        return MIMHID_OK;
+        return MIMUSB_OK;
     case tr::IoStatus::timeout:
-        set_error(MIMHID_ERR_TIMEOUT, "reply", "The serial write made no progress in time.",
-                  os_error, MIMHID_T_CONTROL_REPLY);
-        return MIMHID_ERR_TIMEOUT;
+        set_error(MIMUSB_ERR_TIMEOUT, "reply", "The serial write made no progress in time.",
+                  os_error, MIMUSB_T_CONTROL_REPLY);
+        return MIMUSB_ERR_TIMEOUT;
     case tr::IoStatus::short_write:
-        set_error(MIMHID_ERR_SHORT_TRANSFER, "reply", "The serial write was cut short.", os_error,
-                  MIMHID_T_CONTROL_REPLY);
-        return MIMHID_ERR_SHORT_TRANSFER;
+        set_error(MIMUSB_ERR_SHORT_TRANSFER, "reply", "The serial write was cut short.", os_error,
+                  MIMUSB_T_CONTROL_REPLY);
+        return MIMUSB_ERR_SHORT_TRANSFER;
     case tr::IoStatus::closed:
-        device->latched.store(MIMHID_ERR_NO_DEVICE, std::memory_order_release);
-        set_error(MIMHID_ERR_NO_DEVICE, "reply", "The serial link failed or was unplugged.",
-                  os_error, MIMHID_T_CONTROL_REPLY);
-        return MIMHID_ERR_NO_DEVICE;
+        device->latched.store(MIMUSB_ERR_NO_DEVICE, std::memory_order_release);
+        set_error(MIMUSB_ERR_NO_DEVICE, "reply", "The serial link failed or was unplugged.",
+                  os_error, MIMUSB_T_CONTROL_REPLY);
+        return MIMUSB_ERR_NO_DEVICE;
     case tr::IoStatus::error:
         break;
     }
-    set_error(MIMHID_ERR_IO, "reply", "The serial write failed.", os_error, MIMHID_T_CONTROL_REPLY);
-    return MIMHID_ERR_IO;
+    set_error(MIMUSB_ERR_IO, "reply", "The serial write failed.", os_error, MIMUSB_T_CONTROL_REPLY);
+    return MIMUSB_ERR_IO;
 }
-MIMHID_C_RESULT_CATCH("device.control_reply")
+MIMUSB_C_RESULT_CATCH("device.control_reply")
 
 } // extern "C"

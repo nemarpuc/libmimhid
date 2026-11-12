@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Simulated board: the host library talks through a pseudo-terminal to the real firmware core,
  * which presents what a USB target would see. The scenarios are in test_sim_*.cpp; this runs
  * them in an order that matters (the last one closes the line). */

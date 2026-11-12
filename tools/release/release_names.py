@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 """Names, versions, and the exact asset set of a GitHub Release."""
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import re
 
 import version_files
 
-PROJECT = "libmimhid"
-REPOSITORY = "nemarpuc/libmimhid"
+PROJECT = "libmimusb"
+REPOSITORY = "nemarpuc/libmimusb"
 REPOSITORY_URL = f"https://github.com/{REPOSITORY}"
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
@@ -23,7 +23,7 @@ TARGETS = (
     ("windows", "x86_64"),
     ("windows", "arm64"),
 )
-# Every binary archive carries both library kinds; find_package(mimhid COMPONENTS ...) picks one.
+# Every binary archive carries both library kinds; find_package(mimusb COMPONENTS ...) picks one.
 COMPONENTS = ("shared", "static")
 
 # Firmware images published with the library; libaoahid has no firmware.
@@ -80,14 +80,14 @@ def source_name(version: str) -> str:
 
 def firmware_names(version: str) -> list[str]:
     return [
-        f"mimhid_firmware-{target}-{version}.{suffix}"
+        f"mimusb_firmware-{target}-{version}.{suffix}"
         for target, suffixes in FIRMWARE_SUFFIXES.items()
         for suffix in suffixes
     ]
 
 
 def firmware_notices_name(version: str) -> str:
-    return f"mimhid_firmware-THIRD_PARTY_NOTICES-{version}.txt"
+    return f"mimusb_firmware-THIRD_PARTY_NOTICES-{version}.txt"
 
 
 def expected_assets(version: str) -> list[str]:

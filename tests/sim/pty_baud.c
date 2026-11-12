@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* What speed a pty's termios says, for the fake board. On Linux a rate that is not one of the
  * B-constants is stored as BOTHER with the number beside it (struct termios2), which <termios.h>
  * cannot read, so this file uses the kernel's header alone. */

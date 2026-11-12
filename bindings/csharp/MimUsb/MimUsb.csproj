@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>MimUsb</PackageId>
+    <Version>0.4.0</Version>
+    <Authors>libmimusb contributors</Authors>
+    <Copyright>Copyright (c) 2026 libmimusb contributors</Copyright>
+    <Description>Literal P/Invoke declarations for libmimusb; requires a separately installed, version-matched native libmimusb shared library.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/nemarpuc/libmimusb</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nemarpuc/libmimusb</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>usb;hid;serial;pinvoke;native</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IsPackable>true</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="\" Link="LICENSE" />
+  </ItemGroup>
+</Project>

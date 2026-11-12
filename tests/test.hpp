@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /* Provides the minimal assertion surface shared by deterministic native tests;
  * it is test-only and never enters the library ABI. */
 #pragma once
@@ -10,7 +10,7 @@
 extern int g_checks;
 extern int g_failures;
 
-#define MIMHID_CHECK(expression)                                                                   \
+#define MIMUSB_CHECK(expression)                                                                   \
     do {                                                                                           \
         ++g_checks;                                                                                \
         if (!(expression)) {                                                                       \

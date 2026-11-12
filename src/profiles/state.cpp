@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 /*
  * Profile state machines and bit-exact serializers. Mutators do no I/O and
  * allocate no memory after node construction. A node permits one report in
@@ -15,29 +15,29 @@
 #include <new>
 
 namespace {
-using mimhid::detail::ContactPhase;
-using mimhid::detail::link_available;
-using mimhid::detail::set_error;
-using mimhid::hid::FieldLayout;
-using mimhid::hid::FieldSemantic;
+using mimusb::detail::ContactPhase;
+using mimusb::detail::link_available;
+using mimusb::detail::set_error;
+using mimusb::hid::FieldLayout;
+using mimusb::hid::FieldSemantic;
 
-mimhid_result usable(const mimhid_node* node, const mimhid_profile_kind kind,
+mimusb_result usable(const mimusb_node* node, const mimusb_profile_kind kind,
                      const char* field) noexcept {
     if (node == nullptr || node->closed || node->spec == nullptr || node->spec->kind != kind) {
-        set_error(MIMHID_ERR_PARAM, field, "The operation does not match the node profile.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, field, "The operation does not match the node profile.");
+        return MIMUSB_ERR_PARAM;
     }
-    const mimhid_result link = link_available(node, field);
-    if (link != MIMHID_OK)
+    const mimusb_result link = link_available(node, field);
+    if (link != MIMUSB_OK)
         return link;
     if (node->transfer_inflight.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, field, "The node has one report in flight.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, field, "The node has one report in flight.");
+        return MIMUSB_ERR_BUSY;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-bool in_range(const std::int64_t value, const mimhid_integer_field& field) noexcept {
+bool in_range(const std::int64_t value, const mimusb_integer_field& field) noexcept {
     return value >= field.logical_minimum && value <= field.logical_maximum;
 }
 
@@ -101,16 +101,16 @@ std::int64_t hat_null(const FieldLayout& field) noexcept {
     return maximum;
 }
 
-template <typename T> const T* config(const mimhid_node* node) noexcept {
+template <typename T> const T* config(const mimusb_node* node) noexcept {
     return std::get_if<T>(&node->spec->config);
 }
 
-template <typename T> T* state(mimhid_node* node) noexcept { return std::get_if<T>(&node->state); }
+template <typename T> T* state(mimusb_node* node) noexcept { return std::get_if<T>(&node->state); }
 
-mimhid_result pending_transition(const char* field) noexcept {
-    set_error(MIMHID_ERR_BUSY, field,
+mimusb_result pending_transition(const char* field) noexcept {
+    set_error(MIMUSB_ERR_BUSY, field,
               "An opposite lifecycle transition is pending its first accepted report.");
-    return MIMHID_ERR_BUSY;
+    return MIMUSB_ERR_BUSY;
 }
 
 bool transition_storage_matches(const std::vector<std::uint8_t>& values,
@@ -119,18 +119,18 @@ bool transition_storage_matches(const std::vector<std::uint8_t>& values,
     if (values.size() == transitions.size()) {
         return true;
     }
-    set_error(MIMHID_ERR_INTERNAL, field,
+    set_error(MIMUSB_ERR_INTERNAL, field,
               "The preallocated lifecycle-transition state does not match the profile layout.");
     return false;
 }
 
-std::uint32_t pen_barrel_changes(const mimhid_pen_sample& before,
-                                 const mimhid_pen_sample& after) noexcept {
+std::uint32_t pen_barrel_changes(const mimusb_pen_sample& before,
+                                 const mimusb_pen_sample& after) noexcept {
     return before.barrel_buttons ^ after.barrel_buttons;
 }
 
-bool pen_transition_conflicts(const mimhid::detail::PenState& pen,
-                              const mimhid_pen_sample& next) noexcept {
+bool pen_transition_conflicts(const mimusb::detail::PenState& pen,
+                              const mimusb_pen_sample& next) noexcept {
     const bool changes_lifecycle =
         pen.desired.in_range != next.in_range || pen.desired.tip != next.tip ||
         pen.desired.eraser != next.eraser || pen_barrel_changes(pen.desired, next) != 0U;
@@ -139,7 +139,7 @@ bool pen_transition_conflicts(const mimhid::detail::PenState& pen,
     return changes_lifecycle && lifecycle_pending;
 }
 
-void record_pen_transitions(mimhid::detail::PenState* pen, const mimhid_pen_sample& next) noexcept {
+void record_pen_transitions(mimusb::detail::PenState* pen, const mimusb_pen_sample& next) noexcept {
     pen->in_range_transition_pending =
         pen->in_range_transition_pending || pen->desired.in_range != next.in_range;
     pen->tip_transition_pending = pen->tip_transition_pending || pen->desired.tip != next.tip;
@@ -148,27 +148,27 @@ void record_pen_transitions(mimhid::detail::PenState* pen, const mimhid_pen_samp
     pen->barrel_transitions |= pen_barrel_changes(pen->desired, next);
 }
 
-void consume_lifecycle_transitions(mimhid_node* node) noexcept {
-    if (auto* keyboard = state<mimhid::detail::KeyboardState>(node); keyboard != nullptr) {
+void consume_lifecycle_transitions(mimusb_node* node) noexcept {
+    if (auto* keyboard = state<mimusb::detail::KeyboardState>(node); keyboard != nullptr) {
         std::fill(keyboard->key_transitions.begin(), keyboard->key_transitions.end(),
                   std::uint8_t{0});
         keyboard->modifier_transitions = 0U;
-    } else if (auto* mouse = state<mimhid::detail::MouseState>(node); mouse != nullptr) {
+    } else if (auto* mouse = state<mimusb::detail::MouseState>(node); mouse != nullptr) {
         std::fill(mouse->button_transitions.begin(), mouse->button_transitions.end(),
                   std::uint8_t{0});
-    } else if (auto* consumer = state<mimhid::detail::ConsumerState>(node); consumer != nullptr) {
+    } else if (auto* consumer = state<mimusb::detail::ConsumerState>(node); consumer != nullptr) {
         std::fill(consumer->transitions.begin(), consumer->transitions.end(), std::uint8_t{0});
-    } else if (auto* gamepad = state<mimhid::detail::GamepadState>(node); gamepad != nullptr) {
+    } else if (auto* gamepad = state<mimusb::detail::GamepadState>(node); gamepad != nullptr) {
         std::fill(gamepad->button_transitions.begin(), gamepad->button_transitions.end(),
                   std::uint8_t{0});
         gamepad->hat_transition_pending = false;
-    } else if (auto* touch = state<mimhid::detail::TouchState>(node); touch != nullptr) {
+    } else if (auto* touch = state<mimusb::detail::TouchState>(node); touch != nullptr) {
         for (auto& contact : touch->contacts) {
             contact.lifecycle_transition_pending = false;
         }
         std::fill(touch->button_transitions.begin(), touch->button_transitions.end(),
                   std::uint8_t{0});
-    } else if (auto* pen = state<mimhid::detail::PenState>(node); pen != nullptr) {
+    } else if (auto* pen = state<mimusb::detail::PenState>(node); pen != nullptr) {
         pen->barrel_transitions = 0U;
         pen->in_range_transition_pending = false;
         pen->tip_transition_pending = false;
@@ -176,8 +176,8 @@ void consume_lifecycle_transitions(mimhid_node* node) noexcept {
     }
 }
 
-std::size_t collect_touch(const mimhid::detail::TouchState& touch,
-                          std::array<const mimhid::detail::ContactState*, 16>* active) noexcept {
+std::size_t collect_touch(const mimusb::detail::TouchState& touch,
+                          std::array<const mimusb::detail::ContactState*, 16>* active) noexcept {
     std::size_t count = 0U;
     for (const auto& contact : touch.contacts) {
         if (contact.phase != ContactPhase::none) {
@@ -187,8 +187,8 @@ std::size_t collect_touch(const mimhid::detail::TouchState& touch,
     return count;
 }
 
-bool validate_contact(const mimhid::detail::TouchConfig& config_value,
-                      const mimhid::detail::TouchContact& contact, const char* operation) noexcept {
+bool validate_contact(const mimusb::detail::TouchConfig& config_value,
+                      const mimusb::detail::TouchContact& contact, const char* operation) noexcept {
     const auto& options = config_value.fields;
     if (contact.contact_id > static_cast<std::uint32_t>(options.contact_id.logical_maximum) ||
         static_cast<std::int64_t>(contact.contact_id) < options.contact_id.logical_minimum ||
@@ -205,7 +205,7 @@ bool validate_contact(const mimhid::detail::TouchConfig& config_value,
         (options.enable_width == 0U && contact.width != 0) ||
         (options.enable_height == 0U && contact.height != 0) ||
         (options.enable_azimuth == 0U && contact.azimuth != 0)) {
-        set_error(MIMHID_ERR_PARAM, operation,
+        set_error(MIMUSB_ERR_PARAM, operation,
                   "A contact value is outside its declared logical range.");
         return false;
     }
@@ -213,86 +213,86 @@ bool validate_contact(const mimhid::detail::TouchConfig& config_value,
 }
 
 template <typename Function>
-mimhid_result abi_state_result([[maybe_unused]] mimhid_node* node, const char* field,
+mimusb_result abi_state_result([[maybe_unused]] mimusb_node* node, const char* field,
                                Function&& function) noexcept {
     try {
         return function();
     } catch (const std::bad_alloc&) {
-        set_error(MIMHID_ERR_INTERNAL, field,
+        set_error(MIMUSB_ERR_INTERNAL, field,
                   "Memory allocation failed inside the C ABI boundary.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     } catch (...) {
-        set_error(MIMHID_ERR_INTERNAL, field,
+        set_error(MIMUSB_ERR_INTERNAL, field,
                   "A C++ exception was contained at the C ABI boundary.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
 }
 } // namespace
 
-namespace mimhid::detail {
+namespace mimusb::detail {
 
-mimhid_result link_available(const mimhid_node* node, const char* field) noexcept {
+mimusb_result link_available(const mimusb_node* node, const char* field) noexcept {
     if (node == nullptr) {
-        set_error(MIMHID_ERR_PARAM, field, "The node is not attached to a live device.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, field, "The node is not attached to a live device.");
+        return MIMUSB_ERR_PARAM;
     }
     // Pure state-machine tests construct the private node representation
-    // without a device. Every public Node is attached by mimhid_node_open().
+    // without a device. Every public Node is attached by mimusb_node_open().
     if (node->device == nullptr) {
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
     const std::uint16_t node_id = static_cast<std::uint16_t>(node->node_id + 1U);
     const std::uint16_t report_id = node->spec != nullptr && node->spec->layout.has_report_id
                                         ? node->spec->layout.report_id
                                         : 0U;
     if (node->device->link.failed()) {
-        set_error(MIMHID_ERR_NO_DEVICE, field, "The serial link is gone; its node state is frozen.",
+        set_error(MIMUSB_ERR_NO_DEVICE, field, "The serial link is gone; its node state is frozen.",
                   0, 0, node_id, report_id);
-        return MIMHID_ERR_NO_DEVICE;
+        return MIMUSB_ERR_NO_DEVICE;
     }
     if (node->staged_only || node->device->reconfiguring.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, field,
+        set_error(MIMUSB_ERR_BUSY, field,
                   "The board has not applied this node's configuration yet (batch open or "
                   "re-enumeration in progress).",
                   0, 0, node_id, report_id);
-        return MIMHID_ERR_BUSY;
+        return MIMUSB_ERR_BUSY;
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result validate_serialized_report(const mimhid_spec* spec, const std::uint8_t* report,
+mimusb_result validate_serialized_report(const mimusb_spec* spec, const std::uint8_t* report,
                                          const std::size_t report_length) noexcept {
     if (spec == nullptr) {
-        set_error(MIMHID_ERR_INTERNAL, "report.length",
+        set_error(MIMUSB_ERR_INTERNAL, "report.length",
                   "The generated report does not match its immutable wire length.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     return validate_serialized_report(spec, spec->layout, report, report_length);
 }
 
-mimhid_result validate_serialized_report(const mimhid_spec* spec,
-                                         const mimhid::hid::ReportLayout& layout,
+mimusb_result validate_serialized_report(const mimusb_spec* spec,
+                                         const mimusb::hid::ReportLayout& layout,
                                          const std::uint8_t* report,
                                          const std::size_t report_length) noexcept {
     if (spec == nullptr || report == nullptr || report_length != layout.wire_bytes ||
         report_length == 0U) {
-        set_error(MIMHID_ERR_INTERNAL, "report.length",
+        set_error(MIMUSB_ERR_INTERNAL, "report.length",
                   "The generated report does not match its immutable wire length.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     if (layout.has_report_id && report[0] != layout.report_id) {
-        set_error(MIMHID_ERR_INTERNAL, "report.report_id",
+        set_error(MIMUSB_ERR_INTERNAL, "report.report_id",
                   "The generated report prefix does not match its immutable Report ID.", 0, 57, 0,
                   layout.report_id, 0, static_cast<std::uint32_t>(report_length));
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     for (const FieldLayout& field : layout.fields) {
         if (field.bit_width == 0U || field.bit_width > 32U ||
             field.bit_offset > report_length * 8U ||
             field.bit_width > report_length * 8U - field.bit_offset) {
-            set_error(MIMHID_ERR_INTERNAL, "report.layout",
+            set_error(MIMUSB_ERR_INTERNAL, "report.layout",
                       "An immutable field lies outside the generated report.");
-            return MIMHID_ERR_INTERNAL;
+            return MIMUSB_ERR_INTERNAL;
         }
         std::uint64_t encoded = 0U;
         std::size_t position = field.bit_offset;
@@ -316,39 +316,39 @@ mimhid_result validate_serialized_report(const mimhid_spec* spec,
         if ((!in_declared_range && !null_semantic) ||
             (field.semantic == FieldSemantic::constant_padding && value != 0)) {
             set_error(
-                MIMHID_ERR_INTERNAL, "report.field",
+                MIMUSB_ERR_INTERNAL, "report.field",
                 "A generated field is outside its immutable logical range or padding is nonzero.");
-            return MIMHID_ERR_INTERNAL;
+            return MIMUSB_ERR_INTERNAL;
         }
     }
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result serialize_battery(const mimhid_node* node, std::uint8_t* report,
+mimusb_result serialize_battery(const mimusb_node* node, std::uint8_t* report,
                                 const std::size_t capacity, std::size_t* report_length) noexcept {
     if (node == nullptr || node->spec == nullptr || !node->spec->has_battery || report == nullptr ||
         report_length == nullptr || capacity < node->spec->battery_layout.wire_bytes) {
-        set_error(MIMHID_ERR_PARAM, "report", "The serializer buffer is missing or too small.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "report", "The serializer buffer is missing or too small.");
+        return MIMUSB_ERR_PARAM;
     }
     const auto& layout = node->spec->battery_layout;
     std::fill_n(report, layout.wire_bytes, std::uint8_t{0});
     report[0] = layout.report_id;
     if (!store_bits(report, capacity, layout.fields.front(), node->battery.strength, false)) {
-        set_error(MIMHID_ERR_INTERNAL, "report.field",
+        set_error(MIMUSB_ERR_INTERNAL, "report.field",
                   "The battery level does not fit its immutable field.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     *report_length = layout.wire_bytes;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result serialize_node(mimhid_node* node, std::uint8_t* report, const std::size_t capacity,
+mimusb_result serialize_node(mimusb_node* node, std::uint8_t* report, const std::size_t capacity,
                              std::size_t* report_length) noexcept {
     if (node == nullptr || node->spec == nullptr || report == nullptr || report_length == nullptr ||
         capacity < node->spec->layout.wire_bytes) {
-        set_error(MIMHID_ERR_PARAM, "report", "The serializer buffer is missing or too small.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "report", "The serializer buffer is missing or too small.");
+        return MIMUSB_ERR_PARAM;
     }
     const auto& layout = node->spec->layout;
     std::fill_n(report, layout.wire_bytes, std::uint8_t{0});
@@ -390,7 +390,7 @@ mimhid_result serialize_node(mimhid_node* node, std::uint8_t* report, const std:
             } else if (gamepad != nullptr && field.instance < gamepad->buttons.size()) {
                 value = gamepad->buttons[field.instance];
             } else if (gamepad != nullptr && gamepad_config != nullptr &&
-                       gamepad_config->options.dpad_representation == MIMHID_DPAD_BUTTONS &&
+                       gamepad_config->options.dpad_representation == MIMUSB_DPAD_BUTTONS &&
                        field.instance >= gamepad_config->options.button_count &&
                        field.instance < gamepad_config->options.button_count + 4U) {
                 value =
@@ -440,7 +440,7 @@ mimhid_result serialize_node(mimhid_node* node, std::uint8_t* report, const std:
                         value = sample.azimuth;
                 }
             } else if (pen != nullptr) {
-                const mimhid_pen_sample& sample =
+                const mimusb_pen_sample& sample =
                     pen->tool_switch_departure ? pen->emitted : pen->desired;
                 if (field.semantic == FieldSemantic::x)
                     value = sample.x;
@@ -543,9 +543,9 @@ mimhid_result serialize_node(mimhid_node* node, std::uint8_t* report, const std:
         ok = ok && store_bits(report, capacity, field, value, allow_null);
     }
     if (!ok) {
-        set_error(MIMHID_ERR_INTERNAL, "report.layout",
+        set_error(MIMUSB_ERR_INTERNAL, "report.layout",
                   "A state value could not be serialized into its immutable layout.");
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     if (touch != nullptr && touch_config != nullptr) {
         node->submitted_touch_count =
@@ -555,12 +555,12 @@ mimhid_result serialize_node(mimhid_node* node, std::uint8_t* report, const std:
             touch_start + node->submitted_touch_count >= active_count;
     }
     *report_length = layout.wire_bytes;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-void transfer_complete(void* user, const mimhid_result result,
+void transfer_complete(void* user, const mimusb_result result,
                        const std::int32_t native_status) noexcept {
-    auto* node = static_cast<mimhid_node*>(user);
+    auto* node = static_cast<mimusb_node*>(user);
     if (node == nullptr) {
         return;
     }
@@ -589,9 +589,9 @@ void transfer_complete(void* user, const mimhid_result result,
         mouse->dy -= node->submitted_dy;
         mouse->wheel -= node->submitted_wheel;
         mouse->pan -= node->submitted_pan;
-        node->dirty = result == MIMHID_OK &&
+        node->dirty = result == MIMUSB_OK &&
                       (mouse->dx != 0 || mouse->dy != 0 || mouse->wheel != 0 || mouse->pan != 0);
-    } else if (result == MIMHID_OK) {
+    } else if (result == MIMUSB_OK) {
         if (auto* touch = state<TouchState>(node); touch != nullptr) {
             if (node->submitted_touch_final_packet) {
                 for (auto& contact : touch->contacts) {
@@ -641,14 +641,14 @@ void transfer_complete(void* user, const mimhid_result result,
         }
         node->dirty = false;
     }
-    if (!battery_report && may_have_applied && (result != MIMHID_OK || lifecycle_report_complete)) {
+    if (!battery_report && may_have_applied && (result != MIMUSB_OK || lifecycle_report_complete)) {
         // An accepted terminal transfer may have reached the target even when
         // completion is uncertain. Consume its edge baseline so a later
         // opposite transition can release any state the target may hold.
         consume_lifecycle_transitions(node);
     }
     if (!battery_report && may_have_applied) {
-        if (result == MIMHID_OK) {
+        if (result == MIMUSB_OK) {
             node->emitted_non_neutral = node->submitted_non_neutral;
         } else {
             // A terminal callback cannot establish whether the target applied
@@ -672,31 +672,31 @@ void transfer_complete(void* user, const mimhid_result result,
     node->transfer_inflight.store(false, std::memory_order_release);
 }
 
-} // namespace mimhid::detail
+} // namespace mimusb::detail
 
 extern "C" {
 
-// The usage/down order is the fixed, already-shipped mimhid_keyboard_key(node, usage,
+// The usage/down order is the fixed, already-shipped mimusb_keyboard_key(node, usage,
 // down) ABI order and cannot be changed to avoid this warning.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static mimhid_result keyboard_key_impl(mimhid_node* node, const std::uint16_t usage,
+static mimusb_result keyboard_key_impl(mimusb_node* node, const std::uint16_t usage,
                                        const std::uint32_t down) {
-    mimhid::detail::clear_error();
-    if (!mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "keyboard.key", "down must be exactly zero or one.");
-        return MIMHID_ERR_PARAM;
+    mimusb::detail::clear_error();
+    if (!mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "keyboard.key", "down must be exactly zero or one.");
+        return MIMUSB_ERR_PARAM;
     }
-    const mimhid_result check = usable(node, MIMHID_PROFILE_KEYBOARD, "keyboard.key");
-    if (check != MIMHID_OK)
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_KEYBOARD, "keyboard.key");
+    if (check != MIMUSB_OK)
         return check;
     const bool press = down == 1U;
-    auto* keyboard = state<mimhid::detail::KeyboardState>(node);
-    const auto* spec = config<mimhid::detail::KeyboardConfig>(node);
+    auto* keyboard = state<mimusb::detail::KeyboardState>(node);
+    const auto* spec = config<mimusb::detail::KeyboardConfig>(node);
     bool changed = false;
-    if (usage >= mimhid::hid::usage::keyboard_left_control &&
-        usage <= mimhid::hid::usage::keyboard_right_gui) {
+    if (usage >= mimusb::hid::usage::keyboard_left_control &&
+        usage <= mimusb::hid::usage::keyboard_right_gui) {
         const auto mask =
-            static_cast<std::uint8_t>(1U << (usage - mimhid::hid::usage::keyboard_left_control));
+            static_cast<std::uint8_t>(1U << (usage - mimusb::hid::usage::keyboard_left_control));
         changed = ((keyboard->modifiers & mask) != 0U) != press;
         if (changed && (keyboard->modifier_transitions & mask) != 0U) {
             return pending_transition("keyboard.key");
@@ -709,20 +709,20 @@ static mimhid_result keyboard_key_impl(mimhid_node* node, const std::uint16_t us
         }
     } else {
         if (usage < spec->options.usage_minimum || usage > spec->options.usage_maximum) {
-            set_error(MIMHID_ERR_PARAM, "keyboard.usage",
+            set_error(MIMUSB_ERR_PARAM, "keyboard.usage",
                       "The Usage is outside the caller-declared key range.");
-            return MIMHID_ERR_PARAM;
+            return MIMUSB_ERR_PARAM;
         }
         const std::size_t index = usage - spec->options.usage_minimum;
         if (index >= keyboard->key_transitions.size()) {
-            set_error(MIMHID_ERR_INTERNAL, "keyboard.key",
+            set_error(MIMUSB_ERR_INTERNAL, "keyboard.key",
                       "The preallocated keyboard state does not match the declared Usage range.");
-            return MIMHID_ERR_INTERNAL;
+            return MIMUSB_ERR_INTERNAL;
         }
         if (index >= keyboard->pressed_bitmap.size()) {
-            set_error(MIMHID_ERR_INTERNAL, "keyboard.key",
+            set_error(MIMUSB_ERR_INTERNAL, "keyboard.key",
                       "The preallocated bitmap does not match the declared Usage range.");
-            return MIMHID_ERR_INTERNAL;
+            return MIMUSB_ERR_INTERNAL;
         }
         changed = (keyboard->pressed_bitmap[index] != 0U) != press;
         if (changed && keyboard->key_transitions[index] != 0U) {
@@ -731,17 +731,17 @@ static mimhid_result keyboard_key_impl(mimhid_node* node, const std::uint16_t us
         if (changed) {
             if (press) {
                 if (keyboard->pressed_bitmap_count >= keyboard->pressed_bitmap.size()) {
-                    set_error(MIMHID_ERR_INTERNAL, "keyboard.key",
+                    set_error(MIMUSB_ERR_INTERNAL, "keyboard.key",
                               "The bitmap key count is inconsistent with its storage.");
-                    return MIMHID_ERR_INTERNAL;
+                    return MIMUSB_ERR_INTERNAL;
                 }
                 keyboard->pressed_bitmap[index] = 1U;
                 ++keyboard->pressed_bitmap_count;
             } else {
                 if (keyboard->pressed_bitmap_count == 0U) {
-                    set_error(MIMHID_ERR_INTERNAL, "keyboard.key",
+                    set_error(MIMUSB_ERR_INTERNAL, "keyboard.key",
                               "The bitmap key count is inconsistent with its storage.");
-                    return MIMHID_ERR_INTERNAL;
+                    return MIMUSB_ERR_INTERNAL;
                 }
                 keyboard->pressed_bitmap[index] = 0U;
                 --keyboard->pressed_bitmap_count;
@@ -750,71 +750,71 @@ static mimhid_result keyboard_key_impl(mimhid_node* node, const std::uint16_t us
         }
     }
     node->dirty = node->dirty || changed;
-    mimhid::detail::clear_error();
-    return MIMHID_OK;
+    mimusb::detail::clear_error();
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_mouse_move_impl(mimhid_node* node, const std::int32_t dx,
+static mimusb_result mimusb_mouse_move_impl(mimusb_node* node, const std::int32_t dx,
                                             const std::int32_t dy) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_MOUSE, "mouse.move");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_MOUSE, "mouse.move");
+    if (check != MIMUSB_OK)
         return check;
-    auto* mouse = state<mimhid::detail::MouseState>(node);
+    auto* mouse = state<mimusb::detail::MouseState>(node);
     std::int64_t next_dx = mouse->dx;
     std::int64_t next_dy = mouse->dy;
     if (!add_checked(&next_dx, dx) || !add_checked(&next_dy, dy)) {
-        set_error(MIMHID_ERR_OVERFLOW, "mouse.delta",
+        set_error(MIMUSB_ERR_OVERFLOW, "mouse.delta",
                   "The pending relative movement overflowed int64_t.");
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
     mouse->dx = next_dx;
     mouse->dy = next_dy;
     node->dirty = node->dirty || dx != 0 || dy != 0;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_mouse_scroll_impl(mimhid_node* node, const std::int32_t wheel,
+static mimusb_result mimusb_mouse_scroll_impl(mimusb_node* node, const std::int32_t wheel,
                                               const std::int32_t pan) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_MOUSE, "mouse.scroll");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_MOUSE, "mouse.scroll");
+    if (check != MIMUSB_OK)
         return check;
-    auto* mouse = state<mimhid::detail::MouseState>(node);
-    const auto* spec = config<mimhid::detail::MouseConfig>(node);
+    auto* mouse = state<mimusb::detail::MouseState>(node);
+    const auto* spec = config<mimusb::detail::MouseConfig>(node);
     if ((wheel != 0 && spec->options.enable_wheel != 1U) ||
         (pan != 0 && spec->options.enable_pan != 1U)) {
-        set_error(MIMHID_ERR_UNSUPPORTED, "mouse.scroll",
+        set_error(MIMUSB_ERR_UNSUPPORTED, "mouse.scroll",
                   "The requested scroll axis is absent from the spec.");
-        return MIMHID_ERR_UNSUPPORTED;
+        return MIMUSB_ERR_UNSUPPORTED;
     }
     std::int64_t next_wheel = mouse->wheel;
     std::int64_t next_pan = mouse->pan;
     if (!add_checked(&next_wheel, wheel) || !add_checked(&next_pan, pan)) {
-        set_error(MIMHID_ERR_OVERFLOW, "mouse.scroll",
+        set_error(MIMUSB_ERR_OVERFLOW, "mouse.scroll",
                   "The pending relative scroll overflowed int64_t.");
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
     mouse->wheel = next_wheel;
     mouse->pan = next_pan;
     node->dirty = node->dirty || wheel != 0 || pan != 0;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_mouse_button_impl(mimhid_node* node, const std::uint32_t button,
+static mimusb_result mimusb_mouse_button_impl(mimusb_node* node, const std::uint32_t button,
                                               const std::uint32_t down) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_MOUSE, "mouse.button");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_MOUSE, "mouse.button");
+    if (check != MIMUSB_OK)
         return check;
-    auto* mouse = state<mimhid::detail::MouseState>(node);
-    if (button == 0U || button > mouse->buttons.size() || !mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "mouse.button",
+    auto* mouse = state<mimusb::detail::MouseState>(node);
+    if (button == 0U || button > mouse->buttons.size() || !mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "mouse.button",
                   "Button is one-based and down must be zero or one.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!transition_storage_matches(mouse->buttons, mouse->button_transitions, "mouse.button")) {
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     const std::size_t index = button - 1U;
     const auto value = static_cast<std::uint8_t>(down);
@@ -827,40 +827,40 @@ static mimhid_result mimhid_mouse_button_impl(mimhid_node* node, const std::uint
         mouse->button_transitions[index] = 1U;
     }
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-// The usage/down order is the fixed, already-shipped mimhid_toggle_usage(node,
+// The usage/down order is the fixed, already-shipped mimusb_toggle_usage(node,
 // usage, down) ABI order and cannot be changed to avoid this warning.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static mimhid_result mimhid_toggle_impl(mimhid_node* node, const std::uint16_t usage,
+static mimusb_result mimusb_toggle_impl(mimusb_node* node, const std::uint16_t usage,
                                         const std::uint32_t down) {
-    mimhid::detail::clear_error();
-    if (!mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "toggle", "down must be exactly zero or one.");
-        return MIMHID_ERR_PARAM;
+    mimusb::detail::clear_error();
+    if (!mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "toggle", "down must be exactly zero or one.");
+        return MIMUSB_ERR_PARAM;
     }
     if (node == nullptr || node->spec == nullptr || node->closed ||
-        node->spec->kind != MIMHID_PROFILE_TOGGLE) {
-        set_error(MIMHID_ERR_PARAM, "toggle", "The operation requires a live Toggle node.");
-        return MIMHID_ERR_PARAM;
+        node->spec->kind != MIMUSB_PROFILE_TOGGLE) {
+        set_error(MIMUSB_ERR_PARAM, "toggle", "The operation requires a live Toggle node.");
+        return MIMUSB_ERR_PARAM;
     }
-    const mimhid_result link = link_available(node, "toggle");
-    if (link != MIMHID_OK)
+    const mimusb_result link = link_available(node, "toggle");
+    if (link != MIMUSB_OK)
         return link;
     if (node->transfer_inflight.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, "toggle", "The node has one report in flight.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, "toggle", "The node has one report in flight.");
+        return MIMUSB_ERR_BUSY;
     }
-    auto* consumer = state<mimhid::detail::ConsumerState>(node);
-    const auto* spec = config<mimhid::detail::ConsumerConfig>(node);
+    auto* consumer = state<mimusb::detail::ConsumerState>(node);
+    const auto* spec = config<mimusb::detail::ConsumerConfig>(node);
     const auto found = std::find(spec->allowed_usages.begin(), spec->allowed_usages.end(), usage);
     if (found == spec->allowed_usages.end()) {
-        set_error(MIMHID_ERR_PARAM, "toggle.usage", "The Usage is not in the caller allow-list.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "toggle.usage", "The Usage is not in the caller allow-list.");
+        return MIMUSB_ERR_PARAM;
     }
     if (!transition_storage_matches(consumer->pressed, consumer->transitions, "toggle")) {
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     const auto index = static_cast<std::size_t>(found - spec->allowed_usages.begin());
     const auto value = static_cast<std::uint8_t>(down);
@@ -873,24 +873,24 @@ static mimhid_result mimhid_toggle_impl(mimhid_node* node, const std::uint16_t u
         consumer->transitions[index] = 1U;
     }
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_gamepad_button_impl(mimhid_node* node, const std::uint32_t button,
+static mimusb_result mimusb_gamepad_button_impl(mimusb_node* node, const std::uint32_t button,
                                                 const std::uint32_t down) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_GAMEPAD, "gamepad.button");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_GAMEPAD, "gamepad.button");
+    if (check != MIMUSB_OK)
         return check;
-    auto* gamepad = state<mimhid::detail::GamepadState>(node);
-    if (button == 0U || button > gamepad->buttons.size() || !mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "gamepad.button",
+    auto* gamepad = state<mimusb::detail::GamepadState>(node);
+    if (button == 0U || button > gamepad->buttons.size() || !mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "gamepad.button",
                   "Button is one-based and down must be zero or one.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!transition_storage_matches(gamepad->buttons, gamepad->button_transitions,
                                     "gamepad.button")) {
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     const std::size_t index = button - 1U;
     const auto value = static_cast<std::uint8_t>(down);
@@ -903,54 +903,54 @@ static mimhid_result mimhid_gamepad_button_impl(mimhid_node* node, const std::ui
         gamepad->button_transitions[index] = 1U;
     }
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_gamepad_axis_impl(mimhid_node* node, const std::size_t axis_index,
+static mimusb_result mimusb_gamepad_axis_impl(mimusb_node* node, const std::size_t axis_index,
                                               const std::int32_t value) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_GAMEPAD, "gamepad.axis");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_GAMEPAD, "gamepad.axis");
+    if (check != MIMUSB_OK)
         return check;
-    auto* gamepad = state<mimhid::detail::GamepadState>(node);
-    const auto* spec = config<mimhid::detail::GamepadConfig>(node);
+    auto* gamepad = state<mimusb::detail::GamepadState>(node);
+    const auto* spec = config<mimusb::detail::GamepadConfig>(node);
     if (axis_index >= gamepad->axes.size() || !in_range(value, spec->axes[axis_index].axis.value)) {
-        set_error(MIMHID_ERR_PARAM, "gamepad.axis", "The axis index or value is outside the spec.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "gamepad.axis", "The axis index or value is outside the spec.");
+        return MIMUSB_ERR_PARAM;
     }
     const bool changed = gamepad->axes[axis_index] != value;
     gamepad->axes[axis_index] = value;
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result gamepad_dpad_impl(mimhid_node* node, const std::uint32_t up,
+static mimusb_result gamepad_dpad_impl(mimusb_node* node, const std::uint32_t up,
                                        const std::uint32_t down, const std::uint32_t right,
                                        const std::uint32_t left) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_GAMEPAD, "gamepad.dpad");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_GAMEPAD, "gamepad.dpad");
+    if (check != MIMUSB_OK)
         return check;
-    const auto* spec = config<mimhid::detail::GamepadConfig>(node);
-    if ((spec->options.dpad_representation != MIMHID_DPAD_BUTTONS &&
-         spec->options.dpad_representation != MIMHID_DPAD_HAT) ||
-        !mimhid::detail::valid_boolean(up) || !mimhid::detail::valid_boolean(down) ||
-        !mimhid::detail::valid_boolean(right) || !mimhid::detail::valid_boolean(left)) {
-        set_error(MIMHID_ERR_PARAM, "gamepad.dpad",
+    const auto* spec = config<mimusb::detail::GamepadConfig>(node);
+    if ((spec->options.dpad_representation != MIMUSB_DPAD_BUTTONS &&
+         spec->options.dpad_representation != MIMUSB_DPAD_HAT) ||
+        !mimusb::detail::valid_boolean(up) || !mimusb::detail::valid_boolean(down) ||
+        !mimusb::detail::valid_boolean(right) || !mimusb::detail::valid_boolean(left)) {
+        set_error(MIMUSB_ERR_PARAM, "gamepad.dpad",
                   "The spec must select a D-pad representation and every direction must be zero "
                   "or one.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     const bool any_direction = (up | down | right | left) != 0U;
     std::int32_t encoded =
         static_cast<std::int32_t>(up | (down << 1U) | (right << 2U) | (left << 3U));
-    if (spec->options.dpad_representation == MIMHID_DPAD_HAT &&
+    if (spec->options.dpad_representation == MIMUSB_DPAD_HAT &&
         ((up == 1U && down == 1U) || (right == 1U && left == 1U))) {
-        set_error(MIMHID_ERR_PARAM, "gamepad.dpad",
+        set_error(MIMUSB_ERR_PARAM, "gamepad.dpad",
                   "A Hat Switch cannot encode opposite directions simultaneously.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    if (spec->options.dpad_representation == MIMHID_DPAD_HAT && encoded != 0) {
+    if (spec->options.dpad_representation == MIMUSB_DPAD_HAT && encoded != 0) {
         if (up == 1U) {
             encoded = right == 1U ? 1 : (left == 1U ? 7 : 0);
         } else if (down == 1U) {
@@ -959,7 +959,7 @@ static mimhid_result gamepad_dpad_impl(mimhid_node* node, const std::uint32_t up
             encoded = right == 1U ? 2 : 6;
         }
     }
-    auto* gamepad = state<mimhid::detail::GamepadState>(node);
+    auto* gamepad = state<mimusb::detail::GamepadState>(node);
     const bool next_has_direction = any_direction;
     const bool changed =
         gamepad->hat_has_direction != next_has_direction || gamepad->hat != encoded;
@@ -972,10 +972,10 @@ static mimhid_result gamepad_dpad_impl(mimhid_node* node, const std::uint32_t up
         gamepad->hat_transition_pending = true;
     }
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-// The optional fields of mimhid_touchscreen_extra and mimhid_touchpad_extra, which have the
+// The optional fields of mimusb_touchscreen_extra and mimusb_touchpad_extra, which have the
 // same layout, so the two public entry points share one implementation.
 struct TouchExtra {
     std::int32_t pressure;
@@ -984,32 +984,32 @@ struct TouchExtra {
     std::int32_t azimuth;
 };
 
-// The contact_id/down/x/y order is the fixed mimhid_touchscreen_contact and
-// mimhid_touchpad_contact ABI order and cannot be changed to avoid this warning.
+// The contact_id/down/x/y order is the fixed mimusb_touchscreen_contact and
+// mimusb_touchpad_contact ABI order and cannot be changed to avoid this warning.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_kind kind,
+static mimusb_result touch_contact_impl(mimusb_node* node, const mimusb_profile_kind kind,
                                         const std::uint32_t contact_id, const std::uint32_t down,
                                         const std::int32_t x, const std::int32_t y,
                                         const TouchExtra* extra) {
-    mimhid::detail::clear_error();
+    mimusb::detail::clear_error();
     const bool right_kind = node != nullptr && node->spec != nullptr && node->spec->kind == kind;
-    if (!right_kind || node->closed || !mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "touch", "A live touch node and boolean down are required.");
-        return MIMHID_ERR_PARAM;
+    if (!right_kind || node->closed || !mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "touch", "A live touch node and boolean down are required.");
+        return MIMUSB_ERR_PARAM;
     }
-    const mimhid_result link = link_available(node, "touch");
-    if (link != MIMHID_OK)
+    const mimusb_result link = link_available(node, "touch");
+    if (link != MIMUSB_OK)
         return link;
     if (node->transfer_inflight.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, "touch", "A touch report is in flight.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, "touch", "A touch report is in flight.");
+        return MIMUSB_ERR_BUSY;
     }
-    const auto* spec = config<mimhid::detail::TouchConfig>(node);
-    auto* touch = state<mimhid::detail::TouchState>(node);
+    const auto* spec = config<mimusb::detail::TouchConfig>(node);
+    auto* touch = state<mimusb::detail::TouchState>(node);
     if (touch->packet_cursor != 0U) {
-        set_error(MIMHID_ERR_BUSY, "touch",
+        set_error(MIMUSB_ERR_BUSY, "touch",
                   "The current multi-packet frame must finish before state changes.");
-        return MIMHID_ERR_BUSY;
+        return MIMUSB_ERR_BUSY;
     }
     auto active =
         std::find_if(touch->contacts.begin(), touch->contacts.end(), [=](const auto& entry) {
@@ -1017,15 +1017,15 @@ static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_
         });
     if (down == 0U) {
         if (active == touch->contacts.end()) {
-            set_error(MIMHID_ERR_PARAM,
-                      kind == MIMHID_PROFILE_TOUCHSCREEN ? "touchscreen.contact_id"
+            set_error(MIMUSB_ERR_PARAM,
+                      kind == MIMUSB_PROFILE_TOUCHSCREEN ? "touchscreen.contact_id"
                                                          : "touchpad.contact_id",
                       "Lift requires an active Contact ID.");
-            return MIMHID_ERR_PARAM;
+            return MIMUSB_ERR_PARAM;
         }
         if (!in_range(x, spec->fields.x) || !in_range(y, spec->fields.y)) {
-            set_error(MIMHID_ERR_PARAM, "touch", "The final coordinates are outside the spec.");
-            return MIMHID_ERR_PARAM;
+            set_error(MIMUSB_ERR_PARAM, "touch", "The final coordinates are outside the spec.");
+            return MIMUSB_ERR_PARAM;
         }
         if (active->lifecycle_transition_pending) {
             return pending_transition("touch");
@@ -1037,9 +1037,9 @@ static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_
         active->lifecycle_transition_pending = true;
         touch->packet_cursor = 0U;
         node->dirty = true;
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
-    mimhid::detail::TouchContact contact{};
+    mimusb::detail::TouchContact contact{};
     contact.contact_id = contact_id;
     contact.x = x;
     contact.y = y;
@@ -1050,7 +1050,7 @@ static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_
         contact.azimuth = extra->azimuth;
     }
     if (!validate_contact(*spec, contact, "touch"))
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     if (active != touch->contacts.end()) {
         // The Contact ID is already down: this call moves it, matching the
         // prior touch_move behavior exactly.
@@ -1061,15 +1061,15 @@ static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_
         active->sample = contact;
         touch->packet_cursor = 0U;
         node->dirty = node->dirty || changed;
-        return MIMHID_OK;
+        return MIMUSB_OK;
     }
     for (const auto& entry : touch->contacts) {
         if (entry.phase != ContactPhase::none && entry.sample.contact_id == contact_id) {
-            set_error(MIMHID_ERR_BUSY,
-                      kind == MIMHID_PROFILE_TOUCHSCREEN ? "touchscreen.contact_id"
+            set_error(MIMUSB_ERR_BUSY,
+                      kind == MIMUSB_PROFILE_TOUCHSCREEN ? "touchscreen.contact_id"
                                                          : "touchpad.contact_id",
                       "The Contact ID is already active.");
-            return MIMHID_ERR_BUSY;
+            return MIMUSB_ERR_BUSY;
         }
     }
     auto found = std::find_if(touch->contacts.begin(), touch->contacts.end(),
@@ -1078,39 +1078,39 @@ static mimhid_result touch_contact_impl(mimhid_node* node, const mimhid_profile_
         std::count_if(touch->contacts.begin(), touch->contacts.end(), [](const auto& entry) {
             return entry.phase != ContactPhase::none;
         }) >= static_cast<std::ptrdiff_t>(spec->fields.maximum_contacts)) {
-        set_error(MIMHID_ERR_OVERFLOW,
-                  kind == MIMHID_PROFILE_TOUCHSCREEN ? "touchscreen.maximum_contacts"
+        set_error(MIMUSB_ERR_OVERFLOW,
+                  kind == MIMUSB_PROFILE_TOUCHSCREEN ? "touchscreen.maximum_contacts"
                                                      : "touchpad.maximum_contacts",
                   "No declared contact slot remains.");
-        return MIMHID_ERR_OVERFLOW;
+        return MIMUSB_ERR_OVERFLOW;
     }
     found->phase = ContactPhase::down;
     found->sample = contact;
     found->lifecycle_transition_pending = true;
     touch->packet_cursor = 0U;
     node->dirty = true;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_touchpad_button_impl(mimhid_node* node, const std::uint32_t button,
+static mimusb_result mimusb_touchpad_button_impl(mimusb_node* node, const std::uint32_t button,
                                                  const std::uint32_t down) {
-    mimhid::detail::clear_error();
-    const mimhid_result check = usable(node, MIMHID_PROFILE_TOUCHPAD, "touchpad.button");
-    if (check != MIMHID_OK)
+    mimusb::detail::clear_error();
+    const mimusb_result check = usable(node, MIMUSB_PROFILE_TOUCHPAD, "touchpad.button");
+    if (check != MIMUSB_OK)
         return check;
-    auto* touch = state<mimhid::detail::TouchState>(node);
+    auto* touch = state<mimusb::detail::TouchState>(node);
     if (touch->packet_cursor != 0U) {
-        set_error(MIMHID_ERR_BUSY, "touchpad.button",
+        set_error(MIMUSB_ERR_BUSY, "touchpad.button",
                   "The current multi-packet frame must finish before state changes.");
-        return MIMHID_ERR_BUSY;
+        return MIMUSB_ERR_BUSY;
     }
-    if (button == 0U || button > touch->buttons.size() || !mimhid::detail::valid_boolean(down)) {
-        set_error(MIMHID_ERR_PARAM, "touchpad.button",
+    if (button == 0U || button > touch->buttons.size() || !mimusb::detail::valid_boolean(down)) {
+        set_error(MIMUSB_ERR_PARAM, "touchpad.button",
                   "Button is one-based and down must be zero or one.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
     if (!transition_storage_matches(touch->buttons, touch->button_transitions, "touchpad.button")) {
-        return MIMHID_ERR_INTERNAL;
+        return MIMUSB_ERR_INTERNAL;
     }
     const std::size_t index = button - 1U;
     const auto value = static_cast<std::uint8_t>(down);
@@ -1123,30 +1123,30 @@ static mimhid_result mimhid_touchpad_button_impl(mimhid_node* node, const std::u
         touch->button_transitions[index] = 1U;
     }
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result stylus_update_impl(mimhid_node* node, const mimhid_profile_kind kind,
-                                        const mimhid_pen_sample* sample) {
-    mimhid::detail::clear_error();
-    const mimhid_result check =
-        usable(node, kind, kind == MIMHID_PROFILE_PEN ? "pen.update" : "digitizer.update");
-    if (check != MIMHID_OK)
+static mimusb_result stylus_update_impl(mimusb_node* node, const mimusb_profile_kind kind,
+                                        const mimusb_pen_sample* sample) {
+    mimusb::detail::clear_error();
+    const mimusb_result check =
+        usable(node, kind, kind == MIMUSB_PROFILE_PEN ? "pen.update" : "digitizer.update");
+    if (check != MIMUSB_OK)
         return check;
     if (sample == nullptr) {
-        set_error(MIMHID_ERR_PARAM, kind == MIMHID_PROFILE_PEN ? "pen.sample" : "digitizer.sample",
+        set_error(MIMUSB_ERR_PARAM, kind == MIMUSB_PROFILE_PEN ? "pen.sample" : "digitizer.sample",
                   "The pen sample pointer is null.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    const auto* spec = config<mimhid::detail::PenConfig>(node);
+    const auto* spec = config<mimusb::detail::PenConfig>(node);
     const auto& options = spec->options;
     const std::uint32_t barrel_mask =
         options.barrel_usage_count == 32U
             ? std::numeric_limits<std::uint32_t>::max()
             : (options.barrel_usage_count == 0U ? 0U : (1U << options.barrel_usage_count) - 1U);
-    if (!mimhid::detail::valid_boolean(sample->in_range) ||
-        !mimhid::detail::valid_boolean(sample->tip) ||
-        !mimhid::detail::valid_boolean(sample->eraser) ||
+    if (!mimusb::detail::valid_boolean(sample->in_range) ||
+        !mimusb::detail::valid_boolean(sample->tip) ||
+        !mimusb::detail::valid_boolean(sample->eraser) ||
         (!options.enable_hover && sample->in_range != sample->tip) ||
         (sample->tip == 1U && sample->in_range == 0U) ||
         (options.enable_eraser == 0U && sample->eraser != 0U) ||
@@ -1159,11 +1159,11 @@ static mimhid_result stylus_update_impl(mimhid_node* node, const mimhid_profile_
         (options.enable_tilt == 1U && (!in_range(sample->tilt_x, options.tilt_x) ||
                                        !in_range(sample->tilt_y, options.tilt_y))) ||
         (options.enable_twist_target_specific == 1U && !in_range(sample->twist, options.twist))) {
-        set_error(MIMHID_ERR_PARAM, kind == MIMHID_PROFILE_PEN ? "pen.sample" : "digitizer.sample",
+        set_error(MIMUSB_ERR_PARAM, kind == MIMUSB_PROFILE_PEN ? "pen.sample" : "digitizer.sample",
                   "A flag, button, or value is outside the immutable pen spec.");
-        return MIMHID_ERR_PARAM;
+        return MIMUSB_ERR_PARAM;
     }
-    auto* pen = state<mimhid::detail::PenState>(node);
+    auto* pen = state<mimusb::detail::PenState>(node);
     const bool changed =
         pen->desired.in_range != sample->in_range || pen->desired.tip != sample->tip ||
         pen->desired.eraser != sample->eraser ||
@@ -1172,32 +1172,32 @@ static mimhid_result stylus_update_impl(mimhid_node* node, const mimhid_profile_
         pen->desired.tilt_x != sample->tilt_x || pen->desired.tilt_y != sample->tilt_y ||
         pen->desired.twist != sample->twist;
     if (pen_transition_conflicts(*pen, *sample)) {
-        return pending_transition(kind == MIMHID_PROFILE_PEN ? "pen.update" : "digitizer.update");
+        return pending_transition(kind == MIMUSB_PROFILE_PEN ? "pen.update" : "digitizer.update");
     }
     record_pen_transitions(pen, *sample);
     pen->desired = *sample;
     pen->tool_switch_departure =
         pen->emitted.in_range == 1U && pen->emitted.eraser != pen->desired.eraser;
     node->dirty = node->dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-static mimhid_result mimhid_battery_update_impl(mimhid_node* node, const std::int32_t strength) {
-    mimhid::detail::clear_error();
+static mimusb_result mimusb_battery_update_impl(mimusb_node* node, const std::int32_t strength) {
+    mimusb::detail::clear_error();
     if (node == nullptr || node->closed || node->spec == nullptr || !node->spec->has_battery) {
-        set_error(MIMHID_ERR_PARAM, "battery.update", "The node has no battery report.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "battery.update", "The node has no battery report.");
+        return MIMUSB_ERR_PARAM;
     }
-    const mimhid_result link = link_available(node, "battery.update");
-    if (link != MIMHID_OK)
+    const mimusb_result link = link_available(node, "battery.update");
+    if (link != MIMUSB_OK)
         return link;
     if (node->transfer_inflight.load(std::memory_order_acquire)) {
-        set_error(MIMHID_ERR_BUSY, "battery.update", "The node has one report in flight.");
-        return MIMHID_ERR_BUSY;
+        set_error(MIMUSB_ERR_BUSY, "battery.update", "The node has one report in flight.");
+        return MIMUSB_ERR_BUSY;
     }
     if (!in_range(strength, node->spec->battery.strength)) {
-        set_error(MIMHID_ERR_PARAM, "battery.strength", "The value is outside the declared range.");
-        return MIMHID_ERR_PARAM;
+        set_error(MIMUSB_ERR_PARAM, "battery.strength", "The value is outside the declared range.");
+        return MIMUSB_ERR_PARAM;
     }
     // The first value is always a change, even when it equals the zero the
     // state starts with.
@@ -1205,113 +1205,113 @@ static mimhid_result mimhid_battery_update_impl(mimhid_node* node, const std::in
     node->battery.has_value = true;
     node->battery.strength = strength;
     node->battery_dirty = node->battery_dirty || changed;
-    return MIMHID_OK;
+    return MIMUSB_OK;
 }
 
-mimhid_result MIMHID_CALL mimhid_keyboard_key(mimhid_node* node, const std::uint16_t usage,
+mimusb_result MIMUSB_CALL mimusb_keyboard_key(mimusb_node* node, const std::uint16_t usage,
                                               const std::uint32_t down) {
     return abi_state_result(node, "keyboard.key",
                             [&] { return keyboard_key_impl(node, usage, down); });
 }
 
-mimhid_result MIMHID_CALL mimhid_mouse_move(mimhid_node* node, const std::int32_t dx,
+mimusb_result MIMUSB_CALL mimusb_mouse_move(mimusb_node* node, const std::int32_t dx,
                                             const std::int32_t dy) {
     return abi_state_result(node, "mouse.move",
-                            [&] { return mimhid_mouse_move_impl(node, dx, dy); });
+                            [&] { return mimusb_mouse_move_impl(node, dx, dy); });
 }
 
-mimhid_result MIMHID_CALL mimhid_mouse_scroll(mimhid_node* node, const std::int32_t wheel,
+mimusb_result MIMUSB_CALL mimusb_mouse_scroll(mimusb_node* node, const std::int32_t wheel,
                                               const std::int32_t pan) {
     return abi_state_result(node, "mouse.scroll",
-                            [&] { return mimhid_mouse_scroll_impl(node, wheel, pan); });
+                            [&] { return mimusb_mouse_scroll_impl(node, wheel, pan); });
 }
 
-mimhid_result MIMHID_CALL mimhid_mouse_button(mimhid_node* node, const std::uint32_t button,
+mimusb_result MIMUSB_CALL mimusb_mouse_button(mimusb_node* node, const std::uint32_t button,
                                               const std::uint32_t down) {
     return abi_state_result(node, "mouse.button",
-                            [&] { return mimhid_mouse_button_impl(node, button, down); });
+                            [&] { return mimusb_mouse_button_impl(node, button, down); });
 }
 
-mimhid_result MIMHID_CALL mimhid_toggle_usage(mimhid_node* node, const std::uint16_t usage,
+mimusb_result MIMUSB_CALL mimusb_toggle_usage(mimusb_node* node, const std::uint16_t usage,
                                               const std::uint32_t down) {
-    return abi_state_result(node, "toggle", [&] { return mimhid_toggle_impl(node, usage, down); });
+    return abi_state_result(node, "toggle", [&] { return mimusb_toggle_impl(node, usage, down); });
 }
 
-mimhid_result MIMHID_CALL mimhid_gamepad_button(mimhid_node* node, const std::uint32_t button,
+mimusb_result MIMUSB_CALL mimusb_gamepad_button(mimusb_node* node, const std::uint32_t button,
                                                 const std::uint32_t down) {
     return abi_state_result(node, "gamepad.button",
-                            [&] { return mimhid_gamepad_button_impl(node, button, down); });
+                            [&] { return mimusb_gamepad_button_impl(node, button, down); });
 }
 
-mimhid_result MIMHID_CALL mimhid_gamepad_axis(mimhid_node* node, const std::size_t axis_index,
+mimusb_result MIMUSB_CALL mimusb_gamepad_axis(mimusb_node* node, const std::size_t axis_index,
                                               const std::int32_t value) {
     return abi_state_result(node, "gamepad.axis",
-                            [&] { return mimhid_gamepad_axis_impl(node, axis_index, value); });
+                            [&] { return mimusb_gamepad_axis_impl(node, axis_index, value); });
 }
 
-mimhid_result MIMHID_CALL mimhid_gamepad_dpad(mimhid_node* node, const std::uint32_t up,
+mimusb_result MIMUSB_CALL mimusb_gamepad_dpad(mimusb_node* node, const std::uint32_t up,
                                               const std::uint32_t down, const std::uint32_t right,
                                               const std::uint32_t left) {
     return abi_state_result(node, "gamepad.dpad",
                             [&] { return gamepad_dpad_impl(node, up, down, right, left); });
 }
 
-mimhid_result MIMHID_CALL mimhid_touchscreen_contact(mimhid_node* node,
+mimusb_result MIMUSB_CALL mimusb_touchscreen_contact(mimusb_node* node,
                                                      const std::uint32_t contact_id,
                                                      const std::uint32_t down, const std::int32_t x,
                                                      const std::int32_t y,
-                                                     const mimhid_touchscreen_extra* extra) {
+                                                     const mimusb_touchscreen_extra* extra) {
     return abi_state_result(node, "touchscreen.contact", [&] {
         const TouchExtra values = extra == nullptr ? TouchExtra{}
                                                    : TouchExtra{extra->pressure, extra->width,
                                                                 extra->height, extra->azimuth};
-        return touch_contact_impl(node, MIMHID_PROFILE_TOUCHSCREEN, contact_id, down, x, y,
+        return touch_contact_impl(node, MIMUSB_PROFILE_TOUCHSCREEN, contact_id, down, x, y,
                                   extra == nullptr ? nullptr : &values);
     });
 }
 
-mimhid_result MIMHID_CALL mimhid_touchpad_contact(mimhid_node* node, const std::uint32_t contact_id,
+mimusb_result MIMUSB_CALL mimusb_touchpad_contact(mimusb_node* node, const std::uint32_t contact_id,
                                                   const std::uint32_t down, const std::int32_t x,
                                                   const std::int32_t y,
-                                                  const mimhid_touchpad_extra* extra) {
+                                                  const mimusb_touchpad_extra* extra) {
     return abi_state_result(node, "touchpad.contact", [&] {
         const TouchExtra values = extra == nullptr ? TouchExtra{}
                                                    : TouchExtra{extra->pressure, extra->width,
                                                                 extra->height, extra->azimuth};
-        return touch_contact_impl(node, MIMHID_PROFILE_TOUCHPAD, contact_id, down, x, y,
+        return touch_contact_impl(node, MIMUSB_PROFILE_TOUCHPAD, contact_id, down, x, y,
                                   extra == nullptr ? nullptr : &values);
     });
 }
 
-mimhid_result MIMHID_CALL mimhid_touchpad_button(mimhid_node* node, const std::uint32_t button,
+mimusb_result MIMUSB_CALL mimusb_touchpad_button(mimusb_node* node, const std::uint32_t button,
                                                  const std::uint32_t down) {
     return abi_state_result(node, "touchpad.button",
-                            [&] { return mimhid_touchpad_button_impl(node, button, down); });
+                            [&] { return mimusb_touchpad_button_impl(node, button, down); });
 }
 
-mimhid_result MIMHID_CALL mimhid_pen_update(mimhid_node* node, const mimhid_pen_sample* sample) {
+mimusb_result MIMUSB_CALL mimusb_pen_update(mimusb_node* node, const mimusb_pen_sample* sample) {
     return abi_state_result(node, "pen.update",
-                            [&] { return stylus_update_impl(node, MIMHID_PROFILE_PEN, sample); });
+                            [&] { return stylus_update_impl(node, MIMUSB_PROFILE_PEN, sample); });
 }
 
-mimhid_result MIMHID_CALL mimhid_digitizer_update(mimhid_node* node,
-                                                  const mimhid_digitizer_sample* sample) {
+mimusb_result MIMUSB_CALL mimusb_digitizer_update(mimusb_node* node,
+                                                  const mimusb_digitizer_sample* sample) {
     return abi_state_result(node, "digitizer.update", [&] {
-        const mimhid_pen_sample values =
+        const mimusb_pen_sample values =
             sample == nullptr
-                ? mimhid_pen_sample{}
-                : mimhid_pen_sample{sample->in_range,       sample->tip,    sample->eraser,
+                ? mimusb_pen_sample{}
+                : mimusb_pen_sample{sample->in_range,       sample->tip,    sample->eraser,
                                     sample->barrel_buttons, sample->x,      sample->y,
                                     sample->pressure,       sample->tilt_x, sample->tilt_y,
                                     sample->twist};
-        return stylus_update_impl(node, MIMHID_PROFILE_DIGITIZER,
+        return stylus_update_impl(node, MIMUSB_PROFILE_DIGITIZER,
                                   sample == nullptr ? nullptr : &values);
     });
 }
 
-mimhid_result MIMHID_CALL mimhid_battery_update(mimhid_node* node, const std::int32_t strength) {
+mimusb_result MIMUSB_CALL mimusb_battery_update(mimusb_node* node, const std::int32_t strength) {
     return abi_state_result(node, "battery.update",
-                            [&] { return mimhid_battery_update_impl(node, strength); });
+                            [&] { return mimusb_battery_update_impl(node, strength); });
 }
 
 } // extern "C"

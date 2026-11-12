@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 # TinyUSB device stack compiled straight from the checkout in $TINYUSB_PATH, with this
 # project's own descriptors and tusb_config.h (esp_tinyusb would supply its own).
 set(tusb_src "$ENV{TINYUSB_PATH}/src")
@@ -29,7 +29,7 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CFG_TUSB_OS=OPT_OS_NONE
     "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
     CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
-    MIMHID_MAX_ENDPOINT_NUMBER=6
-    MIMHID_MAX_ENDPOINT_BYTES=64
+    MIMUSB_MAX_ENDPOINT_NUMBER=6
+    MIMUSB_MAX_ENDPOINT_BYTES=64
 )
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-error=format)

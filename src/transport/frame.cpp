@@ -1,33 +1,33 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include "transport/frame.hpp"
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <cstring>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 std::size_t encode_frame(std::uint8_t type, const std::uint8_t* payload, std::size_t length,
                          std::uint8_t* out) noexcept {
     std::size_t n = 0;
-    std::uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
-    out[n++] = MIMHID_SYNC;
+    std::uint16_t crc = mimusb_crc16_update(MIMUSB_CRC16_INIT, type);
+    out[n++] = MIMUSB_SYNC;
     out[n++] = type;
     if (length < 0x80U) {
         out[n++] = static_cast<std::uint8_t>(length);
-        crc = mimhid_crc16_update(crc, static_cast<std::uint8_t>(length));
+        crc = mimusb_crc16_update(crc, static_cast<std::uint8_t>(length));
     } else {
         const auto low = static_cast<std::uint8_t>(0x80U | (length & 0x7FU));
         const auto high = static_cast<std::uint8_t>(length >> 7);
         out[n++] = low;
         out[n++] = high;
-        crc = mimhid_crc16_update(crc, low);
-        crc = mimhid_crc16_update(crc, high);
+        crc = mimusb_crc16_update(crc, low);
+        crc = mimusb_crc16_update(crc, high);
     }
     for (std::size_t i = 0; i < length; i++) {
         out[n++] = payload[i];
-        crc = mimhid_crc16_update(crc, payload[i]);
+        crc = mimusb_crc16_update(crc, payload[i]);
     }
     out[n++] = static_cast<std::uint8_t>(crc & 0xFFU);
     out[n++] = static_cast<std::uint8_t>(crc >> 8);
@@ -37,7 +37,7 @@ std::size_t encode_frame(std::uint8_t type, const std::uint8_t* payload, std::si
 bool FrameParser::next(Frame* out) noexcept {
     for (;;) {
         // Find a sync byte.
-        while (head_ != tail_ && ring_[tail_] != MIMHID_SYNC)
+        while (head_ != tail_ && ring_[tail_] != MIMUSB_SYNC)
             tail_ = (tail_ + 1U) & kMask;
         const std::size_t available = size();
         if (available < 3U)
@@ -55,28 +55,28 @@ bool FrameParser::next(Frame* out) noexcept {
                   (static_cast<std::size_t>(len_high) << 7);
             header = 4U;
         }
-        // 0xC0 itself is endpoint 0, which has no data frame (mimhid_proto.h).
-        const bool board_type = type == MIMHID_T_PONG || type == MIMHID_T_ACK ||
-                                type == MIMHID_T_NAK || type == MIMHID_T_EVENT ||
-                                (type > MIMHID_T_EP_OUT_BASE && type <= MIMHID_T_EP_OUT_LAST);
+        // 0xC0 itself is endpoint 0, which has no data frame (mimusb_proto.h).
+        const bool board_type = type == MIMUSB_T_PONG || type == MIMUSB_T_ACK ||
+                                type == MIMUSB_T_NAK || type == MIMUSB_T_EVENT ||
+                                (type > MIMUSB_T_EP_OUT_BASE && type <= MIMUSB_T_EP_OUT_LAST);
         if (!board_type) {
             tail_ = (tail_ + 1U) & kMask;
             continue;
         }
-        if (len > MIMHID_PROTO_MAX_PAYLOAD) {
+        if (len > MIMUSB_PROTO_MAX_PAYLOAD) {
             tail_ = (tail_ + 1U) & kMask;
             continue;
         }
         if (available < header + len + 2U)
             return false;
-        std::uint16_t crc = mimhid_crc16_update(MIMHID_CRC16_INIT, type);
-        crc = mimhid_crc16_update(crc, len_low);
+        std::uint16_t crc = mimusb_crc16_update(MIMUSB_CRC16_INIT, type);
+        crc = mimusb_crc16_update(crc, len_low);
         if (header == 4U)
-            crc = mimhid_crc16_update(crc, len_high);
+            crc = mimusb_crc16_update(crc, len_high);
         for (std::size_t i = 0; i < len; i++) {
             const std::uint8_t b = at(header + i);
             out->payload[i] = b;
-            crc = mimhid_crc16_update(crc, b);
+            crc = mimusb_crc16_update(crc, b);
         }
         if (at(header + len) != static_cast<std::uint8_t>(crc & 0xFFU) ||
             at(header + len + 1U) != static_cast<std::uint8_t>(crc >> 8)) {
@@ -106,7 +106,7 @@ bool decode_counters(const std::uint8_t* data, std::size_t length, LinkCounters*
 
 bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     // The firmware version and ready come first in every release.
-    if (frame.type != MIMHID_T_PONG || frame.length < 4U)
+    if (frame.type != MIMUSB_T_PONG || frame.length < 4U)
         return false;
     const auto& p = frame.payload;
     *out = BoardInfo{};
@@ -115,15 +115,15 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->version[2] = p[2];
     out->ready = p[3] != 0;
     // A board of another major or minor version is described by those alone.
-    if (p[0] != MIMHID_VERSION_MAJOR || p[1] != MIMHID_VERSION_MINOR)
+    if (p[0] != MIMUSB_VERSION_MAJOR || p[1] != MIMUSB_VERSION_MINOR)
         return true;
-    if (frame.length < MIMHID_PONG_MIN_LEN)
+    if (frame.length < MIMUSB_PONG_MIN_LEN)
         return false;
     const std::uint8_t id_length = p[35];
-    if (id_length > MIMHID_UNIQUE_ID_MAX || frame.length < MIMHID_PONG_MIN_LEN + id_length)
+    if (id_length > MIMUSB_UNIQUE_ID_MAX || frame.length < MIMUSB_PONG_MIN_LEN + id_length)
         return false;
     out->compatible = true;
-    out->has_unique_id = (p[6] & MIMHID_PONG_FLAG_UNIQUE_ID) != 0;
+    out->has_unique_id = (p[6] & MIMUSB_PONG_FLAG_UNIQUE_ID) != 0;
     out->chip = p[7];
     out->usb_high_speed = p[8] != 0;
     out->baud = get_u32(&p[9]);
@@ -144,8 +144,8 @@ bool decode_pong(const Frame& frame, BoardInfo* out) noexcept {
     out->max_answer_bytes = static_cast<std::uint16_t>(p[45] | (p[46] << 8));
     out->max_bos_bytes = static_cast<std::uint16_t>(p[47] | (p[48] << 8));
     out->unique_id_length = id_length;
-    std::memcpy(out->unique_id.data(), &p[MIMHID_PONG_MIN_LEN], id_length);
+    std::memcpy(out->unique_id.data(), &p[MIMUSB_PONG_MIN_LEN], id_length);
     return true;
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

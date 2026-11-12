@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
-/* The serial wire protocol's frame format (mimhid_proto.h): encoding,
+// Copyright (c) 2026 libmimusb contributors
+/* The serial wire protocol's frame format (mimusb_proto.h): encoding,
  * parsing, the PONG and the link counters. No port, no threads: pure functions and a parser. */
 #pragma once
 
-#include "mimhid_proto.h"
+#include "mimusb_proto.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 
-namespace mimhid::transport {
+namespace mimusb::transport {
 
 struct BoardInfo {
     std::uint8_t version[3]{};
@@ -36,12 +36,12 @@ struct BoardInfo {
     bool usb_high_speed{};
     std::uint32_t baud{};       // the rate the board is on
     std::uint32_t max_baud{};   // the fastest rate its UART can make
-    std::uint32_t uart_flags{}; // MIMHID_PONG_UART_*
+    std::uint32_t uart_flags{}; // MIMUSB_PONG_UART_*
     std::uint8_t unique_id_length{};
-    std::array<std::uint8_t, MIMHID_UNIQUE_ID_MAX> unique_id{};
+    std::array<std::uint8_t, MIMUSB_UNIQUE_ID_MAX> unique_id{};
 };
 
-// What the board counted on its line since the last reset (see mimhid_proto.h).
+// What the board counted on its line since the last reset (see mimusb_proto.h).
 struct LinkCounters {
     std::uint16_t probes_good{};
     std::uint16_t bad_crc{};
@@ -54,7 +54,7 @@ struct LinkCounters {
         return static_cast<std::uint32_t>(bad_crc) + framing + uart_overrun + ring_overrun;
     }
 };
-inline constexpr std::size_t kCountersBytes = 2U * MIMHID_COUNTER_COUNT;
+inline constexpr std::size_t kCountersBytes = 2U * MIMUSB_COUNTER_COUNT;
 [[nodiscard]] bool decode_counters(const std::uint8_t* data, std::size_t length,
                                    LinkCounters* out) noexcept;
 
@@ -62,7 +62,7 @@ struct Frame {
     std::uint8_t type{};
     std::uint16_t length{};
     // Not zeroed: length says what is in it.
-    std::array<std::uint8_t, MIMHID_PROTO_MAX_PAYLOAD> payload;
+    std::array<std::uint8_t, MIMUSB_PROTO_MAX_PAYLOAD> payload;
 };
 
 // Splits a byte stream into valid frames, skipping garbage one byte at a time.
@@ -133,4 +133,4 @@ inline void put_u32(std::uint8_t* p, std::uint32_t v) noexcept {
     p[3] = static_cast<std::uint8_t>(v >> 24);
 }
 
-} // namespace mimhid::transport
+} // namespace mimusb::transport

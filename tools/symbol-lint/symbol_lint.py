@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
-"""Compare the C ABI declared in include/mimhid.h with a shared library's export table."""
+# Copyright (c) 2026 libmimusb contributors
+"""Compare the C ABI declared in include/mimusb.h with a shared library's export table."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import struct
 import subprocess
 import sys
 
-EXPORT_RE = re.compile(r"MIMHID_API\s+[^;]*?\bMIMHID_CALL\s+(mimhid_[A-Za-z0-9_]+)\s*\(", re.DOTALL)
+EXPORT_RE = re.compile(r"MIMUSB_API\s+[^;]*?\bMIMUSB_CALL\s+(mimusb_[A-Za-z0-9_]+)\s*\(", re.DOTALL)
 
 
 def declared(header: Path) -> set[str]:
@@ -80,7 +80,7 @@ def main() -> int:
     args = parser.parse_args()
     api = declared(args.header)
     if not api:
-        print("no MIMHID_API function found in the header", file=sys.stderr)
+        print("no MIMUSB_API function found in the header", file=sys.stderr)
         return 1
     if args.library is not None:
         head = args.library.read_bytes()[:4]
@@ -89,7 +89,7 @@ def main() -> int:
         else:
             exported = nm_exports(args.library, head in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), args.nm)
         # Anything outside the project prefix (version nodes, toolchain stubs) is not ABI.
-        exported = {name for name in exported if name.startswith("mimhid_")}
+        exported = {name for name in exported if name.startswith("mimusb_")}
         extra_all = {n for n in exported if n not in api}
         missing = api - exported
         if missing or extra_all:

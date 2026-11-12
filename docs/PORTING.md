@@ -20,14 +20,14 @@ firmware/
     stm32f4/       STM32F4 (TinyUSB BSP, USART2 + circular DMA)
     esp32s3/       ESP-IDF component
   tests/         host-side tests of common/ against a fake HAL
-proto/           wire protocol constants shared with the host (mimhid_proto.h)
+proto/           wire protocol constants shared with the host (mimusb_proto.h)
 ```
 
 `firmware/CMakeLists.txt` builds the RP2040 (Raspberry Pi Pico) and RP2350 (Raspberry Pi Pico 2) images. The other ports have their own project under `firmware/ports/`. See [BUILDING.md](BUILDING.md#building-the-firmware) for the exact build commands.
 
 ## Control transfers
 
-`control.c` and `ep0.c` are built into every port. `control.c` holds the table of control rules (see [PROTOCOL.md](PROTOCOL.md#control-rules)) that answers everything a HID interface needs on endpoint 0, since the firmware has no HID driver (`CFG_TUD_HID` is 0 in `firmware/common/tusb_config.h`, and a port keeps it so). They need two things from the port's build: the link options `-Wl,--wrap=dcd_event_handler`, `-Wl,--wrap=dcd_edpt_stall`, and `-Wl,--wrap=dcd_edpt_xfer` (GNU ld; every port's project in this tree sets them), and no other definition of `tud_vendor_control_xfer_cb` (a vendor class would own it). It uses `dcd_int_disable` and `dcd_int_enable` of root hub port 0 around its shared state (the two copies of the rule table and the answer in progress) and `hal_millis` in the interrupt, so both must be callable there. The rule table costs RAM: `MIMHID_CONTROL_RULES` (160) rules of under 32 bytes twice, `MIMHID_ANSWER_BYTES` (4096) of answer memory twice, and `MIMHID_LAST_SENT_SLOTS` (32) buffers of `MIMHID_MAX_TRANSFER_BYTES`; a port with little RAM sets them lower before `config.h` is read (the host reads them from the `PONG` and refuses a table that does not fit). A port that runs the receive side on another core (RP2040, RP2350) leaves it at that; a port that runs `mimhid_run` reads the UART from the USB side while it waits for a verdict, and nothing else is needed.
+`control.c` and `ep0.c` are built into every port. `control.c` holds the table of control rules (see [PROTOCOL.md](PROTOCOL.md#control-rules)) that answers everything a HID interface needs on endpoint 0, since the firmware has no HID driver (`CFG_TUD_HID` is 0 in `firmware/common/tusb_config.h`, and a port keeps it so). They need two things from the port's build: the link options `-Wl,--wrap=dcd_event_handler`, `-Wl,--wrap=dcd_edpt_stall`, and `-Wl,--wrap=dcd_edpt_xfer` (GNU ld; every port's project in this tree sets them), and no other definition of `tud_vendor_control_xfer_cb` (a vendor class would own it). It uses `dcd_int_disable` and `dcd_int_enable` of root hub port 0 around its shared state (the two copies of the rule table and the answer in progress) and `hal_millis` in the interrupt, so both must be callable there. The rule table costs RAM: `MIMUSB_CONTROL_RULES` (160) rules of under 32 bytes twice, `MIMUSB_ANSWER_BYTES` (4096) of answer memory twice, and `MIMUSB_LAST_SENT_SLOTS` (32) buffers of `MIMUSB_MAX_TRANSFER_BYTES`; a port with little RAM sets them lower before `config.h` is read (the host reads them from the `PONG` and refuses a table that does not fit). A port that runs the receive side on another core (RP2040, RP2350) leaves it at that; a port that runs `mimusb_run` reads the UART from the USB side while it waits for a verdict, and nothing else is needed.
 
 `ep0.c` runs endpoint 0 in the size the device descriptor announces (`bMaxPacketSize0`). TinyUSB gives a controller driver up to `CFG_TUD_ENDPOINT0_SIZE` (64) bytes per endpoint 0 transfer, so below 64 the wrapped `dcd_edpt_xfer` passes one packet at a time and starts the next from the stack's task with `usbd_defer_func`; the port's `tusb_config.h` keeps `CFG_TUD_ENDPOINT0_SIZE` at 64.
 
@@ -37,24 +37,24 @@ A port implements the twelve functions declared in `firmware/common/hal.h`:
 
 | Function | Contract |
 |---|---|
-| `hal_init()` | Clocks, board, USB PHY if needed, and the UART at the boot rate (`MIMHID_BOOT_BAUD`, 115,200), 8N1. |
-| `hal_uart_baud_actual(baud)` | The rate the UART's divider really gives for `baud`, or 0 when it cannot be made at all. The core refuses `SET_BAUD` when it differs by more than 2 % (`MIMHID_BAUD_TOLERANCE_PPM`) and reports the actual rate in the `ACK`. Compute it from the clock and the divider; do not bound-check. |
+| `hal_init()` | Clocks, board, USB PHY if needed, and the UART at the boot rate (`MIMUSB_BOOT_BAUD`, 115,200), 8N1. |
+| `hal_uart_baud_actual(baud)` | The rate the UART's divider really gives for `baud`, or 0 when it cannot be made at all. The core refuses `SET_BAUD` when it differs by more than 2 % (`MIMUSB_BAUD_TOLERANCE_PPM`) and reports the actual rate in the `ACK`. Compute it from the clock and the divider; do not bound-check. |
 | `hal_uart_max_baud()` | The fastest rate the UART can make (peripheral clock over the smallest divider). Read once at start-up; it becomes the `PONG`'s `max_baud`. Choose the UART and its clock tree for it: on an STM32F4 USART1 and USART6 sit on the faster APB2 bus. |
 | `hal_uart_has_break()` | True when the port sees a UART `BREAK` through `hal_uart_errors`. |
 | `hal_uart_errors()` | What went wrong on the line since the last call, as `HAL_UART_ERR_*` bits (`BREAK`, framing, overrun, receive ring three quarters full or more), and clears it. A `BREAK` returns the board to the boot rate whatever rate it was on; the other bits feed the counters the host reads. A hardware flag that only latches is reported once per call. |
 | `hal_uart_set_baud(baud)` | Wait until queued output has left, then switch the UART. Called from the receive context; it must not interleave with `hal_uart_write`. |
-| `hal_chip()` | The chip, as `MIMHID_CHIP_*` names it. |
+| `hal_chip()` | The chip, as `MIMUSB_CHIP_*` names it. |
 | `hal_uart_read(dst, max)` | Copy received bytes without blocking; called from one context only. |
 | `hal_uart_write(data, len)` | Blocking send; callable from both the receive and USB contexts. |
 | `hal_millis()` | Milliseconds since boot. |
 | `hal_unique_id(out, max)` | Copy the chip's unique id and return its length, or 0 when there is none. Used for `serial_from_chip_id`. |
 | `hal_has_bootloader()` | True when `hal_enter_bootloader` does something on this chip; the `BOOTLOADER` command is refused (`NAK_UNSUPPORTED`) when it is false. |
 | `hal_enter_bootloader()` | Wait until queued output has left, then restart the chip into its own bootloader, and do not return. A chip whose bootloader wants the state a reset leaves (the STM32F4's system memory) leaves a mark a reset keeps, resets, and jumps from `hal_init` before anything is set up. Do nothing when the chip has no bootloader. |
-| `hal_control_silent_drop()` | Disarm endpoint 0 IN and OUT without a STALL, so that it NAKs until the target gives up. `control.c` calls it for `MIMHID_CONTROL_ACTION_DROP`, and in place of the endpoint 0 stall the stack makes after a dropped transfer. Only the RP2040/RP2350 port implements it; the other ports have an empty function. |
+| `hal_control_silent_drop()` | Disarm endpoint 0 IN and OUT without a STALL, so that it NAKs until the target gives up. `control.c` calls it for `MIMUSB_CONTROL_ACTION_DROP`, and in place of the endpoint 0 stall the stack makes after a dropped transfer. Only the RP2040/RP2350 port implements it; the other ports have an empty function. |
 
-The port's `main()` calls `hal_init()` and `mimhid_core_init()`, then either runs `mimhid_run()` (one core) or splits the work: `mimhid_rx_poll()` on one core and `tud_task()` plus `mimhid_usb_poll()` on the other (the RP2040 and RP2350 port, `firmware/rp/main.c`, does this).
+The port's `main()` calls `hal_init()` and `mimusb_core_init()`, then either runs `mimusb_run()` (one core) or splits the work: `mimusb_rx_poll()` on one core and `tud_task()` plus `mimusb_usb_poll()` on the other (the RP2040 and RP2350 port, `firmware/rp/main.c`, does this).
 
-The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMHID_MAX_FRAME_PAYLOAD` + 6 bytes (`MIMHID_MAX_FRAME_PAYLOAD` is 1,032 with the defaults of `firmware/common/config.h`, so 1,038 bytes). The core keeps its own receive ring (`RX_SIZE` in `firmware/common/core.c`: 4,096 bytes for a `MIMHID_MAX_FRAME_PAYLOAD` up to 1,500, else 8,192); the RP port's DMA ring is 1,024 bytes (`DMA_BUF_SIZE`).
+The receiver must hold bytes for the core between polls. Choose a ring or DMA buffer that can absorb the longest stall of the main loop; at 3,000,000 baud a byte arrives every 3.3 µs, and the longest frame is `MIMUSB_MAX_FRAME_PAYLOAD` + 6 bytes (`MIMUSB_MAX_FRAME_PAYLOAD` is 1,032 with the defaults of `firmware/common/config.h`, so 1,038 bytes). The core keeps its own receive ring (`RX_SIZE` in `firmware/common/core.c`: 4,096 bytes for a `MIMUSB_MAX_FRAME_PAYLOAD` up to 1,500, else 8,192); the RP port's DMA ring is 1,024 bytes (`DMA_BUF_SIZE`).
 
 ## Endpoint count
 
@@ -62,11 +62,11 @@ Every interface, HID included, runs on the generic driver (`generic.c`), and eac
 
 | Macro | Meaning |
 |---|---|
-| `MIMHID_MAX_ENDPOINT_NUMBER` | The highest endpoint number it has; reported as `max_endpoint_number`. The firmware refuses a larger endpoint address (`NAK_OVERFLOW`), and so does the host library (`MIMHID_ERR_OVERFLOW`), because the target's `SET_CONFIGURATION` would fail and nothing would say why. |
-| `MIMHID_MAX_ENDPOINT_BYTES` | 64 at full speed, 1024 at high speed (USB 2.0 5.7.3, 5.7.4); `core.c` checks it against the speed TinyUSB is built for. |
+| `MIMUSB_MAX_ENDPOINT_NUMBER` | The highest endpoint number it has; reported as `max_endpoint_number`. The firmware refuses a larger endpoint address (`NAK_OVERFLOW`), and so does the host library (`MIMUSB_ERR_OVERFLOW`), because the target's `SET_CONFIGURATION` would fail and nothing would say why. |
+| `MIMUSB_MAX_ENDPOINT_BYTES` | 64 at full speed, 1024 at high speed (USB 2.0 5.7.3, 5.7.4); `core.c` checks it against the speed TinyUSB is built for. |
 | `CFG_TUSB_OS`, `CFG_TUSB_RHPORT0_MODE`, `CFG_TUD_MAX_SPEED` | TinyUSB's own, stated the same way. |
 
-| `MIMHID_MAX_ENDPOINT_NUMBER` | Used by |
+| `MIMUSB_MAX_ENDPOINT_NUMBER` | Used by |
 |---:|---|
 | 15 | RP2040 (Raspberry Pi Pico), RP2350 (Raspberry Pi Pico 2): the endpoint numbers 1 to 15 in both directions (datasheets: RP2040 4.1.1.1.1, RP2350 12.7.1.1.1) |
 | 7 | nRF52840: EPIN1 to EPIN7 and EPOUT1 to EPOUT7 (number 8 is the isochronous endpoint) |
@@ -74,13 +74,13 @@ Every interface, HID included, runs on the generic driver (`generic.c`), and eac
 | 3 | STM32F4 full speed on the F401, F405, F407, F411, F429, and F439 (`USB_OTG_FS_MAX_IN_ENDPOINTS` 4 with endpoint 0) |
 | 5 | STM32F4 full speed on the F412 (`USB_OTG_FS_MAX_IN_ENDPOINTS` 6 with endpoint 0); the F413, F423, F446, F469, and F479 have 6 as well, but no board of them is listed in `ports/stm32f4/CMakeLists.txt` |
 
-Set `MIMHID_MAX_ENDPOINT_NUMBER` to what the controller has, and no higher than 15 (USB has endpoint numbers 1 to 15, USB 2.0 glossary); the wire protocol does not depend on the values. The interface count (`MIMHID_MAX_INTERFACES`, 15, reported as `max_interfaces_any`) is not a chip fact: a HID interface needs an IN endpoint of its own, so the endpoint numbers are what bound them in practice. They are on the command line (the CMake file of the port) so that every source sees the same numbers whatever it includes first: an endpoint number limit that differs between sources overruns arrays (`firmware/tests` builds the check in both include orders, and builds the probe once with each macro left out to see the error). In `libmimhid`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimhid_node_config`; the host composes the descriptors, and at `COMMIT` the firmware walks them once and refuses a configuration that does not hold together (a zero `bcdUSB`, a gap in the interface numbers, an endpoint address used twice, an `ANSWER` rule without all its bytes, ...: [PROTOCOL.md](PROTOCOL.md#the-commit-walk)). `MIMHID_MAX_CONFIG_BYTES`, `MIMHID_MAX_STRINGS` and `MIMHID_MAX_STRING_BYTES` (`firmware/common/config.h`) size the staged and active configuration and string stores; their defaults hold any configuration of `MIMHID_MAX_INTERFACES` interfaces.
+Set `MIMUSB_MAX_ENDPOINT_NUMBER` to what the controller has, and no higher than 15 (USB has endpoint numbers 1 to 15, USB 2.0 glossary); the wire protocol does not depend on the values. The interface count (`MIMUSB_MAX_INTERFACES`, 15, reported as `max_interfaces_any`) is not a chip fact: a HID interface needs an IN endpoint of its own, so the endpoint numbers are what bound them in practice. They are on the command line (the CMake file of the port) so that every source sees the same numbers whatever it includes first: an endpoint number limit that differs between sources overruns arrays (`firmware/tests` builds the check in both include orders, and builds the probe once with each macro left out to see the error). In `libmimusb`, callers explicitly configure each node's `iface.number`, `ep_in`, and `ep_out` via `mimusb_node_config`; the host composes the descriptors, and at `COMMIT` the firmware walks them once and refuses a configuration that does not hold together (a zero `bcdUSB`, a gap in the interface numbers, an endpoint address used twice, an `ANSWER` rule without all its bytes, ...: [PROTOCOL.md](PROTOCOL.md#the-commit-walk)). `MIMUSB_MAX_CONFIG_BYTES`, `MIMUSB_MAX_STRINGS` and `MIMUSB_MAX_STRING_BYTES` (`firmware/common/config.h`) size the staged and active configuration and string stores; their defaults hold any configuration of `MIMUSB_MAX_INTERFACES` interfaces.
 
-`MIMHID_ANSWER_BYTES` (default 4096) bounds the capacities of all `ANSWER` rules together, the report descriptors among them; it is reported as `max_answer_bytes`. `MIMHID_MAX_BOS_BYTES` (256) is the largest BOS descriptor the board holds, reported as `max_bos_bytes`. It, `MIMHID_CONTROL_RULES`, `MIMHID_LAST_SENT_SLOTS`, `MIMHID_CONTROL_DATA_MAX` and `MIMHID_EP_POOL_SLOTS` are sizes of the firmware's own buffers, announced in the `PONG`, not facts about the chip. The RAM figures given for 0.2 (58 KB on the STM32F411, 108 KB on the nRF52840, 125 KB on the RP2040) have not been measured again for 0.3.0.
+`MIMUSB_ANSWER_BYTES` (default 4096) bounds the capacities of all `ANSWER` rules together, the report descriptors among them; it is reported as `max_answer_bytes`. `MIMUSB_MAX_BOS_BYTES` (256) is the largest BOS descriptor the board holds, reported as `max_bos_bytes`. It, `MIMUSB_CONTROL_RULES`, `MIMUSB_LAST_SENT_SLOTS`, `MIMUSB_CONTROL_DATA_MAX` and `MIMUSB_EP_POOL_SLOTS` are sizes of the firmware's own buffers, announced in the `PONG`, not facts about the chip. The RAM figures given for 0.2 (58 KB on the STM32F411, 108 KB on the nRF52840, 125 KB on the RP2040) have not been measured again for 0.3.0.
 
-`MIMHID_MAX_REPORT_BYTES` defaults to `MIMHID_MAX_ENDPOINT_BYTES` and `MIMHID_CONTROL_DATA_MAX` to 1024 (a Feature answer fits); a port with little RAM sets them lower before `config.h` is read. The `PONG` reports what was built. The high-speed values have not been run on a board.
+`MIMUSB_MAX_REPORT_BYTES` defaults to `MIMUSB_MAX_ENDPOINT_BYTES` and `MIMUSB_CONTROL_DATA_MAX` to 1024 (a Feature answer fits); a port with little RAM sets them lower before `config.h` is read. The `PONG` reports what was built. The high-speed values have not been run on a board.
 
-`firmware/tests` builds the core for the endpoint numbers 15, 7, 6 and 3 and for high speed against a fake HAL and checks the descriptors, the control rules and the endpoint queues. `tests/sim` does the same with the real host library over a pseudo-terminal (`mimhid.sim-15`, `mimhid.sim-7`, `mimhid.sim-3`, `mimhid.sim-hs`).
+`firmware/tests` builds the core for the endpoint numbers 15, 7, 6 and 3 and for high speed against a fake HAL and checks the descriptors, the control rules and the endpoint queues. `tests/sim` does the same with the real host library over a pseudo-terminal (`mimusb.sim-15`, `mimusb.sim-7`, `mimusb.sim-3`, `mimusb.sim-hs`).
 
 ## Other MCUs
 
@@ -96,7 +96,7 @@ Set `MIMHID_MAX_ENDPOINT_NUMBER` to what the controller has, and no higher than 
 
 ## nRF52840 notes
 
-TinyUSB raises the D+ pull-up on every `USB_EVT_READY` (a cable plugged in, the target powering up), whatever `tud_disconnect()` did before; a board that has not been committed yet (or has been detached) would enumerate its placeholder identity with no interface. The port links `--wrap=tusb_hal_nrf_power_event` and takes the pull-up down again while `mimhid_core_attached()` is false. The ESP32-S3, STM32F4, RP2040, and RP2350 drivers keep the soft-disconnect across VBUS changes.
+TinyUSB raises the D+ pull-up on every `USB_EVT_READY` (a cable plugged in, the target powering up), whatever `tud_disconnect()` did before; a board that has not been committed yet (or has been detached) would enumerate its placeholder identity with no interface. The port links `--wrap=tusb_hal_nrf_power_event` and takes the pull-up down again while `mimusb_core_attached()` is false. The ESP32-S3, STM32F4, RP2040, and RP2350 drivers keep the soft-disconnect across VBUS changes.
 
 `hal_nrf52.c` uses UARTE1 with one-byte DMA transfers and a receive interrupt at priority 1, above the USB interrupt. The nRF52840 makes the rates of its `BAUDRATE` register only, up to 1,000,000; 921,600 runs at 941,176 (+2.1 %), which UART receivers accept. The rate is changed with the receiver stopped and the peripheral disabled.
 
@@ -114,4 +114,4 @@ The serial backend lives in `src/transport/`:
 | `handshaker.cpp` | Finding a board and agreeing the line rate, before the reader thread runs |
 | `link.cpp` | Reader thread, ACK and retry, report frames; shared by all platforms |
 
-A new platform implements the `SerialPort` class (`serial_port.hpp`: open, close, read with timeout, write with stall timeout, drain) and the candidate port listing (`list_candidate_ports`), and adds its files to `MIMHID_SOURCES` in `CMakeLists.txt`. The framing (`frame.cpp`), the rate search (`handshaker.cpp`), the retries, and the reader thread (`link.cpp`) are shared.
+A new platform implements the `SerialPort` class (`serial_port.hpp`: open, close, read with timeout, write with stall timeout, drain) and the candidate port listing (`list_candidate_ports`), and adds its files to `MIMUSB_SOURCES` in `CMakeLists.txt`. The framing (`frame.cpp`), the rate search (`handshaker.cpp`), the retries, and the reader thread (`link.cpp`) are shared.

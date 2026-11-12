@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #include <errno.h>
 #include <poll.h>
 #include <pthread.h>
@@ -32,7 +32,7 @@ static volatile bool g_run;
 static pthread_mutex_t g_tx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static unsigned g_out_head, g_out_tail;
-static volatile uint32_t g_board_baud = MIMHID_BOOT_BAUD;
+static volatile uint32_t g_board_baud = MIMUSB_BOOT_BAUD;
 static volatile uint32_t g_adapter_limit = 0;
 static volatile uint32_t g_board_max = 3000000u; // what the fake UART makes
 static uint8_t g_errors;
@@ -64,7 +64,7 @@ uint32_t hal_uart_max_baud(void) { return g_board_max; }
 bool hal_uart_has_break(void) { return true; }
 uint8_t hal_uart_errors(void) { return __atomic_exchange_n(&g_errors, 0, __ATOMIC_ACQ_REL); }
 void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
-uint8_t hal_chip(void) { return MIMHID_CHIP_UNKNOWN; }
+uint8_t hal_chip(void) { return MIMUSB_CHIP_UNKNOWN; }
 bool hal_has_bootloader(void) { return false; }
 void hal_enter_bootloader(void) {}
 void hal_control_silent_drop(void) {}
@@ -522,11 +522,11 @@ static void run_actions(void) {
 
 static void* board_main(void* arg) {
     (void)arg;
-    mimhid_core_init();
-    mimhid_control_set_single_context(true);
+    mimusb_core_init();
+    mimusb_control_set_single_context(true);
     while (__atomic_load_n(&g_run, __ATOMIC_ACQUIRE)) {
-        mimhid_rx_poll();
-        mimhid_usb_poll();
+        mimusb_rx_poll();
+        mimusb_usb_poll();
         run_actions();
         endpoints_poll();
         pthread_mutex_lock(&g_lock);
@@ -587,7 +587,7 @@ void fake_board_clear_reports(void) { fake_board_clear_transfers(); }
 
 int fake_board_mounted(void) { return g_mounted; }
 unsigned fake_board_connects(void) { return g_connects; }
-unsigned fake_board_interface_count(void) { return mimhid_active_interfaces(); }
+unsigned fake_board_interface_count(void) { return mimusb_active_interfaces(); }
 
 const uint8_t* fake_board_config_descriptor(uint16_t* length) {
     const uint8_t* c = tud_descriptor_configuration_cb(0);

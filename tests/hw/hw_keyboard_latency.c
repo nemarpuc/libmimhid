@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // Latency of a keyboard profile Node on a real board whose target is this machine: the time from
-// just before mimhid_node_submit to the kernel's evdev timestamp (docs/LATENCY.md, method b). The
+// just before mimusb_node_submit to the kernel's evdev timestamp (docs/LATENCY.md, method b). The
 // event device is grabbed before any key is sent, so nothing is typed into the session.
 //
 //   hw_keyboard_latency [presses]     (500 when not given)
@@ -12,7 +12,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/input.h>
-#include <mimhid.h>
+#include <mimusb.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,42 +76,42 @@ static int open_event_device(void) {
 
 int main(int argc, char** argv) {
     const int presses = argc > 1 ? atoi(argv[1]) : 500;
-    mimhid_discovery* found = NULL;
-    mimhid_result r = mimhid_discover(3000, &found);
-    if (r != MIMHID_OK || mimhid_discovery_count(found) == 0) {
+    mimusb_discovery* found = NULL;
+    mimusb_result r = mimusb_discover(3000, &found);
+    if (r != MIMUSB_OK || mimusb_discovery_count(found) == 0) {
         printf("no board\n");
         return 1;
     }
-    mimhid_device_config config;
-    example_fill_device_config(&config, mimhid_discovery_get(found, 0)->baud_rate,
+    mimusb_device_config config;
+    example_fill_device_config(&config, mimusb_discovery_get(found, 0)->baud_rate,
                                "HW keyboard test");
-    printf("board on %s at %u baud\n", mimhid_discovery_get(found, 0)->port_name,
-           mimhid_discovery_get(found, 0)->baud_rate);
-    mimhid_device* device = NULL;
-    r = mimhid_device_open(mimhid_discovery_get(found, 0)->port_name, &config, &device);
-    mimhid_discovery_destroy(found);
-    if (r != MIMHID_OK) {
-        printf("open: %s\n", mimhid_result_name(r));
+    printf("board on %s at %u baud\n", mimusb_discovery_get(found, 0)->port_name,
+           mimusb_discovery_get(found, 0)->baud_rate);
+    mimusb_device* device = NULL;
+    r = mimusb_device_open(mimusb_discovery_get(found, 0)->port_name, &config, &device);
+    mimusb_discovery_destroy(found);
+    if (r != MIMUSB_OK) {
+        printf("open: %s\n", mimusb_result_name(r));
         return 1;
     }
-    mimhid_keyboard_options ko;
+    mimusb_keyboard_options ko;
     example_fill_keyboard_options(&ko);
-    mimhid_spec* spec = NULL;
-    if ((r = mimhid_spec_create_keyboard(&ko, &spec)) != MIMHID_OK) {
-        printf("spec: %s\n", mimhid_result_name(r));
+    mimusb_spec* spec = NULL;
+    if ((r = mimusb_spec_create_keyboard(&ko, &spec)) != MIMUSB_OK) {
+        printf("spec: %s\n", mimusb_result_name(r));
         return 1;
     }
-    mimhid_hid_node_config nc;
+    mimusb_hid_node_config nc;
     example_fill_node_config(&nc, 0);
-    mimhid_commit_timeouts to;
+    mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
-    mimhid_node* node = NULL;
-    if ((r = mimhid_node_open_profile(device, spec, &nc, &to, &node)) != MIMHID_OK) {
-        printf("node_open: %s %s\n", mimhid_result_name(r), mimhid_last_error()->reason);
+    mimusb_node* node = NULL;
+    if ((r = mimusb_node_open_profile(device, spec, &nc, &to, &node)) != MIMUSB_OK) {
+        printf("node_open: %s %s\n", mimusb_result_name(r), mimusb_last_error()->reason);
         return 1;
     }
-    if ((r = mimhid_device_wait_ready(device, 5000)) != MIMHID_OK) {
-        printf("wait_ready: %s\n", mimhid_result_name(r));
+    if ((r = mimusb_device_wait_ready(device, 5000)) != MIMUSB_OK) {
+        printf("wait_ready: %s\n", mimusb_result_name(r));
         return 1;
     }
 
@@ -142,10 +142,10 @@ int main(int argc, char** argv) {
             sleep_us(8100 + rand() % 1200); // not locked to the 1 ms frame
             struct timespec t0;
             clock_gettime(CLOCK_MONOTONIC, &t0);
-            mimhid_keyboard_key(node, 0x04, (uint32_t)phase);
-            r = mimhid_node_submit(node, 100);
-            if (r != MIMHID_OK) {
-                printf("submit: %s\n", mimhid_result_name(r));
+            mimusb_keyboard_key(node, 0x04, (uint32_t)phase);
+            r = mimusb_node_submit(node, 100);
+            if (r != MIMUSB_OK) {
+                printf("submit: %s\n", mimusb_result_name(r));
                 return 1;
             }
             struct pollfd pf = {fd, POLLIN, 0};
@@ -188,16 +188,16 @@ int main(int argc, char** argv) {
     if (nu > 10)
         printf("submit -> key-up   (us): min %.0f median %.0f p90 %.0f p99 %.0f max %.0f\n", up[0],
                up[nu / 2], up[nu * 9 / 10], up[nu * 99 / 100], up[nu - 1]);
-    mimhid_link_counters lc;
+    mimusb_link_counters lc;
     memset(&lc, 0, sizeof(lc));
     lc.struct_size = sizeof(lc);
-    r = mimhid_device_link_counters(device, 0, 500, &lc);
+    r = mimusb_device_link_counters(device, 0, 500, &lc);
     printf("link counters: %s bad_crc=%u framing=%u uart_overrun=%u ring_overrun=%u\n",
-           mimhid_result_name(r), lc.bad_crc, lc.framing, lc.uart_overrun, lc.ring_overrun);
-    r = mimhid_node_close(node, &to, 1000);
-    printf("node_close: %s\n", mimhid_result_name(r));
-    mimhid_spec_release(spec);
-    r = mimhid_device_close(device, 500, 1000);
-    printf("device_close: %s\n", mimhid_result_name(r));
+           mimusb_result_name(r), lc.bad_crc, lc.framing, lc.uart_overrun, lc.ring_overrun);
+    r = mimusb_node_close(node, &to, 1000);
+    printf("node_close: %s\n", mimusb_result_name(r));
+    mimusb_spec_release(spec);
+    r = mimusb_device_close(device, 500, 1000);
+    printf("device_close: %s\n", mimusb_result_name(r));
     return missed != 0;
 }

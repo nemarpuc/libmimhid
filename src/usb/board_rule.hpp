@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #pragma once
 
 /*
@@ -8,12 +8,12 @@
  * the idle and protocol answers can be made from them. Pure data: no I/O.
  */
 
-#include "mimhid.h"
+#include "mimusb.h"
 
 #include <cstdint>
 #include <vector>
 
-namespace mimhid::usb {
+namespace mimusb::usb {
 
 struct BoardRule {
     enum class Role : std::uint8_t {
@@ -25,11 +25,11 @@ struct BoardRule {
         hid_get_idle,    // its answer is the idle rate of the interface
         hid_get_protocol // its answer is the protocol of the interface
     };
-    mimhid_control_rule rule{}; // `data` is not used: the bytes are below
+    mimusb_control_rule rule{}; // `data` is not used: the bytes are below
     std::vector<std::uint8_t> data;
     std::uint16_t capacity{}; // ANSWER: the length the rule was staged with
     Role role{Role::user};
     std::uint8_t iface{}; // the interface of a library rule
 };
 
-} // namespace mimhid::usb
+} // namespace mimusb::usb

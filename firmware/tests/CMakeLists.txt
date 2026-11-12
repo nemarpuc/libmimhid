@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 libmimhid contributors
+# Copyright (c) 2026 libmimusb contributors
 cmake_minimum_required(VERSION 3.13)
-project(mimhid_firmware_tests C)
+project(mimusb_firmware_tests C)
 enable_testing()
 
 # Host test of the portable firmware core. Configure with -DTINYUSB_PATH=<tinyusb checkout>.
@@ -11,10 +11,10 @@ endif()
 
 # What a port's build states (core.h, tusb_config.h): its highest endpoint number and the speed. The
 # numbers are the ports': 15 (RP2040, RP2350), 7 (nRF52840), 6 (ESP32-S3), 3 (STM32F4).
-function(mimhid_port_defs number out)
+function(mimusb_port_defs number out)
     set(${out}
-        MIMHID_MAX_ENDPOINT_NUMBER=${number}
-        MIMHID_MAX_ENDPOINT_BYTES=64
+        MIMUSB_MAX_ENDPOINT_NUMBER=${number}
+        MIMUSB_MAX_ENDPOINT_BYTES=64
         CFG_TUSB_OS=OPT_OS_NONE
         "CFG_TUSB_RHPORT0_MODE=(OPT_MODE_DEVICE|OPT_MODE_FULL_SPEED)"
         CFG_TUD_MAX_SPEED=OPT_MODE_FULL_SPEED
@@ -22,7 +22,7 @@ function(mimhid_port_defs number out)
 endfunction()
 
 foreach(itfs 15 7 6 3)
-    mimhid_port_defs(${itfs} port_defs)
+    mimusb_port_defs(${itfs} port_defs)
     add_executable(test_core_${itfs}
         test_core.c
         ../common/core.c
@@ -62,8 +62,8 @@ target_include_directories(test_core_hs PRIVATE
     ${TINYUSB_PATH}/src
 )
 target_compile_definitions(test_core_hs PRIVATE
-    MIMHID_MAX_ENDPOINT_NUMBER=7
-    MIMHID_MAX_ENDPOINT_BYTES=1024
+    MIMUSB_MAX_ENDPOINT_NUMBER=7
+    MIMUSB_MAX_ENDPOINT_BYTES=1024
     CFG_TUSB_OS=OPT_OS_NONE
     CFG_TUSB_CONFIG_FILE="tusb_config.h"
     CFG_TUD_MAX_SPEED=OPT_MODE_HIGH_SPEED
@@ -76,7 +76,7 @@ add_test(NAME firmware_core_hs COMMAND test_core_hs)
 # endpoint number limit that differs between core.c and usb_descriptors.c overruns arrays).
 foreach(order first_core first_tusb)
     foreach(itfs 15 7 6 3)
-        mimhid_port_defs(${itfs} port_defs)
+        mimusb_port_defs(${itfs} port_defs)
         set(name probe_${order}_${itfs})
         add_executable(${name} port_probe.c)
         target_include_directories(${name} PRIVATE
@@ -94,9 +94,9 @@ endforeach()
 
 # A build that leaves one of them out must stop, with the message that names it: the compiler is run
 # on the probe with the others given.
-foreach(missing MIMHID_MAX_ENDPOINT_NUMBER MIMHID_MAX_ENDPOINT_BYTES
+foreach(missing MIMUSB_MAX_ENDPOINT_NUMBER MIMUSB_MAX_ENDPOINT_BYTES
                 CFG_TUSB_OS CFG_TUSB_RHPORT0_MODE CFG_TUD_MAX_SPEED)
-    mimhid_port_defs(7 port_defs)
+    mimusb_port_defs(7 port_defs)
     set(flags "")
     foreach(def IN LISTS port_defs)
         string(REGEX REPLACE "=.*$" "" def_name "${def}")
@@ -112,5 +112,5 @@ foreach(missing MIMHID_MAX_ENDPOINT_NUMBER MIMHID_MAX_ENDPOINT_BYTES
             -I${CMAKE_CURRENT_SOURCE_DIR}/../../proto -I${TINYUSB_PATH}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/port_probe.c)
     set_tests_properties(missing_${missing} PROPERTIES
-        PASS_REGULAR_EXPRESSION "${missing} must be defined|MIMHID_[A-Z_]+ must be defined")
+        PASS_REGULAR_EXPRESSION "${missing} must be defined|MIMUSB_[A-Z_]+ must be defined")
 endforeach()

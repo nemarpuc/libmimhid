@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 #pragma once
 
 /*
@@ -15,10 +15,10 @@
 
 #include <bitset>
 
-namespace mimhid::usb {
+namespace mimusb::usb {
 
 struct HidNodeInput {
-    mimhid_hid_node_config config{}; // config.name is not read; name is
+    mimusb_hid_node_config config{}; // config.name is not read; name is
     std::u16string name;
     const std::vector<std::uint8_t>* report_descriptor{};
     bool has_report_ids{};
@@ -34,8 +34,8 @@ struct HidNodeInput {
 };
 
 // One group (one interface, no association) for each interface number the Nodes use, in the order
-// of the first Node on it. MIMHID_OK, or the first rule that is broken, in `error`.
-mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
+// of the first Node on it. MIMUSB_OK, or the first rule that is broken, in `error`.
+mimusb_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
                                  std::vector<ComposerGroup>* out, ComposerError* error);
 
 // The control rules that make the interfaces of the profile Nodes behave as HID 1.11 asks, for each
@@ -46,4 +46,4 @@ mimhid_result compose_hid_groups(const std::vector<HidNodeInput>& nodes,
 // 7.2.6).
 std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes);
 
-} // namespace mimhid::usb
+} // namespace mimusb::usb

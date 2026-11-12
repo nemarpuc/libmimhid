@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 libmimhid contributors
+// Copyright (c) 2026 libmimusb contributors
 // RP2040 and RP2350: hardware UART0 received by a circular DMA channel.
 #include <string.h>
 #include "pico/stdlib.h"
@@ -15,19 +15,19 @@
 #include "hal.h"
 
 // The wiring is the board's: the build states the UART and its two pins (no pin is assumed).
-#ifndef MIMHID_UART_ID
-#error MIMHID_UART_ID (uart0 or uart1) must be defined by the build
+#ifndef MIMUSB_UART_ID
+#error MIMUSB_UART_ID (uart0 or uart1) must be defined by the build
 #endif
-#ifndef MIMHID_UART_TX_PIN
-#error MIMHID_UART_TX_PIN must be defined by the build
+#ifndef MIMUSB_UART_TX_PIN
+#error MIMUSB_UART_TX_PIN must be defined by the build
 #endif
-#ifndef MIMHID_UART_RX_PIN
-#error MIMHID_UART_RX_PIN must be defined by the build
+#ifndef MIMUSB_UART_RX_PIN
+#error MIMUSB_UART_RX_PIN must be defined by the build
 #endif
 
-#define UART_ID          MIMHID_UART_ID
-#define UART_TX_PIN      MIMHID_UART_TX_PIN
-#define UART_RX_PIN      MIMHID_UART_RX_PIN
+#define UART_ID          MIMUSB_UART_ID
+#define UART_TX_PIN      MIMUSB_UART_TX_PIN
+#define UART_RX_PIN      MIMUSB_UART_RX_PIN
 
 // Both cores write to the UART (Pong from core 1, events and ACK from core 0).
 static critical_section_t g_uart_tx_lock;
@@ -54,7 +54,7 @@ void hal_init(void) {
     critical_section_init(&g_uart_tx_lock);
 
     // 1. Hardware UART Setup
-    uart_init(UART_ID, MIMHID_BOOT_BAUD);
+    uart_init(UART_ID, MIMUSB_BOOT_BAUD);
     gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
     uart_set_hw_flow(UART_ID, false, false);
@@ -182,9 +182,9 @@ uint32_t hal_millis(void) {
 
 uint8_t hal_chip(void) {
 #if PICO_RP2350
-    return MIMHID_CHIP_RP2350;
+    return MIMUSB_CHIP_RP2350;
 #else
-    return MIMHID_CHIP_RP2040;
+    return MIMUSB_CHIP_RP2040;
 #endif
 }
 
