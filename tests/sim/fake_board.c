@@ -176,8 +176,8 @@ static struct {
     uint8_t* buffer;
     uint16_t length;
     uint16_t iso_buffer; // bytes usbd_edpt_iso_alloc gave: 0 for an endpoint that has none
-    uint16_t packet;     // wMaxPacketSize of the descriptor the endpoint was opened or activated with
-} g_ep[2][16]; // [0] OUT, [1] IN
+    uint16_t packet; // wMaxPacketSize of the descriptor the endpoint was opened or activated with
+} g_ep[2][16];       // [0] OUT, [1] IN
 #define EPSTATE(addr) g_ep[((addr) >> 7) & 1][(addr)&0x0F]
 
 bool usbd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const* desc) {
@@ -468,7 +468,8 @@ static void run_actions(void) {
             }
             break;
         }
-        case 9: { // the target's SET_INTERFACE (a = interface, b = setting) or, with c = 1, GET_INTERFACE
+        case 9: { // the target's SET_INTERFACE (a = interface, b = setting) or, with c = 1,
+                  // GET_INTERFACE
             tusb_control_request_t r;
             memset(&r, 0, sizeof(r));
             r.bmRequestType = act.c ? 0x81 : 0x01; // standard, to an interface

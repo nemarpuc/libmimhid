@@ -150,8 +150,8 @@ void test_configuration_refused() {
     config_refused(7, 0x00, MIMHID_ERR_PARAM, 7); // D7 clear
     config_refused(7, 0x81, MIMHID_ERR_PARAM, 7); // reserved bits
     // The interface.
-    config_refused(9, 8, MIMHID_ERR_PARAM, 9);         // bLength
-    config_refused(11, 1, MIMHID_ERR_PARAM, 11);       // number must be 0
+    config_refused(9, 8, MIMHID_ERR_PARAM, 9);   // bLength
+    config_refused(11, 1, MIMHID_ERR_PARAM, 11); // number must be 0
     config_refused(12, 1, MIMHID_ERR_PARAM, 11); // an alternate setting with no setting 0 before it
     config_refused(13, 1, MIMHID_ERR_PARAM,
                    25); // one declared: the second endpoint is one too many
@@ -235,12 +235,12 @@ void test_configuration_refused() {
 // An interface with alternate settings: setting 0 with no endpoint (no bandwidth), setting 1 with
 // an isochronous IN endpoint of the audio-class 9-byte form, setting 2 with a larger packet.
 Bytes streaming_config() {
-    return {9,    2,    0,    0,    1,    1,    0,    0x80, 50,   // configuration
-            9,    4,    0,    0,    0,    0x01, 2,    0,    0,    // interface 0, setting 0
-            9,    4,    0,    1,    1,    0x01, 2,    0,    0,    // setting 1
-            9,    5,    0x81, 0x05, 0xC0, 0,    1,    0,    0,    // iso IN, 192 bytes, bInterval 1
-            9,    4,    0,    2,    1,    0x01, 2,    0,    0,    // setting 2
-            9,    5,    0x81, 0x05, 0x80, 1,    1,    0,    0};   // the same address, 384 bytes
+    return {9, 2, 0,    0,    1,    1,    0, 0x80, 50, // configuration
+            9, 4, 0,    0,    0,    0x01, 2, 0,    0,  // interface 0, setting 0
+            9, 4, 0,    1,    1,    0x01, 2, 0,    0,  // setting 1
+            9, 5, 0x81, 0x05, 0xC0, 0,    1, 0,    0,  // iso IN, 192 bytes, bInterval 1
+            9, 4, 0,    2,    1,    0x01, 2, 0,    0,  // setting 2
+            9, 5, 0x81, 0x05, 0x80, 1,    1, 0,    0}; // the same address, 384 bytes
 }
 
 ComposerLimits iso_limits(bool high_speed = false) {
@@ -326,15 +326,16 @@ void test_alternate_settings_and_isochronous() {
         MIMHID_CHECK(walk_iso(c, &e) != MIMHID_OK);
     }
     {
-        // Two bulk settings sharing an endpoint: the same descriptor is accepted, another size is not.
-        Bytes c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 0xFF, 1, 2, 0, 7, 5, 0x81, 2, 64, 0, 0,
-                   9, 4, 0, 1, 1, 0xFF, 1, 2, 0, 7, 5, 0x81, 2, 64, 0, 0};
+        // Two bulk settings sharing an endpoint: the same descriptor is accepted, another size is
+        // not.
+        Bytes c = {9, 2,  0, 0, 1, 1, 0, 0x80, 50, 9,    4, 0, 0, 1, 0xFF, 1,    2, 0,  7, 5, 0x81,
+                   2, 64, 0, 0, 9, 4, 0, 1,    1,  0xFF, 1, 2, 0, 7, 5,    0x81, 2, 64, 0, 0};
         MIMHID_CHECK(walk_iso(c, &e) == MIMHID_OK);
         c[36] = 32;
         MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM);
         // A setting twice in one setting is the same address twice.
-        c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 2, 0xFF, 1, 2, 0,
-             7, 5, 0x81, 2, 64, 0, 0, 7, 5, 0x81, 2, 64, 0, 0};
+        c = {9, 2, 0, 0, 1,    1, 0,  0x80, 50, 9, 4, 0,    0, 2,  0xFF, 1,
+             2, 0, 7, 5, 0x81, 2, 64, 0,    0,  7, 5, 0x81, 2, 64, 0,    0};
         MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM && e.offset == 27U);
     }
     // Another interface may not use an address a setting of the first has.
@@ -345,10 +346,11 @@ void test_alternate_settings_and_isochronous() {
         c[4] = 2;
         MIMHID_CHECK(walk_iso(c, &e) == MIMHID_ERR_PARAM);
     }
-    // A bulk endpoint may carry the 9-byte form too (a MIDI streaming endpoint is one); 8 is no form.
+    // A bulk endpoint may carry the 9-byte form too (a MIDI streaming endpoint is one); 8 is no
+    // form.
     {
-        Bytes c = {9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 0x01, 3, 0, 0,
-                   9, 5, 0x01, 2, 64, 0, 0, 0, 0};
+        Bytes c = {9,    2, 0, 0, 1, 1, 0,    0x80, 50, 9, 4, 0, 0, 1,
+                   0x01, 3, 0, 0, 9, 5, 0x01, 2,    64, 0, 0, 0, 0};
         MIMHID_CHECK(walk_iso(c, &e, &w) == MIMHID_OK && w.endpoints.size() == 1U);
         c[18] = 8;
         c.resize(26);

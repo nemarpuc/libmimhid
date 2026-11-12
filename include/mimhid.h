@@ -471,11 +471,7 @@ typedef struct mimhid_commit_timeouts {
  * whose mimhid_board_limits.transfer_types has bit MIMHID_TRANSFER_ISOCHRONOUS, and only in a
  * Device given as bytes (mimhid_device_set_descriptors); mimhid_node_open refuses one with
  * MIMHID_ERR_UNSUPPORTED. */
-enum {
-    MIMHID_TRANSFER_ISOCHRONOUS = 1,
-    MIMHID_TRANSFER_BULK = 2,
-    MIMHID_TRANSFER_INTERRUPT = 3
-};
+enum { MIMHID_TRANSFER_ISOCHRONOUS = 1, MIMHID_TRANSFER_BULK = 2, MIMHID_TRANSFER_INTERRUPT = 3 };
 
 /* What an IN endpoint does when `depth` transfers wait on the board for the target to read them.
  * Both fields are required on every IN endpoint (MIMHID_ERR_UNSET_FIELD when 0) and zero on an OUT

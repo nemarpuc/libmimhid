@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimhid contributors
-/* Alternate settings and isochronous endpoints of a Device given as bytes, against the firmware core
- * built with isochronous endpoints (SIM_ISO: MIMHID_ISO_BYTES 1023, as the RP2040 build has). A
- * streaming interface has setting 0 with no endpoint and settings 1 and 2 with an isochronous IN
+/* Alternate settings and isochronous endpoints of a Device given as bytes, against the firmware
+ * core built with isochronous endpoints (SIM_ISO: MIMHID_ISO_BYTES 1023, as the RP2040 build has).
+ * A streaming interface has setting 0 with no endpoint and settings 1 and 2 with an isochronous IN
  * endpoint of 192 and 384 bytes (an audio-class endpoint descriptor of 9 bytes), and another has
  * setting 1 with an isochronous OUT endpoint. The target selects settings with SET_INTERFACE, and
- * the board does what the target does and nothing else: it starts and stops the endpoints, tells the
- * program, and sends what the program wrote. */
+ * the board does what the target does and nothing else: it starts and stops the endpoints, tells
+ * the program, and sends what the program wrote. */
 #include "sim_support.hpp"
 
 #ifdef SIM_ISO
@@ -24,21 +24,22 @@ Bytes device_bytes() {
     return {18, 1, 0x10, 0x02, 0, 0, 0, 64, 0x09, 0x12, 0x02, 0x00, 0x00, 0x01, 0, 0, 0, 1};
 }
 
-// Interface 0: setting 0 (no endpoint), 1 (iso IN 0x81, 192 bytes), 2 (the same address, 384 bytes).
-// Interface 1: setting 0 (a bulk OUT 0x02), 1 (that endpoint and an iso OUT 0x03, 100 bytes).
+// Interface 0: setting 0 (no endpoint), 1 (iso IN 0x81, 192 bytes), 2 (the same address, 384
+// bytes). Interface 1: setting 0 (a bulk OUT 0x02), 1 (that endpoint and an iso OUT 0x03, 100
+// bytes).
 Bytes config_bytes() {
     Bytes c = {9, 2, 0, 0, 2, 1, 0, 0x80, 50};
     const Bytes rest = {
-        9, 4, 0, 0, 0, 0xFF, 1, 2, 0,                                  // interface 0, setting 0
-        9, 4, 0, 1, 1, 0xFF, 1, 2, 0,                                  // setting 1
-        9, 5, 0x81, 0x05, 0xC0, 0x00, 1, 0, 0,                         // iso IN, 192 bytes
-        9, 4, 0, 2, 1, 0xFF, 1, 2, 0,                                  // setting 2
-        9, 5, 0x81, 0x05, 0x80, 0x01, 1, 0, 0,                         // iso IN, 384 bytes
-        9, 4, 1, 0, 1, 0xFF, 1, 2, 0,                                  // interface 1, setting 0
-        7, 5, 0x02, 0x02, 64, 0, 0,                                    // bulk OUT 0x02
-        9, 4, 1, 1, 2, 0xFF, 1, 2, 0,                                  // setting 1
-        7, 5, 0x02, 0x02, 64, 0, 0,                                    // the bulk endpoint again
-        9, 5, 0x03, 0x05, 100, 0x00, 1, 0, 0,                          // iso OUT, 100 bytes
+        9, 4, 0,    0,    0,    0xFF, 1, 2, 0, // interface 0, setting 0
+        9, 4, 0,    1,    1,    0xFF, 1, 2, 0, // setting 1
+        9, 5, 0x81, 0x05, 0xC0, 0x00, 1, 0, 0, // iso IN, 192 bytes
+        9, 4, 0,    2,    1,    0xFF, 1, 2, 0, // setting 2
+        9, 5, 0x81, 0x05, 0x80, 0x01, 1, 0, 0, // iso IN, 384 bytes
+        9, 4, 1,    0,    1,    0xFF, 1, 2, 0, // interface 1, setting 0
+        7, 5, 0x02, 0x02, 64,   0,    0,       // bulk OUT 0x02
+        9, 4, 1,    1,    2,    0xFF, 1, 2, 0, // setting 1
+        7, 5, 0x02, 0x02, 64,   0,    0,       // the bulk endpoint again
+        9, 5, 0x03, 0x05, 100,  0x00, 1, 0, 0, // iso OUT, 100 bytes
     };
     c.insert(c.end(), rest.begin(), rest.end());
     c[2] = static_cast<std::uint8_t>(c.size());
@@ -140,8 +141,7 @@ void streaming() {
     // setting selected twice is told twice.
     MIMHID_CHECK(select_setting(0, 0));
     MIMHID_CHECK(wait_event(MIMHID_EVENT_INTERFACE_ALTERNATE, &ev) && ev.value == 0U);
-    MIMHID_CHECK(mimhid_device_endpoint_write(device, 0x81, audio.data(), 8, kSendMs) ==
-                 MIMHID_OK);
+    MIMHID_CHECK(mimhid_device_endpoint_write(device, 0x81, audio.data(), 8, kSendMs) == MIMHID_OK);
     MIMHID_CHECK(!fake_board_wait_transfer(0x81, &t, 150));
     MIMHID_CHECK(select_setting(0, 0));
     MIMHID_CHECK(wait_event(MIMHID_EVENT_INTERFACE_ALTERNATE, &ev) && ev.value == 0U);
@@ -160,7 +160,8 @@ void streaming() {
     MIMHID_CHECK(select_setting(1, 1));
     MIMHID_CHECK(wait_event(MIMHID_EVENT_INTERFACE_ALTERNATE, &ev) && ev.interface_number == 1U &&
                  ev.value == 1U);
-    MIMHID_CHECK(fake_board_endpoint_packet(0x03) == 100U && fake_board_endpoint_packet(0x02) == 64U);
+    MIMHID_CHECK(fake_board_endpoint_packet(0x03) == 100U &&
+                 fake_board_endpoint_packet(0x02) == 64U);
     fake_board_target_out(0x03, in.data(), in.size());
     MIMHID_CHECK(wait_event(MIMHID_EVENT_ENDPOINT_DATA, &ev) && ev.endpoint_address == 0x03U &&
                  ev.interface_number == 1U && ev.data == in);

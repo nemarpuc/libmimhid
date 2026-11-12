@@ -158,9 +158,9 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
         std::uint16_t max_packet_size;
         std::uint8_t interval;
     };
-    std::map<std::uint8_t, Owner> owners;   // address -> the interface that has it, in any setting
-    std::set<std::uint8_t> setting_addresses; // the addresses of the setting being walked
-    std::vector<std::uint8_t> settings;       // settings of each interface so far
+    std::map<std::uint8_t, Owner> owners; // address -> the interface that has it, in any setting
+    std::set<std::uint8_t> setting_addresses;         // the addresses of the setting being walked
+    std::vector<std::uint8_t> settings;               // settings of each interface so far
     std::uint8_t interface_number = 0, alternate = 0; // of the interface descriptor walked
     std::uint32_t pos = 9U;
     bool inside = false;       // after an interface descriptor
@@ -351,9 +351,9 @@ mimhid_result walk_descriptors(const std::uint8_t* device, const std::size_t dev
                                   "endpoint, the same descriptor; the address is in length.",
                                   pos + 2U, ep.address);
             }
-            out->endpoints.push_back(WalkedEndpoint{
-                ep.address, xfer, ep.interval, ep.max_packet_size, interface_number, alternate,
-                pos});
+            out->endpoints.push_back(WalkedEndpoint{ep.address, xfer, ep.interval,
+                                                    ep.max_packet_size, interface_number, alternate,
+                                                    pos});
             break;
         }
         default:
