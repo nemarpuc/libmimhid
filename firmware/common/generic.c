@@ -262,7 +262,8 @@ static void out_arm(uint8_t number) {
 // started again with the toggle as now set. A packet that arrived in the moment between the clear and
 // this is lost; a host does not send on an endpoint it is clearing.
 static void resume_after_clear(uint8_t number, in_t* q, out_t* o) {
-#if CFG_TUSB_MCU == OPT_MCU_RP2040 || CFG_TUSB_MCU == OPT_MCU_RP2350
+#if (defined(OPT_MCU_RP2040) && CFG_TUSB_MCU == OPT_MCU_RP2040) || \
+    (defined(OPT_MCU_RP2350) && CFG_TUSB_MCU == OPT_MCU_RP2350)
     if (q != NULL && q->inflight) {
         hal_usb_clear_endpoint((uint8_t)(0x80u | number));
         if (!usbd_edpt_xfer(0, (uint8_t)(0x80u | number), g_bus[number].data, q->bus_len)) {
