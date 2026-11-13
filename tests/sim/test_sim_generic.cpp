@@ -507,8 +507,8 @@ void open_checks() {
         v.eps[1].policy = {MIMUSB_FULL_WAIT, 2};
         expect(v, MIMUSB_ERR_PARAM, "policy");
         // More queue than the board's pool holds: a queue of depth 255 that drops the oldest takes
-        // 2 * 255 + 1 slots, which one endpoint of a pool of 511 or more can have, so two do not fit
-        // (the pool is the port's, MIMUSB_EP_POOL_SLOTS).
+        // 2 * 255 + 1 slots, which one endpoint of a pool of 511 or more can have, so two do not
+        // fit (the pool is the port's, MIMUSB_EP_POOL_SLOTS).
         static_assert(2 * (2 * 255 + 1) > MIMUSB_EP_POOL_SLOTS, "two full queues exceed the pool");
         v = Vendor({endpoint(0x81, MIMUSB_TRANSFER_BULK), endpoint(0x82, MIMUSB_TRANSFER_BULK)});
         v.refresh();

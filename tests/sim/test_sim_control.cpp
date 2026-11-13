@@ -470,7 +470,8 @@ void test_control_rules() {
     MIMUSB_CHECK(mimusb_device_set_control_rules(device, 0, &heavy, 1, kControlMs) ==
                  MIMUSB_ERR_OVERFLOW);
     big.pop_back(); // exactly what is left beside the Node's rule 0 (3 bytes)
-    big.resize(MIMUSB_ANSWER_BYTES - sizeof(answer_bytes) - 1U); // (the Node's other answer has one byte)
+    big.resize(MIMUSB_ANSWER_BYTES - sizeof(answer_bytes) -
+               1U); // (the Node's other answer has one byte)
     heavy.length = big.size();
     MIMUSB_CHECK(mimusb_device_set_control_rules(device, 0, &heavy, 1, kControlMs) == MIMUSB_OK);
     target_control(0xC0, 0x70, 0, 0, MIMUSB_ANSWER_BYTES);
