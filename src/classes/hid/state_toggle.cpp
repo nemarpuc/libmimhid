@@ -10,6 +10,7 @@ using namespace mimusb::state_build;
 
 extern "C" {
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static mimusb_result mimusb_toggle_impl(mimusb::detail::HidNode* node, const std::uint16_t usage,
                                         const std::uint32_t down) {
     mimusb::detail::clear_error();
