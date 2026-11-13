@@ -7,11 +7,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# `cmake --build --parallel` with no number runs every Makefile job at once, which exhausts a
-# 3-core macOS runner; give it a bound.
-env:
-  CMAKE_BUILD_PARALLEL_LEVEL: 4
-
 permissions:
   contents: read
 
@@ -41,7 +36,7 @@ jobs:
 
       - name: Build
         timeout-minutes: 6
-        run: cmake --build build_host --config Release --parallel
+        run: cmake --build build_host --config Release --parallel 4
 
       - name: Test
         timeout-minutes: 10
@@ -84,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build_sim -S . -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
-          cmake --build build_sim --parallel
+          cmake --build build_sim --parallel 4
 
       - name: Run the simulated-board tests
         timeout-minutes: 10
@@ -111,7 +106,7 @@ jobs:
           set -euo pipefail
           cmake -B build_cov -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIMUSB_BUILD_TESTS=ON \
             -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_COVERAGE=ON -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
-          cmake --build build_cov --parallel
+          cmake --build build_cov --parallel 4
 
       - name: Run the tests
         run: ctest --test-dir build_cov --output-on-failure
@@ -163,7 +158,7 @@ jobs:
 
       - name: Run bounded fuzz smoke
         run: |
-          cmake --build build_fuzz --target mimusb_fuzz_descriptor --parallel
+          cmake --build build_fuzz --target mimusb_fuzz_descriptor --parallel 4
           ./build_fuzz/mimusb_fuzz_descriptor -runs=10000 -max_len=4096 -timeout=5 -print_final_stats=1
 
   bindings:
@@ -193,7 +188,7 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -Iinclude tests/abi/layout_oracle.c -o build_bindings/layout_oracle
           cmake -S . -B build_bindings/lib -DCMAKE_BUILD_TYPE=Release \
             -DMIMUSB_BUILD_STATIC=OFF -DMIMUSB_BUILD_TESTS=OFF -DMIMUSB_BUILD_EXAMPLES=OFF
-          cmake --build build_bindings/lib --parallel
+          cmake --build build_bindings/lib --parallel 4
 
       # No step runs the enumerate examples: mimusb_discover messages every serial port of the
       # host, and these runners are no place for that. They are built, and Python imports them.
@@ -266,14 +261,14 @@ jobs:
                 -DMIMUSB_BUILD_TESTS=ON \
                 -DMIMUSB_BUILD_EXAMPLES=ON \
                 -DCMAKE_INSTALL_LIBDIR=lib
-              cmake --build build/musl --parallel
+              cmake --build build/musl --parallel 4
               ctest --test-dir build/musl --output-on-failure
               cmake --install build/musl --prefix build/musl-stage
               version="$(sed -n "s/^project(libmimusb VERSION \([0-9.]*\).*/\1/p" CMakeLists.txt)"
               cmake -S tools/release/consumer -B build/musl-consumer \
                 -DCMAKE_PREFIX_PATH=/src/build/musl-stage \
                 -DMIMUSB_VERSION="$version" -DMIMUSB_COMPONENT=shared
-              cmake --build build/musl-consumer --parallel
+              cmake --build build/musl-consumer --parallel 4
               LD_LIBRARY_PATH=/src/build/musl-stage/lib \
                 ./build/musl-consumer/consumer
               ldd build/musl/libmimusb.so | grep -E "musl|ld-musl"
@@ -323,7 +318,7 @@ jobs:
             -DMIMUSB_BUILD_STATIC=ON \
             -DMIMUSB_BUILD_TESTS=ON \
             -DMIMUSB_BUILD_EXAMPLES=OFF
-          cmake --build build/hid-parse --target mimusb_export_descriptors --parallel
+          cmake --build build/hid-parse --target mimusb_export_descriptors --parallel 4
           ./build/hid-parse/mimusb_export_descriptors build/hid-descriptors
           generated_count="$(find build/hid-descriptors -maxdepth 1 -type f -name '*.bin' | wc -l)"
           golden_count="$(find tests/golden -maxdepth 1 -type f -name '*.hex' | wc -l)"
@@ -368,7 +363,7 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DMIMUSB_BUILD_TESTS=ON \
             -DMIMUSB_BUILD_EXAMPLES=ON
-          cmake --build build_tidy --parallel
+          cmake --build build_tidy --parallel 4
           ctest --test-dir build_tidy --output-on-failure
 
       # The Windows sources need windows.h and cannot be parsed on Linux; every other
@@ -405,7 +400,7 @@ jobs:
           set -euo pipefail
           cmake -B build_san -S . -DCMAKE_BUILD_TYPE=Debug -DMIMUSB_BUILD_TESTS=ON \
             -D${{ matrix.flag }}=ON -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
-          cmake --build build_san --parallel
+          cmake --build build_san --parallel 4
 
       - name: Run the tests
         env:
@@ -455,7 +450,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build_fwtest -S firmware/tests -DCMAKE_BUILD_TYPE=Release -DTINYUSB_PATH="$HOME/tinyusb"
-          cmake --build build_fwtest --parallel
+          cmake --build build_fwtest --parallel 4
           ctest --test-dir build_fwtest --output-on-failure
 
   firmware-pico:
@@ -491,7 +486,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build_fw -S firmware -DCMAKE_BUILD_TYPE=Release ${{ matrix.args }}
-          cmake --build build_fw --parallel
+          cmake --build build_fw --parallel 4
 
   firmware-bsp:
     name: Firmware (${{ matrix.name }})

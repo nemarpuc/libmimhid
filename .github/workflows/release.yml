@@ -147,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build_test -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=ON
-          cmake --build build_test --config Release --parallel
+          cmake --build build_test --config Release --parallel 4
           ctest --test-dir build_test -C Release --output-on-failure
 
       - name: Build and install the shared and static libraries in one tree
@@ -156,7 +156,7 @@ jobs:
           set -euo pipefail
           cmake -B build_release -S . ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
             -DMIMUSB_BUILD_TESTS=OFF -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_BUILD_SHARED=ON -DMIMUSB_BUILD_STATIC=ON
-          cmake --build build_release --config Release --parallel
+          cmake --build build_release --config Release --parallel 4
           cmake --install build_release --config Release --prefix "$PWD/stage"
 
       - name: Check the exported symbols and the platform baseline
@@ -249,7 +249,7 @@ jobs:
           set -euo pipefail
           version="${{ needs.verify.outputs.version }}"
           cmake -B build_fw -S firmware ${{ matrix.args }}
-          cmake --build build_fw --parallel
+          cmake --build build_fw --parallel 4
           mkdir -p dist
           cp build_fw/mimusb_firmware.uf2 "dist/mimusb_firmware-${{ matrix.name }}-${version}.uf2"
 

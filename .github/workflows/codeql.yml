@@ -37,7 +37,7 @@ jobs:
       - name: Build
         run: |
           cmake -S . -B build/codeql -G Ninja -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON
-          cmake --build build/codeql --parallel
+          cmake --build build/codeql --parallel 4
 
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
