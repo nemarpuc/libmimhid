@@ -23,10 +23,12 @@ be HID: `mimusb_node_open` presents interfaces of any class (bulk and interrupt
 endpoints, your own control rules), and `mimusb_device_set_descriptors` presents
 a whole device given as the bytes the target reads, a BOS descriptor included.
 
-Sister library of [`libaoahid`](https://github.com/nemarpuc/libaoahid), which
-sends the same kind of input to an Android device over a plain USB cable using
-Android Open Accessory 2.0, with no microcontroller board needed. Both libraries
-share the same `Spec` / `Node` model and profile state machines.
+Related: [`libaoahid`](https://github.com/nemarpuc/libaoahid) sends HID input to an
+Android device over a plain USB cable using Android Open Accessory 2.0, with no
+microcontroller board needed. Both libraries use the same idea (an immutable `Spec`
+made by a factory, opened as a `Node`), but they are separate APIs. Here a Spec can be
+of any class and a Device can be given as raw descriptors, which libaoahid has no
+equivalent for.
 
 ## What it is not
 

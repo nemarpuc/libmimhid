@@ -9,7 +9,7 @@ step-by-step physical board checklist lives in
 
 ## Terms
 
-The two sister libraries use some of the same words for different things:
+`libmimusb` and the related `libaoahid` use some of the same words for different things:
 
 | Term | In `libmimusb` | In `libaoahid` ([its tests/README.md](https://github.com/nemarpuc/libaoahid/blob/main/tests/README.md)) |
 |---|---|---|
