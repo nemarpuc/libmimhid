@@ -11,6 +11,27 @@ change of the minor number may change the API, the ABI or the wire protocol.
 The C ABI changes: one way to open a Node. A Spec says what a function is, a placement says where
 it goes on a Device. The wire protocol is unchanged; the firmware has one fix (below).
 
+**Hardware-verified on 2026-11-13 (see "Run on a board") for the parts listed there.** A 0.5.0
+board has to be flashed with this release's firmware, because the library refuses a board of another
+minor version.
+
+### Run on a board
+
+2026-11-13, a Raspberry Pi Pico (RP2040) flashed with this release's firmware image through
+`mimusb_device_enter_bootloader`, a Prolific PL2303 adapter (7,812,500 baud), the target the same
+Linux machine (a VMware guest, both USB devices passed through). Not run: a second machine as the
+target, Windows or macOS, the RP2350, the other boards, the `mimusb_verify_*` programs.
+
+- `hw_bulk wait|newest|oldest`, `hw_control_rules`, `hw_composite`, `hw_bytes bytes|bos`, `hw_iso`,
+  `hw_cdc`: all passed, with no error on the link counters.
+- `hw_msc` (new): a mass storage function; the kernel's `usb-storage` found the disk, 4 KiB reads and
+  writes matched byte for byte, and the Bulk-Only Mass Storage Reset passed. It failed before the
+  firmware fix below: the first CBW after a `clear_halt` of an endpoint that was not halted was lost.
+- `hw_ecm` (new): a CDC-ECM network adapter; the kernel made the interface, ARP and ICMP echo of frames
+  from 60 to 1514 bytes and 200 full-size round trips passed.
+- `hw_dfu`, `hw_printer` (the kernel's `usblp` bound it), `hw_midi` (the kernel's `snd-usb-audio` made a
+  sound card) (all new): passed.
+
 ### Changed
 
 - `mimusb_node_open(device, spec, placement, timeouts, &node)` is the only way to open a Node. It
