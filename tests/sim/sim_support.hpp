@@ -8,6 +8,7 @@
 #include "fake_board.h"
 #include "fill_values.h"
 #include "mimusb.h"
+#include "mimusb_limits.h" // the limits of the port this board is built as (firmware/*/limits)
 #include "test.hpp"
 
 #include <atomic>

@@ -49,8 +49,22 @@ add_executable(mimusb_firmware
     common/generic.c
 )
 
+# The limits of the chip's RAM (common/config.h reads mimusb_limits.h and has no default).
+# RAM sizes: RP2040 264 kB = 270336 bytes, RP2350 520 kB = 532480 bytes (the datasheets; the files say
+# where). The build stops when fewer than the reserve are left after the image (tools/check_ram.py).
+if(mimusb_platform STREQUAL "rp2040")
+    set(mimusb_limits_dir rp2040)
+    set(mimusb_ram_bytes 270336)
+    set(mimusb_ram_reserve 16384)
+else()
+    set(mimusb_limits_dir rp2350)
+    set(mimusb_ram_bytes 532480)
+    set(mimusb_ram_reserve 32768)
+endif()
+
 target_include_directories(mimusb_firmware PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/common
+    ${CMAKE_CURRENT_LIST_DIR}/rp/limits/${mimusb_limits_dir}
     ${CMAKE_CURRENT_LIST_DIR}/../proto
 )
 
@@ -89,5 +103,8 @@ target_link_options(mimusb_firmware PRIVATE
 
 pico_enable_stdio_usb(mimusb_firmware 0)
 pico_enable_stdio_uart(mimusb_firmware 0)
+
+include(${CMAKE_CURRENT_LIST_DIR}/tools/check_ram.cmake)
+mimusb_check_ram(mimusb_firmware ${mimusb_ram_bytes} ${mimusb_ram_reserve})
 
 pico_add_extra_outputs(mimusb_firmware)

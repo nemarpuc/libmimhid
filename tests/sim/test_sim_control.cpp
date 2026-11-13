@@ -78,8 +78,9 @@ void test_control() {
     mimusb_board_limits limits{};
     limits.struct_size = sizeof(limits);
     MIMUSB_CHECK(mimusb_device_limits(device, &limits) == MIMUSB_OK &&
-                 limits.max_control_rules == 160 && limits.max_control_data_bytes == 1024 &&
-                 limits.max_answer_bytes == 4096);
+                 limits.max_control_rules == MIMUSB_CONTROL_RULES &&
+                 limits.max_control_data_bytes == MIMUSB_CONTROL_DATA_MAX &&
+                 limits.max_answer_bytes == MIMUSB_ANSWER_BYTES);
 
     // Arguments.
     const mimusb_control_rule good = control_rule(0xC0, 0x42, 100, MIMUSB_CONTROL_ACTION_STALL);
@@ -136,7 +137,7 @@ void test_control() {
                  MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_device_control_reply(device, 1, MIMUSB_CONTROL_ACTION_STALL, one, 1,
                                              kSendMs) == MIMUSB_ERR_PARAM);
-    std::vector<std::uint8_t> too_big(1025);
+    std::vector<std::uint8_t> too_big(MIMUSB_CONTROL_DATA_MAX + 1U);
     MIMUSB_CHECK(mimusb_device_control_reply(device, 1, MIMUSB_CONTROL_ACTION_ANSWER,
                                              too_big.data(), too_big.size(),
                                              kSendMs) == MIMUSB_ERR_OVERFLOW);
@@ -463,16 +464,16 @@ void test_control_rules() {
     heavy.request_mask = 0xFF;
     heavy.request_value = 0x70;
     heavy.action = MIMUSB_CONTROL_ANSWER;
-    std::vector<std::uint8_t> big(4096 - sizeof(answer_bytes) + 1U, 0x5A);
+    std::vector<std::uint8_t> big(MIMUSB_ANSWER_BYTES - sizeof(answer_bytes) + 1U, 0x5A);
     heavy.data = big.data();
     heavy.length = big.size();
     MIMUSB_CHECK(mimusb_device_set_control_rules(device, 0, &heavy, 1, kControlMs) ==
                  MIMUSB_ERR_OVERFLOW);
     big.pop_back(); // exactly what is left beside the Node's rule 0 (3 bytes)
-    big.resize(4096 - sizeof(answer_bytes) - 1U); // (the Node's other answer has one byte)
+    big.resize(MIMUSB_ANSWER_BYTES - sizeof(answer_bytes) - 1U); // (the Node's other answer has one byte)
     heavy.length = big.size();
     MIMUSB_CHECK(mimusb_device_set_control_rules(device, 0, &heavy, 1, kControlMs) == MIMUSB_OK);
-    target_control(0xC0, 0x70, 0, 0, 5000);
+    target_control(0xC0, 0x70, 0, 0, MIMUSB_ANSWER_BYTES);
     MIMUSB_CHECK(next_control(&r) && r.outcome == FAKE_CONTROL_ANSWERED && r.length == big.size() &&
                  r.data[0] == 0x5A);
 

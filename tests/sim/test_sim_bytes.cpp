@@ -118,7 +118,7 @@ void bytes_end_to_end() {
         return;
     mimusb_board_limits limits{};
     limits.struct_size = sizeof(limits);
-    MIMUSB_CHECK(mimusb_device_limits(device, &limits) == MIMUSB_OK && limits.max_bos_bytes == 256);
+    MIMUSB_CHECK(mimusb_device_limits(device, &limits) == MIMUSB_OK && limits.max_bos_bytes == MIMUSB_MAX_BOS_BYTES);
 
     // The policy of an IN endpoint comes first: without it the call names the endpoint.
     Given g(device_bytes(), config_bytes(), bos_bytes());

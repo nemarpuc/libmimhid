@@ -11,6 +11,15 @@ endif()
 
 # What a port's build states (core.h, tusb_config.h): its highest endpoint number and the speed. The
 # numbers are the ports': 15 (RP2040, RP2350), 7 (nRF52840), 6 (ESP32-S3), 3 (STM32F4).
+# The limits of each port (config.h reads mimusb_limits.h from the port's directory): the tests build
+# against the real files, so what a port states is what is tested. STM32F4 is the 128 kB one.
+set(LIM ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(limits_15 ${LIM}/rp/limits/rp2040)
+set(limits_7 ${LIM}/ports/nrf52840/limits)
+set(limits_6 ${LIM}/ports/esp32s3/main)
+set(limits_3 ${LIM}/ports/stm32f4/limits/ram128k)
+set(limits_hs ${LIM}/rp/limits/rp2350)
+
 function(mimusb_port_defs number out)
     set(${out}
         MIMUSB_MAX_ENDPOINT_NUMBER=${number}
@@ -33,6 +42,7 @@ foreach(itfs 15 7 6 3)
     )
     target_include_directories(test_core_${itfs} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}      # test tusb_config.h
+        ${limits_${itfs}}
         ../common
         ../../proto
         ${TINYUSB_PATH}/src
@@ -57,6 +67,7 @@ add_executable(test_core_hs
 )
 target_include_directories(test_core_hs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${limits_hs}
     ../common
     ../../proto
     ${TINYUSB_PATH}/src
@@ -113,4 +124,33 @@ foreach(missing MIMUSB_MAX_ENDPOINT_NUMBER MIMUSB_MAX_ENDPOINT_BYTES
             ${CMAKE_CURRENT_SOURCE_DIR}/port_probe.c)
     set_tests_properties(missing_${missing} PROPERTIES
         PASS_REGULAR_EXPRESSION "${missing} must be defined|MIMUSB_[A-Z_]+ must be defined")
+endforeach()
+
+# The limits of the RAM have no default: config.h stops the build of a port that has no
+# mimusb_limits.h, or one that leaves a limit out, with the message that names it.
+set(limit_names MIMUSB_MAX_INTERFACES MIMUSB_MAX_CONFIG_BYTES MIMUSB_MAX_BOS_BYTES MIMUSB_MAX_STRINGS
+    MIMUSB_MAX_STRING_BYTES MIMUSB_MAX_REPORT_BYTES MIMUSB_CONTROL_DATA_MAX MIMUSB_EP_POOL_SLOTS
+    MIMUSB_CONTROL_RULES MIMUSB_ANSWER_BYTES MIMUSB_LAST_SENT_SLOTS)
+mimusb_port_defs(7 port_defs)
+set(limits_flags "")
+foreach(def IN LISTS port_defs)
+    list(APPEND limits_flags "-D${def}")
+endforeach()
+set(limits_compile ${CMAKE_C_COMPILER} -fsyntax-only ${limits_flags}
+    -DCFG_TUSB_CONFIG_FILE="tusb_config.h" -DCFG_TUSB_MCU=OPT_MCU_RP2040
+    -I${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR}/../common
+    -I${CMAKE_CURRENT_SOURCE_DIR}/../../proto -I${TINYUSB_PATH}/src)
+add_test(NAME missing_mimusb_limits_h
+    COMMAND ${limits_compile} ${CMAKE_CURRENT_SOURCE_DIR}/limits_probe.c)
+set_tests_properties(missing_mimusb_limits_h PROPERTIES
+    PASS_REGULAR_EXPRESSION "mimusb_limits.h must be provided by the port")
+file(READ ${limits_15}/mimusb_limits.h rp_limits)
+foreach(missing IN LISTS limit_names)
+    set(dir ${CMAKE_CURRENT_BINARY_DIR}/limits_without_${missing})
+    string(REGEX REPLACE "#define ${missing} [^\n]*\n" "" without "${rp_limits}")
+    file(WRITE ${dir}/mimusb_limits.h "${without}")
+    add_test(NAME missing_${missing}_limit
+        COMMAND ${limits_compile} -I${dir} ${CMAKE_CURRENT_SOURCE_DIR}/limits_probe.c)
+    set_tests_properties(missing_${missing}_limit PROPERTIES
+        PASS_REGULAR_EXPRESSION "${missing} must be defined by the port")
 endforeach()

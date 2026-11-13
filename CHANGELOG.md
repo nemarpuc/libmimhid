@@ -6,6 +6,57 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-13
+
+The firmware's RAM limits are the port's, and none has a default. The wire protocol and the C ABI
+are unchanged; the board reports its limits in the PONG as before, so a host library reads the larger
+numbers without change. A board has to be flashed with this firmware to have them.
+
+### Changed
+
+- `firmware/common/config.h` no longer defines `MIMUSB_MAX_INTERFACES`, `MIMUSB_MAX_CONFIG_BYTES`,
+  `MIMUSB_MAX_BOS_BYTES`, `MIMUSB_MAX_STRINGS`, `MIMUSB_MAX_STRING_BYTES`, `MIMUSB_MAX_REPORT_BYTES`,
+  `MIMUSB_CONTROL_DATA_MAX`, `MIMUSB_EP_POOL_SLOTS`, `MIMUSB_CONTROL_RULES`, `MIMUSB_ANSWER_BYTES` or
+  `MIMUSB_LAST_SENT_SLOTS` when a port leaves them out. Every port states all of them in its own
+  `mimusb_limits.h` (RP2040, RP2350, nRF52840, four STM32F4 RAM classes, ESP32-S3), and a build without
+  the file or with one limit missing stops with a message that names it (`firmware/tests`:
+  `missing_*_limit`).
+- The limits are raised to what each chip's RAM holds. Largest on the RP2350 and the nRF52840: a
+  configuration descriptor of 8192 bytes (was 1024), 128 strings (24), 254 control rules (160), 32768
+  bytes of answer memory (4096), a control data stage of 4088 bytes (1024), a BOS of 1024 bytes (256).
+  The RP2040: 4096, 64, 254, 16384, 2048, 512. The STM32F401, with 64 kB of RAM, has 2048, 24, 96, 4096,
+  1024, 256: its control rules go down from 160 to 96 (the other figures are as before or larger), so
+  that 6 KiB of its RAM stay free (the former figures left about 5 KiB, measured on the F411 build). The
+  figures are in [docs/LIMITS.md](docs/LIMITS.md#the-limits-of-each-port); the protocol bounds them (254
+  rules, a 4088-byte control data stage, 16-bit lengths).
+- `MIMUSB_MAX_STRING_BYTES` is its own limit and no longer `MIMUSB_MAX_STRINGS` strings of 254 bytes: a
+  store of fewer long strings than the count is refused with `NAK_OVERFLOW` when it is full.
+
+### Added
+
+- `firmware/tools/check_ram.py` and `check_ram.cmake`: after the link, the build prints the RAM the image
+  takes (data + bss, plus a stack outside them) and stops when fewer than the reserve the port states
+  are left. Every firmware build here runs it; the ESP-IDF build does not (ESP-IDF has its own memory
+  summary).
+- `firmware/tests/limits_probe.c` and the tests `missing_mimusb_limits_h` and `missing_*_limit`.
+
+### Verified
+
+**Hardware-verified on 2026-11-13 for the parts listed here.** Built: RP2040, RP2350 (Pico SDK), nRF52840
+(`pca10056`), STM32F401, F411, F439 and F412 boards (TinyUSB BSP); not built: the ESP32-S3 (no ESP-IDF
+here). `ctest` of the host library (23 tests, `mimusb.sim-*` against the real ports' limits) and of
+`firmware/tests` (30) pass.
+
+Run on a board: a Raspberry Pi Pico (RP2040) with a Prolific PL2303 adapter (7,812,500 baud), the target
+the same Linux machine (Linux 7.2.11, a VMware guest, both USB devices passed through). The board ran
+0.6.0, was restarted with `mimusb_device_enter_bootloader`, written with this release's UF2 image, and
+reported firmware 0.6.1 and the new limits (configuration 4096, strings 64, rules 254, answer memory
+16384, control data 2048, BOS 512, queue slots 72) with no CRC, framing or overrun error. `hw_bulk
+wait|newest|oldest`, `hw_control_rules`, `hw_composite`, `hw_bytes bytes|bos`, `hw_iso`, `hw_cdc`,
+`hw_msc`, `hw_ecm`, `hw_dfu`, `hw_printer` and `hw_midi` all passed. Not run: a second machine as the
+target, Windows or macOS, the RP2350 and the other boards (their limits are built, not run), the
+`mimusb_verify_*` programs.
+
 ## [0.6.0] - 2026-11-13
 
 The C ABI changes: one way to open a Node. A Spec says what a function is, a placement says where

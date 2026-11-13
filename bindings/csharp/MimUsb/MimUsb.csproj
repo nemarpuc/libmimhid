@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageId>MimUsb</PackageId>
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
     <Authors>libmimusb contributors</Authors>
     <Copyright>Copyright (c) 2026 libmimusb contributors</Copyright>
     <Description>Literal P/Invoke declarations for libmimusb; requires a separately installed, version-matched native libmimusb shared library.</Description>

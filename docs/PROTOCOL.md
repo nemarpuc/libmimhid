@@ -166,7 +166,7 @@ A request matches a rule when each of the four fields ANDed with its mask equals
 |---|---|
 | `ANSWER` (1) | Returns the rule's bytes, cut to `wLength`, straight from the answer memory. |
 | `ANSWER_LAST_SENT` (2) | Returns the last transfer the board started on the IN endpoint (with the filter 1: the last one whose first byte is the given one, which is how a Report ID is told), cut to `wLength`; stalls when there is none since the configuration was committed. The board keeps the transfer as it starts it in a buffer of `MIMUSB_MAX_TRANSFER_BYTES` that belongs to the rule. That buffer is written and read on the USB side only (from `tud_task` and `mimusb_usb_poll`, never at once); the answer is copied from it into the control answer buffer when the setup stage is handled, so a transfer started while a multi-packet answer is going out cannot change the bytes of that answer. |
-| `ACCEPT` (3) | Takes the data stage (at most `MIMUSB_CONTROL_DATA_MAX`, 1024 bytes) and completes the transfer; the host is told with `CONTROL_SETUP` (flag `0x10`, accepted) and, when there was a data stage, `CONTROL_DATA`. Nothing is awaited. |
+| `ACCEPT` (3) | Takes the data stage (at most `MIMUSB_CONTROL_DATA_MAX`, the board's `max_control_data_bytes`) and completes the transfer; the host is told with `CONTROL_SETUP` (flag `0x10`, accepted) and, when there was a data stage, `CONTROL_DATA`. Nothing is awaited. |
 | `ASK` (4) | Holds the transfer and asks the host (`CONTROL_SETUP`, flag `0x01`), which answers with `CONTROL_REPLY` within the timeout; after it the board does the rule's action (stall or drop). |
 | `STALL` (5) | Stalls the request (USB 2.0 8.5.3: a control endpoint answers its status stage with STALL). |
 

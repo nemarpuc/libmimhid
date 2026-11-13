@@ -1081,12 +1081,12 @@ static void test_ping_and_events(void) {
     assert(p[36] == MIMUSB_MAX_INTERFACES && MIMUSB_MAX_INTERFACES == 15);
     assert((p[37] | (p[38] << 8)) == MIMUSB_MAX_CONFIG_BYTES && p[39] == MIMUSB_MAX_STRINGS);
     assert((p[40] | (p[41] << 8)) == MIMUSB_MAX_TRANSFER_BYTES && MIMUSB_MAX_TRANSFER_BYTES == 64);
-    assert((p[42] | (p[43] << 8)) == MIMUSB_EP_POOL_SLOTS && MIMUSB_EP_POOL_SLOTS == 64);
+    assert((p[42] | (p[43] << 8)) == MIMUSB_EP_POOL_SLOTS && MIMUSB_EP_POOL_SLOTS <= 0xFFFF);
     assert(p[44] == ((1u << TUSB_XFER_BULK) | (1u << TUSB_XFER_INTERRUPT)));
     // The answer memory of the control rules (config.h), the last field before the unique id.
-    assert((p[45] | (p[46] << 8)) == MIMUSB_ANSWER_BYTES && MIMUSB_ANSWER_BYTES == 4096);
+    assert((p[45] | (p[46] << 8)) == MIMUSB_ANSWER_BYTES && MIMUSB_ANSWER_BYTES <= 0xFFFF);
     // The largest BOS descriptor (config.h), then the unique id.
-    assert((p[47] | (p[48] << 8)) == MIMUSB_MAX_BOS_BYTES && MIMUSB_MAX_BOS_BYTES == 256);
+    assert((p[47] | (p[48] << 8)) == MIMUSB_MAX_BOS_BYTES && MIMUSB_MAX_BOS_BYTES <= 0xFFFF);
     assert(MIMUSB_PONG_MIN_LEN == 49 && p[MIMUSB_PONG_MIN_LEN] == 0x01);
 
     // The board's own events: mount, unmount, suspend, resume. (What a class does on the control
@@ -1524,12 +1524,27 @@ static void test_desc_commands(void) {
     expect_nak(command(MIMUSB_T_DESC_DATA, (const uint8_t*)"\4\0\0\0\0", 5),
                MIMUSB_NAK_PARAM); // no bytes
 
-    // The string store holds MIMUSB_MAX_STRINGS strings of the longest length, and not one more,
-    // whatever its index or language: NAK OVERFLOW.
+    // The string store holds at most MIMUSB_MAX_STRINGS strings, whatever their index or language,
+    // and MIMUSB_MAX_STRING_BYTES bytes of them together: NAK OVERFLOW beyond either.
+    _Static_assert(4 * MIMUSB_MAX_STRINGS <= MIMUSB_MAX_STRING_BYTES, "the shortest strings fit");
+    // The bytes: strings of the longest length fill the pool (or the count), and the next is refused.
+    assert(desc_reset() == 1);
+    {
+        unsigned used = 0, n = 0;
+        while (n < MIMUSB_MAX_STRINGS && used + MIMUSB_STRING_DESC_MAX <= MIMUSB_MAX_STRING_BYTES) {
+            assert(desc_begin_raw(MIMUSB_DESC_STRING, (uint8_t)(n + 1), 0x0409,
+                                  MIMUSB_STRING_DESC_MAX, 0) == 1);
+            used += MIMUSB_STRING_DESC_MAX;
+            n++;
+        }
+        expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, (uint8_t)(n + 1), 0x0409,
+                                  MIMUSB_STRING_DESC_MAX, 0),
+                   MIMUSB_NAK_OVERFLOW);
+    }
+    // The count: the shortest strings fill the table, and not one more.
     assert(desc_reset() == 1);
     for (uint8_t i = 0; i < MIMUSB_MAX_STRINGS; i++)
-        assert(desc_begin_raw(MIMUSB_DESC_STRING, (uint8_t)(i + 1), 0x0409, MIMUSB_STRING_DESC_MAX,
-                              0) == 1);
+        assert(desc_begin_raw(MIMUSB_DESC_STRING, (uint8_t)(i + 1), 0x0409, 4, 0) == 1);
     expect_nak(desc_begin_raw(MIMUSB_DESC_STRING, MIMUSB_MAX_STRINGS + 1, 0x0409, 4, 0),
                MIMUSB_NAK_OVERFLOW);
     // the same index in another language is another string
@@ -2179,11 +2194,19 @@ static void test_bos(void) {
         big[0] = 5;
         big[1] = 0x0F;
         put_u16(&big[2], MIMUSB_MAX_BOS_BYTES);
-        big[4] = 1;
-        big[5] = (uint8_t)(MIMUSB_MAX_BOS_BYTES - 5); // one capability that fills the rest
-        big[6] = 0x10;
-        big[7] = 0x05;
-        assert(MIMUSB_MAX_BOS_BYTES - 5 <= 255);
+        // capabilities of at most 255 bytes (bLength is one byte) that fill the rest
+        unsigned caps = 0;
+        for (unsigned at = 5; at < MIMUSB_MAX_BOS_BYTES;) {
+            const unsigned left = MIMUSB_MAX_BOS_BYTES - at;
+            const unsigned len = left > 255U ? (left - 255U >= 3U ? 255U : left - 3U) : left;
+            assert(len >= 3U);
+            big[at] = (uint8_t)len;
+            big[at + 1] = 0x10;
+            big[at + 2] = 0x05;
+            at += len;
+            caps++;
+        }
+        big[4] = (uint8_t)caps;
         assert(commit_bos(0x0300, big, sizeof(big), sizeof(big)) == 1);
         assert(memcmp(tud_descriptor_bos_cb(), big, sizeof(big)) == 0);
     }
@@ -2912,8 +2935,10 @@ static void test_ep_config(void) {
     expect_nak(ep_config(0x91, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
     expect_nak(ep_config(0x8F + 1, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_PARAM);
     expect_nak(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE); // not in it
-    expect_nak(ep_config(0x81, 255, MIMUSB_EP_FULL_DROP_NEWEST),
-               MIMUSB_NAK_OVERFLOW); // deeper than the queue
+    // deeper than the pool (a depth is one byte: only a pool of 255 slots or fewer can be outrun by
+    // one queue; the queues of several endpoints together are tested with the commit below)
+    if (MIMUSB_EP_POOL_SLOTS < 256)
+        expect_nak(ep_config(0x81, 255, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_OVERFLOW);
     assert(commit_staged() == 1);
 }
 
@@ -3706,28 +3731,40 @@ static void test_generic(void) {
         assert(stage_cfg(&c) == 1);
         assert(ep_config(0x81, 4, MIMUSB_EP_FULL_DROP_OLDEST) == 1);
         assert(ep_config(0x81, 4, MIMUSB_EP_FULL_WAIT) == 1);
-        expect_nak(ep_config(0x81, MIMUSB_EP_POOL_SLOTS, MIMUSB_EP_FULL_DROP_NEWEST),
-                   MIMUSB_NAK_OVERFLOW);
-        expect_nak(ep_config(0x81, MIMUSB_EP_POOL_SLOTS / 2, MIMUSB_EP_FULL_DROP_OLDEST),
-                   MIMUSB_NAK_OVERFLOW);
+        // (a depth is one byte: a pool of 255 slots or fewer has a queue that does not fit it)
+        if (MIMUSB_EP_POOL_SLOTS <= 254) {
+            expect_nak(ep_config(0x81, (uint8_t)MIMUSB_EP_POOL_SLOTS, MIMUSB_EP_FULL_DROP_NEWEST),
+                       MIMUSB_NAK_OVERFLOW);
+            expect_nak(ep_config(0x81, (uint8_t)(MIMUSB_EP_POOL_SLOTS / 2),
+                                 MIMUSB_EP_FULL_DROP_OLDEST),
+                       MIMUSB_NAK_OVERFLOW);
+        }
         expect_nak(ep_config(0x01, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_UNSUPPORTED); // OUT
         assert(ep_config(0x82, 4, MIMUSB_EP_FULL_WAIT) == 1); // the HID interface's: any policy
         assert(ep_config(0x82, 1, MIMUSB_EP_FULL_DROP_NEWEST) == 1); // 2 slots
-        // together the queues must fit the pool: 0x81 takes depth + 1 slots, 0x83 takes 2 * depth + 1
-        const int d1 = MIMUSB_EP_POOL_SLOTS - 11;
-        assert(ep_config(0x81, (uint8_t)d1, MIMUSB_EP_FULL_DROP_NEWEST) == 1); // d1 + 1 slots
-        assert(ep_config(0x83, 5, MIMUSB_EP_FULL_DROP_OLDEST) == 1);          // 11 slots
-        expect_nak(commit_staged(), MIMUSB_NAK_OVERFLOW);
-        assert(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_OLDEST) == 1); // 9 slots
-        assert(ep_config(0x81, (uint8_t)d1, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
-        // 0x81: d1 + 1 = pool - 10 slots, 0x82: 2, 0x83: 9: together pool + 1: still too many
-        expect_nak(commit_staged(), MIMUSB_NAK_OVERFLOW);
-        assert(ep_config(0x81, (uint8_t)(d1 - 1), MIMUSB_EP_FULL_DROP_NEWEST) == 1); // exactly the pool
+        // together the queues must fit the pool: 0x81 takes depth + 1 slots, 0x82 takes 2 and 0x83
+        // (DROP_OLDEST) takes 2 * depth + 1. A depth is one byte, so a pool of more than 269 slots
+        // needs the deeper 0x83 queue to be filled: `a` is the depth of 0x83 and `b` that of 0x81
+        // that make exactly the pool (b + 1 + 2 + 2 * a + 1 slots).
+        const int pool = MIMUSB_EP_POOL_SLOTS;
+        const int a = pool <= 269 ? 5 : (pool - 257) / 2;
+        const int b = pool - 4 - 2 * a;
+        assert(a >= 1 && a <= 255 && b >= 1 && b <= 254);
+        assert(ep_config(0x81, (uint8_t)(b + 1), MIMUSB_EP_FULL_DROP_NEWEST) == 1);      // b + 2 slots
+        assert(ep_config(0x83, (uint8_t)a, MIMUSB_EP_FULL_DROP_OLDEST) == 1);            // 2a + 1 slots
+        expect_nak(commit_staged(), MIMUSB_NAK_OVERFLOW); // together pool + 1: too many
+        assert(ep_config(0x81, (uint8_t)b, MIMUSB_EP_FULL_DROP_NEWEST) == 1);            // exactly the pool
         assert(commit_staged() == 1);
         set_config();
-        // live: 0x83 holds 9 slots, so DROP_NEWEST of depth 8 fits and depth 9 does not
-        assert(ep_config(0x83, 8, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
-        expect_nak(ep_config(0x83, 9, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_OVERFLOW);
+        // live: 0x83 holds 2a + 1 slots, so DROP_NEWEST of depth 2a fits and 2a + 1 does not
+        // (when that depth is one byte)
+        if (2 * a + 1 <= 255) {
+            assert(ep_config(0x83, (uint8_t)(2 * a), MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+            expect_nak(ep_config(0x83, (uint8_t)(2 * a + 1), MIMUSB_EP_FULL_DROP_NEWEST),
+                       MIMUSB_NAK_OVERFLOW);
+        } else {
+            assert(ep_config(0x83, 255, MIMUSB_EP_FULL_DROP_NEWEST) == 1);
+        }
         // staging a new configuration does not change a running queue
         assert(desc_reset() == 1);
         expect_nak(ep_config(0x83, 4, MIMUSB_EP_FULL_DROP_NEWEST), MIMUSB_NAK_STATE);

@@ -334,7 +334,7 @@ static void endpoints_poll(void) {
 // ---- control transfers: the stack's side of them ----
 static fake_control_result_t g_control[32];
 static unsigned g_control_head, g_control_tail;
-static uint8_t g_control_out[4100];
+static uint8_t g_control_out[FAKE_CONTROL_BYTES];
 static size_t g_control_out_length;
 
 static struct {
@@ -418,7 +418,7 @@ void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
 typedef struct {
     int kind;
     uint8_t a, b, c;
-    uint8_t data[4100];
+    uint8_t data[FAKE_CONTROL_BYTES];
     size_t length;
 } action_t;
 

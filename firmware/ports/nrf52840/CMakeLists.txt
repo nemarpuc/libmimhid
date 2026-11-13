@@ -29,6 +29,7 @@ target_sources(mimusb_firmware_nrf52840 PUBLIC
 )
 target_include_directories(mimusb_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common
+    ${CMAKE_CURRENT_LIST_DIR}/limits
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 
 # The nRF52840 has the endpoints EPIN1..7 and EPOUT1..7 (number 8 is the isochronous one; see
@@ -53,6 +54,13 @@ family_configure_device_example(mimusb_firmware_nrf52840 noos)
 target_link_options(mimusb_firmware_nrf52840 PUBLIC -Wl,--wrap=dcd_event_handler -Wl,--wrap=dcd_edpt_stall -Wl,--wrap=dcd_edpt_xfer -Wl,--wrap=tusb_hal_nrf_power_event)
 target_include_directories(mimusb_firmware_nrf52840-tinyusb_config INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/../../common
+    ${CMAKE_CURRENT_LIST_DIR}/limits
     ${CMAKE_CURRENT_LIST_DIR}/../../../proto)
 target_compile_definitions(mimusb_firmware_nrf52840 PUBLIC ${MIMUSB_DEFS})
 target_compile_definitions(mimusb_firmware_nrf52840-tinyusb_config INTERFACE ${MIMUSB_DEFS})
+
+# The RAM of the chip: 256 kB = 262144 bytes (limits/mimusb_limits.h says where it is from); the build
+# stops when fewer than the reserve are left after the image (tools/check_ram.py).
+include(${CMAKE_CURRENT_LIST_DIR}/../../tools/check_ram.cmake)
+# The BSP startup file keeps a stack of 0x4000 bytes (gcc_startup_nrf52840.S, .stack) outside bss.
+mimusb_check_ram(mimusb_firmware_nrf52840 262144 16384 16384)

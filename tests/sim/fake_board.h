@@ -9,6 +9,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "mimusb_limits.h" // the port's limits: the data stage of a control transfer is as long as its answer memory
+// The largest data stage the fake target holds: the answer memory of the board (a control rule's
+// ANSWER is sent whole, up to wLength) and the bytes of a command around it.
+#define FAKE_CONTROL_BYTES (MIMUSB_ANSWER_BYTES + 100)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -94,7 +99,7 @@ enum {
 typedef struct {
     int outcome;
     uint8_t setup[8]; // as the stack got it (a retyped request has the vendor type)
-    uint8_t data[4100];
+    uint8_t data[FAKE_CONTROL_BYTES];
     size_t length; // what was sent to the target, or what the board took from it
 } fake_control_result_t;
 

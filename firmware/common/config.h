@@ -7,12 +7,53 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// The limits of the board's RAM: how many interfaces, how long a configuration, how many strings,
+// control rules and answer bytes, how deep the queues. They are the port's, from the RAM its chip
+// has, and each port states every one in its own `mimusb_limits.h` (on the include path of its
+// build; see firmware/PORTING in docs/PORTING.md). None has a default here: a build whose port
+// leaves one out stops, with the message that names it, and a port that sizes its RAM wrongly stops
+// in the linker or in the RAM check of its build (tools/check_ram.py).
+#if !__has_include("mimusb_limits.h")
+#error mimusb_limits.h must be provided by the port (on its include path); see docs/PORTING.md
+#endif
+#include "mimusb_limits.h"
+#ifndef MIMUSB_MAX_INTERFACES
+#error MIMUSB_MAX_INTERFACES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_MAX_CONFIG_BYTES
+#error MIMUSB_MAX_CONFIG_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_MAX_BOS_BYTES
+#error MIMUSB_MAX_BOS_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_MAX_STRINGS
+#error MIMUSB_MAX_STRINGS must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_MAX_STRING_BYTES
+#error MIMUSB_MAX_STRING_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_MAX_REPORT_BYTES
+#error MIMUSB_MAX_REPORT_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_CONTROL_DATA_MAX
+#error MIMUSB_CONTROL_DATA_MAX must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_EP_POOL_SLOTS
+#error MIMUSB_EP_POOL_SLOTS must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_CONTROL_RULES
+#error MIMUSB_CONTROL_RULES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_ANSWER_BYTES
+#error MIMUSB_ANSWER_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_LAST_SENT_SLOTS
+#error MIMUSB_LAST_SENT_SLOTS must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+
 // The interfaces one configuration holds, of any class: bInterfaceNumber is 0, 1, 2, ... in order
 // (USB 2.0 9.6.5), and TinyUSB keeps a driver per interface number (CFG_TUD_INTERFACE_MAX, 16 unless
 // a port says otherwise). The endpoints they use are limited by the controller (core.h).
-#ifndef MIMUSB_MAX_INTERFACES
-#define MIMUSB_MAX_INTERFACES 15
-#endif
 
 // The configuration descriptor the board holds, as the host composes it (USB 2.0 9.6.3). A
 // configuration that does not fit is refused with NAK OVERFLOW. The size is that of the header, 9
@@ -23,44 +64,26 @@
 // HID descriptor is 9, HID 1.11 6.2.1). That
 // is 969 bytes, rounded up to 1024. A port with the RAM for a configuration of larger functions
 // states a larger value.
-#ifndef MIMUSB_MAX_CONFIG_BYTES
-#define MIMUSB_MAX_CONFIG_BYTES 1024
-#endif
 // The Binary Object Store descriptor the board holds (USB 3.2 9.6.2), as the host composes or gives
 // it. The 5-byte header, a USB 2.0 Extension capability (7 bytes, USB 2.0 LPM ECN) and the Microsoft
 // OS 2.0 platform capability (28 bytes, "Microsoft OS 2.0 Descriptors Specification") are 40 bytes;
 // a Container ID capability (20 bytes, USB 3.2 9.6.2.3) and room for a few capabilities of the
 // caller's make 256. One copy of it is staged and one is active, each in the configuration
 // structure below.
-#ifndef MIMUSB_MAX_BOS_BYTES
-#define MIMUSB_MAX_BOS_BYTES 256
-#endif
 _Static_assert(MIMUSB_MAX_BOS_BYTES >= 5 && MIMUSB_MAX_BOS_BYTES <= 0xFFFF,
                "a BOS descriptor has a 5-byte header, and its length fits the wire");
 // The string descriptors the board holds, each with its index and language: manufacturer, product,
 // serial and configuration, one for each interface that has a name, and the ones the caller added
 // (mimusb_device_add_string). The store holds them all at the longest length USB allows (USB 2.0
 // 9.6.7, 254 bytes); a string that does not fit is refused with NAK OVERFLOW.
-#ifndef MIMUSB_MAX_STRINGS
-#define MIMUSB_MAX_STRINGS 24
-#endif
-#ifndef MIMUSB_MAX_STRING_BYTES
-#define MIMUSB_MAX_STRING_BYTES (MIMUSB_MAX_STRINGS * MIMUSB_STRING_DESC_MAX)
-#endif
 
 // What the board takes, announced in the PONG. MIMUSB_MAX_ENDPOINT_BYTES is the port's own
 // (core.h); the others may be set by a port before this header.
 #include "core.h"
 _Static_assert(MIMUSB_MAX_INTERFACES >= 1 && MIMUSB_MAX_INTERFACES <= 15,
                "MIMUSB_MAX_INTERFACES is 1 to 15");
-#ifndef MIMUSB_MAX_REPORT_BYTES
-#define MIMUSB_MAX_REPORT_BYTES MIMUSB_MAX_ENDPOINT_BYTES // largest transfer one frame carries
-#endif
 // The data stage of a control transfer the host may read or answer, and of one an ACCEPT rule takes:
 // a Feature report fits, and so does the data of a RULE_DATA frame.
-#ifndef MIMUSB_CONTROL_DATA_MAX
-#define MIMUSB_CONTROL_DATA_MAX 1024
-#endif
 // A frame carries a transfer, the data stage of a control transfer or a configuration command, and
 // a few bytes more.
 #define MIMUSB_MAX_FRAME_PAYLOAD_RAW                                                               \
@@ -94,13 +117,6 @@ _Static_assert(MIMUSB_MAX_REPORT_BYTES <= MIMUSB_MAX_TRANSFER_BYTES,
 // transfer of up to MIMUSB_MAX_TRANSFER_BYTES (a port constant; the PONG reports it). 64 slots of 64
 // bytes is 4 KiB at full speed, 32 slots of 1024 bytes is 32 KiB at high speed: a few endpoints with
 // a depth of eight, or one with a long queue.
-#ifndef MIMUSB_EP_POOL_SLOTS
-#if MIMUSB_MAX_TRANSFER_BYTES <= 64
-#define MIMUSB_EP_POOL_SLOTS 64
-#else
-#define MIMUSB_EP_POOL_SLOTS 32
-#endif
-#endif
 _Static_assert(MIMUSB_EP_POOL_SLOTS >= 1 && MIMUSB_EP_POOL_SLOTS <= 0xFFFF, "slots fit the PONG");
 
 // Control rules (control.c). The table the host stages holds the rules of every Node and the
@@ -113,25 +129,16 @@ _Static_assert(MIMUSB_EP_POOL_SLOTS >= 1 && MIMUSB_EP_POOL_SLOTS <= 0xFFFF, "slo
 // Input report (a Spec with Report IDs has one for each ID: say 2) and one answer for each Feature
 // report (say 1): 10 per interface, 150 for fifteen, which leaves 10 for the rules of the caller.
 // A rule is under 32 bytes, so the two tables are under 10 KB.
-#ifndef MIMUSB_CONTROL_RULES
-#define MIMUSB_CONTROL_RULES 160
-#endif
 _Static_assert(MIMUSB_CONTROL_RULES >= 1 && MIMUSB_CONTROL_RULES <= 254,
                "a rule index is a byte, and 0xFF means none");
 // MIMUSB_ANSWER_BYTES is the answer memory of one table: the bytes of every ANSWER rule together.
 // Fifteen HID interfaces take at most 2048 bytes of report descriptors together (what 0.2 held), 135
 // of HID descriptors (9 each, HID 1.11 6.2.1), 30 for GET_IDLE and GET_PROTOCOL, and the Feature
 // answers; the rest of 4096 is for those and the caller's rules.
-#ifndef MIMUSB_ANSWER_BYTES
-#define MIMUSB_ANSWER_BYTES 4096
-#endif
 _Static_assert(MIMUSB_ANSWER_BYTES >= 1 && MIMUSB_ANSWER_BYTES <= 0xFFFF, "a length fits the wire");
 // ANSWER_LAST_SENT rules each keep the last transfer on their endpoint in a buffer of
 // MIMUSB_MAX_TRANSFER_BYTES, apart from the tables (they are written as transfers are sent): one for
 // each Input report of fifteen interfaces (2 each, as above) and two to spare.
-#ifndef MIMUSB_LAST_SENT_SLOTS
-#define MIMUSB_LAST_SENT_SLOTS 32
-#endif
 _Static_assert(MIMUSB_LAST_SENT_SLOTS >= 1 && MIMUSB_LAST_SENT_SLOTS <= 254, "a slot is a byte");
 _Static_assert(MIMUSB_CONTROL_DATA_MAX + 3 <= MIMUSB_MAX_FRAME_PAYLOAD, "a reply fits a frame");
 

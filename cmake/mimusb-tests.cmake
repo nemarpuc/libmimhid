@@ -185,12 +185,17 @@ if(MIMUSB_TINYUSB_PATH AND NOT WIN32)
         firmware/common/ep0.c
         firmware/common/usb_descriptors.c
         firmware/common/generic.c)
+    # The limits of the RAM are the real ports': RP2040 (15), nRF52840 (7), STM32F4 with 128 kB (3);
+    # the isochronous board is the RP2040 and the high-speed one the RP2350's (no port is high speed).
+    set(mimusb_sim_limits_15 firmware/rp/limits/rp2040)
+    set(mimusb_sim_limits_7 firmware/ports/nrf52840/limits)
+    set(mimusb_sim_limits_3 firmware/ports/stm32f4/limits/ram128k)
     foreach(itfs 15 7 3) # the highest endpoint number the simulated board has
         add_executable(mimusb_sim_${itfs}
             ${MIMUSB_SIM_SOURCES}
             $<TARGET_OBJECTS:mimusb_test_objects>)
         target_include_directories(mimusb_sim_${itfs} PRIVATE
-            include src proto tests tests/sim
+            include src proto tests tests/sim ${mimusb_sim_limits_${itfs}}
             firmware/tests firmware/common ${MIMUSB_TINYUSB_PATH}/src)
         # What a port's build states (firmware/common/core.h): the highest endpoint number, the
         # packet size and the speed.
@@ -211,7 +216,7 @@ if(MIMUSB_TINYUSB_PATH AND NOT WIN32)
         ${MIMUSB_SIM_SOURCES}
         $<TARGET_OBJECTS:mimusb_test_objects>)
     target_include_directories(mimusb_sim_iso PRIVATE
-        include src proto tests tests/sim
+        include src proto tests tests/sim firmware/rp/limits/rp2040
         firmware/tests firmware/common ${MIMUSB_TINYUSB_PATH}/src)
     target_compile_definitions(mimusb_sim_iso PRIVATE
         SIM_ENDPOINTS=15 SIM_ISO
@@ -228,7 +233,7 @@ if(MIMUSB_TINYUSB_PATH AND NOT WIN32)
         ${MIMUSB_SIM_SOURCES}
         $<TARGET_OBJECTS:mimusb_test_objects>)
     target_include_directories(mimusb_sim_hs PRIVATE
-        include src proto tests tests/sim
+        include src proto tests tests/sim firmware/rp/limits/rp2350
         firmware/tests firmware/common ${MIMUSB_TINYUSB_PATH}/src)
     target_compile_definitions(mimusb_sim_hs PRIVATE
         SIM_ENDPOINTS=7 SIM_HIGH_SPEED

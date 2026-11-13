@@ -51,7 +51,7 @@ void test_events_and_raw() {
     mimusb_board_limits limits{};
     limits.struct_size = sizeof(limits);
     MIMUSB_CHECK(mimusb_device_limits(device, &limits) == MIMUSB_OK &&
-                 limits.max_feature_bytes == 1024 && limits.max_report_bytes == 64 &&
+                 limits.max_feature_bytes == MIMUSB_CONTROL_DATA_MAX && limits.max_report_bytes == 64 &&
                  limits.max_endpoint_bytes == 64 && limits.max_endpoint_number == SIM_ENDPOINTS);
     limits.reserved = 1;
     MIMUSB_CHECK(mimusb_device_limits(device, &limits) == MIMUSB_ERR_PARAM);
@@ -61,10 +61,10 @@ void test_events_and_raw() {
         big[i] = static_cast<std::uint8_t>(i * 7U + 3U);
     MIMUSB_CHECK(mimusb_node_set_feature_response(node, 5, big.data(), big.size(), kControlMs) ==
                  MIMUSB_OK);
-    std::vector<std::uint8_t> got(1024);
+    std::vector<std::uint8_t> got(MIMUSB_CONTROL_DATA_MAX);
     MIMUSB_CHECK(fake_board_feature(0, 5, got.data(), got.size()) == big.size() + 1U &&
                  got[0] == 5 && std::memcmp(got.data() + 1, big.data(), big.size()) == 0);
-    MIMUSB_CHECK(mimusb_node_set_feature_response(node, 5, big.data(), 1025, kControlMs) ==
+    MIMUSB_CHECK(mimusb_node_set_feature_response(node, 5, big.data(), MIMUSB_CONTROL_DATA_MAX + 1U, kControlMs) ==
                  MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_node_set_feature_response(node, 5, feature, sizeof(feature), kControlMs) ==
                  MIMUSB_OK);
