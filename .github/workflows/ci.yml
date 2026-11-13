@@ -7,6 +7,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# `cmake --build --parallel` with no number runs every Makefile job at once, which exhausts a
+# 3-core macOS runner; give it a bound.
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
 permissions:
   contents: read
 
