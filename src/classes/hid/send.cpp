@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimusb contributors
 /*
- * Public C ABI: sending reports, and the serial write path they share with the close paths.
+ * Public C ABI: sending the reports of a HID Node, and the path they share with the close paths. A
+ * report is one write to the Node's interrupt IN endpoint (endpoint_write), as any Node's.
  */
 
 #include "api/support.hpp"
+#include "classes/hid/hid_class.hpp"
 
 #include <array>
 #include <chrono>
@@ -12,6 +14,7 @@
 namespace tr = mimusb::transport;
 
 using mimusb::detail::has_non_neutral_state;
+using mimusb::detail::HidNode;
 using mimusb::detail::kMaximumReportBytes;
 using mimusb::detail::make_neutral;
 using mimusb::detail::public_node_id;
@@ -38,7 +41,7 @@ const char* completion_reason(const mimusb_result result) noexcept {
     }
 }
 
-mimusb_result consume_completion(mimusb_node* node, const char* field) noexcept {
+mimusb_result consume_completion(HidNode* node, const char* field) noexcept {
     const mimusb_result result =
         node->completion_result.exchange(MIMUSB_OK, std::memory_order_acq_rel);
     if (result == MIMUSB_OK) {
@@ -53,25 +56,25 @@ mimusb_result consume_completion(mimusb_node* node, const char* field) noexcept 
         node->completion_report_length.exchange(0U, std::memory_order_relaxed);
     const std::uint16_t completed_report_id =
         node->completion_report_id.exchange(0U, std::memory_order_relaxed);
-    set_error(result, field, completion_reason(result), native_status, 0, public_node_id(node),
-              completed_report_id, 0U, length);
+    set_error(result, field, completion_reason(result), native_status, 0,
+              public_node_id(node->owner), completed_report_id, 0U, length);
     return result;
 }
 
 // Writes one serialized report and settles the node state machine with the outcome, exactly
 // as the completion of an asynchronous transfer would. A negative native status means that no
 // byte reached the serial driver, so the pending state is kept for a resend.
-mimusb_result write_report(mimusb_node* node, const std::uint8_t* report, std::size_t length,
+mimusb_result write_report(HidNode* node, const std::uint8_t* report, std::size_t length,
                            const char* field, std::uint32_t send_timeout_ms) noexcept {
-    mimusb_device* device = node->device;
+    mimusb_device* device = node->owner->device;
     // The same path as a generic Node's write, so the wait policy counts the report.
     mimusb::detail::EndpointRuntime* ep =
-        mimusb::detail::write_runtime(node, node->config.ep_in.address);
+        mimusb::detail::write_runtime(node->owner, node->config.ep_in.address);
     mimusb_result result = ep == nullptr
                                ? MIMUSB_ERR_INTERNAL
-                               : mimusb::detail::endpoint_write(device, public_node_id(node), ep,
-                                                                node->config.ep_in.address, report,
-                                                                length, send_timeout_ms);
+                               : mimusb::detail::endpoint_write(device, public_node_id(node->owner),
+                                                                ep, node->config.ep_in.address,
+                                                                report, length, send_timeout_ms);
     std::int32_t native = 0;
     switch (result) {
     case MIMUSB_OK:
@@ -93,8 +96,7 @@ mimusb_result write_report(mimusb_node* node, const std::uint8_t* report, std::s
     return consume_completion(node, field);
 }
 
-mimusb_result flush_node(mimusb_node* node, const std::uint32_t timeout_ms,
-                         const bool drop_battery) {
+mimusb_result flush_node(HidNode* node, const std::uint32_t timeout_ms, const bool drop_battery) {
     if (timeout_ms == 0U) {
         set_error(MIMUSB_ERR_UNSET_FIELD, "timeout_ms", "A nonzero timeout is required.");
         return MIMUSB_ERR_UNSET_FIELD;
@@ -112,7 +114,7 @@ mimusb_result flush_node(mimusb_node* node, const std::uint32_t timeout_ms,
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
         const mimusb_result submit = mimusb_node_submit(
-            node, left.count() > 0 ? static_cast<std::uint32_t>(left.count()) : 1U);
+            node->owner, left.count() > 0 ? static_cast<std::uint32_t>(left.count()) : 1U);
         if (submit != MIMUSB_OK)
             return submit;
         if (std::chrono::steady_clock::now() >= deadline)
@@ -121,8 +123,9 @@ mimusb_result flush_node(mimusb_node* node, const std::uint32_t timeout_ms,
     if (!node->dirty && !node->battery_dirty)
         return MIMUSB_OK;
     set_error(MIMUSB_ERR_TIMEOUT, "node.submit_blocking",
-              "The report sequence did not finish before the deadline.", 0, 0, public_node_id(node),
-              report_id(node), 0U, static_cast<std::uint32_t>(node->spec->layout.wire_bytes));
+              "The report sequence did not finish before the deadline.", 0, 0,
+              public_node_id(node->owner), report_id(node), 0U,
+              static_cast<std::uint32_t>(node->spec->layout.wire_bytes));
     return MIMUSB_ERR_TIMEOUT;
 }
 
@@ -130,10 +133,8 @@ mimusb_result flush_node(mimusb_node* node, const std::uint32_t timeout_ms,
 
 namespace mimusb::detail {
 
-// Sends a node's pending reports until it is clean, for the close paths.
-mimusb_result send_neutral(mimusb_node* node, std::uint32_t timeout_ms) {
-    if (node->generic)
-        return MIMUSB_OK; // no report state: what the target sees of it ends with the commit
+// Sends a Node's pending reports until it is clean, for the close paths.
+mimusb_result send_neutral(HidNode* node, std::uint32_t timeout_ms) {
     mimusb_result result = MIMUSB_OK;
     if (node->transfer_inflight.load(std::memory_order_acquire) || touch_frame_in_progress(node)) {
         result = flush_node(node, timeout_ms, true);
@@ -144,7 +145,7 @@ mimusb_result send_neutral(mimusb_node* node, std::uint32_t timeout_ms) {
     if (terminal != MIMUSB_OK)
         return terminal;
     node->battery_dirty = false;
-    if (node->device->link.failed())
+    if (node->owner->device->link.failed())
         return MIMUSB_OK; // the target keeps whatever it last saw; nothing can be sent
     make_neutral(node);
     if (node->dirty)
@@ -156,10 +157,12 @@ mimusb_result send_neutral(mimusb_node* node, std::uint32_t timeout_ms) {
 
 extern "C" {
 
-mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
+mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* handle,
                                              const std::uint32_t send_timeout_ms) try {
+    HidNode* node = mimusb::detail::hid_node(handle);
     mimusb::detail::clear_error();
-    if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr) {
+    if (node == nullptr || node->owner->closed || node->owner->device == nullptr ||
+        node->spec == nullptr) {
         set_error(MIMUSB_ERR_PARAM, "node.submit",
                   "A live Node attached to a Device and Spec is required.");
         return MIMUSB_ERR_PARAM;
@@ -199,7 +202,7 @@ mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
         battery_report ? node->spec->battery_layout : node->spec->layout;
     std::array<std::uint8_t, kMaximumReportBytes> buffer; // only wire_bytes of it is used
     if (layout.wire_bytes > buffer.size() ||
-        layout.wire_bytes > node->device->maximum_report_bytes) {
+        layout.wire_bytes > node->owner->device->maximum_report_bytes) {
         node->transfer_inflight.store(false, std::memory_order_release);
         set_error(MIMUSB_ERR_OVERFLOW, "node.submit",
                   "The report is longer than the board or the caller allows.");
@@ -250,7 +253,7 @@ mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
         node->transfer_inflight.store(false, std::memory_order_release);
         return serialized;
     }
-    if (node->device->config.transport.validate_reports == 1U) {
+    if (node->owner->device->config.transport.validate_reports == 1U) {
         const mimusb_result validated = mimusb::detail::validate_serialized_report(
             node->spec, layout, buffer.data(), report_length);
         if (validated != MIMUSB_OK) {
@@ -273,10 +276,12 @@ mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
 }
 MIMUSB_C_RESULT_CATCH("node.submit")
 
-mimusb_result MIMUSB_CALL mimusb_node_submit_blocking(mimusb_node* node,
+mimusb_result MIMUSB_CALL mimusb_node_submit_blocking(mimusb_node* handle,
                                                       const std::uint32_t timeout_ms) try {
+    HidNode* node = mimusb::detail::hid_node(handle);
     mimusb::detail::clear_error();
-    if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr) {
+    if (node == nullptr || node->owner->closed || node->owner->device == nullptr ||
+        node->spec == nullptr) {
         set_error(MIMUSB_ERR_PARAM, "node.submit_blocking",
                   "A live Node with an attached Device and Spec is required.");
         return MIMUSB_ERR_PARAM;
@@ -287,12 +292,13 @@ mimusb_result MIMUSB_CALL mimusb_node_submit_blocking(mimusb_node* node,
 }
 MIMUSB_C_RESULT_CATCH("node.submit_blocking")
 
-mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* node, const std::uint8_t* report,
+mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* handle, const std::uint8_t* report,
                                             const std::size_t length,
                                             const std::uint32_t send_timeout_ms) try {
+    HidNode* node = mimusb::detail::hid_node(handle);
     mimusb::detail::clear_error();
-    if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr ||
-        node->spec->kind != MIMUSB_PROFILE_HID || report == nullptr) {
+    if (node == nullptr || node->owner->closed || node->owner->device == nullptr ||
+        node->spec == nullptr || node->spec->kind != MIMUSB_PROFILE_HID || report == nullptr) {
         set_error(MIMUSB_ERR_PARAM, "hid.submit",
                   "A live generic HID Node and a report are required.");
         return MIMUSB_ERR_PARAM;
@@ -337,7 +343,8 @@ mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* node, const std::uint8_
         if ((report[length - 1U] & static_cast<std::uint8_t>(~valid_mask)) != 0U) {
             node->transfer_inflight.store(false, std::memory_order_release);
             set_error(MIMUSB_ERR_PARAM, "hid.report.trailing_padding",
-                      "Unused trailing Input-report bits must be zero.", 0, 0, public_node_id(node),
+                      "Unused trailing Input-report bits must be zero.", 0, 0,
+                      public_node_id(node->owner),
                       accepted->report_id.enabled == 1U ? accepted->report_id.value : 0U,
                       static_cast<std::uint32_t>(length - 1U), 1U);
             return MIMUSB_ERR_PARAM;
@@ -346,7 +353,7 @@ mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* node, const std::uint8_
     } else {
         submitted_id = (node->has_report_ids && length > 0U) ? report[0] : 0U;
     }
-    if (length > kMaximumReportBytes || length > node->device->maximum_report_bytes) {
+    if (length > kMaximumReportBytes || length > node->owner->device->maximum_report_bytes) {
         node->transfer_inflight.store(false, std::memory_order_release);
         set_error(MIMUSB_ERR_OVERFLOW, "hid.report",
                   "The report is longer than the board or the caller allows.");

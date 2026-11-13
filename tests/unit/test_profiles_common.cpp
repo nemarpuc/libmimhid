@@ -3,6 +3,7 @@
 /* What every profile shares: report validation at send time, error fields that name the
  * caller's structure, and the profile numbers of the ABI. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
@@ -32,34 +33,36 @@ void test_send_time_report_validation() {
         return;
 
     mimusb_node node{};
-    node.spec = spec;
+    mimusb::detail::attach_hid(&node, spec);
     mimusb::detail::KeyboardState state_value{};
     const std::size_t key_count =
         static_cast<std::size_t>(options.usage_maximum - options.usage_minimum) + 1U;
     state_value.pressed_bitmap.resize(key_count);
     state_value.key_transitions.resize(key_count);
-    node.state = std::move(state_value);
+    mimusb::detail::hid_node(&node)->state = std::move(state_value);
     MIMUSB_CHECK(mimusb_keyboard_key(&node, 0x04U, 1U) == MIMUSB_OK);
     std::array<std::uint8_t, 64U> report{};
     std::size_t length = 0U;
-    MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(), &length) ==
-                 MIMUSB_OK);
-    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(spec, report.data(), length) ==
-                 MIMUSB_OK);
-    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(spec, report.data(), length - 1U) ==
-                 MIMUSB_ERR_INTERNAL);
+    MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                report.size(), &length) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(mimusb::detail::hid_spec(spec),
+                                                            report.data(), length) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(mimusb::detail::hid_spec(spec),
+                                                            report.data(),
+                                                            length - 1U) == MIMUSB_ERR_INTERNAL);
 
     report[0] = 4U;
-    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(spec, report.data(), length) ==
-                 MIMUSB_ERR_INTERNAL);
+    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(
+                     mimusb::detail::hid_spec(spec), report.data(), length) == MIMUSB_ERR_INTERNAL);
     report[0] = 5U;
     const auto* padding = field(spec, mimusb::hid::FieldSemantic::constant_padding);
     MIMUSB_CHECK(padding != nullptr);
     if (padding != nullptr) {
         report[padding->bit_offset / 8U] = static_cast<std::uint8_t>(
             report[padding->bit_offset / 8U] | (1U << (padding->bit_offset & 7U)));
-        MIMUSB_CHECK(mimusb::detail::validate_serialized_report(spec, report.data(), length) ==
-                     MIMUSB_ERR_INTERNAL);
+        MIMUSB_CHECK(mimusb::detail::validate_serialized_report(mimusb::detail::hid_spec(spec),
+                                                                report.data(),
+                                                                length) == MIMUSB_ERR_INTERNAL);
     }
     mimusb_spec_release(spec);
 }

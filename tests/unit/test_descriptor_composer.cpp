@@ -5,12 +5,12 @@
  * went through that builder and the bytes were written down), so the target sees the same
  * descriptors as before. Also: the gap check of the interface numbers, the shared-interface
  * rules, and the serial number made from the chip id. */
+#include "classes/hid/hid_layer.hpp"
 #include "mimusb.h"
 #include "mimusb_proto.h"
 #include "test.hpp"
 #include "usb/descriptor_composer.hpp"
 #include "usb/descriptor_walker.hpp"
-#include "usb/hid_layer.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -574,7 +574,8 @@ void test_general_vendor_and_association() {
 // and the values that tell them apart. The board's table is made from exactly these.
 void test_hid_rules() {
     using mimusb::usb::BoardRule;
-    using Role = BoardRule::Role;
+    using mimusb::usb::HidTag;
+    using mimusb::usb::tag;
     // One Node without Report IDs: 2 descriptors, GET_REPORT Input from the last report (no
     // first-byte filter, any Report ID), SET_REPORT, SET_IDLE and SET_PROTOCOL taken, and the two
     // GET requests of one byte.
@@ -596,19 +597,24 @@ void test_hid_rules() {
                      rules[2].rule.value_mask == 0xFF00U &&
                      rules[2].rule.endpoint_address == 0x81U &&
                      rules[2].rule.first_byte_filter == 0U);
-        MIMUSB_CHECK(rules[3].role == Role::hid_set_report &&
+        MIMUSB_CHECK(rules[3].tag == tag(HidTag::set_report) &&
                      rules[3].rule.action == MIMUSB_CONTROL_ACCEPT &&
                      rules[3].rule.request_value == 9U);
-        MIMUSB_CHECK(rules[4].role == Role::hid_set_idle &&
+        MIMUSB_CHECK(rules[4].tag == tag(HidTag::set_idle) &&
                      rules[4].rule.action == MIMUSB_CONTROL_ACCEPT &&
                      rules[4].rule.request_value == 10U);
-        MIMUSB_CHECK(rules[5].role == Role::hid_set_protocol &&
+        MIMUSB_CHECK(rules[5].tag == tag(HidTag::set_protocol) &&
                      rules[5].rule.action == MIMUSB_CONTROL_ACCEPT &&
                      rules[5].rule.request_value == 11U);
-        MIMUSB_CHECK(rules[6].role == Role::hid_get_idle &&
-                     rules[6].data == std::vector<std::uint8_t>{0U});
-        MIMUSB_CHECK(rules[7].role == Role::hid_get_protocol &&
-                     rules[7].data == std::vector<std::uint8_t>{1U}); // the report protocol (7.2.6)
+        MIMUSB_CHECK(rules[6].tag == tag(HidTag::get_idle) && rules[6].live &&
+                     rules[6].data == std::vector<std::uint8_t>{0U} &&
+                     rules[6].initial == rules[6].data);
+        MIMUSB_CHECK(rules[7].tag == tag(HidTag::get_protocol) && rules[7].live &&
+                     rules[7].data ==
+                         std::vector<std::uint8_t>{1U} && // the report protocol (7.2.6)
+                     rules[7].initial == rules[7].data);
+        for (std::size_t i = 0U; i < 6U; ++i)
+            MIMUSB_CHECK(!rules[i].live);
         for (const BoardRule& r : rules) // every rule is of its interface
             MIMUSB_CHECK(r.rule.index_mask == 0xFFFFU && r.rule.index_value == 0U && r.iface == 0U);
     }

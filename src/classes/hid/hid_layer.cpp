@@ -2,7 +2,7 @@
 // Copyright (c) 2026 libmimusb contributors
 /* HID 1.11 6.2.1: the HID descriptor; 7.1: it follows the Interface descriptor. */
 
-#include "usb/hid_layer.hpp"
+#include "classes/hid/hid_layer.hpp"
 
 #include <map>
 
@@ -88,12 +88,11 @@ std::vector<std::uint8_t> hid_descriptor(const mimusb::usb::HidNodeConfig& confi
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-BoardRule make_rule(const BoardRule::Role role, const std::uint8_t iface,
-                    const std::uint8_t request_type, const std::uint8_t request,
-                    const std::uint16_t value_mask, const std::uint16_t value,
-                    const mimusb_control_rule_action action) {
+BoardRule make_rule(const HidTag role, const std::uint8_t iface, const std::uint8_t request_type,
+                    const std::uint8_t request, const std::uint16_t value_mask,
+                    const std::uint16_t value, const mimusb_control_rule_action action) {
     BoardRule r;
-    r.role = role;
+    r.tag = tag(role);
     r.iface = iface;
     r.rule.request_type_mask = 0xFFU;
     r.rule.request_type_value = request_type;
@@ -189,16 +188,16 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         const HidNodeInput& first = *group.front();
         const std::uint8_t iface = static_cast<std::uint8_t>(number);
         const std::vector<std::uint8_t> report_descriptor = joined_descriptor(group);
-        using Role = BoardRule::Role;
+        using Role = HidTag;
 
         // GET_DESCRIPTOR of the report descriptor and of the HID descriptor (HID 1.11 7.1.1): the
         // type in the high byte of wValue, any index.
         BoardRule r =
-            make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
+            make_rule(Role::other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
                       static_cast<std::uint16_t>(kTypeHidReport << 8U), MIMUSB_CONTROL_ANSWER);
         r.data = report_descriptor;
         out.push_back(r);
-        r = make_rule(Role::hid_other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
+        r = make_rule(Role::other, iface, kStandardInterfaceIn, kGetDescriptor, 0xFF00U,
                       static_cast<std::uint16_t>(kTypeHid << 8U), MIMUSB_CONTROL_ANSWER);
         r.data = hid_descriptor(first.config, report_descriptor.size());
         out.push_back(r);
@@ -215,7 +214,7 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         }
         const auto last_sent = [&](const std::uint16_t value_mask, const std::uint16_t value,
                                    const bool filter, const std::uint8_t id) {
-            BoardRule rule = make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport,
+            BoardRule rule = make_rule(Role::other, iface, kClassInterfaceIn, kGetReport,
                                        value_mask, value, MIMUSB_CONTROL_ANSWER_LAST_SENT);
             rule.rule.endpoint_address = first.config.ep_in.address;
             rule.rule.first_byte_filter = filter ? 1U : 0U;
@@ -237,7 +236,7 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         for (const HidNodeInput* node : group) {
             for (const HidNodeInput::Feature& feature : node->features) {
                 BoardRule rule =
-                    make_rule(Role::hid_other, iface, kClassInterfaceIn, kGetReport, 0xFFFFU,
+                    make_rule(Role::feature, iface, kClassInterfaceIn, kGetReport, 0xFFFFU,
                               static_cast<std::uint16_t>(kFeatureReport | feature.report_id),
                               MIMUSB_CONTROL_ANSWER);
                 if (feature.report_id != 0U)
@@ -250,27 +249,32 @@ std::vector<BoardRule> compose_hid_rules(const std::vector<HidNodeInput>& nodes)
         // SET_REPORT, SET_IDLE and SET_PROTOCOL (7.2.2, 7.2.4, 7.2.6): taken, and reported to the
         // program by the library. Any value: the report type and ID, the idle rate and the
         // protocol are in wValue, and are read from the setup packet that is reported.
-        out.push_back(make_rule(Role::hid_set_report, iface, kClassInterfaceOut, kSetReport, 0U, 0U,
+        out.push_back(make_rule(Role::set_report, iface, kClassInterfaceOut, kSetReport, 0U, 0U,
                                 MIMUSB_CONTROL_ACCEPT));
-        out.push_back(make_rule(Role::hid_set_idle, iface, kClassInterfaceOut, kSetIdle, 0U, 0U,
+        out.push_back(make_rule(Role::set_idle, iface, kClassInterfaceOut, kSetIdle, 0U, 0U,
                                 MIMUSB_CONTROL_ACCEPT));
-        out.push_back(make_rule(Role::hid_set_protocol, iface, kClassInterfaceOut, kSetProtocol, 0U,
-                                0U, MIMUSB_CONTROL_ACCEPT));
+        out.push_back(make_rule(Role::set_protocol, iface, kClassInterfaceOut, kSetProtocol, 0U, 0U,
+                                MIMUSB_CONTROL_ACCEPT));
 
         // GET_IDLE and GET_PROTOCOL (7.2.3, 7.2.5): one byte each, kept by the library as the
         // target sets them. HID 1.11 7.2.4: the idle rate is 0 until the host sets it; 7.2.6: the
         // protocol is the report protocol, 1, at the start.
-        r = make_rule(Role::hid_get_idle, iface, kClassInterfaceIn, kGetIdle, 0U, 0U,
+        r = make_rule(Role::get_idle, iface, kClassInterfaceIn, kGetIdle, 0U, 0U,
                       MIMUSB_CONTROL_ANSWER);
         r.data = {0U};
         out.push_back(r);
-        r = make_rule(Role::hid_get_protocol, iface, kClassInterfaceIn, kGetProtocol, 0U, 0U,
+        r = make_rule(Role::get_protocol, iface, kClassInterfaceIn, kGetProtocol, 0U, 0U,
                       MIMUSB_CONTROL_ANSWER);
         r.data = {1U};
         out.push_back(r);
     }
-    for (BoardRule& rule : out)
+    for (BoardRule& rule : out) {
         rule.capacity = static_cast<std::uint16_t>(rule.data.size());
+        if (rule.tag == tag(HidTag::get_idle) || rule.tag == tag(HidTag::get_protocol)) {
+            rule.live = true;
+            rule.initial = rule.data;
+        }
+    }
     return out;
 }
 

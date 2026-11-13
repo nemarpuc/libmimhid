@@ -4,6 +4,7 @@
  * an unknown value gives), the thread-local last error, the version, the log filter and the
  * structure-size check. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "mimusb.h"
 #include "mimusb_proto.h"
 #include "test.hpp"

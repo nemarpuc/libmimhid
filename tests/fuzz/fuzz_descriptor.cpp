@@ -8,6 +8,7 @@
  */
 
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
@@ -82,14 +83,14 @@ void fuzz_serializer(const std::uint8_t* data, const std::size_t size) {
     if (size > 11U)
         state.pan = static_cast<std::int8_t>(data[11U]);
     mimusb_node node{};
-    node.spec = spec;
-    node.state = std::move(state);
+    mimusb::detail::attach_hid(&node, spec);
+    mimusb::detail::hid_node(&node)->state = std::move(state);
     std::array<std::uint8_t, 256U> report{};
     std::size_t report_length = 0U;
-    if (mimusb::detail::serialize_node(&node, report.data(), report.size(), &report_length) ==
-        MIMUSB_OK) {
-        static_cast<void>(
-            mimusb::detail::validate_serialized_report(spec, report.data(), report_length));
+    if (mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                       report.size(), &report_length) == MIMUSB_OK) {
+        static_cast<void>(mimusb::detail::validate_serialized_report(mimusb::detail::hid_spec(spec),
+                                                                     report.data(), report_length));
     }
     mimusb_spec_release(spec);
 }

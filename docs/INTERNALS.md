@@ -6,10 +6,10 @@ How the host implementation behind `include/mimusb.h` works: which object owns w
 
 | Directory | Holds | Depends on |
 | --- | --- | --- |
-| `src/api` | The ABI boundary, split across four files by what an entry point works on: `c_api_device.cpp` (discovery, Device lifecycle, control transfers), `c_api_node.cpp` (opening, configuring, and closing Nodes), `c_api_send.cpp` (report submission and the serial write path), and `device_ops.cpp` (the internals the entry points share: option checks, interface assignment, the rule table, commit, event delivery) and `c_api_endpoint.cpp` (the endpoint calls and `endpoint_write`, which a profile Node's reports use too). `support.hpp` declares what crosses files and holds the exception-barrier macros; `internal.hpp` defines the handles; `error_detail.cpp` holds the per-thread error record. | everything below |
-| `src/usb` | `descriptor_composer.cpp` composes the device, configuration and string descriptors (no class); `hid_layer.cpp` groups profile Nodes into interfaces (`compose_hid_groups`) and writes their control rules (`compose_hid_rules`); `board_rule.hpp` is one rule as the library keeps it. Pure code, no I/O. | `src/hid` |
-| `src/profiles` | `spec.cpp` builds a Spec from the options of each profile. `state.cpp` holds the per-Node state machines and the bit-exact serializers. | `src/hid` |
-| `src/classes` | One file for each class of function that keeps no state: `cdc_acm.cpp` makes the `mimusb_spec_create_cdc_acm` Spec, and, at the placement of its Node, the interfaces, class descriptors, association and control rules, which `mimusb_node_open` opens as it opens any interfaces (`open_interfaces` in `src/api/c_api_node.cpp`). A class without a state is added here, as one more factory and one more `build_*` function; the board and `src/usb` do not change. |
+| `src/api` | The ABI boundary, which knows no class, split by what an entry point works on: `c_api_device.cpp` (discovery, Device lifecycle, control transfers), `c_api_node.cpp` (opening, configuring, and closing Nodes of any class), `c_api_spec.cpp` (what every Spec answers, through its class), `c_api_bytes.cpp` (a Device given as bytes), `device_ops.cpp` (the internals the entry points share: option checks, the composition of the classes' layouts, the rule table and its live answers, commit, event delivery to the classes) and `c_api_endpoint.cpp` (the endpoint calls and `endpoint_write`, which a HID Node's reports use too). `support.hpp` declares what crosses files and holds the exception-barrier macros; `internal.hpp` defines the handles; `error_detail.cpp` holds the per-thread error record. | everything below |
+| `src/usb` | `descriptor_composer.cpp` composes the device, configuration and string descriptors (no class); `descriptor_walker.cpp` checks a device given as bytes; `board_rule.hpp` is one rule as the library keeps it, with the class that wrote it. Pure code, no I/O. | nothing |
+| `src/classes` | `function_class.hpp` is the one shape every class has (`FunctionClass`: build, compose, the events of its rules and endpoints; `NodeClass`: a Node's runtime). `interfaces.cpp` (any class, as the caller describes it, `mimusb_spec_create_interfaces`) and `cdc_acm.cpp` keep no state. A new class is one more file here with its `FunctionClass` and its `mimusb_spec_create_*` factory; `src/api` and the board do not change. | `src/usb` |
+| `src/classes/hid` | The HID class. `hid_class.cpp` is its `FunctionClass` (the Node's interface and runtime at the placement, the requests its rules take) and `mimusb_node_set_feature_response`; `hid_layer.cpp` joins the Nodes that share an interface (`compose_hid_groups`) and writes their control rules (`compose_hid_rules`); `spec_*.cpp` build a Spec from the options of each profile (`spec_support.hpp`: what they share, `build_generated_spec`); `state_*.cpp` hold each profile's state machine, `report.cpp` the bit-exact serializers and `transfer_complete`, `neutral.cpp` the neutral state, `send.cpp` the report submission. | `src/hid`, `src/api` |
 | `src/hid` | The report descriptor builder (`descriptor_builder`, `item_writer`), the layout it records (`report_layout.hpp`), and the validator that parses a descriptor back (`validator.cpp`). | nothing |
 | `src/transport` | `frame.*` (`FrameParser`, `encode_frame`, `decode_pong`), `Link` (ACK and retry, reader thread), `Handshaker` (finds a board and agrees a line rate), and `SerialPort` with one implementation per platform (`serial_posix.cpp`, `serial_baud_linux.cpp`, `serial_win32.cpp`) and port listing (`ports_linux.cpp`, `ports_macos.cpp`, `ports_win32.cpp`). | `proto/mimusb_proto.h` |
 
@@ -19,10 +19,10 @@ How the host implementation behind `include/mimusb.h` works: which object owns w
 
 | Handle | Definition | Holds |
 | --- | --- | --- |
-| `mimusb_spec` | `src/api/internal.hpp` | An atomic reference count, the descriptor bytes, the `ReportLayout`, the `DescriptorRequirements`, the report capabilities, the copied options, and the optional battery layout. |
+| `mimusb_spec` | `src/api/internal.hpp` | An atomic reference count, the profile kind, the `FunctionClass` the Spec is of, and what that class keeps of it (`SpecData`): for HID a `HidSpec` (the descriptor bytes, the `ReportLayout`, the `DescriptorRequirements`, the report capabilities, the copied options, and the optional battery layout), for the others the interfaces or the options. |
 | `mimusb_discovery` | `src/api/internal.hpp` | A vector of `mimusb_device_info`, a snapshot. |
 | `mimusb_device` | `src/api/internal.hpp` | A copy of the config, the board's answer (`BoardInfo`), the `Link` (and with it the port and the reader thread), the copied USB strings, the rule table and its bookkeeping (below), `slots` (the Nodes by node id, a vector that grows with the Nodes, at most 65534), and the state flags below. |
-| `mimusb_node` | `src/api/internal.hpp` | A retained Spec, the `NodeState` variant, the node id (an index into `slots`; the board does not know it) and interface numbers (the real `bInterfaceNumber`s) and, for a Node of the general open, its interfaces with each endpoint's runtime (wait count and policy, guarded by the Device's `endpoint_mutex` and signalled on `endpoint_cv`), the Node's own control rules (`rules`, generic Nodes), the Feature answers, the submitted-report bookkeeping, and the completion fields. |
+| `mimusb_node` | `src/api/internal.hpp` | A retained Spec, the node id (an index into `slots`; the board does not know it), the interfaces its class built at the placement with the interface numbers (the real `bInterfaceNumber`s) and endpoint addresses it owns, each IN endpoint's runtime (wait count and policy, guarded by the Device's `endpoint_mutex` and signalled on `endpoint_cv`), the Node's own control rules (`rules`: the placement's extra rules, then its class's), and the runtime of a class that keeps a state (`runtime`, a `NodeClass`; for HID a `HidNode`: the `NodeState` variant, the Feature answers, the submitted-report bookkeeping, and the completion fields). |
 
 There is no Context: a Device owns its port and one reader thread, so two Devices share nothing. A Node keeps its own reference to its Spec, which is why the caller may release a Spec after `mimusb_node_open`.
 
@@ -48,7 +48,7 @@ The error record is `thread_local` (`error_detail.cpp`): each call clears it on 
 
 ## The report path
 
-`mimusb_node_submit` (`c_api_send.cpp`) builds and writes one report, synchronously:
+`mimusb_node_submit` (`src/classes/hid/send.cpp`) builds and writes one report, synchronously:
 
 1. Check the arguments and the profile (a generic HID Node must use `mimusb_hid_submit`).
 2. `link_available`: refuse when the serial link is gone, the Node was opened in a batch that has not ended, or the board is re-enumerating.
@@ -105,7 +105,7 @@ Each decision states what the code does. A reason is given only where the reposi
 
 ### Reports are written synchronously, one in flight per Node
 
-- **Decision:** The Node mutators in `src/profiles/state.cpp` change fixed-size arrays inside `NodeState`. `mimusb_node_submit` serializes the report into a stack buffer (`std::array<std::uint8_t, kMaximumReportBytes>`) and `Link::send_report` writes the frame under `tx_mutex_` on the caller's thread. `mimusb_node::transfer_inflight` allows one report of a Node in flight at a time.
+- **Decision:** The Node mutators in `src/classes/hid/state_*.cpp` change fixed-size arrays inside `NodeState`. `mimusb_node_submit` serializes the report into a stack buffer (`std::array<std::uint8_t, kMaximumReportBytes>`) and `Link::send_report` writes the frame under `tx_mutex_` on the caller's thread. `mimusb_node::transfer_inflight` allows one report of a Node in flight at a time.
 - **Reason:** Not recorded.
 - **Rejected:** Not recorded.
 
@@ -141,7 +141,7 @@ Each decision states what the code does. A reason is given only where the reposi
 
 ### A generated descriptor is built twice and parsed back
 
-- **Decision:** `build_generated_spec` (`src/profiles/spec.cpp`) runs each profile's recipe against a counting `DescriptorBuilder` (`counting_builder`) for the size, the layout, and the `DescriptorRequirements`, then against an emitting one (`emitting_builder`) into a buffer of that size. Any difference in size or requirements between the two passes is `MIMUSB_ERR_INTERNAL`. The result is then parsed back by `validate_generated` (`src/hid/validator.cpp`).
+- **Decision:** `build_generated_spec` (`src/classes/hid/spec_support.hpp`) runs each profile's recipe against a counting `DescriptorBuilder` (`counting_builder`) for the size, the layout, and the `DescriptorRequirements`, then against an emitting one (`emitting_builder`) into a buffer of that size. Any difference in size or requirements between the two passes is `MIMUSB_ERR_INTERNAL`. The result is then parsed back by `validate_generated` (`src/hid/validator.cpp`).
 - **Reason:** Not recorded.
 - **Rejected:** Not recorded.
 

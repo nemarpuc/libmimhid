@@ -3,6 +3,7 @@
 /* Raw profile: Report ID order, the report table rules and the factory bounds checked before
  * anything is allocated. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"

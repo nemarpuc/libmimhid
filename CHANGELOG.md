@@ -50,6 +50,13 @@ they report (a board must run firmware of the same minor version, 0.7).
   holds, before those the library writes for the HID profiles and those of the Device.
 - `mimusb_node_set_rule_data` numbers a Node's rules as its `extra_rules` first, then the rules its
   Spec brings.
+- Inside the library, HID is a class like any other: every class is a `FunctionClass`
+  (`src/classes/function_class.hpp`) that builds a Node's interfaces and rules at its placement, lays
+  out its Nodes at each commit and hears the requests its rules take. The device layer (`src/api`)
+  knows no class; HID's report state is the runtime of a HID Node (`HidNode`), and the HID code lives
+  in `src/classes/hid/`, one file per profile for the Spec factories (`spec_*.cpp`) and the state
+  machines (`state_*.cpp`). The rules a class answers live (HID's `GET_IDLE`, `GET_PROTOCOL`) are
+  marked as such instead of being known by their kind. No change to the API, the ABI or the wire.
 
 ### Removed
 

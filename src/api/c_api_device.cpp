@@ -17,6 +17,7 @@
 
 namespace tr = mimusb::transport;
 
+using mimusb::detail::before_close;
 using mimusb::detail::command_error;
 using mimusb::detail::commit_device;
 using mimusb::detail::CommitWaits;
@@ -29,7 +30,6 @@ using mimusb::detail::prepare_device_config;
 using mimusb::detail::read_commit_timeouts;
 using mimusb::detail::require_timeout;
 using mimusb::detail::reserved_is_zero;
-using mimusb::detail::send_neutral;
 using mimusb::detail::set_error;
 using mimusb::detail::validate_usb_identity;
 using mimusb::detail::validate_usb_identity_on_board;
@@ -397,7 +397,7 @@ mimusb_result MIMUSB_CALL mimusb_device_close(mimusb_device* device,
             deadline - std::chrono::steady_clock::now());
         const std::uint32_t budget =
             left.count() > 0 ? static_cast<std::uint32_t>(left.count()) : 1U;
-        const mimusb_result neutral = send_neutral(node, budget);
+        const mimusb_result neutral = before_close(node, budget);
         if (neutral != MIMUSB_OK && retained == MIMUSB_OK)
             retained = neutral;
     }

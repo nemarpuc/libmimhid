@@ -18,9 +18,9 @@ Wire details are in [PROTOCOL.md](PROTOCOL.md), the API model in [API.md](API.md
 ```mermaid
 flowchart TD
     App["Application (include/mimusb.h, mimusb.hpp)"]
-    API["src/api: C ABI boundary (validation, handles, errors, node_open, commit, bus control)"]
-    Prof["src/profiles: HID Specs (descriptor + layout) & node state machines"]
-    Cls["src/classes: Specs of a class that keeps no state (CDC-ACM): interfaces and rules made at the placement"]
+    API["src/api: C ABI boundary, class-agnostic (validation, handles, errors, node_open, commit, rule table, events, endpoints)"]
+    Cls["src/classes: one FunctionClass per class (raw interfaces, CDC-ACM, HID): interfaces, rules and runtime of its Nodes"]
+    HidCls["src/classes/hid: HID Specs (descriptor + layout), report state machines, HID rules and events"]
     HID["src/hid: Report descriptor builder, validator, item writer"]
     Trans["src/transport: Link (ACK/retry, reader thread), Handshaker (finds the board and the line rate) and the frame codec, over SerialPort"]
     FWCore["firmware/common: Portable core (frame parser, staged config, control rules, endpoint queues)"]
@@ -28,32 +28,43 @@ flowchart TD
     Target["Target Device (USB Host)"]
 
     App --> API
-    API --> Prof
     API --> Cls
-    Prof --> HID
+    Cls --> HidCls
+    HidCls --> HID
     API --> Trans
     Trans -->|"UART (115,200 at boot, then the fastest verified rate up to max_baud)"| FWCore
     FWCore --> HAL
     HAL -->|"USB Full-Speed"| Target
 ```
 
-The host builds every report. The firmware does not know what a keyboard or a touchscreen is, or what a HID interface is: it holds the descriptors the host uploaded, serves them, answers control requests from a table of rules the host wrote, and forwards the bytes of each transfer to the endpoint the host named. TinyUSB's HID driver is not used: every interface runs on the generic driver, and what HID asks of endpoint 0 is a set of rules the host's profile layer writes.
+The host builds every report. The firmware does not know what a keyboard or a touchscreen is, or what a HID interface is: it holds the descriptors the host uploaded, serves them, answers control requests from a table of rules the host wrote, and forwards the bytes of each transfer to the endpoint the host named. TinyUSB's HID driver is not used: every interface runs on the generic driver, and what HID asks of endpoint 0 is a set of rules the host's HID class writes.
+
+## Function classes
+
+The host has two layers. The low one (`src/api`) knows interfaces, endpoints, control rules and events, and no class. Above it, every class of function is a `FunctionClass` (`src/classes/function_class.hpp`) with the same few operations:
+
+- `build`: what a Spec of the class is at a placement when a Node is opened: its interfaces (with endpoints and class descriptors), its association, its own control rules, and the runtime of a class that keeps a state (a `NodeClass`; for HID the report state of the profile).
+- `compose`: the layout of the class's live Nodes at each commit. By default each Node's interfaces are one group; HID joins the Nodes placed on one interface number (their report descriptors joined) and writes the rules that answer HID's requests.
+- `on_accepted`, `on_control_data`, `on_endpoint_data`: what the program hears of a request one of the class's `ACCEPT` rules took, of its data stage, and of a packet on one of its Nodes' OUT endpoints. A class that does not answer these lets the program hear the plain control transfer or `MIMUSB_EVENT_ENDPOINT_DATA`.
+- `interface_count`, `roles`, `rule_cost`, `reports`: what `mimusb_spec_*` answers for a Spec of the class.
+
+A rule a class writes carries the class (`BoardRule::owner`) and the class's name for it (`tag`); a *live* rule is an `ANSWER` whose bytes the class changes as the target sets them (`set_live_answer`; HID's `GET_IDLE` and `GET_PROTOCOL`), kept across a new rule table and reset to its initial bytes at each `MOUNTED`. The classes are `src/classes/interfaces.cpp` (any class, as the caller describes it), `src/classes/cdc_acm.cpp` and `src/classes/hid/`. A new class is one more `FunctionClass` and its `mimusb_spec_create_*` factory; the low layer and the board do not change.
 
 ## Host
 
 - `Spec` is immutable and reference counted; `Node` holds the mutable state (pressed keys, contact slots, pending motion) and the USB interface settings.
-- `mimusb_node_open` puts a Spec onto explicit interface numbers with a `mimusb_node_placement`: a HID Spec (one HID collection; its roles are the IN and OUT endpoints the placement fills) or a `mimusb_spec_create_interfaces` Spec (any class: interfaces, endpoints, class descriptors, an association; its placement is empty). The interface numbers are the `bInterfaceNumber` the target sees: a commit needs the numbers in use to be 0, 1, 2, ... without a gap.
-- `src/usb/hid_layer.cpp` turns the profile Nodes into interfaces (shared interfaces, joined report descriptors, `compose_hid_groups`) and writes the control rules that make them behave as HID 1.11 asks (`compose_hid_rules`); `src/usb/descriptor_composer.cpp` knows no class: it takes interfaces with their endpoints and class bytes and composes the device, configuration and string descriptors from the Device options and the open Nodes. It is pure (no I/O) and is tested byte for byte.
+- `mimusb_node_open` puts a Spec onto explicit interface numbers with a `mimusb_node_placement`, through the Spec's class (`FunctionClass::build`): a HID Spec (one HID collection; its roles are the IN and OUT endpoints the placement fills), a CDC-ACM Spec (two interfaces from `first_interface`; three roles) or a `mimusb_spec_create_interfaces` Spec (any class: interfaces, endpoints, class descriptors, an association; its placement is empty). Opening, committing and closing are then the same for every class. The interface numbers are the `bInterfaceNumber` the target sees: a commit needs the numbers in use to be 0, 1, 2, ... without a gap.
+- `src/classes/hid/hid_layer.cpp` turns the HID Nodes into interfaces (shared interfaces, joined report descriptors, `compose_hid_groups`) and writes the control rules that make them behave as HID 1.11 asks (`compose_hid_rules`); the HID class calls them from its `compose`. `src/usb/descriptor_composer.cpp` knows no class: it takes interfaces with their endpoints and class bytes and composes the device, configuration and string descriptors from the Device options and the open Nodes. It is pure (no I/O) and is tested byte for byte.
 - Applying a configuration (`mimusb_node_open`, `mimusb_node_close`, `mimusb_device_batch_end`, `mimusb_device_commit`, `mimusb_device_set_usb_identity`, and `mimusb_device_connect` on a Device that is not on the target) runs `commit_device` (`src/api/device_ops.cpp`):
-  - When nodes are left, the host composes the descriptors and the control rules (`build_rule_table`: the Nodes' rules in node order, the library's rules for each profile interface among them, then the Device's own) and sends `DESC_RESET`, the device, configuration and string descriptors (`DESC_BEGIN` and `DESC_DATA`), every `RULE` with the bytes of its answer, and an `EP_CONFIG` for every IN endpoint. Each frame waits up to `control_timeout_ms` and is sent up to three times.
+  - When nodes are left, the host composes the descriptors and the control rules (`build_rule_table`: the Nodes' own rules in node order, the rules the classes write for the layout of their Nodes, then the Device's own) and sends `DESC_RESET`, the device, configuration and string descriptors (`DESC_BEGIN` and `DESC_DATA`), every `RULE` with the bytes of its answer, and an `EP_CONFIG` for every IN endpoint. Each frame waits up to `control_timeout_ms` and is sent up to three times.
   - If the board is already on the target's bus, the host sends a detach `COMMIT` (`Link::disconnect`, payload `{1, 0, 0}`) and then waits `reconnect_delay_ms` (the argument of `mimusb_device_commit`; the other calls pass 0) on the host.
   - The host sends an attach `COMMIT` (`Link::connect`, payload `{0, 0, 0}`) and waits up to `reconnect_timeout_ms` for its `ACK`, which the board sends right after walking and applying the staged configuration and calling `tud_connect()`. The rules are active with it. The call returns then; a Device that asked to report every control transfer gets a `RULES_APPLY` straight after; `mimusb_device_wait_ready` waits for `EVENT MOUNTED`. While a commit runs, input calls return `MIMUSB_ERR_BUSY`.
   - When no node is left, the host sends only a detach `COMMIT`.
 - `mimusb_device_connect` and `mimusb_device_disconnect` turn the board's D+ pull-up on and off.
-- A reader thread parses frames from the board, completes the pending command, tracks the mounted state, and delivers events to `event_sink`. It also turns the events of a profile Node's interface into HID events (`deliver_event`): an `ACCEPT` event of `SET_REPORT`, `SET_IDLE` or `SET_PROTOCOL`, or an `EP_OUT` frame of its OUT endpoint, becomes `MIMUSB_EVENT_OUTPUT_REPORT`, `_FEATURE_REPORT`, `_SET_IDLE` or `_SET_PROTOCOL`, and the answers to `GET_IDLE` and `GET_PROTOCOL` follow what the target set. The reader thread cannot wait for the board, so it hands the change of those answer bytes (`RULE_DATA`) to an updater thread of the Device (`updater_loop`), started with the first commit and stopped at close.
-- Reports are written from the caller's thread through `endpoint_write` (`src/api/c_api_endpoint.cpp`, shared with `mimusb_node_endpoint_write`), under a transmit lock (`Link::tx_mutex_`), from a stack buffer (`c_api_send.cpp`); a profile Node's IN endpoint has its own `EndpointRuntime`, so it has a queue policy like any other.
+- A reader thread parses frames from the board, completes the pending command, tracks the mounted state, and delivers events to `event_sink`. It hands a request taken by a class's `ACCEPT` rule, its data stage, and an `EP_OUT` frame of a Node's endpoint to that class (`deliver_event`); the HID class makes `MIMUSB_EVENT_OUTPUT_REPORT`, `_FEATURE_REPORT`, `_SET_IDLE` and `_SET_PROTOCOL` of them, and its live answers to `GET_IDLE` and `GET_PROTOCOL` follow what the target set. The reader thread cannot wait for the board, so it hands the change of live answer bytes (`RULE_DATA`) to an updater thread of the Device (`updater_loop`), started with the first commit and stopped at close.
+- Reports are written from the caller's thread through `endpoint_write` (`src/api/c_api_endpoint.cpp`, shared with `mimusb_node_endpoint_write`), under a transmit lock (`Link::tx_mutex_`), from a stack buffer (`src/classes/hid/send.cpp`); a HID Node's IN endpoint has its own `EndpointRuntime`, so it has a queue policy like any other, and Nodes sharing one endpoint give the board the least depth of theirs.
 - `mimusb_node_endpoint_write` sends the transfers of an IN endpoint as `EP_IN` frames split on packet boundaries; with the wait policy it counts frames against the board's `EP_DONE` events and blocks on a condition variable with no Device lock held. `EP_OUT` frames become `MIMUSB_EVENT_ENDPOINT_DATA`.
-- Closing a node sends its neutral report (all keys up, contacts lifted) before the configuration changes.
+- Closing a node lets its class finish first (`NodeClass::before_close`): a HID Node sends its neutral report (all keys up, contacts lifted) before the configuration changes.
 
 ## Interface configuration
 

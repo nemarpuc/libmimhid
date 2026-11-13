@@ -62,12 +62,6 @@ constexpr int kCommandAttempts = 3;
 // The largest report this library sends: a high-speed interrupt endpoint packet.
 constexpr std::size_t kMaximumReportBytes = MIMUSB_HOST_MAX_REPORT_BYTES;
 
-inline std::uint16_t report_id(const mimusb_node* node) noexcept {
-    return node != nullptr && node->spec != nullptr && node->spec->layout.has_report_id
-               ? node->spec->layout.report_id
-               : 0U;
-}
-
 inline std::uint16_t public_node_id(const mimusb_node* node) noexcept {
     return node == nullptr ? std::uint16_t{0} : static_cast<std::uint16_t>(node->node_id + 1U);
 }
@@ -92,9 +86,6 @@ mimusb_result validate_usb_identity_on_board(const tr::BoardInfo& board,
 mimusb_result prepare_device_config(const mimusb_device_config* config,
                                     mimusb_device_config* effective) noexcept;
 
-void collect_report_ids(const std::vector<std::uint8_t>& descriptor, std::bitset<256>* ids,
-                        bool* has_ids);
-
 // Maps a failed board command to a result and records the error.
 mimusb_result command_error(const tr::CommandResult& result, const char* field, const char* reason,
                             std::uint8_t frame_type, std::uint16_t node_id = 0U) noexcept;
@@ -111,7 +102,7 @@ void publish_node(mimusb_device* device, mimusb_node* node);
 void unpublish_node(mimusb_device* device, const mimusb_node* node);
 
 // The depth of the queue of a HID interface's IN endpoint: the least any live Node on it set.
-std::uint8_t hid_interface_depth(mimusb_device* device, std::uint8_t iface);
+std::uint8_t shared_depth(const std::vector<mimusb_node*>& nodes, std::uint8_t address);
 // The runtime (count of transfers the board has not finished) of the IN endpoint `address` a Node
 // writes to; null when the Node has no such endpoint.
 EndpointRuntime* write_runtime(mimusb_node* node, std::uint8_t address);
@@ -162,6 +153,10 @@ mimusb_result send_rule_data(mimusb_device* device, std::size_t table_index,
 mimusb_result change_rule_data(mimusb_device* device, mimusb_node* node, std::size_t rule_index,
                                const std::uint8_t* data, std::size_t length,
                                std::uint32_t control_timeout_ms);
+// Has the board answer `bytes` for the live rules of `owner` named `tag` on `iface` (the reader
+// thread may call this; the updater thread sends them).
+void set_live_answer(mimusb_device* device, const FunctionClass* owner, std::uint8_t tag,
+                     std::uint8_t iface, const std::vector<std::uint8_t>& bytes);
 void start_rule_updater(mimusb_device* device);
 void stop_rule_updater(mimusb_device* device) noexcept;
 
@@ -170,17 +165,9 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept;
 mimusb_device_info describe_board(const std::string& port, const std::string& description,
                                   const tr::BoardInfo& board, std::uint32_t baud) noexcept;
 
-// ---- c_api_node.cpp: the report state of a Node ----
-
-bool has_non_neutral_state(const mimusb_node* node) noexcept;
-
-void make_neutral(mimusb_node* node) noexcept;
-
-bool touch_frame_in_progress(const mimusb_node* node) noexcept;
-
-// ---- c_api_send.cpp: the serial write path ----
-
-// Sends a node's pending reports until it is clean, for the close paths.
-mimusb_result send_neutral(mimusb_node* node, std::uint32_t timeout_ms);
+// What a Node's class needs done before it goes (mimusb_node_close, mimusb_device_close).
+inline mimusb_result before_close(mimusb_node* node, const std::uint32_t timeout_ms) {
+    return node->runtime != nullptr ? node->runtime->before_close(timeout_ms) : MIMUSB_OK;
+}
 
 } // namespace mimusb::detail

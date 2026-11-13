@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimusb contributors
 /* Usage-control profiles (consumer, system, toggle): one-shot, on/off and momentary semantics. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
@@ -22,7 +23,8 @@ namespace {
 
 // One pressed/transition slot per allowed Usage, as mimusb_node_open builds it.
 mimusb::detail::ConsumerState consumer_state_for(const mimusb_spec* spec) {
-    const auto* config = std::get_if<mimusb::detail::ConsumerConfig>(&spec->config);
+    const auto* config =
+        std::get_if<mimusb::detail::ConsumerConfig>(&mimusb::detail::hid_spec(spec)->config);
     mimusb::detail::ConsumerState state{};
     state.pressed.resize(config->allowed_usages.size());
     state.transitions.resize(config->allowed_usages.size());
@@ -60,9 +62,9 @@ void test_usage_control_semantics() {
     check_battery_variant(options, &mimusb_spec_create_toggle);
     MIMUSB_CHECK(mimusb_spec_create_toggle(&options, &spec) == MIMUSB_OK);
     if (spec != nullptr) {
-        MIMUSB_CHECK(count_item(spec->descriptor, 0x81U, 0x06U) == 2U);
-        MIMUSB_CHECK(count_item(spec->descriptor, 0x81U, 0x02U) == 3U);
-        MIMUSB_CHECK(count_item(spec->descriptor, 0x81U, 0x22U) == 1U);
+        MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x81U, 0x06U) == 2U);
+        MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x81U, 0x02U) == 3U);
+        MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x81U, 0x22U) == 1U);
         for (std::uint16_t index = 0U; index < usages.size(); ++index) {
             const auto* control = field(spec, mimusb::hid::FieldSemantic::consumer_usage, index);
             MIMUSB_CHECK(control != nullptr && control->bit_width == 1U &&
@@ -70,13 +72,13 @@ void test_usage_control_semantics() {
         }
 
         mimusb_node node{};
-        node.spec = spec;
-        node.state = consumer_state_for(spec);
+        mimusb::detail::attach_hid(&node, spec);
+        mimusb::detail::hid_node(&node)->state = consumer_state_for(spec);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00E9U, 1U) == MIMUSB_OK);
         std::array<std::uint8_t, 8U> report{};
         std::size_t report_length = 0U;
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(),
-                                                    &report_length) == MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                    report.size(), &report_length) == MIMUSB_OK);
         MIMUSB_CHECK(report_length == 1U);
         for (std::uint16_t index = 0U; index < usages.size(); ++index) {
             const auto* control = field(spec, mimusb::hid::FieldSemantic::consumer_usage, index);
@@ -84,39 +86,39 @@ void test_usage_control_semantics() {
                          extract(report.data(), *control) == (index == 1U ? 1U : 0U));
         }
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00E9U, 0U) == MIMUSB_ERR_BUSY);
-        mimusb::detail::transfer_complete(&node, MIMUSB_OK, 0);
+        mimusb::detail::transfer_complete(mimusb::detail::hid_node(&node), MIMUSB_OK, 0);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00E9U, 0U) == MIMUSB_OK);
         report.fill(0xFFU);
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(),
-                                                    &report_length) == MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                    report.size(), &report_length) == MIMUSB_OK);
         MIMUSB_CHECK(report[0] == 0U);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00E0U, 1U) == MIMUSB_ERR_PARAM);
 
         // Several Usages can be held at once, and each is released by name.
         // Usage 0 is not in the allow-list, so there is no release-all call.
-        mimusb::detail::transfer_complete(&node, MIMUSB_OK, 0);
+        mimusb::detail::transfer_complete(mimusb::detail::hid_node(&node), MIMUSB_OK, 0);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00CDU, 1U) == MIMUSB_OK);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00E9U, 1U) == MIMUSB_OK);
         report.fill(0U);
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(),
-                                                    &report_length) == MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                    report.size(), &report_length) == MIMUSB_OK);
         for (std::uint16_t index = 0U; index < usages.size(); ++index) {
             const auto* control = field(spec, mimusb::hid::FieldSemantic::consumer_usage, index);
             const bool held = usages[index] == 0x00CDU || usages[index] == 0x00E9U;
             MIMUSB_CHECK(control != nullptr &&
                          extract(report.data(), *control) == (held ? 1U : 0U));
         }
-        mimusb::detail::transfer_complete(&node, MIMUSB_OK, 0);
+        mimusb::detail::transfer_complete(mimusb::detail::hid_node(&node), MIMUSB_OK, 0);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0x00CDU, 0U) == MIMUSB_OK);
         report.fill(0U);
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(),
-                                                    &report_length) == MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                    report.size(), &report_length) == MIMUSB_OK);
         for (std::uint16_t index = 0U; index < usages.size(); ++index) {
             const auto* control = field(spec, mimusb::hid::FieldSemantic::consumer_usage, index);
             MIMUSB_CHECK(control != nullptr &&
                          extract(report.data(), *control) == (usages[index] == 0x00E9U ? 1U : 0U));
         }
-        mimusb::detail::transfer_complete(&node, MIMUSB_OK, 0);
+        mimusb::detail::transfer_complete(mimusb::detail::hid_node(&node), MIMUSB_OK, 0);
         MIMUSB_CHECK(mimusb_toggle_usage(&node, 0U, 0U) == MIMUSB_ERR_PARAM);
 
         // The state object enforces the same accepted 1->0 lifecycle for each
@@ -124,12 +126,12 @@ void test_usage_control_semantics() {
         // the caller never hand-crafts an impossible re-trigger sequence.
         for (std::size_t selected = 0U; selected < usages.size(); ++selected) {
             mimusb_node semantic_node{};
-            semantic_node.spec = spec;
-            semantic_node.state = consumer_state_for(spec);
+            mimusb::detail::attach_hid(&semantic_node, spec);
+            mimusb::detail::hid_node(&semantic_node)->state = consumer_state_for(spec);
             MIMUSB_CHECK(mimusb_toggle_usage(&semantic_node, usages[selected], 1U) == MIMUSB_OK);
             report.fill(0U);
-            MIMUSB_CHECK(mimusb::detail::serialize_node(&semantic_node, report.data(),
-                                                        report.size(),
+            MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&semantic_node),
+                                                        report.data(), report.size(),
                                                         &report_length) == MIMUSB_OK);
             for (std::size_t index = 0U; index < usages.size(); ++index) {
                 const auto* control = field(spec, mimusb::hid::FieldSemantic::consumer_usage,
@@ -139,15 +141,17 @@ void test_usage_control_semantics() {
             }
             MIMUSB_CHECK(mimusb_toggle_usage(&semantic_node, usages[selected], 0U) ==
                          MIMUSB_ERR_BUSY);
-            mimusb::detail::transfer_complete(&semantic_node, MIMUSB_OK, 0);
+            mimusb::detail::transfer_complete(mimusb::detail::hid_node(&semantic_node), MIMUSB_OK,
+                                              0);
             MIMUSB_CHECK(mimusb_toggle_usage(&semantic_node, usages[selected], 0U) == MIMUSB_OK);
             report.fill(0xFFU);
-            MIMUSB_CHECK(mimusb::detail::serialize_node(&semantic_node, report.data(),
-                                                        report.size(),
+            MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&semantic_node),
+                                                        report.data(), report.size(),
                                                         &report_length) == MIMUSB_OK);
             MIMUSB_CHECK(mimusb_toggle_usage(&semantic_node, usages[selected], 1U) ==
                          MIMUSB_ERR_BUSY);
-            mimusb::detail::transfer_complete(&semantic_node, MIMUSB_OK, 0);
+            mimusb::detail::transfer_complete(mimusb::detail::hid_node(&semantic_node), MIMUSB_OK,
+                                              0);
             MIMUSB_CHECK(mimusb_toggle_usage(&semantic_node, usages[selected], 1U) == MIMUSB_OK);
         }
     }
@@ -158,21 +162,21 @@ void test_usage_control_semantics() {
         if (control_spec == nullptr)
             return;
         mimusb_node control_node{};
-        control_node.spec = control_spec;
-        control_node.state = consumer_state_for(control_spec);
+        mimusb::detail::attach_hid(&control_node, control_spec);
+        mimusb::detail::hid_node(&control_node)->state = consumer_state_for(control_spec);
         MIMUSB_CHECK(mimusb_toggle_usage(&control_node, usage, 1U) == MIMUSB_OK);
         std::array<std::uint8_t, 16U> control_report{};
         std::size_t control_length = 0U;
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&control_node, control_report.data(),
-                                                    control_report.size(),
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&control_node),
+                                                    control_report.data(), control_report.size(),
                                                     &control_length) == MIMUSB_OK);
         const auto* selected = field(control_spec, mimusb::hid::FieldSemantic::consumer_usage, 0U);
         MIMUSB_CHECK(selected != nullptr && extract(control_report.data(), *selected) == 1U);
-        mimusb::detail::transfer_complete(&control_node, MIMUSB_OK, 0);
+        mimusb::detail::transfer_complete(mimusb::detail::hid_node(&control_node), MIMUSB_OK, 0);
         MIMUSB_CHECK(mimusb_toggle_usage(&control_node, usage, 0U) == MIMUSB_OK);
         control_report.fill(0xFFU);
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&control_node, control_report.data(),
-                                                    control_report.size(),
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&control_node),
+                                                    control_report.data(), control_report.size(),
                                                     &control_length) == MIMUSB_OK);
         MIMUSB_CHECK(selected != nullptr && extract(control_report.data(), *selected) == 0U);
     };

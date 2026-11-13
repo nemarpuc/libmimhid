@@ -7,18 +7,13 @@
  * It contains no public ABI declarations beyond the opaque tag definitions.
  */
 
-#include "hid/report_layout.hpp"
-#include "hid/validator.hpp"
+#include "classes/function_class.hpp"
 #include "mimusb.h"
 #include "transport/link.hpp"
 #include "usb/board_rule.hpp"
 #include "usb/descriptor_composer.hpp"
-#include "usb/hid_node_config.hpp"
 
-#include <array>
 #include <atomic>
-#include <bitset>
-#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -29,166 +24,9 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace mimusb::detail {
-
-struct KeyboardConfig {
-    mimusb_keyboard_options options{};
-};
-
-struct MouseConfig {
-    mimusb_mouse_options options{};
-};
-
-struct ConsumerConfig {
-    mimusb_toggle_options options{};
-    std::vector<std::uint16_t> allowed_usages;
-    std::vector<mimusb_usage_semantic> usage_semantics;
-    std::vector<std::string> expected_linux_event_types;
-    std::vector<std::string> expected_linux_codes;
-};
-
-struct GamepadAxisConfig {
-    mimusb_gamepad_axis_option axis{};
-    std::string expected_linux_code;
-};
-
-struct GamepadConfig {
-    mimusb_gamepad_options options{};
-    std::vector<GamepadAxisConfig> axes;
-};
-
-/* Profile-agnostic contact-field representation shared by Touchscreen and
- * Touchpad. button_count is always here; Touchscreen always passes zero, so
- * the button state machine below needs no profile_kind branch. */
-struct TouchFields {
-    mimusb_report_id_option report_id{};
-    std::uint32_t maximum_contacts{};
-    std::uint32_t contacts_per_report{};
-    mimusb_integer_field contact_id{};
-    mimusb_integer_field x{};
-    mimusb_integer_field y{};
-    mimusb_integer_field contact_count{};
-    std::uint32_t enable_pressure{};
-    mimusb_integer_field pressure{};
-    std::uint32_t enable_width{};
-    mimusb_integer_field width{};
-    std::uint32_t enable_height{};
-    mimusb_integer_field height{};
-    std::uint32_t enable_azimuth{};
-    mimusb_integer_field azimuth{};
-    std::uint32_t enable_scan_time{};
-    mimusb_integer_field scan_time{};
-    std::uint32_t scan_time_unit_100us{};
-    std::uint32_t enable_contact_count_maximum_feature_declaration{};
-    std::uint32_t enable_multi_packet_frames{};
-    std::uint32_t button_count{};
-};
-
-struct TouchConfig {
-    TouchFields fields{};
-};
-
-struct PenConfig {
-    mimusb_pen_options options{};
-    std::vector<std::uint16_t> barrel_usages;
-};
-
-struct RawConfig {
-    std::vector<mimusb_hid_report> reports;
-    std::vector<std::uint8_t> trailing_valid_masks;
-};
-
-using SpecConfig = std::variant<std::monostate, KeyboardConfig, MouseConfig, ConsumerConfig,
-                                GamepadConfig, TouchConfig, PenConfig, RawConfig>;
-
-// One touch contact as the state machine keeps it; not part of the public ABI.
-struct TouchContact {
-    std::uint32_t contact_id;
-    std::int32_t x;
-    std::int32_t y;
-    std::int32_t pressure;
-    std::int32_t width;
-    std::int32_t height;
-    std::int32_t azimuth;
-};
-
-enum class ContactPhase : std::uint8_t { none, down, up };
-
-struct ContactState {
-    ContactPhase phase{ContactPhase::none};
-    TouchContact sample{};
-    /* A Down edge must reach one accepted frame before Up may replace it. */
-    bool lifecycle_transition_pending{};
-};
-
-struct KeyboardState {
-    std::vector<std::uint8_t> pressed_bitmap;
-    std::vector<std::uint8_t> key_transitions;
-    std::size_t pressed_bitmap_count{};
-    std::uint8_t modifiers{};
-    std::uint8_t modifier_transitions{};
-};
-
-struct MouseState {
-    std::vector<std::uint8_t> buttons;
-    std::vector<std::uint8_t> button_transitions;
-    std::int64_t dx{};
-    std::int64_t dy{};
-    std::int64_t wheel{};
-    std::int64_t pan{};
-};
-
-struct ConsumerState {
-    // One entry per allowed Usage, in allow-list order.
-    std::vector<std::uint8_t> pressed;
-    std::vector<std::uint8_t> transitions;
-};
-
-struct GamepadState {
-    std::vector<std::int32_t> axes;
-    std::vector<std::uint8_t> buttons;
-    std::vector<std::uint8_t> button_transitions;
-    bool hat_has_direction{};
-    std::int32_t hat{};
-    bool hat_transition_pending{};
-};
-
-struct TouchState {
-    std::array<ContactState, 16> contacts{};
-    std::vector<std::uint8_t> buttons;
-    std::vector<std::uint8_t> button_transitions;
-    std::uint32_t scan_time{};
-    std::size_t packet_cursor{};
-    std::chrono::steady_clock::time_point scan_epoch{};
-    bool scan_epoch_active{};
-};
-
-struct PenState {
-    mimusb_pen_sample desired{};
-    mimusb_pen_sample emitted{};
-    std::uint32_t barrel_transitions{};
-    bool tool_switch_departure{};
-    bool in_range_transition_pending{};
-    bool tip_transition_pending{};
-    bool eraser_transition_pending{};
-};
-
-struct BatteryState {
-    bool has_value{};
-    std::int32_t strength{};
-};
-
-struct RawState {
-    const std::uint8_t* pending{};
-    std::size_t pending_length{};
-};
-
-using NodeState = std::variant<std::monostate, KeyboardState, MouseState, ConsumerState,
-                               GamepadState, TouchState, PenState, RawState>;
-
 void set_error(mimusb_result result, const char* field, const char* reason,
                std::int32_t transport_status = 0, std::int32_t frame_type = 0,
                std::uint16_t node_id = 0, std::uint16_t report_id = 0, std::uint32_t offset = 0,
@@ -221,20 +59,6 @@ inline bool valid_struct(const void* value, const std::uint32_t actual_size,
     }
     return true;
 }
-
-mimusb_result serialize_node(struct mimusb_node* node, std::uint8_t* report, std::size_t capacity,
-                             std::size_t* report_length) noexcept;
-mimusb_result validate_serialized_report(const struct mimusb_spec* spec, const std::uint8_t* report,
-                                         std::size_t report_length) noexcept;
-mimusb_result validate_serialized_report(const struct mimusb_spec* spec,
-                                         const mimusb::hid::ReportLayout& layout,
-                                         const std::uint8_t* report,
-                                         std::size_t report_length) noexcept;
-mimusb_result serialize_battery(const struct mimusb_node* node, std::uint8_t* report,
-                                std::size_t capacity, std::size_t* report_length) noexcept;
-void transfer_complete(void* user, mimusb_result result, std::int32_t native_status) noexcept;
-// MIMUSB_OK, or why a node cannot send now (serial link gone, batch open, re-enumerating).
-mimusb_result link_available(const struct mimusb_node* node, const char* field) noexcept;
 
 } // namespace mimusb::detail
 
@@ -271,8 +95,8 @@ struct GenericInterface {
 };
 
 // What the library knows of an IN endpoint of a Node while it is open. The counters are
-// guarded by the Device's endpoint_mutex. A Node that shares its interface (profile Nodes) has its
-// own entry, but the one of the first live Node on that address is the one that counts.
+// guarded by the Device's endpoint_mutex. Nodes that share an endpoint (HID Nodes on one interface)
+// each have an entry, but the one of the first live Node on that address is the one that counts.
 struct EndpointRuntime {
     std::uint8_t address{};
     std::uint16_t max_packet_size{}; // an isochronous endpoint: the largest of its settings
@@ -284,59 +108,12 @@ struct EndpointRuntime {
 
 } // namespace mimusb::detail
 
-namespace mimusb::detail {
-
-// The interfaces of a Spec made with mimusb_spec_create_interfaces: the caller's configuration
-// copied into storage the Spec owns. The containers never move their elements, so `view` points
-// into them for as long as the Spec lives.
-struct InterfacesSpec {
-    std::vector<mimusb_usb_interface> interfaces;
-    std::deque<std::vector<mimusb_usb_setting>> settings;
-    std::deque<std::vector<mimusb_usb_item>> items;
-    std::deque<std::vector<std::uint8_t>> bytes; // descriptors, rule data
-    std::deque<std::string> names;
-    std::vector<std::uint8_t> association;
-    std::vector<mimusb_control_rule> rules;
-    mimusb_node_config view{};
-};
-
-// A Spec made with mimusb_spec_create_cdc_acm: its options, with the data interface's name kept.
-// The interfaces, descriptors and rules are made when a Node is opened, at its placement
-// (build_cdc_acm).
-struct CdcAcmSpec {
-    mimusb_cdc_acm_options options{};
-    std::string data_name;
-};
-
-// A control rule a Spec names (mimusb_rule_slot) and its place among the rules the Spec brings.
-using RuleSlots = std::vector<std::pair<mimusb_rule_slot, std::size_t>>;
-
-// What a CDC-ACM Spec is made of at a placement: the two interfaces with their class descriptors,
-// the Interface Association descriptor and the three control rules, in `out` (which owns every
-// pointer in out->view), and the slot of the line coding rule. Checks the placement's roles.
-mimusb_result build_cdc_acm(const struct mimusb_spec* spec, const mimusb_node_placement& placement,
-                            InterfacesSpec* out, RuleSlots* slots);
-
-} // namespace mimusb::detail
-
 struct mimusb_spec {
     std::atomic<std::uint32_t> references{1U};
     mimusb_profile_kind kind{};
-    // The HID function of a HID Spec (mimusb_hid_function in its options).
-    mimusb_hid_function function{};
-    // A Spec of mimusb_spec_create_interfaces.
-    std::unique_ptr<mimusb::detail::InterfacesSpec> interfaces;
-    // A Spec of mimusb_spec_create_cdc_acm.
-    std::unique_ptr<mimusb::detail::CdcAcmSpec> cdc;
-    std::vector<std::uint8_t> descriptor;
-    mimusb::hid::ReportLayout layout;
-    mimusb::hid::DescriptorRequirements requirements;
-    std::vector<mimusb_report_capability> report_capabilities;
-    mimusb::detail::SpecConfig config;
-    // The optional battery report: a second Input report with its own layout.
-    bool has_battery{};
-    mimusb_battery_report battery{};
-    mimusb::hid::ReportLayout battery_layout;
+    // The class the Spec is of, and what that class keeps of it.
+    const mimusb::detail::FunctionClass* function_class{};
+    std::unique_ptr<mimusb::detail::SpecData> data;
 };
 
 struct mimusb_discovery {
@@ -394,27 +171,21 @@ struct mimusb_device {
     std::mutex endpoint_mutex;
     std::condition_variable endpoint_cv;
 
-    // The control rules: what the board's table holds (the Nodes' rules in node order, then the
-    // Device's), and what the library needs of it. Guarded by rules_mutex, which is never held
-    // while another mutex is taken. The reader thread classifies the requests the board reports
-    // from `table`, and answers GET_IDLE and GET_PROTOCOL by changing the bytes of rules in it.
+    // The control rules: what the board's table holds (the Nodes' own rules in node order, those
+    // the classes write, then the Device's), and what the library needs of it. Guarded by
+    // rules_mutex, which is never held while another mutex is taken. The reader thread finds the
+    // rule a reported request matched in `table`, and a class changes the bytes of its live rules
+    // in it (set_live_answer).
     std::mutex rules_mutex;
     std::vector<mimusb::usb::BoardRule> table;
     std::vector<mimusb::usb::BoardRule> device_rules; // set by mimusb_device_set_control_rules
     bool report_all{false};
-    // What the reader thread waits for: the data stage of an ACCEPT rule of a profile interface.
-    struct Pending {
-        std::uint8_t token{};
-        std::uint8_t role{};
-        std::uint8_t iface{};
-        std::uint16_t value{};
-    };
-    std::vector<Pending> pending; // reader thread only
+    // The data stages the reader thread waits for on behalf of a class.
+    std::vector<mimusb::detail::PendingData> pending; // reader thread only
     // Changes of the bytes of an ANSWER rule the reader thread asks for, done by `updater` (the
     // reader thread cannot wait for the board). Guarded by update_mutex.
     struct Update {
         std::uint16_t index{};
-        std::uint8_t value{};
     };
     std::mutex update_mutex;
     std::condition_variable update_cv;
@@ -440,53 +211,23 @@ struct mimusb_device {
 
 struct mimusb_node {
     mimusb_device* device{};
-    mimusb_spec* spec{};
-    mimusb::detail::NodeState state;
-    // A Node of a mimusb_spec_create_interfaces Spec has no profile: its interfaces are in
-    // `interfaces` and `config` is not used. A profile Node (mimusb_node_open_profile, _raw) has a
-    // Spec and `config`, and the board's HID driver serves it.
-    bool generic{false};
+    mimusb_spec* spec{}; // retained while the Node lives
+    // What the Node is on the bus, as its class made it at the placement: its interfaces (with
+    // their endpoints and class descriptors), the association, and the numbers and endpoint
+    // addresses it owns. The class may lay the interfaces out differently at a commit (HID Nodes
+    // that share an interface), but a Node owns its numbers and endpoints whatever the layout.
     std::vector<mimusb::detail::GenericInterface> interfaces;
     std::vector<std::uint8_t> association;
-    std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
-    // The Node's own rules: the extra_rules of its placement, then those of a Spec that carries its
-    // own (mimusb_spec_create_interfaces, _cdc_acm). A profile Node's library rules are not here.
+    std::vector<std::uint8_t> interface_numbers;
+    std::vector<std::uint8_t> endpoint_addresses;
+    std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // the IN endpoints
+    // The Node's own rules: the extra_rules of its placement, then those its class made for it.
     std::vector<mimusb::usb::BoardRule> rules;
     mimusb::detail::RuleSlots rule_slots; // slot -> index in `rules`
-    mimusb::usb::HidNodeConfig config{};
-    std::string interface_string;
+    // The runtime of a class that keeps a state; null for one that does not.
+    std::unique_ptr<mimusb::detail::NodeClass> runtime;
     std::uint16_t node_id{};
-    std::uint8_t iface{}; // config.interface_number: the bInterfaceNumber the Node has on the bus
-    struct FeatureEntry {
-        std::uint8_t report_id{};
-        std::vector<std::uint8_t> data;
-    };
-    std::vector<FeatureEntry> features; // answers to the target's Feature report reads
-    bool has_report_ids{false};         // the descriptor uses Report IDs
-    std::bitset<256> report_ids;        // every Report ID the descriptor declares
-    std::int64_t submitted_dx{};
-    std::int64_t submitted_dy{};
-    std::int64_t submitted_wheel{};
-    std::int64_t submitted_pan{};
-    std::size_t submitted_report_length{};
-    std::uint16_t submitted_report_id{};
-    std::size_t submitted_touch_count{};
-    bool submitted_touch_final_packet{};
-    bool submitted_non_neutral{};
-    bool emitted_non_neutral{};
-    // Registration alone sends nothing; only a real mutation marks the Node.
-    bool dirty{false};
-    // The battery report of a Spec that has one. It is sent only when there
-    // is no input report to send; has_value says a level was ever set.
-    mimusb::detail::BatteryState battery{};
-    bool battery_dirty{false};
-    bool submitted_battery{false};
+    std::uint8_t iface{}; // the first interface number of the Node
     bool closed{false};
     bool staged_only{false}; // opened inside a batch that has not ended
-    // The report just written; the state machine settles it in transfer_complete().
-    std::atomic<bool> transfer_inflight{false};
-    std::atomic<mimusb_result> completion_result{MIMUSB_OK};
-    std::atomic<std::int32_t> completion_native_status{0};
-    std::atomic<std::uint32_t> completion_report_length{0U};
-    std::atomic<std::uint16_t> completion_report_id{0U};
 };

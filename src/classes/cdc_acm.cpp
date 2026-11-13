@@ -10,7 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <new>
+#include <string>
 
 using mimusb::detail::set_error;
 
@@ -28,17 +28,22 @@ constexpr std::uint8_t kSetLineCoding = 0x20U;
 constexpr std::uint8_t kGetLineCoding = 0x21U;
 constexpr std::uint8_t kSetControlLineState = 0x22U;
 
-const std::uint8_t* keep(mimusb::detail::InterfacesSpec* out, const std::uint8_t* data,
-                         const std::size_t length) {
-    out->bytes.emplace_back(data, data + length);
-    return out->bytes.back().data();
+// A Spec made with mimusb_spec_create_cdc_acm: its options, with the data interface's name kept.
+// The interfaces, descriptors and rules are made when a Node is opened, at its placement.
+struct CdcAcmSpec : mimusb::detail::SpecData {
+    mimusb_cdc_acm_options options{};
+    std::string data_name;
+};
+
+const CdcAcmSpec& data_of(const mimusb_spec& spec) {
+    return *static_cast<const CdcAcmSpec*>(spec.data.get());
 }
 
 mimusb_usb_item descriptor_item(mimusb::detail::InterfacesSpec* out, const std::uint8_t* data,
                                 const std::size_t length) {
     mimusb_usb_item item{};
     item.kind = MIMUSB_ITEM_DESCRIPTOR;
-    item.descriptor = keep(out, data, length);
+    item.descriptor = out->keep(data, length);
     item.descriptor_length = length;
     return item;
 }
@@ -65,13 +70,12 @@ mimusb_control_rule class_rule(const std::uint8_t type, const std::uint8_t reque
     return r;
 }
 
-} // namespace
-
-namespace mimusb::detail {
-
-mimusb_result build_cdc_acm(const mimusb_spec* spec, const mimusb_node_placement& placement,
-                            InterfacesSpec* out, RuleSlots* slots) {
-    const CdcAcmSpec& cdc = *spec->cdc;
+// What a CDC-ACM Spec is made of at a placement: the two interfaces with their class descriptors,
+// the Interface Association descriptor and the three control rules, in `out`, and the slot of the
+// line coding rule. Checks the placement's roles.
+mimusb_result build_cdc_acm(const mimusb_spec& spec, const mimusb_node_placement& placement,
+                            mimusb::detail::InterfacesSpec* out, mimusb::detail::RuleSlots* slots) {
+    const CdcAcmSpec& cdc = data_of(spec);
     if (placement.first_interface == 0xFFU) {
         set_error(MIMUSB_ERR_PARAM, "placement.first_interface",
                   "A CDC-ACM Spec takes two interface numbers: first_interface and the next.");
@@ -150,7 +154,6 @@ mimusb_result build_cdc_acm(const mimusb_spec* spec, const mimusb_node_placement
     const std::uint8_t association[8] = {
         8U, kInterfaceAssociation, control, 2U, kClassCdcControl, kSubclassAcm, o.protocol, 0U};
 
-    *out = InterfacesSpec{};
     std::vector<mimusb_usb_item> comm_items;
     comm_items.push_back(descriptor_item(out, header, sizeof header));
     comm_items.push_back(descriptor_item(out, call, sizeof call));
@@ -196,22 +199,51 @@ mimusb_result build_cdc_acm(const mimusb_spec* spec, const mimusb_node_placement
     // The rules (PSTN 1.2 6.3), in the order of the slots below.
     out->rules.push_back(class_rule(0x21U, kSetLineCoding, control, MIMUSB_CONTROL_ACCEPT));
     mimusb_control_rule get = class_rule(0xA1U, kGetLineCoding, control, MIMUSB_CONTROL_ANSWER);
-    get.data = keep(out, o.line_coding, sizeof o.line_coding);
+    get.data = out->keep(o.line_coding, sizeof o.line_coding);
     get.length = sizeof o.line_coding;
     out->rules.push_back(get);
     out->rules.push_back(class_rule(0x21U, kSetControlLineState, control, MIMUSB_CONTROL_ACCEPT));
     slots->emplace_back(MIMUSB_RULE_SLOT_CDC_LINE_CODING, 1U);
 
-    out->view = mimusb_node_config{};
-    out->view.struct_size = static_cast<std::uint32_t>(sizeof(mimusb_node_config));
-    out->view.interfaces = out->interfaces.data();
-    out->view.interface_count = out->interfaces.size();
-    out->view.association = out->association.data();
-    out->view.association_length = out->association.size();
-    out->view.rules = out->rules.data();
-    out->view.rule_count = out->rules.size();
+    out->finish();
     return MIMUSB_OK;
 }
+
+class CdcAcmClass final : public mimusb::detail::FunctionClass {
+  public:
+    std::size_t interface_count(const mimusb_spec&) const override { return 2U; }
+    std::size_t roles(const mimusb_spec&, mimusb_role_info* out,
+                      const std::size_t capacity) const override {
+        const mimusb_role_info all[3] = {{MIMUSB_ROLE_CDC_NOTIFY, 1U},
+                                         {MIMUSB_ROLE_CDC_DATA_IN, 1U},
+                                         {MIMUSB_ROLE_CDC_DATA_OUT, 1U}};
+        for (std::size_t i = 0U; i < 3U && i < capacity; ++i)
+            out[i] = all[i];
+        return 3U;
+    }
+    void rule_cost(const mimusb_spec& spec, std::size_t* rules,
+                   std::size_t* answer_bytes) const override {
+        // Three rules, 7 bytes of answer: made from a placement of any numbers.
+        *rules = 3U;
+        *answer_bytes = sizeof(data_of(spec).options.line_coding);
+    }
+    mimusb_result build(mimusb_device*, mimusb_spec* spec, const mimusb_node_placement& placement,
+                        mimusb::detail::NodeBuild* out) const override {
+        if (const mimusb_result r = build_cdc_acm(*spec, placement, &out->storage, &out->slots);
+            r != MIMUSB_OK)
+            return r;
+        out->config = &out->storage.view;
+        return MIMUSB_OK;
+    }
+};
+
+const CdcAcmClass kCdcAcm{};
+
+} // namespace
+
+namespace mimusb::detail {
+
+const FunctionClass& cdc_acm_class() noexcept { return kCdcAcm; }
 
 } // namespace mimusb::detail
 
@@ -253,17 +285,15 @@ mimusb_result MIMUSB_CALL mimusb_spec_create_cdc_acm(const mimusb_cdc_acm_option
                   "units.");
         return MIMUSB_ERR_PARAM;
     }
-    auto spec = std::unique_ptr<mimusb_spec>(new (std::nothrow) mimusb_spec());
-    if (spec == nullptr) {
-        set_error(MIMUSB_ERR_INTERNAL, "spec", "Memory allocation for the Spec failed.");
-        return MIMUSB_ERR_INTERNAL;
-    }
-    spec->kind = MIMUSB_PROFILE_CDC_ACM;
-    spec->cdc = std::make_unique<mimusb::detail::CdcAcmSpec>();
-    spec->cdc->options = *options;
-    spec->cdc->options.data_name = nullptr;
+    auto cdc = std::make_unique<CdcAcmSpec>();
+    cdc->options = *options;
+    cdc->options.data_name = nullptr;
     if (options->data_name != nullptr)
-        spec->cdc->data_name = options->data_name;
+        cdc->data_name = options->data_name;
+    auto spec = std::make_unique<mimusb_spec>();
+    spec->kind = MIMUSB_PROFILE_CDC_ACM;
+    spec->function_class = &kCdcAcm;
+    spec->data = std::move(cdc);
     *out_spec = spec.release();
     return MIMUSB_OK;
 }

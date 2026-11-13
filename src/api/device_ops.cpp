@@ -8,7 +8,6 @@
 #include "api/support.hpp"
 #include "transport/link.hpp"
 #include "usb/descriptor_composer.hpp"
-#include "usb/hid_layer.hpp"
 
 #include <algorithm>
 #include <bitset>
@@ -22,7 +21,6 @@
 
 namespace tr = mimusb::transport;
 
-using mimusb::detail::collect_report_ids;
 using mimusb::detail::command_error;
 using mimusb::detail::commit_device;
 using mimusb::detail::CommitWaits;
@@ -33,7 +31,6 @@ using mimusb::detail::live_nodes;
 using mimusb::detail::prepare_device_config;
 using mimusb::detail::public_node_id;
 using mimusb::detail::read_commit_timeouts;
-using mimusb::detail::report_id;
 using mimusb::detail::require_timeout;
 using mimusb::detail::reserved_is_zero;
 using mimusb::detail::saturate_u32;
@@ -269,31 +266,6 @@ mimusb_result prepare_device_config(const mimusb_device_config* config,
     return validate_usb_identity(effective->usb_device, effective->usb_config);
 }
 
-// Collects the Report IDs a descriptor declares (short items only; validated descriptors).
-void collect_report_ids(const std::vector<std::uint8_t>& descriptor, std::bitset<256>* ids,
-                        bool* has_ids) {
-    constexpr std::uint8_t kTypeGlobal = 1U;
-    constexpr std::uint8_t kGlobalReportId = 8U;
-    std::size_t pos = 0U;
-    while (pos < descriptor.size()) {
-        const std::uint8_t prefix = descriptor[pos];
-        if (prefix == 0xFEU) { // long item: length in the next byte
-            pos += pos + 1U < descriptor.size() ? 3U + descriptor[pos + 1U] : descriptor.size();
-            continue;
-        }
-        const std::uint8_t size_code = prefix & 0x03U;
-        const std::size_t size = size_code == 3U ? 4U : size_code;
-        const std::uint8_t type = (prefix >> 2U) & 0x03U;
-        const std::uint8_t tag = (prefix >> 4U) & 0x0FU;
-        if (type == kTypeGlobal && tag == kGlobalReportId && size >= 1U &&
-            pos + 1U < descriptor.size()) {
-            ids->set(descriptor[pos + 1U]);
-            *has_ids = true;
-        }
-        pos += 1U + size;
-    }
-}
-
 mimusb_result command_error(const tr::CommandResult& result, const char* field, const char* reason,
                             std::uint8_t frame_type, std::uint16_t node_id) noexcept {
     mimusb_result code = MIMUSB_ERR_INTERNAL;
@@ -463,47 +435,28 @@ void fill_device_strings(const mimusb_device* device, usb::ComposerInput* input)
         utf16_from_utf8(entry.second.c_str(), &input->user_strings[entry.first]);
 }
 
-// The interfaces of the generic Nodes and, joined per interface, those of the HID Nodes.
-mimusb_result groups_of_nodes(const std::vector<mimusb_node*>& nodes,
-                              std::vector<usb::ComposerGroup>* groups,
-                              std::vector<usb::HidNodeInput>* hid_inputs,
-                              usb::ComposerError* error) {
-    std::vector<usb::HidNodeInput>& hid = *hid_inputs;
-    hid.clear();
+// The interface groups of the live Nodes and the rules their classes write besides the Nodes' own:
+// each class lays out its own Nodes, the classes in the order of their first Node.
+mimusb_result compose_nodes(const std::vector<mimusb_node*>& nodes, Composition* out,
+                            usb::ComposerError* error) {
+    std::vector<const FunctionClass*> classes;
     for (const mimusb_node* node : nodes) {
-        if (node->generic) {
-            usb::ComposerGroup group;
-            group.node_id = public_node_id(node);
-            group.association = node->association;
-            for (const GenericInterface& itf : node->interfaces) {
-                usb::ComposerInterface made;
-                made.number = itf.number;
-                made.class_code = itf.class_code;
-                made.subclass = itf.subclass;
-                made.protocol = itf.protocol;
-                utf16_from_utf8(itf.name.c_str(), &made.name);
-                made.settings = itf.settings;
-                group.interfaces.push_back(std::move(made));
-            }
-            groups->push_back(std::move(group));
-        } else {
-            usb::HidNodeInput in;
-            in.config = node->config;
-            utf16_from_utf8(node->interface_string.c_str(), &in.name);
-            in.report_descriptor = &node->spec->descriptor;
-            in.has_report_ids = node->has_report_ids;
-            in.report_ids = node->report_ids;
-            in.node_id = public_node_id(node);
-            for (const mimusb_node::FeatureEntry& feature : node->features)
-                in.features.push_back(usb::HidNodeInput::Feature{feature.report_id, feature.data});
-            hid.push_back(std::move(in));
-        }
+        const FunctionClass* owner = node->spec->function_class;
+        if (std::find(classes.begin(), classes.end(), owner) == classes.end())
+            classes.push_back(owner);
     }
-    std::vector<usb::ComposerGroup> hid_groups;
-    if (const mimusb_result r = usb::compose_hid_groups(hid, &hid_groups, error); r != MIMUSB_OK)
-        return r;
-    for (usb::ComposerGroup& g : hid_groups)
-        groups->push_back(std::move(g));
+    for (const FunctionClass* owner : classes) {
+        std::vector<mimusb_node*> mine;
+        for (mimusb_node* node : nodes) {
+            if (node->spec->function_class == owner)
+                mine.push_back(node);
+        }
+        const std::size_t first_rule = out->rules.size();
+        if (const mimusb_result r = owner->compose(mine, out, error); r != MIMUSB_OK)
+            return r;
+        for (std::size_t i = first_rule; i < out->rules.size(); ++i)
+            out->rules[i].owner = owner;
+    }
     return MIMUSB_OK;
 }
 
@@ -645,33 +598,32 @@ mimusb_result check_rule_table(const mimusb_device* device,
     return MIMUSB_OK;
 }
 
-// The table the board is to hold: the rules of the Nodes (the caller's extra_rules, then those of a
-// Spec that carries its own) in node order, those the library writes for the profile Nodes, then
-// the Device's own. What the
-// target has set (idle rate, protocol) is kept from the table the board holds now.
+// The table the board is to hold: the rules of the Nodes (the caller's extra_rules, then those
+// their class made for them) in node order, those the classes write for the layout of their Nodes,
+// then the Device's own. A live rule keeps the bytes the target set in the table the board holds
+// now.
 mimusb_result build_rule_table(mimusb_device* device, const std::vector<mimusb_node*>& nodes,
-                               const std::vector<usb::HidNodeInput>& hid,
+                               std::vector<usb::BoardRule> class_rules,
                                std::vector<usb::BoardRule>* table) {
     table->clear();
     // An ANSWER rule keeps the capacity it was given however its bytes change, so the board
     // reserves the same room each time the table is sent and a shortened answer can grow again.
     for (mimusb_node* node : nodes)
         table->insert(table->end(), node->rules.begin(), node->rules.end());
-    std::vector<usb::BoardRule> library = usb::compose_hid_rules(hid);
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
-        for (usb::BoardRule& rule : library) {
-            if (rule.role != usb::BoardRule::Role::hid_get_idle &&
-                rule.role != usb::BoardRule::Role::hid_get_protocol)
+        for (usb::BoardRule& rule : class_rules) {
+            if (!rule.live)
                 continue;
             for (const usb::BoardRule& held : device->table) {
-                if (held.role == rule.role && held.iface == rule.iface && !held.data.empty())
+                if (held.live && held.owner == rule.owner && held.tag == rule.tag &&
+                    held.iface == rule.iface && held.data.size() == rule.data.size())
                     rule.data = held.data;
             }
         }
     }
-    table->insert(table->end(), std::make_move_iterator(library.begin()),
-                  std::make_move_iterator(library.end()));
+    table->insert(table->end(), std::make_move_iterator(class_rules.begin()),
+                  std::make_move_iterator(class_rules.end()));
     table->insert(table->end(), device->device_rules.begin(), device->device_rules.end());
     return check_rule_table(device, *table);
 }
@@ -707,8 +659,7 @@ void updater_loop(mimusb_device* device) {
             if (update.index >= device->table.size())
                 continue;
             const usb::BoardRule& entry = device->table[update.index];
-            if (entry.role != usb::BoardRule::Role::hid_get_idle &&
-                entry.role != usb::BoardRule::Role::hid_get_protocol)
+            if (!entry.live)
                 continue; // the table changed since: the commit sent the values it had
             payload.push_back(static_cast<std::uint8_t>(update.index));
             payload.insert(payload.end(), entry.data.begin(), entry.data.end());
@@ -739,50 +690,59 @@ void stop_rule_updater(mimusb_device* device) noexcept {
         device->updater.join();
 }
 
-// Sets the one byte a GET_IDLE or GET_PROTOCOL rule of `iface` answers with, and has it sent.
-// The reader thread calls this.
-static void set_hid_answer(mimusb_device* device, const usb::BoardRule::Role role,
-                           // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-                           const std::uint8_t iface, const std::uint8_t value) {
-    std::uint16_t found = 0xFFFFU;
+// Has the board send `bytes` for the live rules of `owner` named `tag` on `iface` from now on. The
+// reader thread calls this (through a class), so the updater thread sends them.
+void set_live_answer(mimusb_device* device, const FunctionClass* owner, const std::uint8_t tag,
+                     const std::uint8_t iface, const std::vector<std::uint8_t>& bytes) {
+    std::vector<std::uint16_t> changed;
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
         for (std::size_t i = 0U; i < device->table.size(); ++i) {
             usb::BoardRule& entry = device->table[i];
-            if (entry.role == role && entry.iface == iface && entry.data.size() == 1U) {
-                entry.data[0] = value;
-                found = static_cast<std::uint16_t>(i);
+            if (entry.live && entry.owner == owner && entry.tag == tag && entry.iface == iface &&
+                entry.data.size() == bytes.size()) {
+                entry.data = bytes;
+                changed.push_back(static_cast<std::uint16_t>(i));
             }
         }
     }
-    if (found == 0xFFFFU)
+    if (changed.empty())
         return;
     {
         std::lock_guard<std::mutex> lock(device->update_mutex);
-        device->updates.push_back(mimusb_device::Update{found, value});
+        for (const std::uint16_t index : changed)
+            device->updates.push_back(mimusb_device::Update{index});
     }
     device->update_cv.notify_one();
 }
 
-// HID 1.11 7.2.4 and 7.2.6: the idle rate and the protocol start again from their initial values
-// each time the target configures the device.
-static void reset_hid_answers(mimusb_device* device) {
-    std::vector<std::pair<usb::BoardRule::Role, std::uint8_t>> changed;
+namespace {
+
+// Each time the target configures the device the live rules start again from their initial bytes
+// (for HID, HID 1.11 7.2.4 and 7.2.6: the idle rate and the protocol).
+void reset_live_answers(mimusb_device* device) {
+    std::vector<std::uint16_t> changed;
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
-        for (const usb::BoardRule& entry : device->table) {
-            const std::uint8_t initial =
-                entry.role == usb::BoardRule::Role::hid_get_protocol ? 1U : 0U;
-            if ((entry.role == usb::BoardRule::Role::hid_get_idle ||
-                 entry.role == usb::BoardRule::Role::hid_get_protocol) &&
-                entry.data.size() == 1U && entry.data[0] != initial)
-                changed.emplace_back(entry.role, entry.iface);
+        for (std::size_t i = 0U; i < device->table.size(); ++i) {
+            usb::BoardRule& entry = device->table[i];
+            if (entry.live && entry.data != entry.initial) {
+                entry.data = entry.initial;
+                changed.push_back(static_cast<std::uint16_t>(i));
+            }
         }
     }
-    for (const auto& [role, iface] : changed)
-        set_hid_answer(device, role, iface,
-                       role == usb::BoardRule::Role::hid_get_protocol ? 1U : 0U);
+    if (changed.empty())
+        return;
+    {
+        std::lock_guard<std::mutex> lock(device->update_mutex);
+        for (const std::uint16_t index : changed)
+            device->updates.push_back(mimusb_device::Update{index});
+    }
+    device->update_cv.notify_one();
 }
+
+} // namespace
 
 mimusb_result copy_control_rules(const mimusb_device* device, const mimusb_control_rule* rules,
                                  const std::size_t count, const char* field,
@@ -867,17 +827,16 @@ mimusb_result copy_control_rules(const mimusb_device* device, const mimusb_contr
 
 mimusb_result rebuild_rules(mimusb_device* device, const std::uint32_t control_timeout_ms) {
     const std::vector<mimusb_node*> nodes = live_nodes(device);
-    std::vector<usb::ComposerGroup> groups;
-    std::vector<usb::HidNodeInput> hid;
+    Composition composition;
     usb::ComposerError error;
-    if (const mimusb_result made = groups_of_nodes(nodes, &groups, &hid, &error);
-        made != MIMUSB_OK) {
+    if (const mimusb_result made = compose_nodes(nodes, &composition, &error); made != MIMUSB_OK) {
         set_error(made, error.field, error.reason, 0, 0, error.node_id, 0, error.offset,
                   error.length);
         return made;
     }
     std::vector<usb::BoardRule> table;
-    if (const mimusb_result built = build_rule_table(device, nodes, hid, &table);
+    if (const mimusb_result built =
+            build_rule_table(device, nodes, std::move(composition.rules), &table);
         built != MIMUSB_OK)
         return built;
     if (const mimusb_result staged = stage_rule_table(device, table, control_timeout_ms);
@@ -1003,7 +962,7 @@ mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
     // The host composes every descriptor; the board takes them as bytes. A Device given as bytes
     // (mimusb_device_set_descriptors) has them already, and its strings are the raw ones.
     usb::ComposerError composer_error;
-    std::vector<usb::HidNodeInput> hid_inputs;
+    Composition composition;
     usb::Composed composed;
     const std::vector<std::uint8_t>* bos = nullptr;
     if (device->descriptors_set) {
@@ -1022,13 +981,13 @@ mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
     } else {
         usb::ComposerInput input;
         fill_device_strings(device, &input);
-        if (const mimusb_result made =
-                groups_of_nodes(nodes, &input.groups, &hid_inputs, &composer_error);
+        if (const mimusb_result made = compose_nodes(nodes, &composition, &composer_error);
             made != MIMUSB_OK) {
             set_error(made, composer_error.field, composer_error.reason, 0, 0,
                       composer_error.node_id, 0, composer_error.offset, composer_error.length);
             return made;
         }
+        input.groups = std::move(composition.groups);
         if (const mimusb_result made = usb::compose_descriptors(input, &composed, &composer_error);
             made != MIMUSB_OK) {
             set_error(made, composer_error.field, composer_error.reason, 0, 0,
@@ -1100,7 +1059,7 @@ mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
 
     // The control rules, with the bytes of their answers; the COMMIT makes them the active ones.
     std::vector<usb::BoardRule> table;
-    if (r = build_rule_table(device, nodes, hid_inputs, &table); r != MIMUSB_OK)
+    if (r = build_rule_table(device, nodes, std::move(composition.rules), &table); r != MIMUSB_OK)
         return r;
     r = stage_rule_table(device, table, control);
     if (r != MIMUSB_OK)
@@ -1117,38 +1076,24 @@ mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
             return r;
     }
 
-    // The depth of the queue of each interface's IN endpoint (Nodes sharing an interface share it:
-    // the least depth).
-    // The policy of every IN endpoint: from the Node, or for profile Nodes from the interface,
-    // which its Nodes share the settings of.
-    for (const mimusb_node* node : nodes) {
-        if (node->generic) {
+    // The policy of every IN endpoint of the Nodes: the one its Node gave, and for an endpoint
+    // Nodes share (HID Nodes on one interface) the least depth any of them set, with the policy of
+    // the first.
+    {
+        std::vector<std::uint8_t> sent;
+        for (const mimusb_node* node : nodes) {
             for (const EndpointRuntime& ep : node->in_endpoints) {
-                r = send(MIMUSB_T_EP_CONFIG, {ep.address, ep.policy.depth, ep.policy.on_full},
+                if (std::find(sent.begin(), sent.end(), ep.address) != sent.end())
+                    continue;
+                sent.push_back(ep.address);
+                r = send(MIMUSB_T_EP_CONFIG,
+                         {ep.address, shared_depth(nodes, ep.address), ep.policy.on_full},
                          "node.endpoint.policy",
                          "The board did not accept the policy of an endpoint.",
                          public_node_id(node));
                 if (r != MIMUSB_OK)
                     return r;
             }
-        } else {
-            // Nodes on one interface share its endpoint: one command, the least depth.
-            bool first_of_interface = true;
-            for (const mimusb_node* other : nodes) {
-                if (other == node)
-                    break;
-                if (!other->generic && other->iface == node->iface)
-                    first_of_interface = false;
-            }
-            if (!first_of_interface)
-                continue;
-            r = send(MIMUSB_T_EP_CONFIG,
-                     {node->config.ep_in.address, hid_interface_depth(device, node->iface),
-                      node->config.ep_in.policy.on_full},
-                     "node.endpoint.policy", "The board did not accept the queue depth.",
-                     public_node_id(node));
-            if (r != MIMUSB_OK)
-                return r;
         }
     }
 
@@ -1197,29 +1142,23 @@ mimusb_result commit_device(mimusb_device* device, uint32_t reconnect_delay_ms,
 }
 
 // The public id of the live Node that owns an endpoint address, and the interface it is on; 0 when
-// none does. A HID Node owns the endpoints of its config.
+// none does.
 std::uint16_t node_of_endpoint(mimusb_device* device, const std::uint32_t address,
                                std::uint32_t* interface_number) {
     std::lock_guard<std::mutex> lock(device->nodes_mutex);
     for (const mimusb_node* node : device->slots) {
         if (node == nullptr || node->closed)
             continue;
-        if (node->generic) {
-            for (const GenericInterface& itf : node->interfaces) {
-                bool owns = false;
-                itf.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
-                    if (ep.address == address)
-                        owns = true;
-                });
-                if (owns) {
-                    *interface_number = itf.number;
-                    return public_node_id(node);
-                }
+        for (const GenericInterface& itf : node->interfaces) {
+            bool owns = false;
+            itf.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
+                if (ep.address == address)
+                    owns = true;
+            });
+            if (owns) {
+                *interface_number = itf.number;
+                return public_node_id(node);
             }
-        } else if (node->config.ep_in.address == address ||
-                   (node->config.ep_out.address != 0U && node->config.ep_out.address == address)) {
-            *interface_number = node->iface;
-            return public_node_id(node);
         }
     }
     // A Device given as bytes has no Node: the id is 0, and the interface is the one the
@@ -1239,16 +1178,29 @@ std::uint16_t node_of_interface(mimusb_device* device, const std::uint8_t interf
     for (const mimusb_node* node : device->slots) {
         if (node == nullptr || node->closed)
             continue;
-        if (node->generic) {
-            for (const GenericInterface& itf : node->interfaces) {
-                if (itf.number == interface_number)
-                    return public_node_id(node);
-            }
-        } else if (node->iface == interface_number) {
-            return public_node_id(node);
+        for (const std::uint8_t number : node->interface_numbers) {
+            if (number == interface_number)
+                return public_node_id(node);
         }
     }
     return 0U;
+}
+
+// The class of the live Node that owns an endpoint address (a static object, valid for as long
+// as the library is loaded), and the Node's first interface; null when no Node owns it.
+static const FunctionClass* class_of_endpoint(mimusb_device* device, const std::uint32_t address,
+                                              std::uint8_t* iface) {
+    std::lock_guard<std::mutex> lock(device->nodes_mutex);
+    for (const mimusb_node* node : device->slots) {
+        if (node == nullptr || node->closed)
+            continue;
+        if (std::find(node->endpoint_addresses.begin(), node->endpoint_addresses.end(), address) !=
+            node->endpoint_addresses.end()) {
+            *iface = node->iface;
+            return node->spec->function_class;
+        }
+    }
+    return nullptr;
 }
 
 void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept {
@@ -1286,30 +1238,10 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
     }
     if (board.kind == MIMUSB_EV_MOUNTED) {
         device->pending.clear();
-        reset_hid_answers(device);
+        reset_live_answers(device);
     }
     mimusb_event event{};
     event.struct_size = sizeof(event);
-    std::uint8_t iface = 0xFFU;
-    // A report the target sent to a profile Node: kind OUTPUT_REPORT or FEATURE_REPORT, the Report
-    // ID and the bytes after it.
-    const auto hid_report = [&](const std::uint8_t type, const std::uint8_t id,
-                                const std::uint8_t* data, std::size_t length) {
-        if (type == 2U && id == 0U) {
-            event.kind = MIMUSB_EVENT_OUTPUT_REPORT; // the whole packet: the ID, if any, is in it
-        } else {
-            // TinyUSB strips the Report ID from the data stage when it matches wValue
-            // (src/class/hid/hid_device.c, hidd_control_xfer_cb, SET_REPORT).
-            if (id != 0U && length > 1U && data[0] == id) {
-                ++data;
-                --length;
-            }
-            event.kind = type == 3U ? MIMUSB_EVENT_FEATURE_REPORT : MIMUSB_EVENT_OUTPUT_REPORT;
-            event.report_id = id;
-        }
-        event.data = data;
-        event.length = length;
-    };
     switch (board.kind) {
     case MIMUSB_EV_MOUNTED:
         event.kind = MIMUSB_EVENT_MOUNTED;
@@ -1329,51 +1261,36 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
             return;
         const std::uint8_t* setup = d + 2;
         if ((d[1] & MIMUSB_CONTROL_F_ACCEPTED) != 0U) {
-            // An ACCEPT rule took it. When it is one the library wrote for a profile interface,
-            // the program hears of it as the HID event it stands for, not as a control transfer.
-            usb::BoardRule::Role role = usb::BoardRule::Role::user;
+            // An ACCEPT rule took it. When a class wrote that rule, the class says what the
+            // program hears of it.
+            usb::BoardRule taken;
             {
                 std::lock_guard<std::mutex> lock(device->rules_mutex);
                 for (const usb::BoardRule& entry : device->table) {
                     if (rule_matches(entry.rule, setup)) {
-                        role = entry.role;
+                        taken.owner = entry.owner;
+                        taken.tag = entry.tag;
+                        taken.iface = entry.iface;
+                        taken.rule = entry.rule;
                         break;
                     }
                 }
             }
-            const std::uint16_t value = static_cast<std::uint16_t>(setup[2] | (setup[3] << 8));
-            const std::uint16_t length = static_cast<std::uint16_t>(setup[6] | (setup[7] << 8));
-            const std::uint8_t itf = static_cast<std::uint8_t>(setup[4]);
-            if (role == usb::BoardRule::Role::hid_set_idle) {
-                // HID 1.11 7.2.4: the idle rate is the high byte of wValue.
-                const std::uint8_t rate = static_cast<std::uint8_t>(value >> 8U);
-                set_hid_answer(device, usb::BoardRule::Role::hid_get_idle, itf, rate);
-                event.kind = MIMUSB_EVENT_SET_IDLE;
-                event.value = rate;
-                iface = itf;
-                break;
-            }
-            if (role == usb::BoardRule::Role::hid_set_protocol) {
-                // HID 1.11 7.2.6: the protocol is wValue (0 boot, 1 report).
-                const std::uint8_t protocol = static_cast<std::uint8_t>(value & 0xFFU);
-                set_hid_answer(device, usb::BoardRule::Role::hid_get_protocol, itf, protocol);
-                event.kind = MIMUSB_EVENT_SET_PROTOCOL;
-                event.value = protocol;
-                iface = itf;
-                break;
-            }
-            if (role == usb::BoardRule::Role::hid_set_report) {
-                if (length != 0U) {
+            if (taken.owner != nullptr) {
+                const Taken what = taken.owner->on_accepted(device, taken, setup, &event);
+                if (what == Taken::wait_data) {
                     // The data stage follows as CONTROL_DATA with this token.
                     if (device->pending.size() >= 8U)
                         device->pending.erase(device->pending.begin());
-                    device->pending.push_back(mimusb_device::Pending{d[0], 0U, itf, value});
+                    device->pending.push_back(
+                        PendingData{d[0], taken.owner, taken.tag, taken.iface,
+                                    static_cast<std::uint16_t>(setup[2] | (setup[3] << 8))});
                     return;
                 }
-                hid_report(static_cast<std::uint8_t>(value >> 8U),
-                           static_cast<std::uint8_t>(value & 0xFFU), d, 0U);
-                iface = itf;
-                break;
+                if (what == Taken::deliver)
+                    break;
+                event = mimusb_event{};
+                event.struct_size = sizeof(event);
             }
         }
         if (device->config.transport.event_sink == nullptr)
@@ -1385,28 +1302,31 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
         event.length = 8U;
         break;
     }
-    case MIMUSB_EV_CONTROL_DATA:
+    case MIMUSB_EV_CONTROL_DATA: {
         if (board.length < 1U)
             return;
+        bool delivered = false;
         for (auto it = device->pending.begin(); it != device->pending.end(); ++it) {
             if (it->token != d[0])
                 continue;
-            const mimusb_device::Pending found = *it;
+            const PendingData found = *it;
             device->pending.erase(it);
-            hid_report(static_cast<std::uint8_t>(found.value >> 8U),
-                       static_cast<std::uint8_t>(found.value & 0xFFU), d + 1, board.length - 1U);
-            iface = found.iface;
+            delivered =
+                found.owner->on_control_data(device, found, d + 1, board.length - 1U, &event);
             break;
         }
-        if (iface != 0xFFU)
+        if (delivered)
             break;
         if (device->config.transport.event_sink == nullptr)
             return;
+        event = mimusb_event{};
+        event.struct_size = sizeof(event);
         event.kind = MIMUSB_EVENT_CONTROL_DATA;
         event.control_token = d[0];
         event.data = d + 1;
         event.length = board.length - 1U;
         break;
+    }
     case MIMUSB_EV_TRANSFER_LOST: {
         if (board.length < 3U)
             return;
@@ -1442,7 +1362,7 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
             // The same for the IN endpoints of the Nodes' interfaces: the writers that wait on
             // them start counting again.
             for (mimusb_node* node : device->slots) {
-                if (node == nullptr || node->closed || !node->generic)
+                if (node == nullptr || node->closed)
                     continue;
                 for (const GenericInterface& itf : node->interfaces) {
                     if (itf.number != d[0])
@@ -1467,28 +1387,18 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
     }
     default:
         if (board.kind > MIMUSB_T_EP_OUT_BASE && board.kind <= MIMUSB_T_EP_OUT_LAST) {
-            // A packet on an OUT endpoint, as it came (a zero-length one has length 0). On the OUT
-            // endpoint of a profile Node it is an Output report, as the HID driver reported it.
-            const std::uint32_t ep_address = board.kind & 0x0FU;
-            std::uint8_t profile_iface = 0xFFU;
-            {
-                std::lock_guard<std::mutex> lock(device->nodes_mutex);
-                for (const mimusb_node* node : device->slots) {
-                    if (node != nullptr && !node->closed && !node->generic &&
-                        node->config.ep_out.address != 0U &&
-                        node->config.ep_out.address == ep_address)
-                        profile_iface = node->iface;
-                }
-            }
-            if (profile_iface != 0xFFU) {
-                event.kind = MIMUSB_EVENT_OUTPUT_REPORT;
-                event.data = d;
-                event.length = board.length;
-                iface = profile_iface;
+            // A packet on an OUT endpoint, as it came (a zero-length one has length 0). The class
+            // of the Node that owns the endpoint may say what it is (an Output report).
+            const auto ep_address = static_cast<std::uint8_t>(board.kind & 0x0FU);
+            std::uint8_t iface = 0U;
+            const FunctionClass* owner_class = class_of_endpoint(device, ep_address, &iface);
+            if (owner_class != nullptr &&
+                owner_class->on_endpoint_data(device, iface, ep_address, d, board.length, &event))
                 break;
-            }
+            event = mimusb_event{};
+            event.struct_size = sizeof(event);
             event.kind = MIMUSB_EVENT_ENDPOINT_DATA;
-            event.endpoint_address = board.kind & 0x0FU;
+            event.endpoint_address = ep_address;
             event.data = d;
             event.length = board.length;
             event.node_id =
@@ -1499,40 +1409,6 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
     }
     if (device->config.transport.event_sink == nullptr)
         return;
-    if (iface != 0xFFU) {
-        event.interface_number = iface;
-        std::lock_guard<std::mutex> lock(device->nodes_mutex);
-        const mimusb_node* match = nullptr;
-        if (event.kind == MIMUSB_EVENT_OUTPUT_REPORT && event.length > 0U &&
-            event.report_id == 0U) {
-            const std::uint8_t candidate_id = event.data[0];
-            for (const mimusb_node* node : device->slots) {
-                if (node == nullptr || node->closed || node->iface != iface)
-                    continue;
-                if (node->has_report_ids && node->report_ids.test(candidate_id)) {
-                    match = node;
-                    event.report_id = candidate_id;
-                    event.data += 1;
-                    event.length -= 1U;
-                    break;
-                }
-            }
-        }
-        if (match == nullptr) {
-            for (const mimusb_node* node : device->slots) {
-                if (node == nullptr || node->closed || node->iface != iface)
-                    continue;
-                if (event.report_id != 0U && node->has_report_ids &&
-                    node->report_ids.test(event.report_id)) {
-                    match = node;
-                    break;
-                }
-                if (match == nullptr)
-                    match = node;
-            }
-        }
-        event.node_id = public_node_id(match);
-    }
     try {
         device->config.transport.event_sink(device->config.transport.event_user, &event);
     } catch (...) {

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimusb contributors
 /* Gamepad profile: the hat switch domain, the D-pad and the extended axes. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
@@ -46,16 +47,16 @@ void test_hat_domain() {
         manifest.struct_size = static_cast<std::uint32_t>(sizeof(manifest));
         MIMUSB_CHECK(mimusb_spec_manifest(spec, &manifest) == MIMUSB_OK);
         mimusb_node node{};
-        node.spec = spec;
+        mimusb::detail::attach_hid(&node, spec);
         mimusb::detail::GamepadState state_value{};
         state_value.axes.resize(axes.size());
         state_value.buttons.resize(options.button_count);
         state_value.button_transitions.resize(options.button_count);
-        node.state = std::move(state_value);
+        mimusb::detail::hid_node(&node)->state = std::move(state_value);
         std::array<std::uint8_t, 32U> report{};
         std::size_t length = 0U;
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(), &length) ==
-                     MIMUSB_OK);
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                    report.size(), &length) == MIMUSB_OK);
         const auto* hat = field(spec, mimusb::hid::FieldSemantic::hat);
         MIMUSB_CHECK(hat != nullptr && extract(report.data(), *hat) == 15U);
     }
@@ -104,26 +105,26 @@ void test_controller_dpad_and_extended_axes() {
     mimusb_capability_manifest raw_dpad_manifest{};
     raw_dpad_manifest.struct_size = static_cast<std::uint32_t>(sizeof(raw_dpad_manifest));
     MIMUSB_CHECK(mimusb_spec_manifest(spec, &raw_dpad_manifest) == MIMUSB_OK);
-    MIMUSB_CHECK(count_item(spec->descriptor, 0x09U, 0x90U) == 1U);
-    MIMUSB_CHECK(count_item(spec->descriptor, 0x09U, 0x91U) == 1U);
-    MIMUSB_CHECK(count_item(spec->descriptor, 0x09U, 0x92U) == 1U);
-    MIMUSB_CHECK(count_item(spec->descriptor, 0x09U, 0x93U) == 1U);
-    MIMUSB_CHECK(count_item(spec->descriptor, 0x81U, 0x22U) == 4U);
+    MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x09U, 0x90U) == 1U);
+    MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x09U, 0x91U) == 1U);
+    MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x09U, 0x92U) == 1U);
+    MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x09U, 0x93U) == 1U);
+    MIMUSB_CHECK(count_item(mimusb::detail::hid_spec(spec)->descriptor, 0x81U, 0x22U) == 4U);
 
     mimusb_node node{};
-    node.spec = spec;
+    mimusb::detail::attach_hid(&node, spec);
     mimusb::detail::GamepadState gamepad{};
     gamepad.axes.resize(axes.size());
     gamepad.buttons.resize(options.button_count);
     gamepad.button_transitions.resize(options.button_count);
-    node.state = std::move(gamepad);
-    node.dirty = false;
+    mimusb::detail::hid_node(&node)->state = std::move(gamepad);
+    mimusb::detail::hid_node(&node)->dirty = false;
     MIMUSB_CHECK(mimusb_gamepad_dpad(&node, 1U, 0U, 1U, 0U) == MIMUSB_OK);
-    MIMUSB_CHECK(node.dirty);
+    MIMUSB_CHECK(mimusb::detail::hid_node(&node)->dirty);
     std::array<std::uint8_t, 64U> report{};
     std::size_t length = 0U;
-    MIMUSB_CHECK(mimusb::detail::serialize_node(&node, report.data(), report.size(), &length) ==
-                 MIMUSB_OK);
+    MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&node), report.data(),
+                                                report.size(), &length) == MIMUSB_OK);
     const auto* up = field(spec, mimusb::hid::FieldSemantic::buttons, 1U);
     const auto* down = field(spec, mimusb::hid::FieldSemantic::buttons, 2U);
     const auto* right = field(spec, mimusb::hid::FieldSemantic::buttons, 3U);
@@ -133,15 +134,15 @@ void test_controller_dpad_and_extended_axes() {
     MIMUSB_CHECK(right != nullptr && extract(report.data(), *right) == 1U);
     MIMUSB_CHECK(left != nullptr && extract(report.data(), *left) == 0U);
     MIMUSB_CHECK(mimusb_gamepad_dpad(&node, 0U, 1U, 0U, 1U) == MIMUSB_ERR_BUSY);
-    node.dirty = false;
+    mimusb::detail::hid_node(&node)->dirty = false;
     MIMUSB_CHECK(mimusb_gamepad_dpad(&node, 1U, 0U, 1U, 0U) == MIMUSB_OK);
-    MIMUSB_CHECK(!node.dirty);
-    mimusb::detail::transfer_complete(&node, MIMUSB_OK, 0);
+    MIMUSB_CHECK(!mimusb::detail::hid_node(&node)->dirty);
+    mimusb::detail::transfer_complete(mimusb::detail::hid_node(&node), MIMUSB_OK, 0);
     MIMUSB_CHECK(mimusb_gamepad_dpad(&node, 0U, 1U, 0U, 1U) == MIMUSB_OK);
-    MIMUSB_CHECK(node.dirty);
-    node.dirty = false;
+    MIMUSB_CHECK(mimusb::detail::hid_node(&node)->dirty);
+    mimusb::detail::hid_node(&node)->dirty = false;
     MIMUSB_CHECK(mimusb_gamepad_axis(&node, 0U, 0) == MIMUSB_OK);
-    MIMUSB_CHECK(!node.dirty);
+    MIMUSB_CHECK(!mimusb::detail::hid_node(&node)->dirty);
     mimusb_spec_release(spec);
     spec = nullptr;
 
@@ -169,12 +170,12 @@ void test_controller_dpad_and_extended_axes() {
                      hat->physical.maximum == 315 && hat->physical.unit_exponent == 0 &&
                      hat->physical.unit == 0x14U);
         mimusb_node hat_node{};
-        hat_node.spec = spec;
+        mimusb::detail::attach_hid(&hat_node, spec);
         mimusb::detail::GamepadState hat_state{};
         hat_state.axes.resize(axes.size());
         hat_state.buttons.resize(options.button_count);
         hat_state.button_transitions.resize(options.button_count);
-        hat_node.state = std::move(hat_state);
+        mimusb::detail::hid_node(&hat_node)->state = std::move(hat_state);
         struct DirectionCase {
             std::uint32_t up;
             std::uint32_t down;
@@ -192,19 +193,21 @@ void test_controller_dpad_and_extended_axes() {
             MIMUSB_CHECK(mimusb_gamepad_dpad(&hat_node, direction.up, direction.down,
                                              direction.right, direction.left) == MIMUSB_OK);
             report.fill(0U);
-            MIMUSB_CHECK(mimusb::detail::serialize_node(&hat_node, report.data(), report.size(),
+            MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&hat_node),
+                                                        report.data(), report.size(),
                                                         &length) == MIMUSB_OK);
             MIMUSB_CHECK(hat != nullptr && extract(report.data(), *hat) == direction.wire);
-            mimusb::detail::transfer_complete(&hat_node, MIMUSB_OK, 0);
-            hat_node.dirty = false;
+            mimusb::detail::transfer_complete(mimusb::detail::hid_node(&hat_node), MIMUSB_OK, 0);
+            mimusb::detail::hid_node(&hat_node)->dirty = false;
         }
         MIMUSB_CHECK(mimusb_gamepad_dpad(&hat_node, 1U, 1U, 0U, 0U) == MIMUSB_ERR_PARAM);
         MIMUSB_CHECK(mimusb_gamepad_dpad(&hat_node, 0U, 0U, 1U, 1U) == MIMUSB_ERR_PARAM);
         report.fill(0U);
-        MIMUSB_CHECK(mimusb::detail::serialize_node(&hat_node, report.data(), report.size(),
+        MIMUSB_CHECK(mimusb::detail::serialize_node(mimusb::detail::hid_node(&hat_node),
+                                                    report.data(), report.size(),
                                                     &length) == MIMUSB_OK);
         MIMUSB_CHECK(hat != nullptr && extract(report.data(), *hat) == 7U);
-        MIMUSB_CHECK(!hat_node.dirty);
+        MIMUSB_CHECK(!mimusb::detail::hid_node(&hat_node)->dirty);
         mimusb_spec_release(spec);
         spec = nullptr;
     }

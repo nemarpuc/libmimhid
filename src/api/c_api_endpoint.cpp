@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimusb contributors
 /*
- * Public C ABI: the endpoints of a Node of a mimusb_spec_create_interfaces Spec (writing to an IN
- * endpoint, the Halt feature, flushing, the policy of the board's queue), and the wait policy's
- * count.
+ * Public C ABI: the endpoints of a Node, whatever its class (writing to an IN endpoint, the Halt
+ * feature, flushing, the policy of the board's queue), and the wait policy's count.
  */
 
 #include "api/support.hpp"
@@ -17,9 +16,11 @@ namespace tr = mimusb::transport;
 using mimusb::detail::command_error;
 using mimusb::detail::EndpointRuntime;
 using mimusb::detail::kCommandAttempts;
+using mimusb::detail::live_nodes;
 using mimusb::detail::public_node_id;
 using mimusb::detail::require_timeout;
 using mimusb::detail::set_error;
+using mimusb::detail::shared_depth;
 
 namespace {
 
@@ -27,23 +28,10 @@ enum class Direction { none, in, out };
 
 // The direction of `address` among the endpoints of the Node: none when it has no such endpoint.
 Direction endpoint_direction(const mimusb_node* node, const std::uint8_t address) {
-    if (node->generic) {
-        bool found = false;
-        for (const mimusb::detail::GenericInterface& itf : node->interfaces) {
-            itf.for_each_endpoint([&](const mimusb_usb_endpoint& ep) {
-                if (ep.address == address)
-                    found = true;
-            });
-        }
-        if (!found)
-            return Direction::none;
-        return (address & 0x80U) != 0U ? Direction::in : Direction::out;
-    }
-    if (node->config.ep_in.address == address)
-        return Direction::in;
-    if (node->config.ep_out.address != 0U && node->config.ep_out.address == address)
-        return Direction::out;
-    return Direction::none;
+    if (std::find(node->endpoint_addresses.begin(), node->endpoint_addresses.end(), address) ==
+        node->endpoint_addresses.end())
+        return Direction::none;
+    return (address & 0x80U) != 0U ? Direction::in : Direction::out;
 }
 
 EndpointRuntime* runtime_of(mimusb_node* node, const std::uint8_t address) {
@@ -122,14 +110,15 @@ mimusb_result stall_command(mimusb_node* node, const std::uint8_t address, const
 
 namespace mimusb::detail {
 
-// The depth of the queue of a HID interface's IN endpoint: the least any live Node on it set.
-std::uint8_t hid_interface_depth(mimusb_device* device, const std::uint8_t iface) {
+// The depth of the board's queue of an IN endpoint: the least any of `nodes` that has it set. Nodes
+// share an endpoint only when their class lays them out on one interface (HID).
+std::uint8_t shared_depth(const std::vector<mimusb_node*>& nodes, const std::uint8_t address) {
     std::uint8_t depth = 0U;
-    for (const mimusb_node* node : live_nodes(device)) {
-        if (node->generic || node->iface != iface)
-            continue;
-        const std::uint8_t own = node->config.ep_in.policy.depth;
-        depth = depth == 0U ? own : std::min(depth, own);
+    for (const mimusb_node* node : nodes) {
+        for (const EndpointRuntime& ep : node->in_endpoints) {
+            if (ep.address == address)
+                depth = depth == 0U ? ep.policy.depth : std::min(depth, ep.policy.depth);
+        }
     }
     return depth;
 }
@@ -138,10 +127,10 @@ std::uint8_t hid_interface_depth(mimusb_device* device, const std::uint8_t iface
 
 namespace mimusb::detail {
 
-// The runtime of the IN endpoint a Node writes to: its own; for Nodes sharing a profile interface
-// with the wait policy the one the first live Node of it keeps (the board has one queue for the
-// interface, and its count of finished transfers goes to every Node's runtime of that address,
-// which each clamp at zero).
+// The runtime of the IN endpoint a Node writes to: its own; for an endpoint Nodes share, with the
+// wait policy, the one the first live Node of it keeps (the board has one queue for the endpoint,
+// and its count of finished transfers goes to every Node's runtime of that address, which each
+// clamp at zero).
 EndpointRuntime* write_runtime(mimusb_node* node, const std::uint8_t address) {
     EndpointRuntime* own = nullptr;
     for (EndpointRuntime& ep : node->in_endpoints) {
@@ -150,17 +139,19 @@ EndpointRuntime* write_runtime(mimusb_node* node, const std::uint8_t address) {
     }
     // Only a wait policy counts transfers, so only it needs the one count of the interface; the
     // other policies keep the report path free of the walk (and its lock).
-    if (own != nullptr && !node->generic && own->policy.on_full == MIMUSB_FULL_WAIT) {
+    if (own != nullptr && own->policy.on_full == MIMUSB_FULL_WAIT) {
         for (mimusb_node* other : live_nodes(node->device)) {
-            if (!other->generic && other->iface == node->iface && !other->in_endpoints.empty())
-                return &other->in_endpoints.front();
+            for (EndpointRuntime& ep : other->in_endpoints) {
+                if (ep.address == address)
+                    return &ep;
+            }
         }
     }
     return own;
 }
 
 // One transfer to an IN endpoint in frames, as mimusb_node_endpoint_write describes; the shared
-// path of the generic Nodes and of the reports of the profile Nodes.
+// path of every Node's writes, the reports of a HID Node included.
 mimusb_result endpoint_write(mimusb_device* device, const std::uint16_t node_id,
                              EndpointRuntime* ep, const std::uint8_t address,
                              // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -374,62 +365,40 @@ mimusb_result MIMUSB_CALL mimusb_node_endpoint_set_policy(mimusb_node* node, con
     }
     const bool live = device->configured && !device->batch_open && !node->staged_only &&
                       !device->reconfiguring.load(std::memory_order_acquire);
-    if (node->generic) {
-        EndpointRuntime* ep = runtime_of(node, address);
-        if (live) {
-            const mimusb_result r = command_error(
-                device->link.command(
-                    MIMUSB_T_EP_CONFIG,
-                    std::array<std::uint8_t, 3>{address, policy->depth, policy->on_full}.data(), 3,
-                    control_timeout_ms, kCommandAttempts),
-                field, "The board did not accept the policy.", MIMUSB_T_EP_CONFIG,
-                public_node_id(node));
-            if (r != MIMUSB_OK)
-                return r;
-        }
-        {
-            std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-            ep->policy = *policy;
-            ep->outstanding = 0U;
-            ++ep->epoch;
-        }
-        device->endpoint_cv.notify_all();
-        // The copy the composer reads at the next commit.
-        for (mimusb::detail::GenericInterface& itf : node->interfaces) {
-            itf.for_each_endpoint([&](mimusb_usb_endpoint& e) {
-                if (e.address == address)
-                    e.policy = *policy;
-            });
-        }
-        device->dirty = device->dirty || !live;
-        return MIMUSB_OK;
+    EndpointRuntime* ep = runtime_of(node, address);
+    const mimusb_endpoint_policy previous = ep->policy;
+    {
+        std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+        ep->policy = *policy;
     }
-    // A profile Node: the interface's queue takes the least depth of its Nodes.
-    const mimusb_endpoint_policy previous = node->config.ep_in.policy;
-    node->config.ep_in.policy = *policy;
     if (live) {
-        const std::uint8_t depth = mimusb::detail::hid_interface_depth(device, node->iface);
-        const std::uint8_t payload[3] = {address, depth, policy->on_full};
+        // An endpoint Nodes share takes the least depth of theirs.
+        const std::uint8_t payload[3] = {address, shared_depth(live_nodes(device), address),
+                                         policy->on_full};
         const mimusb_result r =
             command_error(device->link.command(MIMUSB_T_EP_CONFIG, payload, sizeof(payload),
                                                control_timeout_ms, kCommandAttempts),
                           field, "The board did not accept the policy.", MIMUSB_T_EP_CONFIG,
                           public_node_id(node));
         if (r != MIMUSB_OK) {
-            node->config.ep_in.policy = previous; // the board keeps the policy it had
+            std::lock_guard<std::mutex> lock(device->endpoint_mutex);
+            ep->policy = previous; // the board keeps the policy it had
             return r;
         }
     }
-    EndpointRuntime* ep = runtime_of(node, address);
     {
         std::lock_guard<std::mutex> lock(device->endpoint_mutex);
-        if (ep != nullptr) {
-            ep->policy = *policy;
-            ep->outstanding = 0U;
-            ++ep->epoch;
-        }
+        ep->outstanding = 0U;
+        ++ep->epoch;
     }
     device->endpoint_cv.notify_all();
+    // The copy the composer reads at the next commit.
+    for (mimusb::detail::GenericInterface& itf : node->interfaces) {
+        itf.for_each_endpoint([&](mimusb_usb_endpoint& e) {
+            if (e.address == address)
+                e.policy = *policy;
+        });
+    }
     device->dirty = device->dirty || !live;
     return MIMUSB_OK;
 }

@@ -125,20 +125,37 @@ set(MIMUSB_SOURCES
     src/api/c_api_bytes.cpp
     src/api/c_api_endpoint.cpp
     src/api/c_api_node.cpp
-    src/api/c_api_send.cpp
+    src/api/c_api_spec.cpp
     src/api/device_ops.cpp
     src/api/error_detail.cpp
     src/hid/descriptor_builder.cpp
     src/hid/item_writer.cpp
     src/hid/validator.cpp
     src/classes/cdc_acm.cpp
-    src/profiles/spec.cpp
-    src/profiles/state.cpp
+    src/classes/interfaces.cpp
+    src/classes/hid/hid_class.cpp
+    src/classes/hid/hid_layer.cpp
+    src/classes/hid/neutral.cpp
+    src/classes/hid/report.cpp
+    src/classes/hid/send.cpp
+    src/classes/hid/spec_gamepad.cpp
+    src/classes/hid/spec_keyboard.cpp
+    src/classes/hid/spec_mouse.cpp
+    src/classes/hid/spec_pen.cpp
+    src/classes/hid/spec_raw.cpp
+    src/classes/hid/spec_toggle.cpp
+    src/classes/hid/spec_touch.cpp
+    src/classes/hid/state_battery.cpp
+    src/classes/hid/state_gamepad.cpp
+    src/classes/hid/state_keyboard.cpp
+    src/classes/hid/state_mouse.cpp
+    src/classes/hid/state_pen.cpp
+    src/classes/hid/state_toggle.cpp
+    src/classes/hid/state_touch.cpp
     src/transport/frame.cpp
     src/transport/link.cpp
     src/usb/descriptor_composer.cpp
     src/usb/descriptor_walker.cpp
-    src/usb/hid_layer.cpp
     src/transport/handshaker.cpp
 )
 if(WIN32)

@@ -7,8 +7,8 @@
  * options and the interfaces of the open Nodes. Pure: no I/O, no board, no clock. It reads no
  * class: an interface is its numbers, its class descriptors as given and its endpoints. The board
  * holds what this makes and checks that it is a configuration it can run (docs/PROTOCOL.md); it
- * builds nothing itself. What only HID needs (Nodes sharing an interface, Report IDs, the HID
- * descriptor and the rules that serve it) is made before this, in hid_layer.hpp.
+ * builds nothing itself. What a class needs (for HID: Nodes sharing an interface, Report IDs, the
+ * HID descriptor and the rules that serve it) is made before this, by the class's compose.
  */
 
 #include "mimusb.h"

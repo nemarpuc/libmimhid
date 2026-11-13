@@ -2,6 +2,7 @@
 // Copyright (c) 2026 libmimusb contributors
 /* The battery report every profile can add: the builder, the options and the state. */
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "hid/descriptor_builder.hpp"
 #include "hid/usages.hpp"
 #include "hid/validator.hpp"
@@ -146,47 +147,53 @@ void test_battery_state() {
     }
 
     mimusb_node without{};
-    without.spec = plain;
-    without.state = mimusb::detail::KeyboardState{};
+    mimusb::detail::attach_hid(&without, plain);
+    mimusb::detail::hid_node(&without)->state = mimusb::detail::KeyboardState{};
     MIMUSB_CHECK(mimusb_battery_update(&without, 50) == MIMUSB_ERR_PARAM);
 
     mimusb_node node{};
-    node.spec = spec;
-    node.state = mimusb::detail::KeyboardState{};
+    mimusb::detail::attach_hid(&node, spec);
+    mimusb::detail::hid_node(&node)->state = mimusb::detail::KeyboardState{};
     std::array<std::uint8_t, 8U> report{};
     std::size_t length = 0U;
 
     // Nothing was ever set, so there is nothing to send.
-    MIMUSB_CHECK(!node.battery_dirty);
+    MIMUSB_CHECK(!mimusb::detail::hid_node(&node)->battery_dirty);
     // The first value is a change even when it is 0, the initial storage.
-    MIMUSB_CHECK(mimusb_battery_update(&node, 0) == MIMUSB_OK && node.battery_dirty);
-    MIMUSB_CHECK(mimusb::detail::serialize_battery(&node, report.data(), report.size(), &length) ==
-                 MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_battery_update(&node, 0) == MIMUSB_OK &&
+                 mimusb::detail::hid_node(&node)->battery_dirty);
+    MIMUSB_CHECK(mimusb::detail::serialize_battery(mimusb::detail::hid_node(&node), report.data(),
+                                                   report.size(), &length) == MIMUSB_OK);
     MIMUSB_CHECK(length == 2U && report[0] == 2U && report[1] == 0U);
 
     MIMUSB_CHECK(mimusb_battery_update(&node, 80) == MIMUSB_OK);
-    MIMUSB_CHECK(node.battery_dirty && !node.dirty);
-    MIMUSB_CHECK(mimusb::detail::serialize_battery(&node, report.data(), report.size(), &length) ==
-                 MIMUSB_OK);
+    MIMUSB_CHECK(mimusb::detail::hid_node(&node)->battery_dirty &&
+                 !mimusb::detail::hid_node(&node)->dirty);
+    MIMUSB_CHECK(mimusb::detail::serialize_battery(mimusb::detail::hid_node(&node), report.data(),
+                                                   report.size(), &length) == MIMUSB_OK);
     MIMUSB_CHECK(length == 2U && report[0] == 2U && report[1] == 80U);
-    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(spec, spec->battery_layout,
-                                                            report.data(), length) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb::detail::validate_serialized_report(
+                     mimusb::detail::hid_spec(spec), mimusb::detail::hid_spec(spec)->battery_layout,
+                     report.data(), length) == MIMUSB_OK);
     report[1] = 101U;
     MIMUSB_CHECK(mimusb::detail::validate_serialized_report(
-                     spec, spec->battery_layout, report.data(), length) == MIMUSB_ERR_INTERNAL);
+                     mimusb::detail::hid_spec(spec), mimusb::detail::hid_spec(spec)->battery_layout,
+                     report.data(), length) == MIMUSB_ERR_INTERNAL);
 
     // The same value again asks for nothing.
-    node.battery_dirty = false;
-    MIMUSB_CHECK(mimusb_battery_update(&node, 80) == MIMUSB_OK && !node.battery_dirty);
-    MIMUSB_CHECK(mimusb_battery_update(&node, 79) == MIMUSB_OK && node.battery_dirty);
+    mimusb::detail::hid_node(&node)->battery_dirty = false;
+    MIMUSB_CHECK(mimusb_battery_update(&node, 80) == MIMUSB_OK &&
+                 !mimusb::detail::hid_node(&node)->battery_dirty);
+    MIMUSB_CHECK(mimusb_battery_update(&node, 79) == MIMUSB_OK &&
+                 mimusb::detail::hid_node(&node)->battery_dirty);
 
     MIMUSB_CHECK(mimusb_battery_update(&node, -1) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_battery_update(&node, 101) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_battery_update(nullptr, 50) == MIMUSB_ERR_PARAM);
 
-    node.transfer_inflight.store(true);
+    mimusb::detail::hid_node(&node)->transfer_inflight.store(true);
     MIMUSB_CHECK(mimusb_battery_update(&node, 10) == MIMUSB_ERR_BUSY);
-    node.transfer_inflight.store(false);
+    mimusb::detail::hid_node(&node)->transfer_inflight.store(false);
 
     mimusb_spec_release(plain);
     mimusb_spec_release(spec);

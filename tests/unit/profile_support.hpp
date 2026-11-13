@@ -5,6 +5,7 @@
 #pragma once
 
 #include "api/internal.hpp"
+#include "classes/hid/hid_class.hpp"
 #include "mimusb.h"
 #include "test.hpp"
 
@@ -28,7 +29,7 @@ inline std::uint64_t extract(const std::uint8_t* report, const mimusb::hid::Fiel
 inline const mimusb::hid::FieldLayout* field(const mimusb_spec* spec,
                                              const mimusb::hid::FieldSemantic semantic,
                                              const std::uint16_t instance = 0U) {
-    for (const auto& candidate : spec->layout.fields) {
+    for (const auto& candidate : mimusb::detail::hid_spec(spec)->layout.fields) {
         if (candidate.semantic == semantic && candidate.instance == instance)
             return &candidate;
     }
@@ -78,12 +79,17 @@ void check_battery_variant(Options options,
     if (plain != nullptr && spec != nullptr) {
         // The input side is the plain descriptor without its closing End
         // Collection; the battery report is the 16 bytes before the new one.
-        MIMUSB_CHECK(spec->descriptor.size() == plain->descriptor.size() + 16U);
-        MIMUSB_CHECK(std::equal(plain->descriptor.begin(), plain->descriptor.end() - 1,
-                                spec->descriptor.begin()));
-        MIMUSB_CHECK(spec->layout.wire_bytes == plain->layout.wire_bytes);
-        MIMUSB_CHECK(!plain->has_battery && spec->has_battery &&
-                     spec->battery_layout.report_id == 2U && spec->battery_layout.wire_bytes == 2U);
+        MIMUSB_CHECK(mimusb::detail::hid_spec(spec)->descriptor.size() ==
+                     mimusb::detail::hid_spec(plain)->descriptor.size() + 16U);
+        MIMUSB_CHECK(std::equal(mimusb::detail::hid_spec(plain)->descriptor.begin(),
+                                mimusb::detail::hid_spec(plain)->descriptor.end() - 1,
+                                mimusb::detail::hid_spec(spec)->descriptor.begin()));
+        MIMUSB_CHECK(mimusb::detail::hid_spec(spec)->layout.wire_bytes ==
+                     mimusb::detail::hid_spec(plain)->layout.wire_bytes);
+        MIMUSB_CHECK(!mimusb::detail::hid_spec(plain)->has_battery &&
+                     mimusb::detail::hid_spec(spec)->has_battery &&
+                     mimusb::detail::hid_spec(spec)->battery_layout.report_id == 2U &&
+                     mimusb::detail::hid_spec(spec)->battery_layout.wire_bytes == 2U);
         mimusb_capability_manifest manifest{};
         manifest.struct_size = static_cast<std::uint32_t>(sizeof(manifest));
         MIMUSB_CHECK(mimusb_spec_manifest(spec, &manifest) == MIMUSB_OK);

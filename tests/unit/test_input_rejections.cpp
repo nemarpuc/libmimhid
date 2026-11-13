@@ -21,7 +21,8 @@ bool refused(const mimusb_node& node, const mimusb_result result, const mimusb_r
              const char* field) {
     const char* named = mimusb_last_error()->field;
     const bool ok = result == expected && named != nullptr &&
-                    std::strncmp(named, field, std::strlen(field)) == 0 && !node.dirty;
+                    std::strncmp(named, field, std::strlen(field)) == 0 &&
+                    !mimusb::detail::hid_node(&node)->dirty;
     if (!ok)
         std::fprintf(stderr, "expected %s at %s, got %s at %s\n", mimusb_result_name(expected),
                      field, mimusb_result_name(result), named != nullptr ? named : "(null)");
@@ -34,20 +35,20 @@ void test_keyboard_and_mouse() {
     MIMUSB_CHECK(mimusb_spec_create_keyboard(&keyboard, &spec) == MIMUSB_OK);
     if (spec != nullptr) {
         mimusb_node node{};
-        node.spec = spec;
+        mimusb::detail::attach_hid(&node, spec);
         mimusb::detail::KeyboardState state{};
         const std::size_t count =
             static_cast<std::size_t>(keyboard.usage_maximum - keyboard.usage_minimum) + 1U;
         state.pressed_bitmap.resize(count);
         state.key_transitions.resize(count);
-        node.state = std::move(state);
+        mimusb::detail::hid_node(&node)->state = std::move(state);
         MIMUSB_CHECK(
             refused(node, mimusb_keyboard_key(&node, 0x04, 2), MIMUSB_ERR_PARAM, "keyboard"));
         // A call of another profile.
         MIMUSB_CHECK(refused(node, mimusb_mouse_move(&node, 1, 0), MIMUSB_ERR_PARAM, "mouse"));
-        node.transfer_inflight.store(true);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(true);
         MIMUSB_CHECK(mimusb_keyboard_key(&node, 0x04, 1) == MIMUSB_ERR_BUSY);
-        node.transfer_inflight.store(false);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(false);
         mimusb_spec_release(spec);
     }
 
@@ -64,13 +65,13 @@ void test_keyboard_and_mouse() {
     if (spec == nullptr)
         return;
     mimusb_node node{};
-    node.spec = spec;
+    mimusb::detail::attach_hid(&node, spec);
     mimusb::detail::MouseState state{};
     state.buttons.resize(2U);
     state.button_transitions.resize(2U);
     state.dx = std::numeric_limits<std::int64_t>::max();
     state.wheel = std::numeric_limits<std::int64_t>::min();
-    node.state = std::move(state);
+    mimusb::detail::hid_node(&node)->state = std::move(state);
     const std::int32_t big = std::numeric_limits<std::int32_t>::max();
     MIMUSB_CHECK(
         refused(node, mimusb_mouse_move(&node, big, 0), MIMUSB_ERR_OVERFLOW, "mouse.delta"));
@@ -103,19 +104,19 @@ void test_toggle_and_gamepad() {
     MIMUSB_CHECK(mimusb_spec_create_toggle(&toggle, &spec) == MIMUSB_OK);
     if (spec != nullptr) {
         mimusb_node node{};
-        node.spec = spec;
+        mimusb::detail::attach_hid(&node, spec);
         mimusb::detail::ConsumerState state{};
         state.pressed.resize(1U);
         state.transitions.resize(1U);
-        node.state = std::move(state);
+        mimusb::detail::hid_node(&node)->state = std::move(state);
         MIMUSB_CHECK(
             refused(node, mimusb_toggle_usage(&node, 0x00CD, 2), MIMUSB_ERR_PARAM, "toggle"));
         MIMUSB_CHECK(refused(node, mimusb_toggle_usage(&node, 0x00E9, 1), MIMUSB_ERR_PARAM,
                              "toggle")); // not on the allow-list
-        node.transfer_inflight.store(true);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(true);
         MIMUSB_CHECK(
             refused(node, mimusb_toggle_usage(&node, 0x00CD, 1), MIMUSB_ERR_BUSY, "toggle"));
-        node.transfer_inflight.store(false);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(false);
         mimusb_spec_release(spec);
     }
 
@@ -138,12 +139,12 @@ void test_toggle_and_gamepad() {
     if (spec == nullptr)
         return;
     mimusb_node node{};
-    node.spec = spec;
+    mimusb::detail::attach_hid(&node, spec);
     mimusb::detail::GamepadState state{};
     state.axes.resize(2U);
     state.buttons.resize(2U);
     state.button_transitions.resize(2U);
-    node.state = std::move(state);
+    mimusb::detail::hid_node(&node)->state = std::move(state);
     MIMUSB_CHECK(
         refused(node, mimusb_gamepad_button(&node, 3, 1), MIMUSB_ERR_PARAM, "gamepad.button"));
     MIMUSB_CHECK(
@@ -165,11 +166,11 @@ void test_touch_and_pen() {
     MIMUSB_CHECK(mimusb_spec_create_touchpad(&touchpad, &spec) == MIMUSB_OK);
     if (spec != nullptr) {
         mimusb_node node{};
-        node.spec = spec;
+        mimusb::detail::attach_hid(&node, spec);
         mimusb::detail::TouchState state{};
         state.buttons.resize(1U);
         state.button_transitions.resize(1U);
-        node.state = std::move(state);
+        mimusb::detail::hid_node(&node)->state = std::move(state);
         MIMUSB_CHECK(refused(node, mimusb_touchpad_button(&node, 2, 1), MIMUSB_ERR_PARAM,
                              "touchpad.button"));
         MIMUSB_CHECK(refused(node, mimusb_touchpad_contact(&node, 0, 1, 2000, 0, nullptr),
@@ -177,13 +178,13 @@ void test_touch_and_pen() {
         // Three contacts fill the slots; a fourth has none.
         for (std::uint32_t id = 0; id < 3U; ++id)
             MIMUSB_CHECK(mimusb_touchpad_contact(&node, id, 1, 10, 10, nullptr) == MIMUSB_OK);
-        node.dirty = false;
+        mimusb::detail::hid_node(&node)->dirty = false;
         MIMUSB_CHECK(refused(node, mimusb_touchpad_contact(&node, 3, 1, 10, 10, nullptr),
                              MIMUSB_ERR_OVERFLOW, "touchpad.maximum_contacts"));
-        node.transfer_inflight.store(true);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(true);
         MIMUSB_CHECK(refused(node, mimusb_touchpad_contact(&node, 0, 0, 10, 10, nullptr),
                              MIMUSB_ERR_BUSY, "touch"));
-        node.transfer_inflight.store(false);
+        mimusb::detail::hid_node(&node)->transfer_inflight.store(false);
         mimusb_spec_release(spec);
     }
 
@@ -201,8 +202,8 @@ void test_touch_and_pen() {
     if (spec == nullptr)
         return;
     mimusb_node node{};
-    node.spec = spec;
-    node.state = mimusb::detail::PenState{};
+    mimusb::detail::attach_hid(&node, spec);
+    mimusb::detail::hid_node(&node)->state = mimusb::detail::PenState{};
     MIMUSB_CHECK(refused(node, mimusb_pen_update(&node, nullptr), MIMUSB_ERR_PARAM, "pen.sample"));
     const mimusb_pen_sample good{1U, 0U, 0U, 0U, 10, 10, 0, 0, 0, 0};
     const struct {

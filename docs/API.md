@@ -200,7 +200,7 @@ target.
   **same** interface number share one USB HID interface: their interface and
   endpoint settings must match (the queue depth excepted: the board gets the
   least depth any of them set), and each must have a Report ID, all different.
-  The rules for sharing live in the HID layer (`src/usb/hid_layer.cpp`), not in
+  The rules for sharing live in the HID class (`src/classes/hid/hid_layer.cpp`), not in
   the composer.
 - Every endpoint address is used by one endpoint on the whole device (USB 2.0
   9.6.6; IN and OUT of one number are two addresses), with a number from 1 to
@@ -825,7 +825,7 @@ mimusb_result mimusb_node_endpoint_flush(mimusb_node* node, uint8_t address, uin
 - **Ownership:** Nothing.
 - **Blocking:** A command to the board, waiting up to control_timeout_ms.
 - **Synchronization:** Device domain. Stall sets and clear removes the Halt feature of an endpoint (USB 2.0 9.4.5); stalling an IN endpoint drops what waits and what is on the bus. Flush drops what waits on an IN endpoint (a transfer the controller already has completes). Each resets the wait count of an IN endpoint.
-- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for an invalid Node or an address that is not an endpoint of the Node (flush: not an IN endpoint); `MIMUSB_ERR_UNSUPPORTED` for a profile Node; `MIMUSB_ERR_UNSET_FIELD` for a zero timeout; `MIMUSB_ERR_BUSY` when the board does not run the configuration; a link error.
+- **Returns:** `MIMUSB_OK`; `MIMUSB_ERR_PARAM` for an invalid Node or an address that is not an endpoint of the Node (flush: not an IN endpoint); `MIMUSB_ERR_UNSET_FIELD` for a zero timeout; `MIMUSB_ERR_BUSY` when the board does not run the configuration; a link error.
 
 #### `mimusb_device_add_string`, `mimusb_device_remove_string`
 
