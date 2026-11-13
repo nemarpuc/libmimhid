@@ -35,7 +35,7 @@ jobs:
           cmake -B build_host -S . -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=ON
 
       - name: Build
-        timeout-minutes: 10
+        timeout-minutes: 6
         run: cmake --build build_host --config Release --parallel
 
       - name: Test
@@ -75,6 +75,7 @@ jobs:
         run: .github/scripts/setup-tinyusb.sh "$HOME/tinyusb"
 
       - name: Build the host library against the firmware core
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           cmake -B build_sim -S . -DCMAKE_BUILD_TYPE=Release -DMIMUSB_BUILD_TESTS=ON -DMIMUSB_BUILD_EXAMPLES=OFF -DMIMUSB_TINYUSB_PATH="$HOME/tinyusb"
