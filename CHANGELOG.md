@@ -6,6 +6,8 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-14
+
 The API has one shape for every kind of function: a factory makes a Spec, `mimusb_node_open` opens any
 Spec at a placement, and control rules are the one way a class talks on endpoint 0, for HID and for
 any class that comes after it. The wire protocol and the firmware are unchanged apart from the version

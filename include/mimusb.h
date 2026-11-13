@@ -100,7 +100,7 @@ extern "C" {
 
 #define MIMUSB_VERSION_MAJOR 0
 #define MIMUSB_VERSION_MINOR 7
-#define MIMUSB_VERSION_PATCH 0
+#define MIMUSB_VERSION_PATCH 1
 /* The largest report the library builds, whatever a board holds. */
 #define MIMUSB_HOST_MAX_REPORT_BYTES 1024
 
