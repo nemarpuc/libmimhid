@@ -132,9 +132,9 @@ _Static_assert(MIMUSB_EP_POOL_SLOTS >= 1 && MIMUSB_EP_POOL_SLOTS <= 0xFFFF, "slo
 _Static_assert(MIMUSB_CONTROL_RULES >= 1 && MIMUSB_CONTROL_RULES <= 254,
                "a rule index is a byte, and 0xFF means none");
 // MIMUSB_ANSWER_BYTES is the answer memory of one table: the bytes of every ANSWER rule together.
-// Fifteen HID interfaces take at most 2048 bytes of report descriptors together (what 0.2 held), 135
-// of HID descriptors (9 each, HID 1.11 6.2.1), 30 for GET_IDLE and GET_PROTOCOL, and the Feature
-// answers; the rest of 4096 is for those and the caller's rules.
+// Fifteen HID interfaces take 135 bytes of HID descriptors (9 each, HID 1.11 6.2.1), 30 for GET_IDLE
+// and GET_PROTOCOL, their report descriptors and the Feature answers; the rest is for the caller's
+// rules. The port's mimusb_limits.h says how much that is.
 _Static_assert(MIMUSB_ANSWER_BYTES >= 1 && MIMUSB_ANSWER_BYTES <= 0xFFFF, "a length fits the wire");
 // ANSWER_LAST_SENT rules each keep the last transfer on their endpoint in a buffer of
 // MIMUSB_MAX_TRANSFER_BYTES, apart from the tables (they are written as transfers are sent): one for

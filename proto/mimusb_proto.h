@@ -437,7 +437,7 @@ static inline uint16_t mimusb_crc16_update(uint16_t crc, uint8_t byte) {
 #define MIMUSB_DESC_DEVICE 1
 #define MIMUSB_DESC_CONFIGURATION 2
 #define MIMUSB_DESC_STRING 3
-/* 4 was the HID report descriptor, which the board no longer knows */
+/* 4 is not used */
 #define MIMUSB_DESC_ANSWER 5
 #define MIMUSB_DESC_BOS 6
 #define MIMUSB_DESC_F_SERIAL_FROM_ID 0x01

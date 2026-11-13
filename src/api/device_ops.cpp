@@ -1305,8 +1305,8 @@ void deliver_event(mimusb_device* device, const tr::BoardEvent& board) noexcept 
     mimusb_event event{};
     event.struct_size = sizeof(event);
     std::uint8_t iface = 0xFFU;
-    // A report the target sent to a profile Node, as the HID driver of the board used to report
-    // it: kind OUTPUT_REPORT or FEATURE_REPORT, the Report ID and the bytes after it.
+    // A report the target sent to a profile Node: kind OUTPUT_REPORT or FEATURE_REPORT, the Report
+    // ID and the bytes after it.
     const auto hid_report = [&](const std::uint8_t type, const std::uint8_t id,
                                 const std::uint8_t* data, std::size_t length) {
         if (type == 2U && id == 0U) {
