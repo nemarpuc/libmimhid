@@ -22,6 +22,7 @@ struct TouchExtra {
 // mimusb_touchpad_contact ABI order and cannot be changed to avoid this warning.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static mimusb_result touch_contact_impl(mimusb::detail::HidNode* node,
+                                        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                                         const mimusb_profile_kind kind,
                                         const std::uint32_t contact_id, const std::uint32_t down,
                                         const std::int32_t x, const std::int32_t y,

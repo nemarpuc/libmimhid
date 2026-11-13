@@ -27,6 +27,7 @@ class InterfacesClass final : public mimusb::detail::FunctionClass {
     std::size_t roles(const mimusb_spec&, mimusb_role_info*, std::size_t) const override {
         return 0U;
     }
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     void rule_cost(const mimusb_spec& spec, std::size_t* rules,
                    std::size_t* answer_bytes) const override {
         const mimusb_node_config& view = data_of(spec).view;
