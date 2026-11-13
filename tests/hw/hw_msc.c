@@ -47,7 +47,8 @@ static void on_event(void* user, const mimusb_event* e) {
     } else if (e->kind == MIMUSB_EVENT_ENDPOINT_HALT && e->endpoint_address == EP_IN &&
                e->value == 0) {
         g_halt_cleared++;
-    } else if (e->kind == MIMUSB_EVENT_CONTROL_SETUP && (e->control_flags & MIMUSB_CONTROL_FLAG_ACCEPTED)) {
+    } else if (e->kind == MIMUSB_EVENT_CONTROL_SETUP &&
+               (e->control_flags & MIMUSB_CONTROL_FLAG_ACCEPTED)) {
         // The only ACCEPT rule is the Bulk-Only Mass Storage Reset.
         g_resets++;
     }
@@ -155,7 +156,8 @@ static void* responder(void* arg) {
                 return NULL;
             continue;
         }
-        if (le32(cbw) != 0x43425355U) { // 'USBC': not a CBW; BOT 6.6.1 says stall and wait for reset
+        if (le32(cbw) !=
+            0x43425355U) { // 'USBC': not a CBW; BOT 6.6.1 says stall and wait for reset
             printf("  responder: a bad CBW signature\n");
             continue;
         }
@@ -164,6 +166,7 @@ static void* responder(void* arg) {
         const uint8_t* cb = cbw + 15;
         uint32_t sent = 0;
         uint8_t status = 0;
+        int stalled = 0;
         g_commands++;
         switch (cb[0]) {
         case 0x00: // TEST UNIT READY
@@ -245,6 +248,7 @@ static void* responder(void* arg) {
                 pthread_mutex_lock(&g_lock);
                 int before = g_halt_cleared;
                 pthread_mutex_unlock(&g_lock);
+                stalled = 1;
                 mimusb_node_endpoint_stall(g_node, EP_IN, 500);
                 for (int i = 0; i < 60; i++) {
                     pthread_mutex_lock(&g_lock);
@@ -267,6 +271,23 @@ static void* responder(void* arg) {
         }
         if (status)
             g_failed_commands++;
+        // BOT 6.7.2 (Hi > Dn): when the device has sent less than the host expects of a command
+        // that failed, it stalls Bulk-In and sends the CSW once the host has cleared the halt. (A
+        // command that was unsupported did this above already: `stalled`.)
+        if (to_host && dlen > sent && status && !stalled) {
+            pthread_mutex_lock(&g_lock);
+            int before = g_halt_cleared;
+            pthread_mutex_unlock(&g_lock);
+            mimusb_node_endpoint_stall(g_node, EP_IN, 500);
+            for (int i = 0; i < 60; i++) {
+                pthread_mutex_lock(&g_lock);
+                int now = g_halt_cleared;
+                pthread_mutex_unlock(&g_lock);
+                if (now != before)
+                    break;
+                sleep_ms(50);
+            }
+        }
         send_csw(tag, dlen > sent ? dlen - sent : 0, status);
     }
 }
@@ -290,23 +311,30 @@ static int bot(const uint8_t* cb, uint8_t cb_len, int to_host, uint8_t* data, ui
     *data_got = 0;
     if (stalled)
         *stalled = 0;
-    if (libusb_bulk_transfer(g_h, EP_OUT, cbw, sizeof(cbw), &n, 2000) != 0 || n != 31)
+    int e = libusb_bulk_transfer(g_h, EP_OUT, cbw, sizeof(cbw), &n, 2000);
+    if (e != 0 || n != 31) {
+        printf("  bot: CBW: %s, %d bytes\n", libusb_error_name(e), n);
         return -1;
+    }
     if (dlen) {
-        int e = libusb_bulk_transfer(g_h, to_host ? EP_IN : EP_OUT, data, (int)dlen, &n, 5000);
+        e = libusb_bulk_transfer(g_h, to_host ? EP_IN : EP_OUT, data, (int)dlen, &n, 5000);
         if (e == LIBUSB_ERROR_PIPE) {
             if (stalled)
                 *stalled = 1;
             libusb_clear_halt(g_h, to_host ? EP_IN : EP_OUT);
         } else if (e != 0) {
+            printf("  bot: data stage: %s, %d bytes\n", libusb_error_name(e), n);
             return -1;
         }
         *data_got = (uint32_t)n;
     }
     uint8_t csw[13];
-    if (libusb_bulk_transfer(g_h, EP_IN, csw, sizeof(csw), &n, 3000) != 0 || n != 13 ||
-        le32(csw) != 0x53425355U || le32(csw + 4) != tag)
+    e = libusb_bulk_transfer(g_h, EP_IN, csw, sizeof(csw), &n, 3000);
+    if (e != 0 || n != 13 || le32(csw) != 0x53425355U || le32(csw + 4) != tag) {
+        printf("  bot: CSW: %s, %d bytes, tag %08X (sent %08X)\n", libusb_error_name(e), n,
+               n == 13 ? le32(csw + 4) : 0, tag);
         return -1;
+    }
     if (residue)
         *residue = le32(csw + 8);
     return csw[12];
@@ -520,8 +548,10 @@ int main(void) {
     // says "failed", and the sense says why.
     uint8_t bogus[6] = {0xC7};
     st = bot(bogus, 6, 1, back, 64, &got, &residue, &stalled);
-    CHECK(st == 1 && stalled && residue == 64, "unsupported command: status %d, stalled %d, "
-          "residue %u", st, stalled, residue);
+    CHECK(st == 1 && stalled && residue == 64,
+          "unsupported command: status %d, stalled %d, "
+          "residue %u",
+          st, stalled, residue);
     st = bot(sense_cb, 6, 1, back, 18, &got, &residue, NULL);
     CHECK(st == 0 && back[2] == 5 && back[12] == 0x20, "REQUEST SENSE: key %u, ASC %02X", back[2],
           back[12]);
@@ -530,7 +560,8 @@ int main(void) {
     e = libusb_control_transfer(g_h, 0x21, 0xFF, 0, 0, NULL, 0, 1000);
     CHECK(e == 0, "Bulk-Only Mass Storage Reset: %s", libusb_error_name(e));
     libusb_clear_halt(g_h, EP_IN);
-    libusb_clear_halt(g_h, EP_OUT);
+    if (!getenv("MSC_SKIP_OUT_CLEAR"))
+        libusb_clear_halt(g_h, EP_OUT);
     sleep_ms(100);
     pthread_mutex_lock(&g_lock);
     int resets = g_resets;
@@ -543,10 +574,26 @@ int main(void) {
     t0 = now_ms();
     for (int i = 0; i < 128; i++) {
         uint32_t lba = (uint32_t)(i * 8);
-        uint8_t w[10] = {0x2A, 0, (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8),
-                         (uint8_t)lba, 0, 0, 8, 0};
-        uint8_t rr[10] = {0x28, 0, (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8),
-                          (uint8_t)lba, 0, 0, 8, 0};
+        uint8_t w[10] = {0x2A,
+                         0,
+                         (uint8_t)(lba >> 24),
+                         (uint8_t)(lba >> 16),
+                         (uint8_t)(lba >> 8),
+                         (uint8_t)lba,
+                         0,
+                         0,
+                         8,
+                         0};
+        uint8_t rr[10] = {0x28,
+                          0,
+                          (uint8_t)(lba >> 24),
+                          (uint8_t)(lba >> 16),
+                          (uint8_t)(lba >> 8),
+                          (uint8_t)lba,
+                          0,
+                          0,
+                          8,
+                          0};
         for (int k = 0; k < 4096; k++)
             data[k] = (uint8_t)(k + i);
         if (bot(w, 10, 0, data, 4096, &got, &residue, NULL) != 0 || got != 4096)

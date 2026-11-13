@@ -50,8 +50,7 @@ static void on_event(void* user, const mimusb_event* e) {
             memcpy(g_assembly + g_assembly_len, e->data, e->length);
         g_assembly_len += e->length;
         if (e->length < 64) {
-            if (g_assembly_len <= FRAME_MAX && g_assembly_len > 0 &&
-                g_head - g_tail < QUEUE) {
+            if (g_assembly_len <= FRAME_MAX && g_assembly_len > 0 && g_head - g_tail < QUEUE) {
                 memcpy(g_queue[g_head % QUEUE], g_assembly, g_assembly_len);
                 g_queue_len[g_head % QUEUE] = g_assembly_len;
                 g_head++;
@@ -272,7 +271,10 @@ static size_t make_echo(uint8_t* f, size_t total, uint16_t seq) {
     f[19] = (uint8_t)seq;
     f[22] = 64;
     f[23] = 1;
-    f[26] = 10; f[27] = 9; f[28] = 9; f[29] = 1;
+    f[26] = 10;
+    f[27] = 9;
+    f[28] = 9;
+    f[29] = 1;
     memcpy(f + 30, kIp, 4);
     const uint16_t ipsum = checksum(f + 14, 20);
     f[24] = (uint8_t)(ipsum >> 8);
@@ -405,7 +407,8 @@ int main(void) {
         ssize_t n = readlink(path, drv, sizeof(drv) - 1);
         const char* base = n > 0 ? strrchr(drv, '/') : NULL;
         printf("  interface %s, driver %s\n", net, base ? base + 1 : "?");
-        CHECK(base && strcmp(base + 1, "cdc_ether") == 0, "the driver is %s", base ? base + 1 : "?");
+        CHECK(base && strcmp(base + 1, "cdc_ether") == 0, "the driver is %s",
+              base ? base + 1 : "?");
         unsigned mtu = 0;
         snprintf(path, sizeof(path), "/sys/class/net/%s/mtu", net);
         FILE* f = fopen(path, "r");
@@ -473,7 +476,10 @@ int main(void) {
     tx[19] = 4;
     tx[21] = 1;
     memcpy(tx + 22, host_mac, 6);
-    tx[28] = 10; tx[29] = 9; tx[30] = 9; tx[31] = 1;
+    tx[28] = 10;
+    tx[29] = 9;
+    tx[30] = 9;
+    tx[31] = 1;
     memcpy(tx + 38, kIp, 4);
     CHECK(write_frame(tx, 60) == 0, "write of the ARP request");
     int got = read_frame(rx, sizeof(rx), 2000);
@@ -497,8 +503,7 @@ int main(void) {
         const size_t expect = len;
         int ok = got == (int)expect && rx[34] == 0 && memcmp(rx, host_mac, 6) == 0 &&
                  memcmp(rx + 26, kIp, 4) == 0 && checksum(rx + 14, 20) == 0 &&
-                 checksum(rx + 34, expect - 34) == 0 &&
-                 memcmp(rx + 42, tx + 42, expect - 42) == 0;
+                 checksum(rx + 34, expect - 34) == 0 && memcmp(rx + 42, tx + 42, expect - 42) == 0;
         if (!ok) {
             bad++;
             printf("  FAIL: echo of %zu bytes: got %d\n", len, got);
