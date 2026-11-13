@@ -339,7 +339,7 @@ if(MIMUSB_BUILD_FUZZ)
         CXX_STANDARD_REQUIRED YES
         CXX_EXTENSIONS NO)
     target_include_directories(mimusb_fuzz_descriptor PRIVATE include src proto)
-    target_compile_options(mimusb_fuzz_descriptor PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_compile_options(mimusb_fuzz_descriptor PRIVATE -fsanitize=fuzzer,address,undefined -fno-rtti)
     target_link_options(mimusb_fuzz_descriptor PRIVATE -fsanitize=fuzzer,address,undefined)
     target_link_libraries(mimusb_fuzz_descriptor PRIVATE Threads::Threads)
 endif()

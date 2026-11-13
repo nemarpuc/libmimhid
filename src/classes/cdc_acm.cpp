@@ -221,6 +221,7 @@ class CdcAcmClass final : public mimusb::detail::FunctionClass {
             out[i] = all[i];
         return 3U;
     }
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): the FunctionClass interface
     void rule_cost(const mimusb_spec& spec, std::size_t* rules,
                    std::size_t* answer_bytes) const override {
         // Three rules, 7 bytes of answer: made from a placement of any numbers.

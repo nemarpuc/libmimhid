@@ -317,6 +317,7 @@ class HidClass final : public mimusb::detail::FunctionClass {
         return 2U;
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): the FunctionClass interface
     void rule_cost(const mimusb_spec& spec, std::size_t* rules,
                    std::size_t* answer_bytes) const override {
         // The rules the class writes for a Node alone on its interface.
@@ -409,6 +410,7 @@ class HidClass final : public mimusb::detail::FunctionClass {
         return true;
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): the FunctionClass interface
     bool on_endpoint_data(mimusb_device* device, const std::uint8_t iface,
                           const std::uint8_t address, const std::uint8_t* data,
                           const std::size_t length, mimusb_event* event) const override {
