@@ -224,7 +224,8 @@ static int find_net(char* name, size_t cap) {
 
 static libusb_device_handle* g_h;
 
-// Reads one frame from the bulk IN endpoint: packets up to the first one shorter than 64 bytes.
+// Reads one frame from the bulk IN endpoint. A read lasts until a short packet (a zero-length one
+// included) or a full buffer, so a read that returns less than the buffer ended the frame.
 static int read_frame(uint8_t* out, size_t cap, int timeout_ms) {
     size_t total = 0;
     for (;;) {
@@ -237,7 +238,7 @@ static int read_frame(uint8_t* out, size_t cap, int timeout_ms) {
             return -2;
         memcpy(out + total, pkt, (size_t)n);
         total += (size_t)n;
-        if (n < 64)
+        if (n < (int)sizeof(pkt))
             return (int)total;
     }
 }
