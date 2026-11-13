@@ -4,27 +4,35 @@
 #define MIMUSB_H
 
 /*
- * libmimusb: a microcontroller board, driven over a serial link, presents a USB device (HID
- * profiles, interfaces of any class, or descriptors given as bytes) to the computer its USB port is
- * plugged into (the "target"). This header is the whole stable C ABI. It
- * exposes no serial handle and no C++ type.
+ * libmimusb: a microcontroller board, driven over a serial link, presents a USB device (functions
+ * the library describes for you, interfaces of any class written out, or descriptors given as
+ * bytes) to the computer its USB port is plugged into (the "target"). This header is the whole
+ * stable C ABI. It exposes no serial handle and no C++ type.
  *
  * Objects
  *   Device    one board, opened on a serial port. It presents one USB device to the target, whose
  *             identity (descriptor, strings) the Device sets.
- *   Spec      an immutable HID report descriptor and report layout, built by a factory
- *             (mimusb_spec_create_*). It needs no board and is reference counted.
- *   Node      the interfaces one function presents to the target. mimusb_node_open opens any
- *             Spec at a placement (interface numbers, endpoints), whatever its class, and the
- *             caller reads and writes its endpoints (mimusb_node_endpoint_write,
- *             MIMUSB_EVENT_ENDPOINT_DATA). The board runs every interface the same way, and what
- *             a class does on endpoint 0 (descriptors, GET_REPORT, SET_IDLE, ...) is a list of
- *             control rules the Node brings (mimusb_control_rule). A HID profile Spec makes one
- *             HID collection: the library writes the HID rules and the state its input calls
- *             change (mimusb_keyboard_key, ...); it sends a report when it is submitted. A
- *             Spec of mimusb_spec_create_interfaces is any class written out interface by
- *             interface; a HID interface of the caller's own is one of class 0x03 with its HID
- *             descriptor, mimusb_hid_descriptor_rule and the rules it needs.
+ *   Spec      an immutable description of one function, built by a factory
+ *             (mimusb_spec_create_*). It needs no board and is reference counted. Every factory
+ *             makes the same thing, a Spec, and mimusb_node_open takes any of them:
+ *               keyboard, mouse, gamepad, touchpad, touchscreen, pen, digitizer, toggle
+ *                         HID functions that keep a state: the library writes the report layout
+ *                         and the HID rules, and the input calls (mimusb_keyboard_key, ...)
+ *                         change the state it sends;
+ *               hid       a HID function of the caller's own report descriptor, which the library
+ *                         checks, with reports the caller submits (mimusb_hid_submit);
+ *               cdc_acm   a serial port function: the library writes its interfaces, class
+ *                         descriptors and rules; the data is the caller's;
+ *               interfaces  any class written out interface by interface, with its own rules.
+ *             A function of another class is one more factory of the same kind: it makes the
+ *             interfaces and the control rules of its class, and never touches the data.
+ *   Node      the interfaces one Spec presents to the target. mimusb_node_open opens a Spec at a
+ *             placement (interface numbers, the endpoint of each role, the caller's own control
+ *             rules), and the caller reads and writes its endpoints
+ *             (mimusb_node_endpoint_write, MIMUSB_EVENT_ENDPOINT_DATA). The board runs every
+ *             interface the same way, and what a class does on endpoint 0 (descriptors,
+ *             GET_REPORT, SET_LINE_CODING, ...) is a list of control rules (mimusb_control_rule):
+ *             those the Spec brings and, tried first, those of the placement.
  *             A Device can instead be given whole as bytes, with no Node
  *             (mimusb_device_set_descriptors), to present a copy of a real device.
  *   Discovery a snapshot of the boards found on the serial ports.
@@ -91,8 +99,8 @@ extern "C" {
 #endif
 
 #define MIMUSB_VERSION_MAJOR 0
-#define MIMUSB_VERSION_MINOR 6
-#define MIMUSB_VERSION_PATCH 1
+#define MIMUSB_VERSION_MINOR 7
+#define MIMUSB_VERSION_PATCH 0
 /* The largest report the library builds, whatever a board holds. */
 #define MIMUSB_HOST_MAX_REPORT_BYTES 1024
 
@@ -137,9 +145,10 @@ enum {
     MIMUSB_PROFILE_PEN = 5,
     MIMUSB_PROFILE_DIGITIZER = 6,
     MIMUSB_PROFILE_GAMEPAD = 7,
-    MIMUSB_PROFILE_TOGGLE = 8, /* one-bit controls on a page of the caller's choice */
-    MIMUSB_PROFILE_RAW = 9,
-    MIMUSB_PROFILE_INTERFACES = 10 /* mimusb_spec_create_interfaces: not HID */
+    MIMUSB_PROFILE_TOGGLE = 8,      /* one-bit controls on a page of the caller's choice */
+    MIMUSB_PROFILE_HID = 9,         /* mimusb_spec_create_hid: the caller's own report descriptor */
+    MIMUSB_PROFILE_INTERFACES = 10, /* mimusb_spec_create_interfaces: any class */
+    MIMUSB_PROFILE_CDC_ACM = 11     /* mimusb_spec_create_cdc_acm */
 };
 
 typedef int32_t mimusb_axis_role;
@@ -416,8 +425,9 @@ typedef struct mimusb_usb_config {
     const char* string;
 } mimusb_usb_config;
 
-/* The Linux HID parser limits of the target (docs/LIMITS.md). A Spec that exceeds one is refused by
- * mimusb_node_open with MIMUSB_ERR_OVERFLOW. All are required. */
+/* The Linux HID parser limits of the target (docs/LIMITS.md). A HID Spec that exceeds one is
+ * refused by mimusb_node_open with MIMUSB_ERR_OVERFLOW. All are required to open a Node of a HID
+ * Spec (MIMUSB_ERR_UNSET_FIELD when one is 0); a Device that opens no such Node leaves them 0. */
 typedef struct mimusb_linux_hid_policy {
     uint32_t descriptor_bytes;   /* largest report descriptor */
     uint32_t fields_per_report;  /* fields in one report */
@@ -426,6 +436,12 @@ typedef struct mimusb_linux_hid_policy {
     uint64_t usages;             /* Usages in one descriptor */
     uint64_t report_data_bits;   /* largest report, in bits */
 } mimusb_linux_hid_policy;
+
+/* What the target machine limits, whatever the function: one member for each kind of target
+ * limit a Spec can exceed. The library checks a Spec against these when its Node is opened. */
+typedef struct mimusb_target_limits {
+    mimusb_linux_hid_policy linux_hid;
+} mimusb_target_limits;
 
 /* The serial link and what the library does on it. */
 typedef struct mimusb_transport_options {
@@ -438,7 +454,6 @@ typedef struct mimusb_transport_options {
     /* The largest report this Device sends, Report ID included: at most the board's
      * max_report_bytes and MIMUSB_HOST_MAX_REPORT_BYTES. */
     uint32_t maximum_report_bytes;
-    mimusb_linux_hid_policy linux_hid;
     uint32_t validate_reports; /* 1 checks every built report against its Spec before sending */
     /* 1 leaves the board's USB device on the target after mimusb_device_close */
     uint32_t keep_attached;
@@ -453,6 +468,7 @@ typedef struct mimusb_device_config {
     uint32_t struct_size;
     uint32_t reserved;
     mimusb_transport_options transport;
+    mimusb_target_limits target;
     mimusb_usb_device usb_device;
     mimusb_usb_config usb_config;
 } mimusb_device_config;
@@ -659,11 +675,23 @@ typedef struct mimusb_node_config {
 
 /* What a Spec says about the endpoints it needs: each is a role, and the caller gives the address,
  * interval, packet size and policy of every role in the Node's placement. The roles of a Spec are
- * listed by mimusb_spec_roles and, per kind, in docs/API.md. */
+ * listed by mimusb_spec_roles and, per kind, in docs/API.md. A role is named for the kind of Spec
+ * that has it; a Spec of mimusb_spec_create_interfaces has none. */
 typedef int32_t mimusb_endpoint_role;
 enum {
-    MIMUSB_HID_ROLE_IN = 1, /* the interrupt IN endpoint of a HID Spec: required, with a policy */
-    MIMUSB_HID_ROLE_OUT = 2 /* its interrupt OUT endpoint: optional */
+    MIMUSB_ROLE_HID_IN = 1,      /* a HID Spec's interrupt IN endpoint: required, with a policy */
+    MIMUSB_ROLE_HID_OUT = 2,     /* its interrupt OUT endpoint: optional */
+    MIMUSB_ROLE_CDC_NOTIFY = 3,  /* a CDC-ACM Spec's interrupt IN endpoint for notifications:
+                                    required, with a policy */
+    MIMUSB_ROLE_CDC_DATA_IN = 4, /* its bulk IN endpoint: required, with a policy */
+    MIMUSB_ROLE_CDC_DATA_OUT = 5 /* its bulk OUT endpoint: required */
+};
+
+/* A control rule a Spec brings that a program may change later, named so that its place among
+ * the Node's rules is not a number the program has to know (mimusb_node_find_rule). */
+typedef int32_t mimusb_rule_slot;
+enum {
+    MIMUSB_RULE_SLOT_CDC_LINE_CODING = 1 /* a CDC-ACM Spec's answer to GET_LINE_CODING (7 bytes) */
 };
 
 /* One role of a Spec and whether the placement must give it. */
@@ -679,21 +707,33 @@ typedef struct mimusb_placed_endpoint {
     mimusb_usb_endpoint endpoint;
 } mimusb_placed_endpoint;
 
-/* Where a Node goes: the bus numbers and the endpoints of its roles (mimusb_node_open). For a HID
- * Spec: first_interface is the bInterfaceNumber; Nodes with the same number share one interface
- * and must then all have Report IDs, all different, and the same name and endpoints; both
- * endpoints are interrupt endpoints; the IN endpoint's policy is any of the three and its depth
- * is how many reports may wait on the board, at most what the board's queues hold
+/* Where a Node goes: the bus numbers, the endpoints of its roles and the Node's own control rules
+ * (mimusb_node_open). For every Spec made by a factory other than mimusb_spec_create_interfaces,
+ * first_interface is the bInterfaceNumber of the Spec's first interface (a CDC-ACM Spec's two
+ * interfaces take first_interface and first_interface + 1; mimusb_spec_interface_count says how
+ * many a Spec takes). `name` is the string of the first interface; a Spec with more interfaces
+ * has the others' names in its options. For a HID Spec: Nodes with the same first_interface share
+ * one interface and must then all have Report IDs, all different, and the same name and
+ * endpoints; both endpoints are interrupt endpoints; the IN endpoint's policy is any of the three
+ * and its depth is how many reports may wait on the board, at most what the board's queues hold
  * (MIMUSB_ERR_OVERFLOW). A Spec made with mimusb_spec_create_interfaces carries its own interface
- * numbers, names and endpoints: its placement has all of these zero or null. */
+ * numbers, names and endpoints: first_interface, name and endpoints are zero or null.
+ *
+ * extra_rules are the caller's own control rules for this Node, for any kind of Spec (as
+ * mimusb_control_rule says; copied). They are tried before the rules the Spec brings, so a rule
+ * of the caller's can take over a request the Spec would answer; a rule's number in
+ * mimusb_node_set_rule_data is its place in this array, and the Spec's own rules follow
+ * (mimusb_node_find_rule). */
 typedef struct mimusb_node_placement {
     uint32_t struct_size;
     uint32_t reserved;
-    uint8_t first_interface; /* bInterfaceNumber of the Spec's first interface */
-    uint8_t reserved8[7];    /* zero */
-    const char* name;        /* the interface's string, or null for none */
+    uint8_t first_interface;
+    uint8_t reserved8[7]; /* zero */
+    const char* name;     /* the interface's string, or null for none */
     const mimusb_placed_endpoint* endpoints;
     size_t endpoint_count;
+    const mimusb_control_rule* extra_rules; /* null with extra_rule_count 0 */
+    size_t extra_rule_count;
 } mimusb_node_placement;
 
 /* The HID function a Spec describes (HID 1.11 6.2.1, 4.2, 4.3): what the HID descriptor and the
@@ -955,26 +995,52 @@ typedef struct mimusb_digitizer_options {
     mimusb_hid_function function; /* required */
 } mimusb_digitizer_options;
 
-/* An Input report a Raw Node may send: its Report ID and its exact length on the wire. */
-typedef struct mimusb_raw_report {
+/* An Input report a generic HID Node may send: its Report ID and its exact length on the wire. */
+typedef struct mimusb_hid_report {
     mimusb_report_id_option report_id;
     uint32_t wire_length;
-} mimusb_raw_report;
+} mimusb_hid_report;
 
 /* A descriptor of the caller's own. A descriptor with Output items needs requires_output 1 (they
  * arrive as MIMUSB_EVENT_OUTPUT_REPORT), one with Feature items requires_feature_response 1 (the
  * board answers with mimusb_node_set_feature_response). */
-typedef struct mimusb_raw_options {
+typedef struct mimusb_hid_options {
     uint32_t struct_size;
     uint32_t reserved;
     const uint8_t* descriptor;
     size_t descriptor_length;
-    const mimusb_raw_report* reports;
+    const mimusb_hid_report* reports;
     size_t report_count;
     uint32_t requires_output;
     uint32_t requires_feature_response;
     mimusb_hid_function function; /* required */
-} mimusb_raw_options;
+} mimusb_hid_options;
+
+/* ---- CDC-ACM options -------------------------------------------------------------------- */
+
+/* A CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3, 6.3): two interfaces, the communication
+ * interface (class 0x02, subclass 0x02; one interrupt IN endpoint for notifications) and the data
+ * interface (class 0x0A; a bulk IN and a bulk OUT endpoint), with the Interface Association
+ * descriptor that joins them and the rules that make it answer. The library writes all of that;
+ * it does not touch the data on the bulk endpoints, which the program reads and writes with
+ * mimusb_node_endpoint_write and MIMUSB_EVENT_ENDPOINT_DATA. */
+typedef struct mimusb_cdc_acm_options {
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint16_t bcd_cdc; /* required, e.g. 0x0120 */
+    uint8_t protocol; /* bInterfaceProtocol of the communication interface: 0 none, 1 AT commands
+                         (V.250), ... as the program chooses */
+    uint8_t call_management_capabilities; /* bmCapabilities of the Call Management descriptor,
+                                             written as given */
+    uint8_t acm_capabilities; /* bmCapabilities of the ACM descriptor, written as given */
+    uint8_t reserved8[3];     /* zero */
+    /* What GET_LINE_CODING answers until the program changes it with
+     * mimusb_node_set_rule_data on MIMUSB_RULE_SLOT_CDC_LINE_CODING: dwDTERate (little-endian),
+     * bCharFormat, bParityType, bDataBits. A dwDTERate of 0 is unset. */
+    uint8_t line_coding[7];
+    uint8_t reserved8b;    /* zero */
+    const char* data_name; /* the data interface's string, or null for none */
+} mimusb_cdc_acm_options;
 
 typedef struct mimusb_report_capability {
     mimusb_report_id_option report_id;
@@ -1141,7 +1207,11 @@ static inline void mimusb_digitizer_options_init(mimusb_digitizer_options* optio
     mimusb_struct_init(options, sizeof(*options));
 }
 
-static inline void mimusb_raw_options_init(mimusb_raw_options* options) {
+static inline void mimusb_hid_options_init(mimusb_hid_options* options) {
+    mimusb_struct_init(options, sizeof(*options));
+}
+
+static inline void mimusb_cdc_acm_options_init(mimusb_cdc_acm_options* options) {
     mimusb_struct_init(options, sizeof(*options));
 }
 
@@ -1477,8 +1547,10 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_device_set_rule_data(mimusb_device* 
  * Blocking: One command to the board, waiting up to control_timeout_ms; it is retried while the
  * board is answering from that rule.
  * Synchronization: Device domain.
- * As mimusb_device_set_rule_data for rule number rule_index of the Node's own
- * mimusb_node_config.rules. A profile Node has none of its own (the library writes its rules).
+ * As mimusb_device_set_rule_data for rule number rule_index of the Node's own rules: the
+ * extra_rules of its placement first, in their order, then the rules its Spec brings (the rules of
+ * a mimusb_spec_create_interfaces Spec are the Spec's own: they follow the extra_rules the same
+ * way; mimusb_node_find_rule finds a rule the Spec names).
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for an invalid Node, a rule that is not an ANSWER rule, a
  * null data with a length or more bytes than the rule's capacity; MIMUSB_ERR_UNSET_FIELD for a zero
  * timeout; MIMUSB_ERR_BUSY when the board kept answering from the rule; a link error. */
@@ -1486,76 +1558,18 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_set_rule_data(mimusb_node* node
                                                                const uint8_t* data, size_t length,
                                                                uint32_t control_timeout_ms);
 
-/* mimusb_hid_descriptor_bytes
- * Ownership: Nothing; writes out.
+/* mimusb_node_find_rule
+ * Ownership: Writes into the caller's variable.
  * Blocking: None.
- * Synchronization: None.
- * The 9 bytes of a HID descriptor with one subordinate descriptor, the report descriptor of
- * report_descriptor_length bytes (HID 1.11 6.2.1), for a MIMUSB_ITEM_DESCRIPTOR item of a setting.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null out, a length of 0 or above 65535;
- * MIMUSB_ERR_UNSET_FIELD for a zero bcd_hid. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_hid_descriptor_bytes(uint16_t bcd_hid,
-                                                                 uint8_t country_code,
-                                                                 size_t report_descriptor_length,
-                                                                 uint8_t out[9]);
-
-/* mimusb_hid_descriptor_rule
- * Ownership: out_rule->data points at `bytes`, which the caller keeps until the rule is given to
- * the library (it copies them then).
- * Blocking: None.
- * Synchronization: None.
- * Fills an ANSWER rule for GET_DESCRIPTOR (USB 2.0 9.4.3; HID 1.11 7.1.1) on one interface, of
- * descriptor_type 0x22 (the report descriptor) or 0x21 (the HID descriptor), any index.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null pointer, an empty or longer-than-65535 byte
- * string or another descriptor type. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(uint8_t interface_number,
-                                                                uint8_t descriptor_type,
-                                                                const uint8_t* bytes, size_t length,
-                                                                mimusb_control_rule* out_rule);
-
-/* The class descriptors of a CDC-ACM function (USB CDC 1.2 5.2.3; PSTN 1.2 5.3), for the items of
- * the communication interface's setting, and the Interface Association descriptor that goes in
- * mimusb_node_config.association. A CDC-ACM function is two interfaces: the communication
- * interface (class 0x02, subclass 0x02, protocol 0x01 or as the program chooses; one interrupt IN
- * endpoint for notifications) and the data interface (class 0x0A; a bulk IN and a bulk OUT
- * endpoint), the data interface number following the communication one. */
-typedef struct mimusb_cdc_acm_descriptors {
-    uint8_t header[5];          /* Header Functional descriptor (CDC 1.2 5.2.3.1) */
-    uint8_t call_management[5]; /* Call Management Functional descriptor (PSTN 1.2 5.3.1) */
-    uint8_t acm[4];             /* Abstract Control Management Functional descriptor (5.3.2) */
-    uint8_t union_[5];          /* Union Functional descriptor (CDC 1.2 5.2.3.8) */
-    uint8_t association[8];     /* Interface Association descriptor (USB IAD ECN) */
-} mimusb_cdc_acm_descriptors;
-
-/* mimusb_cdc_acm_descriptors_make
- * Ownership: Nothing; writes out.
- * Blocking: None.
- * Synchronization: None.
- * Writes the descriptors above for a CDC-ACM function whose communication interface is
- * control_interface and whose data interface is control_interface + 1. The class descriptors go
- * in the setting of the communication interface in the order header, call_management, acm, union_
- * and then the notification endpoint. call_management_capabilities and acm_capabilities are
- * bmCapabilities of those descriptors, written as given.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null out or a control_interface of 255;
- * MIMUSB_ERR_UNSET_FIELD for a zero bcd_cdc (e.g. 0x0120). */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
-    uint16_t bcd_cdc, uint8_t control_interface, uint8_t call_management_capabilities,
-    uint8_t acm_capabilities, mimusb_cdc_acm_descriptors* out);
-
-/* mimusb_cdc_acm_rules
- * Ownership: out_rules[1].data points at `line_coding`, which the caller keeps until the rules
- * are given to the library (it copies them then).
- * Blocking: None.
- * Synchronization: None.
- * Fills three rules for the communication interface control_interface (PSTN 1.2 6.3): ACCEPT for
- * SET_LINE_CODING (0x20) and SET_CONTROL_LINE_STATE (0x22), which the program hears as
- * MIMUSB_EVENT_CONTROL_SETUP (flag ACCEPTED) and CONTROL_DATA, and ANSWER for GET_LINE_CODING
- * (0x21) with the 7 bytes of `line_coding` (dwDTERate, bCharFormat, bParityType, bDataBits).
- * mimusb_node_set_rule_data changes those bytes later.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null line_coding or out_rules. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_cdc_acm_rules(uint8_t control_interface,
-                                                          const uint8_t line_coding[7],
-                                                          mimusb_control_rule out_rules[3]);
+ * Synchronization: Device domain.
+ * Finds the rule the Spec of a Node names with `slot` (mimusb_rule_slot) among the Node's own
+ * rules, so that mimusb_node_set_rule_data can change its bytes: *out_rule_index is its number,
+ * which counts the Node's extra_rules first (a Node has them before the rules of its Spec).
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for an invalid Node or a null out_rule_index;
+ * MIMUSB_ERR_UNSUPPORTED when the Node's Spec has no rule of that slot. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_find_rule(const mimusb_node* node,
+                                                           mimusb_rule_slot slot,
+                                                           size_t* out_rule_index);
 
 /* mimusb_device_control_reply
  * Ownership: Copies data.
@@ -1896,7 +1910,7 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_pen(const mimusb_pen_opt
 MIMUSB_API mimusb_result MIMUSB_CALL
 mimusb_spec_create_digitizer(const mimusb_digitizer_options* options, mimusb_spec** out_spec);
 
-/* mimusb_spec_create_raw
+/* mimusb_spec_create_hid
  * Ownership: As every factory.
  * Blocking: None.
  * Synchronization: Any thread.
@@ -1904,8 +1918,27 @@ mimusb_spec_create_digitizer(const mimusb_digitizer_options* options, mimusb_spe
  * descriptor that does not parse or does not match the report table; MIMUSB_ERR_UNSUPPORTED for
  * Output or Feature items without the matching requires_* flag, a long item, or a construct the
  * parser does not handle. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_raw(const mimusb_raw_options* options,
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_hid(const mimusb_hid_options* options,
                                                             mimusb_spec** out_spec);
+
+/* mimusb_spec_create_cdc_acm
+ * Ownership: Copies options. The caller owns the returned reference and releases it with
+ * mimusb_spec_release.
+ * Blocking: None.
+ * Synchronization: Any thread.
+ * Makes a Spec of a CDC-ACM function: the interfaces, class descriptors, Interface Association
+ * descriptor and the control rules of options (see mimusb_cdc_acm_options). It has two
+ * interfaces (mimusb_spec_interface_count) and the roles MIMUSB_ROLE_CDC_NOTIFY,
+ * MIMUSB_ROLE_CDC_DATA_IN and MIMUSB_ROLE_CDC_DATA_OUT, all required: the NOTIFY endpoint is an
+ * interrupt endpoint and the data endpoints are bulk. The rules (PSTN 1.2 6.3): ACCEPT for
+ * SET_LINE_CODING (0x20) and SET_CONTROL_LINE_STATE (0x22), which the program hears as
+ * MIMUSB_EVENT_CONTROL_SETUP (flag ACCEPTED) and CONTROL_DATA, and ANSWER for GET_LINE_CODING
+ * (0x21) with the bytes of options->line_coding (slot MIMUSB_RULE_SLOT_CDC_LINE_CODING). Its
+ * placement's endpoints and first_interface are checked when a Node is opened.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null pointer, a wrong struct_size, a nonzero reserved
+ * field or an invalid name; MIMUSB_ERR_UNSET_FIELD for a zero bcd_cdc or a zero dwDTERate. */
+MIMUSB_API mimusb_result MIMUSB_CALL
+mimusb_spec_create_cdc_acm(const mimusb_cdc_acm_options* options, mimusb_spec** out_spec);
 
 /* mimusb_spec_create_interfaces
  * Ownership: Copies config and everything it points to (interfaces, settings, items, descriptor
@@ -1930,14 +1963,39 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_create_interfaces(const mimusb_
  * Blocking: None.
  * Synchronization: Any thread.
  * Lists the endpoint roles of a Spec in order and whether each is required, so a caller sees what
- * its placement must give. A HID Spec has MIMUSB_HID_ROLE_IN (required) and MIMUSB_HID_ROLE_OUT
- * (optional); a Spec of mimusb_spec_create_interfaces has none. *out_count is the number of roles
+ * its placement must give. A HID Spec has MIMUSB_ROLE_HID_IN (required) and MIMUSB_ROLE_HID_OUT
+ * (optional); a CDC-ACM Spec has MIMUSB_ROLE_CDC_NOTIFY, _CDC_DATA_IN and _CDC_DATA_OUT (all
+ * required); a Spec of mimusb_spec_create_interfaces has none. *out_count is the number of roles
  * the Spec has, also when capacity is smaller (only capacity are written).
  * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null Spec or out_count, or a null out_roles with a
  * nonzero capacity. */
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_roles(const mimusb_spec* spec,
                                                        mimusb_role_info* out_roles, size_t capacity,
                                                        size_t* out_count);
+
+/* mimusb_spec_interface_count
+ * Ownership: Writes into the caller's variable.
+ * Blocking: None.
+ * Synchronization: Any thread.
+ * The number of interfaces a Node of the Spec takes on the bus: 1 for a HID Spec, 2 for a CDC-ACM
+ * Spec, the length of the configuration for a Spec of mimusb_spec_create_interfaces. A placement's
+ * first_interface is the first of that many consecutive numbers.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null Spec or out_count. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_interface_count(const mimusb_spec* spec,
+                                                                 size_t* out_count);
+
+/* mimusb_spec_rule_cost
+ * Ownership: Writes into the caller's variables.
+ * Blocking: None.
+ * Synchronization: Any thread.
+ * What a Node of the Spec adds to the board's control rule memory, not counting the extra_rules of
+ * its placement: the number of rules, and the bytes of their ANSWER data. The board holds the
+ * rules of every Node and of the Device at once, at most mimusb_board_limits.max_control_rules
+ * and max_answer_bytes (MIMUSB_ERR_OVERFLOW at the commit otherwise).
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a null Spec or output pointer. */
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_rule_cost(const mimusb_spec* spec,
+                                                           size_t* out_rules,
+                                                           size_t* out_answer_bytes);
 
 /* mimusb_spec_retain
  * Ownership: Adds a reference for the caller, who must already hold one.
@@ -1989,6 +2047,9 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_manifest(const mimusb_spec* spe
  * and the events that follow from them (MIMUSB_EVENT_OUTPUT_REPORT, _FEATURE_REPORT,
  * _SET_IDLE, _SET_PROTOCOL). The profile calls (mimusb_keyboard_key, ...) and mimusb_node_submit
  * work on it. The rules for Nodes sharing an interface are in mimusb_node_placement.
+ * A CDC-ACM Spec (mimusb_spec_create_cdc_acm) is opened as the two interfaces, class descriptors,
+ * association and control rules its options describe, with the endpoints of its roles.
+ * The placement's extra_rules go to any Node, before the Spec's rules.
  * A Spec made with mimusb_spec_create_interfaces is opened as its interfaces, endpoints, class
  * descriptors, optional association and control rules say. Nothing is read from class_code except
  * that 0 is unset. What the class does on endpoint 0 is in the Spec's rules: a request that no rule
@@ -2008,7 +2069,9 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_spec_manifest(const mimusb_spec* spe
  * MIMUSB_ERR_UNSET_FIELD for a required field, a required role or a timeout left zero;
  * MIMUSB_ERR_UNSUPPORTED for a transfer type the board does not have (for a HID Spec: other than
  * interrupt); MIMUSB_ERR_OVERFLOW when a size, count or limit of the board is exceeded, or a HID
- * Spec exceeds maximum_report_bytes or a linux_hid limit; the results of mimusb_device_commit. */
+ * Spec exceeds maximum_report_bytes or a target.linux_hid limit; the results of
+ * mimusb_device_commit. A HID Spec also needs every member of target.linux_hid
+ * (MIMUSB_ERR_UNSET_FIELD when one is 0). */
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* spec,
                                                       const mimusb_node_placement* placement,
                                                       const mimusb_commit_timeouts* timeouts,
@@ -2164,8 +2227,8 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_manifest(const mimusb_node* nod
  * send_timeout_ms only bounds a write that makes no progress.
  * Synchronization: Device domain.
  * Returns: MIMUSB_OK, also when there was nothing to send; MIMUSB_ERR_PARAM for an invalid Node;
- * MIMUSB_ERR_UNSET_FIELD for a zero timeout; MIMUSB_ERR_UNSUPPORTED for a Raw Node (use
- * mimusb_raw_submit); MIMUSB_ERR_BUSY for a Node opened in a batch that has not ended, while the
+ * MIMUSB_ERR_UNSET_FIELD for a zero timeout; MIMUSB_ERR_UNSUPPORTED for a generic HID Node (use
+ * mimusb_hid_submit); MIMUSB_ERR_BUSY for a Node opened in a batch that has not ended, while the
  * board enumerates, or while a report of the Node is being sent; a link error. */
 MIMUSB_API mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
                                                         uint32_t send_timeout_ms);
@@ -2339,16 +2402,16 @@ MIMUSB_API mimusb_result MIMUSB_CALL mimusb_battery_update(mimusb_node* node, in
 
 /* ---- Reports of the caller's own -------------------------------------------------------- */
 
-/* mimusb_raw_submit
+/* mimusb_hid_submit
  * Ownership: Copies report.
  * Blocking: As mimusb_node_submit.
  * Synchronization: Device domain.
- * Sends one report of a Raw Spec's Node after checking it against the Spec's report table.
- * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a Node that is not Raw, a null report, a Report ID or
- * length the Spec does not accept, or nonzero padding bits; MIMUSB_ERR_UNSET_FIELD for a zero
+ * Sends one report of a HID Spec's Node after checking it against the Spec's report table.
+ * Returns: MIMUSB_OK; MIMUSB_ERR_PARAM for a Node that is not a HID Spec, a null report, a Report
+ * ID or length the Spec does not accept, or nonzero padding bits; MIMUSB_ERR_UNSET_FIELD for a zero
  * timeout; MIMUSB_ERR_BUSY as for mimusb_node_submit; MIMUSB_ERR_OVERFLOW for a report longer than
  * maximum_report_bytes; a link error. */
-MIMUSB_API mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const uint8_t* report,
+MIMUSB_API mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* node, const uint8_t* report,
                                                        size_t length, uint32_t send_timeout_ms);
 
 #ifdef __cplusplus

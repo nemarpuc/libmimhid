@@ -125,8 +125,9 @@ int main(void) {
     }
     mimusb_device* device = g_device;
 
-    uint8_t hidd[9];
-    mimusb_hid_descriptor_bytes(0x0111, 0, sizeof(rd), hidd);
+    /* HID 1.11 6.2.1: the HID descriptor, with the report descriptor as its one subordinate. */
+    const uint8_t hidd[9] = {
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, (uint8_t)(sizeof(rd) & 0xFF), (uint8_t)(sizeof(rd) >> 8)};
     mimusb_usb_endpoint eps[2];
     memset(eps, 0, sizeof(eps));
     eps[0].address = 0x81;
@@ -153,7 +154,18 @@ int main(void) {
     static uint8_t feature[4] = {1, 2, 3, 4};
     mimusb_control_rule rules[6];
     memset(rules, 0, sizeof(rules));
-    mimusb_hid_descriptor_rule(0, 0x22, rd, sizeof(rd), &rules[0]);
+    /* GET_DESCRIPTOR (USB 2.0 9.4.3) of the report descriptor (HID 1.11 7.1.1) on interface 0. */
+    rules[0].request_type_mask = 0xFF;
+    rules[0].request_type_value = 0x81;
+    rules[0].request_mask = 0xFF;
+    rules[0].request_value = 0x06;
+    rules[0].value_mask = 0xFF00;
+    rules[0].value_value = 0x2200;
+    rules[0].index_mask = 0xFFFF;
+    rules[0].index_value = 0;
+    rules[0].action = MIMUSB_CONTROL_ANSWER;
+    rules[0].data = rd;
+    rules[0].length = sizeof(rd);
 #define RULE(i, bm, req, vmask, v)                                                                 \
     rules[i].request_type_mask = 0xFF;                                                             \
     rules[i].request_type_value = bm;                                                              \

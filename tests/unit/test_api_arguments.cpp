@@ -85,21 +85,14 @@ void test_node_arguments() {
     MIMUSB_CHECK(refused(mimusb_pen_update(nullptr, nullptr)));
     MIMUSB_CHECK(refused(mimusb_digitizer_update(nullptr, nullptr)));
     MIMUSB_CHECK(refused(mimusb_battery_update(nullptr, 50)));
-    MIMUSB_CHECK(refused(mimusb_raw_submit(nullptr, data, 1, 10)));
+    MIMUSB_CHECK(refused(mimusb_hid_submit(nullptr, data, 1, 10)));
     MIMUSB_CHECK(refused(mimusb_node_set_rule_data(nullptr, 0, data, 1, 100)));
-    mimusb_control_rule rule{};
-    MIMUSB_CHECK(refused(mimusb_hid_descriptor_rule(0, 0x22, nullptr, 1, &rule)));
-    {
-        mimusb_cdc_acm_descriptors cdc{};
-        MIMUSB_CHECK(refused(mimusb_cdc_acm_descriptors_make(0x0120, 0, 0, 0, nullptr)));
-        MIMUSB_CHECK(refused(mimusb_cdc_acm_descriptors_make(0x0120, 255, 0, 0, &cdc)));
-        MIMUSB_CHECK(mimusb_cdc_acm_descriptors_make(0, 0, 0, 0, &cdc) == MIMUSB_ERR_UNSET_FIELD);
-        const std::uint8_t line[7] = {};
-        mimusb_control_rule rules[3];
-        MIMUSB_CHECK(refused(mimusb_cdc_acm_rules(0, nullptr, rules)));
-        MIMUSB_CHECK(refused(mimusb_cdc_acm_rules(0, line, nullptr)));
-    }
-    MIMUSB_CHECK(refused(mimusb_hid_descriptor_bytes(0x0111, 0, 0, nullptr)));
+    std::size_t index = 0;
+    MIMUSB_CHECK(refused(mimusb_node_find_rule(nullptr, MIMUSB_RULE_SLOT_CDC_LINE_CODING, &index)));
+    std::size_t count = 0;
+    std::size_t bytes = 0;
+    MIMUSB_CHECK(refused(mimusb_spec_interface_count(nullptr, &count)));
+    MIMUSB_CHECK(refused(mimusb_spec_rule_cost(nullptr, &count, &bytes)));
 }
 
 void test_spec_arguments() {
@@ -112,7 +105,7 @@ void test_spec_arguments() {
     MIMUSB_CHECK(refused(mimusb_spec_create_touchpad(nullptr, &spec)));
     MIMUSB_CHECK(refused(mimusb_spec_create_pen(nullptr, &spec)));
     MIMUSB_CHECK(refused(mimusb_spec_create_digitizer(nullptr, &spec)));
-    MIMUSB_CHECK(refused(mimusb_spec_create_raw(nullptr, &spec)));
+    MIMUSB_CHECK(refused(mimusb_spec_create_hid(nullptr, &spec)));
     MIMUSB_CHECK(spec == nullptr);
     mimusb_spec_retain(nullptr); // a null Spec is ignored
     mimusb_spec_release(nullptr);

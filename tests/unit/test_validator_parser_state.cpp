@@ -25,7 +25,7 @@ void test_target_neutral_raw_requirements() {
         // Usage Minimum 0 through Usage Maximum 20000 is 20001 Local Usages.
         descriptor.insert(descriptor.end(),
                           {0x1AU, 0x00U, 0x00U, 0x2AU, 0x20U, 0x4EU, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -43,7 +43,7 @@ void test_target_neutral_raw_requirements() {
         // not be expanded into individual entries by validation.
         descriptor.insert(descriptor.end(), {0x1BU, 0x00U, 0x00U, 0x00U, 0x00U, 0x2BU, 0xFEU, 0xFFU,
                                              0xFFU, 0xFFU, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -61,7 +61,7 @@ void test_target_neutral_raw_requirements() {
         // use checked arithmetic, not a Report Count-sized loop.
         append_globals(&descriptor, 1U, 524280U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(65535U);
+        const mimusb_hid_report report = idless_report(65535U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -79,7 +79,7 @@ void test_target_neutral_raw_requirements() {
             descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U});
         }
         descriptor.push_back(0xC0U);
-        const mimusb_raw_report report = idless_report(33U);
+        const mimusb_hid_report report = idless_report(33U);
         std::uint8_t trailing_mask = 0U;
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
@@ -104,8 +104,8 @@ void test_target_neutral_raw_requirements() {
             descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U});
         }
         descriptor.push_back(0xC0U);
-        const std::array<mimusb_raw_report, 2U> reports{mimusb_raw_report{{1U, 1U, {}}, 2U},
-                                                        mimusb_raw_report{{1U, 2U, {}}, 2U}};
+        const std::array<mimusb_hid_report, 2U> reports{mimusb_hid_report{{1U, 1U, {}}, 2U},
+                                                        mimusb_hid_report{{1U, 2U, {}}, 2U}};
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), reports.data(),
@@ -126,7 +126,7 @@ void test_target_neutral_raw_requirements() {
                           {0xA4U, 0xA4U, 0xA4U, 0xA4U, 0xA4U, 0xB4U, 0xB4U, 0xB4U, 0xB4U, 0xB4U});
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -145,7 +145,7 @@ void test_target_neutral_raw_requirements() {
         descriptor.insert(descriptor.end(), {0x77U, 0x01U, 0x01U, 0x00U, 0x00U});
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -161,7 +161,7 @@ void test_target_neutral_raw_requirements() {
         // exact target rejects the 12,289th entry; requirements must not only
         // sample Local state when a Main item appears.
         descriptor.insert(descriptor.end(), 12289U, 0x08U);
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -176,7 +176,7 @@ void test_target_neutral_raw_requirements() {
         // conservatively rejects every such Maximum as project policy.
         descriptor.insert(descriptor.end(), {0x1BU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x2BU, 0xFFU, 0xFFU,
                                              0xFFU, 0xFFU, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_UNSUPPORTED);
@@ -193,7 +193,7 @@ void test_local_state_and_delimiters() {
         // the raw range 0 through 3. Preserve that implementation observation
         // instead of inventing a stricter conformance rule.
         descriptor.insert(descriptor.end(), {0x29U, 0x03U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -210,7 +210,7 @@ void test_local_state_and_delimiters() {
                            0xA9U, 0x01U, 0x19U, 0x0AU, 0x29U, 0x0EU, 0xA9U, 0x00U,
                            // Second branch is ignored by the audited parser.
                            0xA9U, 0x01U, 0x09U, 0x7FU, 0xA9U, 0x00U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -226,7 +226,7 @@ void test_local_state_and_delimiters() {
                                              0x29U, 0x05U, 0xA1U, 0x01U};
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x81U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -240,7 +240,7 @@ void test_local_state_and_delimiters() {
         auto descriptor = application_preamble();
         descriptor.insert(descriptor.end(), suffix.begin(), suffix.end());
         descriptor.push_back(0xC0U);
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{99U, 99U, 99U, 99U, 99U};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -255,7 +255,7 @@ void test_local_state_and_delimiters() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x19U, 0x05U, 0x29U, 0x04U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{99U, 99U, 99U, 99U, 99U};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -271,7 +271,7 @@ void test_local_state_and_delimiters() {
         // Application Collection Usage.
         const std::vector<std::uint8_t> descriptor{0x05U, 0x01U, 0xA9U, 0x01U, 0x09U, 0x06U,
                                                    0xA9U, 0x00U, 0xA1U, 0x01U, 0xC0U};
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -282,7 +282,7 @@ void test_local_state_and_delimiters() {
         append_globals(&descriptor, 8U, 1U);
         descriptor.insert(descriptor.end(),
                           {0xA9U, 0x01U, 0x09U, 0x04U, 0xA9U, 0x00U, 0x81U, 0x00U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -293,7 +293,7 @@ void test_local_state_and_delimiters() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0xA9U, 0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);

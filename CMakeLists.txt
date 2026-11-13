@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 libmimusb contributors
 cmake_minimum_required(VERSION 3.20)
-project(libmimusb VERSION 0.6.1 LANGUAGES C CXX
+project(libmimusb VERSION 0.7.0 LANGUAGES C CXX
         HOMEPAGE_URL "https://github.com/nemarpuc/libmimusb")
 
 set(CMAKE_C_STANDARD 11)
@@ -131,6 +131,7 @@ set(MIMUSB_SOURCES
     src/hid/descriptor_builder.cpp
     src/hid/item_writer.cpp
     src/hid/validator.cpp
+    src/classes/cdc_acm.cpp
     src/profiles/spec.cpp
     src/profiles/state.cpp
     src/transport/frame.cpp

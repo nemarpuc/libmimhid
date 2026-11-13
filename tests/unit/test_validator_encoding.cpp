@@ -16,7 +16,7 @@ using namespace mimusb_test;
 namespace {
 
 void test_required_control_items_and_collection_usage() {
-    const mimusb_raw_report report = idless_report(1U);
+    const mimusb_hid_report report = idless_report(1U);
     const auto check_rejected = [&report](const std::vector<std::uint8_t>& descriptor) {
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
@@ -59,7 +59,7 @@ void test_strict_hid_encoding_rules() {
         // loop is therefore fffe..ffff (two entries), not a 32-bit wrap.
         descriptor.insert(descriptor.end(), {0x06U, 0xFFU, 0xFFU, 0x1AU, 0xFEU, 0xFFU, 0x2AU, 0xFFU,
                                              0xFFU, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         MIMUSB_CHECK(mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U,
                                                nullptr, &requirements)
@@ -76,7 +76,7 @@ void test_strict_hid_encoding_rules() {
         // registration instead of understating it as two entries.
         descriptor.insert(descriptor.end(),
                           {0x19U, 0x01U, 0x2BU, 0x02U, 0x00U, 0x01U, 0x00U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         mimusb::hid::DescriptorRequirements requirements{};
         MIMUSB_CHECK(mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U,
                                                nullptr, &requirements)
@@ -88,7 +88,7 @@ void test_strict_hid_encoding_rules() {
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(),
                           {0x1BU, 0x01U, 0x00U, 0x01U, 0x00U, 0x29U, 0x02U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -102,7 +102,7 @@ void test_strict_hid_encoding_rules() {
         descriptor.push_back(0x01U);
         descriptor.insert(descriptor.end(), input.begin(), input.end());
         descriptor.push_back(0xC0U);
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -112,7 +112,7 @@ void test_strict_hid_encoding_rules() {
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0x75U, 0x08U, 0x95U, 0x01U,
                                              0x09U, 0x02U, 0x82U, 0x00U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(2U);
+        const mimusb_hid_report report = idless_report(2U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -121,7 +121,7 @@ void test_strict_hid_encoding_rules() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 8U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x82U, 0x00U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -133,7 +133,7 @@ void test_strict_hid_encoding_rules() {
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), delimited.begin(), delimited.end());
         descriptor.push_back(0xC0U);
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -152,7 +152,7 @@ void test_strict_hid_encoding_rules() {
         descriptor.insert(descriptor.end(), unit.begin(), unit.end());
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -162,7 +162,7 @@ void test_strict_hid_encoding_rules() {
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x35U, 0x00U, 0x45U, 0x01U, 0x55U, 0x00U, 0x65U, 0x0FU,
                                              0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -180,14 +180,14 @@ void test_strict_hid_encoding_rules() {
          {std::vector<std::uint8_t>{0xA1U, 0x07U},
           std::vector<std::uint8_t>{0xA2U, 0x00U, 0x01U}}) {
         const auto descriptor = nested_collection(collection);
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
     }
     {
         const auto descriptor = nested_collection({0xA1U, 0x80U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -198,7 +198,7 @@ void test_strict_hid_encoding_rules() {
         // HID 1.11 section 6.2.2.4 reserves Main tags other than Input,
         // Output, Feature, Collection, and End Collection.
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0xD0U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -211,7 +211,7 @@ void test_strict_hid_encoding_rules() {
         // Input report layout.
         descriptor.insert(descriptor.end(),
                           {0x39U, 0x01U, 0x79U, 0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -228,7 +228,7 @@ void test_strict_hid_encoding_rules() {
         // bType 3 is reserved by HID 1.11 section 6.2.2.2. The audited Linux
         // parser ignores it, but the strict raw subset must not bless it.
         descriptor.insert(descriptor.end(), {0x0DU, 0x00U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);

@@ -115,11 +115,11 @@ Each Node names its interface with its interface number, which is the `bInterfac
 
 ## Host library
 
-Limits of each profile (axes, contact slots, usages, Report ID rules) are those of `libaoahid`, validated by the `mimusb_spec_create_*` calls; the options structures in `mimusb.h` document each field. The Linux HID parser limits in `mimusb_device_config.transport.linux_hid` are the caller's and must be nonzero; the values to use are those of the kernel source below (4096, 256, 4, 256, 12288, 65528; the library puts none in for you), and `mimusb_node_open` refuses a Spec that exceeds one with `MIMUSB_ERR_OVERFLOW`.
+Limits of each profile (axes, contact slots, usages, Report ID rules) are those of `libaoahid`, validated by the `mimusb_spec_create_*` calls; the options structures in `mimusb.h` document each field. The Linux HID parser limits in `mimusb_device_config.target.linux_hid` are the caller's and must be nonzero to open a Node of a HID Spec (a Device that opens none leaves them 0); the values to use are those of the kernel source below (4096, 256, 4, 256, 12288, 65528; the library puts none in for you), and `mimusb_node_open` refuses a Spec that exceeds one with `MIMUSB_ERR_OVERFLOW`.
 
 ## Linux HID parser
 
-`transport.linux_hid` describes the HID parser of a Linux target. The values the tests and examples set (4096, 256, 4, 256, 12288, 65528) are those of one kernel revision, the one [libaoahid's LIMITS.md](https://github.com/nemarpuc/libaoahid/blob/main/docs/LIMITS.md#linux-hid-values) cites (Android common kernel commit `35556bed836f8dc07ac55f69c8d17dce3e7f0e25`); other kernels may differ, so check the same symbols in the kernel you target. Each Spec records what it needs, using checked arithmetic without expanding Usage ranges.
+`target.linux_hid` describes the HID parser of a Linux target. The values the tests and examples set (4096, 256, 4, 256, 12288, 65528) are those of one kernel revision, the one [libaoahid's LIMITS.md](https://github.com/nemarpuc/libaoahid/blob/main/docs/LIMITS.md#linux-hid-values) cites (Android common kernel commit `35556bed836f8dc07ac55f69c8d17dce3e7f0e25`); other kernels may differ, so check the same symbols in the kernel you target. Each Spec records what it needs, using checked arithmetic without expanding Usage ranges.
 
 | Field | Initial value | Kernel source |
 |---|---:|---|

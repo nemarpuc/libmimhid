@@ -100,7 +100,7 @@ void fuzz_raw_validator(const std::uint8_t* data, const std::size_t size) {
     }
 
     constexpr std::size_t maximum_reports = 4U;
-    std::array<mimusb_raw_report, maximum_reports> reports{};
+    std::array<mimusb_hid_report, maximum_reports> reports{};
     const std::size_t report_count = 1U + static_cast<std::size_t>(data[0] % maximum_reports);
     std::size_t cursor = 1U;
     for (std::size_t index = 0U; index < report_count; ++index) {

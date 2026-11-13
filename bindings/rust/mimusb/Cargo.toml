@@ -1,6 +1,6 @@
 [package]
 name = "mimusb"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 description = "Typed ownership and node-reference wrappers for libmimusb"
 license = "MIT"
@@ -8,4 +8,4 @@ homepage = "https://github.com/nemarpuc/libmimusb"
 repository = "https://github.com/nemarpuc/libmimusb"
 
 [dependencies]
-mimusb-sys = { path = "../mimusb-sys", version = "0.6.1" }
+mimusb-sys = { path = "../mimusb-sys", version = "0.7.0" }

@@ -1658,12 +1658,12 @@ static mimusb_result mimusb_spec_create_digitizer_impl(const mimusb_digitizer_op
     return create_stylus_spec(&pen, MIMUSB_PROFILE_DIGITIZER, out_spec);
 }
 
-static mimusb_result mimusb_spec_create_raw_impl(const mimusb_raw_options* options,
+static mimusb_result mimusb_spec_create_hid_impl(const mimusb_hid_options* options,
                                                  mimusb_spec** out_spec) {
     mimusb::detail::clear_error();
     if (!mimusb::detail::valid_struct(options, options == nullptr ? 0U : options->struct_size,
                                       static_cast<std::uint32_t>(sizeof(*options)),
-                                      "raw_options")) {
+                                      "hid_options")) {
         return MIMUSB_ERR_PARAM;
     }
     if (out_spec == nullptr) {
@@ -1673,7 +1673,7 @@ static mimusb_result mimusb_spec_create_raw_impl(const mimusb_raw_options* optio
     *out_spec = nullptr;
     if (options->reserved != 0U || !mimusb::detail::valid_boolean(options->requires_output) ||
         !mimusb::detail::valid_boolean(options->requires_feature_response)) {
-        set_error(MIMUSB_ERR_PARAM, "raw.options",
+        set_error(MIMUSB_ERR_PARAM, "hid.options",
                   "The reserved field must be zero and every flag exactly zero or one.");
         return MIMUSB_ERR_PARAM;
     }
@@ -1682,12 +1682,12 @@ static mimusb_result mimusb_spec_create_raw_impl(const mimusb_raw_options* optio
     // raw table cannot turn a deterministic validation error into allocation
     // pressure or std::length_error.
     if (options->reports == nullptr || options->report_count == 0U) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "raw.reports",
+        set_error(MIMUSB_ERR_UNSET_FIELD, "hid.reports",
                   "Raw descriptors require an explicit accepted-report table.");
         return MIMUSB_ERR_UNSET_FIELD;
     }
     if (options->report_count > 256U) {
-        set_error(MIMUSB_ERR_OVERFLOW, "raw.reports",
+        set_error(MIMUSB_ERR_OVERFLOW, "hid.reports",
                   "The accepted-report table exceeds the 256 possible Report IDs.");
         return MIMUSB_ERR_OVERFLOW;
     }
@@ -1703,13 +1703,13 @@ static mimusb_result mimusb_spec_create_raw_impl(const mimusb_raw_options* optio
         return validation.result;
     }
     auto spec = std::make_unique<mimusb_spec>();
-    spec->kind = MIMUSB_PROFILE_RAW;
+    spec->kind = MIMUSB_PROFILE_HID;
     spec->requirements = requirements;
     spec->descriptor.assign(options->descriptor, options->descriptor + options->descriptor_length);
     mimusb::detail::RawConfig config{};
     config.reports.assign(options->reports, options->reports + options->report_count);
     config.trailing_valid_masks = std::move(trailing_valid_masks);
-    for (const mimusb_raw_report& report : config.reports) {
+    for (const mimusb_hid_report& report : config.reports) {
         spec->report_capabilities.push_back(
             mimusb_report_capability{report.report_id, report.wire_length});
     }
@@ -1844,11 +1844,11 @@ mimusb_result MIMUSB_CALL mimusb_spec_create_digitizer(const mimusb_digitizer_op
     });
 }
 
-mimusb_result MIMUSB_CALL mimusb_spec_create_raw(const mimusb_raw_options* options,
+mimusb_result MIMUSB_CALL mimusb_spec_create_hid(const mimusb_hid_options* options,
                                                  mimusb_spec** out_spec) {
-    return abi_spec_factory(out_spec, "spec.create_raw", [&] {
+    return abi_spec_factory(out_spec, "spec.create_hid", [&] {
         return create_hid_spec(options, out_spec,
-                               [&] { return mimusb_spec_create_raw_impl(options, out_spec); });
+                               [&] { return mimusb_spec_create_hid_impl(options, out_spec); });
     });
 }
 
@@ -1971,9 +1971,13 @@ mimusb_result MIMUSB_CALL mimusb_spec_roles(const mimusb_spec* spec, mimusb_role
                 out_roles[count] = mimusb_role_info{role, required};
             ++count;
         };
-        if (spec->kind != MIMUSB_PROFILE_INTERFACES) {
-            add(MIMUSB_HID_ROLE_IN, 1U);
-            add(MIMUSB_HID_ROLE_OUT, 0U);
+        if (spec->kind == MIMUSB_PROFILE_CDC_ACM) {
+            add(MIMUSB_ROLE_CDC_NOTIFY, 1U);
+            add(MIMUSB_ROLE_CDC_DATA_IN, 1U);
+            add(MIMUSB_ROLE_CDC_DATA_OUT, 1U);
+        } else if (spec->kind != MIMUSB_PROFILE_INTERFACES) {
+            add(MIMUSB_ROLE_HID_IN, 1U);
+            add(MIMUSB_ROLE_HID_OUT, 0U);
         }
         *out_count = count;
         return MIMUSB_OK;

@@ -97,7 +97,7 @@ struct PenConfig {
 };
 
 struct RawConfig {
-    std::vector<mimusb_raw_report> reports;
+    std::vector<mimusb_hid_report> reports;
     std::vector<std::uint8_t> trailing_valid_masks;
 };
 
@@ -300,6 +300,23 @@ struct InterfacesSpec {
     mimusb_node_config view{};
 };
 
+// A Spec made with mimusb_spec_create_cdc_acm: its options, with the data interface's name kept.
+// The interfaces, descriptors and rules are made when a Node is opened, at its placement
+// (build_cdc_acm).
+struct CdcAcmSpec {
+    mimusb_cdc_acm_options options{};
+    std::string data_name;
+};
+
+// A control rule a Spec names (mimusb_rule_slot) and its place among the rules the Spec brings.
+using RuleSlots = std::vector<std::pair<mimusb_rule_slot, std::size_t>>;
+
+// What a CDC-ACM Spec is made of at a placement: the two interfaces with their class descriptors,
+// the Interface Association descriptor and the three control rules, in `out` (which owns every
+// pointer in out->view), and the slot of the line coding rule. Checks the placement's roles.
+mimusb_result build_cdc_acm(const struct mimusb_spec* spec, const mimusb_node_placement& placement,
+                            InterfacesSpec* out, RuleSlots* slots);
+
 } // namespace mimusb::detail
 
 struct mimusb_spec {
@@ -309,6 +326,8 @@ struct mimusb_spec {
     mimusb_hid_function function{};
     // A Spec of mimusb_spec_create_interfaces.
     std::unique_ptr<mimusb::detail::InterfacesSpec> interfaces;
+    // A Spec of mimusb_spec_create_cdc_acm.
+    std::unique_ptr<mimusb::detail::CdcAcmSpec> cdc;
     std::vector<std::uint8_t> descriptor;
     mimusb::hid::ReportLayout layout;
     mimusb::hid::DescriptorRequirements requirements;
@@ -430,8 +449,10 @@ struct mimusb_node {
     std::vector<mimusb::detail::GenericInterface> interfaces;
     std::vector<std::uint8_t> association;
     std::vector<mimusb::detail::EndpointRuntime> in_endpoints; // every Node: the IN endpoints
-    std::vector<mimusb::usb::BoardRule>
-        rules; // a Node of a mimusb_spec_create_interfaces Spec: its own
+    // The Node's own rules: the extra_rules of its placement, then those of a Spec that carries its
+    // own (mimusb_spec_create_interfaces, _cdc_acm). A profile Node's library rules are not here.
+    std::vector<mimusb::usb::BoardRule> rules;
+    mimusb::detail::RuleSlots rule_slots; // slot -> index in `rules`
     mimusb::usb::HidNodeConfig config{};
     std::string interface_string;
     std::uint16_t node_id{};

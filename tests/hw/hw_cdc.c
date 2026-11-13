@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimusb contributors
-// A CDC-ACM function (mimusb_cdc_acm_descriptors_make, mimusb_cdc_acm_rules) on a real board whose
+// A CDC-ACM function (mimusb_spec_create_cdc_acm) on a real board whose
 // target is this machine: Linux binds its cdc_acm driver and makes a /dev/ttyACM* node, which this
 // program opens as any terminal program would.
 //
@@ -73,68 +73,50 @@ int main(void) {
         return 1;
     }
 
-    mimusb_cdc_acm_descriptors cdc;
-    r = mimusb_cdc_acm_descriptors_make(0x0120, 0, 0x00, 0x02, &cdc);
-    CHECK(r == MIMUSB_OK, "descriptors: %s", mimusb_result_name(r));
     const uint8_t line_coding[7] = {0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08}; /* 115200 8N1 */
-    mimusb_control_rule rules[3];
-    r = mimusb_cdc_acm_rules(0, line_coding, rules);
-    CHECK(r == MIMUSB_OK, "rules: %s", mimusb_result_name(r));
+    mimusb_cdc_acm_options options;
+    mimusb_cdc_acm_options_init(&options);
+    options.bcd_cdc = 0x0120;
+    options.protocol = 0x01;
+    options.acm_capabilities = 0x02;
+    memcpy(options.line_coding, line_coding, sizeof(line_coding));
+    options.data_name = "HW CDC data";
+    mimusb_spec* spec = NULL;
+    r = mimusb_spec_create_cdc_acm(&options, &spec);
+    CHECK(r == MIMUSB_OK, "spec: %s", mimusb_result_name(r));
+    if (r != MIMUSB_OK)
+        return 1;
 
-    mimusb_usb_endpoint notify, bulk_in, bulk_out;
-    memset(&notify, 0, sizeof(notify));
-    notify.address = 0x83;
-    notify.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
-    notify.max_packet_size = 16;
-    notify.interval = 16;
-    notify.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
-    notify.policy.depth = 2;
-    memset(&bulk_in, 0, sizeof(bulk_in));
-    bulk_in.address = 0x84;
-    bulk_in.transfer_type = MIMUSB_TRANSFER_BULK;
-    bulk_in.max_packet_size = 64;
-    bulk_in.policy.on_full = MIMUSB_FULL_WAIT;
-    bulk_in.policy.depth = 4;
-    memset(&bulk_out, 0, sizeof(bulk_out));
-    bulk_out.address = 0x04;
-    bulk_out.transfer_type = MIMUSB_TRANSFER_BULK;
-    bulk_out.max_packet_size = 64;
-    const mimusb_usb_item comm_items[5] = {
-        mimusb_usb_item_make_descriptor(cdc.header, sizeof(cdc.header)),
-        mimusb_usb_item_make_descriptor(cdc.call_management, sizeof(cdc.call_management)),
-        mimusb_usb_item_make_descriptor(cdc.acm, sizeof(cdc.acm)),
-        mimusb_usb_item_make_descriptor(cdc.union_, sizeof(cdc.union_)),
-        mimusb_usb_item_make_endpoint(notify)};
-    const mimusb_usb_item data_items[2] = {mimusb_usb_item_make_endpoint(bulk_in),
-                                           mimusb_usb_item_make_endpoint(bulk_out)};
-    const mimusb_usb_setting comm_setting = {comm_items, 5};
-    const mimusb_usb_setting data_setting = {data_items, 2};
-    mimusb_usb_interface itfs[2];
-    memset(itfs, 0, sizeof(itfs));
-    itfs[0].number = 0;
-    itfs[0].class_code = 0x02;
-    itfs[0].subclass = 0x02;
-    itfs[0].protocol = 0x01;
-    itfs[0].name = "HW CDC control";
-    itfs[0].settings = &comm_setting;
-    itfs[0].setting_count = 1;
-    itfs[1].number = 1;
-    itfs[1].class_code = 0x0A;
-    itfs[1].name = "HW CDC data";
-    itfs[1].settings = &data_setting;
-    itfs[1].setting_count = 1;
-    mimusb_node_config nc;
-    mimusb_node_config_init(&nc);
-    nc.interfaces = itfs;
-    nc.interface_count = 2;
-    nc.association = cdc.association;
-    nc.association_length = sizeof(cdc.association);
-    nc.rules = rules;
-    nc.rule_count = 3;
+    mimusb_placed_endpoint placed[3];
+    memset(placed, 0, sizeof(placed));
+    placed[0].role = MIMUSB_ROLE_CDC_NOTIFY;
+    placed[0].endpoint.address = 0x83;
+    placed[0].endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+    placed[0].endpoint.max_packet_size = 16;
+    placed[0].endpoint.interval = 16;
+    placed[0].endpoint.policy.on_full = MIMUSB_FULL_DROP_NEWEST;
+    placed[0].endpoint.policy.depth = 2;
+    placed[1].role = MIMUSB_ROLE_CDC_DATA_IN;
+    placed[1].endpoint.address = 0x84;
+    placed[1].endpoint.transfer_type = MIMUSB_TRANSFER_BULK;
+    placed[1].endpoint.max_packet_size = 64;
+    placed[1].endpoint.policy.on_full = MIMUSB_FULL_WAIT;
+    placed[1].endpoint.policy.depth = 4;
+    placed[2].role = MIMUSB_ROLE_CDC_DATA_OUT;
+    placed[2].endpoint.address = 0x04;
+    placed[2].endpoint.transfer_type = MIMUSB_TRANSFER_BULK;
+    placed[2].endpoint.max_packet_size = 64;
+    mimusb_node_placement placement;
+    mimusb_node_placement_init(&placement);
+    placement.first_interface = 0;
+    placement.name = "HW CDC control";
+    placement.endpoints = placed;
+    placement.endpoint_count = 3;
     mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
     mimusb_node* node = NULL;
-    r = example_node_open_interfaces(device, &nc, &to, &node);
+    r = mimusb_node_open(device, spec, &placement, &to, &node);
+    mimusb_spec_release(spec);
     if (r != MIMUSB_OK) {
         printf("node_open: %s %s\n", mimusb_result_name(r), mimusb_last_error()->reason);
         return 1;

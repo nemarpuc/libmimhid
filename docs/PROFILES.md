@@ -86,7 +86,7 @@ records five parser maxima on the `Spec`:
 
 When you attach the `Spec` to a `Device` via `mimusb_node_open`, those maxima
 are checked against the `mimusb_linux_hid_policy` values you supplied in
-`mimusb_device_config.transport.linux_hid` and against
+`mimusb_device_config.target.linux_hid` and against
 `transport.maximum_report_bytes` and the board's `max_report_bytes`, and the
 rules the Node needs (its descriptors and answers) against the board's
 `max_control_rules` and `max_answer_bytes` (`MIMUSB_ERR_OVERFLOW` if any limit
@@ -183,7 +183,7 @@ N-key rollover (NKRO) with no 6-key array limit and no `ErrorRollOver` state.
 - **Keyboard LEDs:** `mimusb_spec_create_keyboard` emits an Input-only keyboard
   descriptor. If you want the target OS to send Caps Lock / Num Lock / Scroll
   Lock `Output` reports, declare an `Output` Main item on Usage Page `0x08`
-  (LEDs) in a raw descriptor (`mimusb_spec_create_raw` with
+  (LEDs) in a generic HID descriptor (`mimusb_spec_create_hid` with
   `requires_output = 1`, as shown in
   [examples/c/verify/verify_keyboard.c](../examples/c/verify/verify_keyboard.c))
   and handle `MIMUSB_EVENT_OUTPUT_REPORT` in `transport.event_sink`.
@@ -507,25 +507,25 @@ and `battery` (`mimusb_battery_report`):
 
 ---
 
-## Raw
+## Generic HID
 
 `libmimusb` provides two ways to use a caller-supplied HID report descriptor:
 
-### 1. Validated raw `Spec` (`mimusb_spec_create_raw` + `mimusb_node_open` + `mimusb_raw_submit`)
+### 1. Validated raw `Spec` (`mimusb_spec_create_hid` + `mimusb_node_open` + `mimusb_hid_submit`)
 
-`mimusb_spec_create_raw(const mimusb_raw_options*, mimusb_spec**)` parses the
+`mimusb_spec_create_hid(const mimusb_hid_options*, mimusb_spec**)` parses the
 descriptor with `validate_raw`:
 
 - `descriptor` (`1..65535` bytes) must have balanced collections, valid Global
   and Local items, and only top-level `Application` collections.
-- `reports` (`1..256` `mimusb_raw_report` entries) must list the exact set of
+- `reports` (`1..256` `mimusb_hid_report` entries) must list the exact set of
   Input reports (`report_id` and `wire_length`, including the 1-byte Report ID
   prefix when `report_id.enabled == 1`) that the descriptor declares.
 - If the descriptor contains `Output` Main items, `options->requires_output`
   must be `1`; if it contains `Feature` Main items,
   `options->requires_feature_response` must be `1` (`MIMUSB_ERR_UNSUPPORTED`
   otherwise).
-- On every `mimusb_raw_submit(node, report, length, send_timeout_ms)` call, the
+- On every `mimusb_hid_submit(node, report, length, send_timeout_ms)` call, the
   library verifies that `length` and the leading Report ID byte match an entry in
   `reports`, and that any trailing Constant padding bits in the final byte are `0`.
 
@@ -535,9 +535,9 @@ The board reads no class, so a HID interface that is not made from a `Spec`
 is an ordinary `mimusb_node_open` Node of class 0x03: any report descriptor
 (a captured physical device's, with vendor collections, Output LED items or
 non-standard item sequences; nothing is parsed or checked against
-`transport.linux_hid`), the HID descriptor as a descriptor item of the setting
-(`mimusb_hid_descriptor_bytes`), and the control rules that make it answer
-(`mimusb_node_config.rules`: `mimusb_hid_descriptor_rule` for the report
+`target.linux_hid`), the HID descriptor as a descriptor item of the setting
+(9 bytes, HID 1.11 6.2.1), and the control rules that make it answer
+(`mimusb_node_config.rules`: `MIMUSB_CONTROL_ANSWER` for `GET_DESCRIPTOR` of the report
 descriptor and the HID descriptor, `MIMUSB_CONTROL_ANSWER_LAST_SENT` for
 `GET_REPORT`, `MIMUSB_CONTROL_ACCEPT` for `SET_REPORT`, `SET_IDLE` and
 `SET_PROTOCOL`, ...). Send its reports with

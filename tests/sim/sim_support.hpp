@@ -71,12 +71,12 @@ mimusb_spec* keyboard_spec(std::uint8_t report_id);
 mimusb_spec* mouse_spec(std::uint8_t report_id);
 mimusb_spec* touch_spec(std::uint8_t report_id, std::uint32_t feature);
 mimusb_spec* pen_spec(std::uint8_t report_id);
-// A raw spec with one 1-byte Input report and no Report ID.
-mimusb_spec* raw_spec_no_id();
-// The same Spec with the HID function given; the result of mimusb_spec_create_raw.
-mimusb_result create_raw_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out);
-// A raw spec with an Output and a Feature report, both under Report ID 5.
-mimusb_spec* raw_spec_io();
+// A generic HID Spec with one 1-byte Input report and no Report ID.
+mimusb_spec* hid_spec_no_id();
+// The same Spec with the HID function given; the result of mimusb_spec_create_hid.
+mimusb_result create_hid_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out);
+// A generic HID Spec with an Output and a Feature report, both under Report ID 5.
+mimusb_spec* hid_spec_io();
 mimusb_node* open_node(mimusb_device* device, mimusb_spec* spec,
                        const test_hid_node_config* options = nullptr);
 // A Node of one vendor interface (number 0, class 0xFF) with an interrupt IN endpoint 0x81 and the
@@ -98,6 +98,7 @@ void test_filled_values();
 void test_init_fills_nothing();
 void test_shared_interfaces();
 void test_placement_and_roles();
+void test_extra_rules();
 // test_sim_arguments.cpp
 void test_bad_arguments();
 // test_sim_line_rate.cpp

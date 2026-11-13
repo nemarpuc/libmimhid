@@ -25,8 +25,8 @@ MIMUSB_CONTROL_MAX_TIMEOUT_MS = 5000
 MIMUSB_HOST_MAX_REPORT_BYTES = 1024
 MIMUSB_LOSS_MAX_INTERVAL_MS = 60000
 MIMUSB_VERSION_MAJOR = 0
-MIMUSB_VERSION_MINOR = 6
-MIMUSB_VERSION_PATCH = 1
+MIMUSB_VERSION_MINOR = 7
+MIMUSB_VERSION_PATCH = 0
 MIMUSB_OK = 0
 MIMUSB_ERR_PARAM = 1
 MIMUSB_ERR_UNSET_FIELD = 2
@@ -53,8 +53,9 @@ MIMUSB_PROFILE_PEN = 5
 MIMUSB_PROFILE_DIGITIZER = 6
 MIMUSB_PROFILE_GAMEPAD = 7
 MIMUSB_PROFILE_TOGGLE = 8
-MIMUSB_PROFILE_RAW = 9
+MIMUSB_PROFILE_HID = 9
 MIMUSB_PROFILE_INTERFACES = 10
+MIMUSB_PROFILE_CDC_ACM = 11
 MIMUSB_AXIS_X = 1
 MIMUSB_AXIS_Y = 2
 MIMUSB_AXIS_Z = 3
@@ -105,8 +106,12 @@ MIMUSB_CONTROL_ANSWER_LAST_SENT = 2
 MIMUSB_CONTROL_ACCEPT = 3
 MIMUSB_CONTROL_ASK = 4
 MIMUSB_CONTROL_STALL = 5
-MIMUSB_HID_ROLE_IN = 1
-MIMUSB_HID_ROLE_OUT = 2
+MIMUSB_ROLE_HID_IN = 1
+MIMUSB_ROLE_HID_OUT = 2
+MIMUSB_ROLE_CDC_NOTIFY = 3
+MIMUSB_ROLE_CDC_DATA_IN = 4
+MIMUSB_ROLE_CDC_DATA_OUT = 5
+MIMUSB_RULE_SLOT_CDC_LINE_CODING = 1
 MIMUSB_CONTROL_FLAG_HELD = 1
 MIMUSB_CONTROL_FLAG_TOO_LONG = 2
 MIMUSB_CONTROL_FLAG_FIXED = 4
@@ -283,12 +288,17 @@ class LinuxHidPolicy(c.Structure):
     ]
 
 
+class TargetLimits(c.Structure):
+    _fields_ = [
+        ("linux_hid", LinuxHidPolicy),
+    ]
+
+
 class TransportOptions(c.Structure):
     _fields_ = [
         ("baud_rate", c.c_uint32),
         ("handshake_timeout_ms", c.c_uint32),
         ("maximum_report_bytes", c.c_uint32),
-        ("linux_hid", LinuxHidPolicy),
         ("validate_reports", c.c_uint32),
         ("keep_attached", c.c_uint32),
         ("event_sink", EventSink),
@@ -304,6 +314,7 @@ class DeviceConfig(c.Structure):
         ("struct_size", c.c_uint32),
         ("reserved", c.c_uint32),
         ("transport", TransportOptions),
+        ("target", TargetLimits),
         ("usb_device", UsbDevice),
         ("usb_config", UsbConfig),
     ]
@@ -428,6 +439,8 @@ class NodePlacement(c.Structure):
         ("name", c.c_char_p),
         ("endpoints", c.POINTER(PlacedEndpoint)),
         ("endpoint_count", c.c_size_t),
+        ("extra_rules", c.POINTER(ControlRule)),
+        ("extra_rule_count", c.c_size_t),
     ]
 
 
@@ -678,24 +691,39 @@ class DigitizerOptions(c.Structure):
     ]
 
 
-class RawReport(c.Structure):
+class HidReport(c.Structure):
     _fields_ = [
         ("report_id", ReportId),
         ("wire_length", c.c_uint32),
     ]
 
 
-class RawOptions(c.Structure):
+class HidOptions(c.Structure):
     _fields_ = [
         ("struct_size", c.c_uint32),
         ("reserved", c.c_uint32),
         ("descriptor", c.POINTER(c.c_uint8)),
         ("descriptor_length", c.c_size_t),
-        ("reports", c.POINTER(RawReport)),
+        ("reports", c.POINTER(HidReport)),
         ("report_count", c.c_size_t),
         ("requires_output", c.c_uint32),
         ("requires_feature_response", c.c_uint32),
         ("function", HidFunction),
+    ]
+
+
+class CdcAcmOptions(c.Structure):
+    _fields_ = [
+        ("struct_size", c.c_uint32),
+        ("reserved", c.c_uint32),
+        ("bcd_cdc", c.c_uint16),
+        ("protocol", c.c_uint8),
+        ("call_management_capabilities", c.c_uint8),
+        ("acm_capabilities", c.c_uint8),
+        ("reserved8", c.c_uint8 * 3),
+        ("line_coding", c.c_uint8 * 7),
+        ("reserved8b", c.c_uint8),
+        ("data_name", c.c_char_p),
     ]
 
 
@@ -768,16 +796,6 @@ class DigitizerSample(c.Structure):
     ]
 
 
-class CdcAcmDescriptors(c.Structure):
-    _fields_ = [
-        ("header", c.c_uint8 * 5),
-        ("call_management", c.c_uint8 * 5),
-        ("acm", c.c_uint8 * 4),
-        ("union_", c.c_uint8 * 5),
-        ("association", c.c_uint8 * 8),
-    ]
-
-
 ABI_STRUCTS = {
     "mimusb_error_detail": ErrorDetail,
     "mimusb_event": Event,
@@ -787,6 +805,7 @@ ABI_STRUCTS = {
     "mimusb_usb_device": UsbDevice,
     "mimusb_usb_config": UsbConfig,
     "mimusb_linux_hid_policy": LinuxHidPolicy,
+    "mimusb_target_limits": TargetLimits,
     "mimusb_transport_options": TransportOptions,
     "mimusb_device_config": DeviceConfig,
     "mimusb_commit_timeouts": CommitTimeouts,
@@ -815,15 +834,15 @@ ABI_STRUCTS = {
     "mimusb_touchpad_options": TouchpadOptions,
     "mimusb_pen_options": PenOptions,
     "mimusb_digitizer_options": DigitizerOptions,
-    "mimusb_raw_report": RawReport,
-    "mimusb_raw_options": RawOptions,
+    "mimusb_hid_report": HidReport,
+    "mimusb_hid_options": HidOptions,
+    "mimusb_cdc_acm_options": CdcAcmOptions,
     "mimusb_report_capability": ReportCapability,
     "mimusb_capability_manifest": CapabilityManifest,
     "mimusb_touchscreen_extra": TouchscreenExtra,
     "mimusb_touchpad_extra": TouchpadExtra,
     "mimusb_pen_sample": PenSample,
     "mimusb_digitizer_sample": DigitizerSample,
-    "mimusb_cdc_acm_descriptors": CdcAcmDescriptors,
 }
 
 
@@ -863,10 +882,7 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimusb_device_set_control_rules", [DeviceP, c.c_uint32, c.POINTER(ControlRule), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimusb_device_set_rule_data", [DeviceP, c.c_size_t, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimusb_node_set_rule_data", [NodeP, c.c_size_t, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
-    declare("mimusb_hid_descriptor_bytes", [c.c_uint16, c.c_uint8, c.c_size_t, c.POINTER(c.c_uint8)], c.c_int32)
-    declare("mimusb_hid_descriptor_rule", [c.c_uint8, c.c_uint8, c.POINTER(c.c_uint8), c.c_size_t, c.POINTER(ControlRule)], c.c_int32)
-    declare("mimusb_cdc_acm_descriptors_make", [c.c_uint16, c.c_uint8, c.c_uint8, c.c_uint8, c.POINTER(CdcAcmDescriptors)], c.c_int32)
-    declare("mimusb_cdc_acm_rules", [c.c_uint8, c.POINTER(c.c_uint8), c.POINTER(ControlRule)], c.c_int32)
+    declare("mimusb_node_find_rule", [NodeP, c.c_int32, c.POINTER(c.c_size_t)], c.c_int32)
     declare("mimusb_device_control_reply", [DeviceP, c.c_uint32, c.c_int32, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     declare("mimusb_device_set_loss_reporting", [DeviceP, c.c_uint32, c.c_uint32, c.c_uint32], c.c_int32)
     declare("mimusb_device_add_string", [DeviceP, c.c_char_p, c.POINTER(c.c_uint8)], c.c_int32)
@@ -889,9 +905,12 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimusb_spec_create_touchpad", [c.POINTER(TouchpadOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_create_pen", [c.POINTER(PenOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_create_digitizer", [c.POINTER(DigitizerOptions), c.POINTER(SpecP)], c.c_int32)
-    declare("mimusb_spec_create_raw", [c.POINTER(RawOptions), c.POINTER(SpecP)], c.c_int32)
+    declare("mimusb_spec_create_hid", [c.POINTER(HidOptions), c.POINTER(SpecP)], c.c_int32)
+    declare("mimusb_spec_create_cdc_acm", [c.POINTER(CdcAcmOptions), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_create_interfaces", [c.POINTER(NodeConfig), c.POINTER(SpecP)], c.c_int32)
     declare("mimusb_spec_roles", [SpecP, c.POINTER(RoleInfo), c.c_size_t, c.POINTER(c.c_size_t)], c.c_int32)
+    declare("mimusb_spec_interface_count", [SpecP, c.POINTER(c.c_size_t)], c.c_int32)
+    declare("mimusb_spec_rule_cost", [SpecP, c.POINTER(c.c_size_t), c.POINTER(c.c_size_t)], c.c_int32)
     declare("mimusb_spec_retain", [SpecP], None)
     declare("mimusb_spec_release", [SpecP], None)
     declare("mimusb_spec_descriptor", [SpecP, c.POINTER(c.POINTER(c.c_uint8)), c.POINTER(c.c_size_t)], c.c_int32)
@@ -922,7 +941,7 @@ def load(path: Union[os.PathLike, str]) -> c.CDLL:
     declare("mimusb_pen_update", [NodeP, c.POINTER(PenSample)], c.c_int32)
     declare("mimusb_digitizer_update", [NodeP, c.POINTER(DigitizerSample)], c.c_int32)
     declare("mimusb_battery_update", [NodeP, c.c_int32], c.c_int32)
-    declare("mimusb_raw_submit", [NodeP, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
+    declare("mimusb_hid_submit", [NodeP, c.POINTER(c.c_uint8), c.c_size_t, c.c_uint32], c.c_int32)
     return library
 
 
@@ -947,6 +966,7 @@ __all__ += [
     "UsbDevice",
     "UsbConfig",
     "LinuxHidPolicy",
+    "TargetLimits",
     "TransportOptions",
     "DeviceConfig",
     "CommitTimeouts",
@@ -975,15 +995,15 @@ __all__ += [
     "TouchpadOptions",
     "PenOptions",
     "DigitizerOptions",
-    "RawReport",
-    "RawOptions",
+    "HidReport",
+    "HidOptions",
+    "CdcAcmOptions",
     "ReportCapability",
     "CapabilityManifest",
     "TouchscreenExtra",
     "TouchpadExtra",
     "PenSample",
     "DigitizerSample",
-    "CdcAcmDescriptors",
     "ABI_STRUCTS",
     "load",
 ]

@@ -33,9 +33,30 @@ struct HandWritten {
 
     HandWritten(const std::uint8_t* bytes, const std::size_t length, const std::uint8_t number) {
         descriptor.assign(bytes, bytes + length);
-        MIMUSB_CHECK(mimusb_hid_descriptor_bytes(0x0111, 0, length, hid) == MIMUSB_OK);
-        MIMUSB_CHECK(mimusb_hid_descriptor_rule(number, 0x22, descriptor.data(), length, &rule) ==
-                     MIMUSB_OK);
+        // HID 1.11 6.2.1: the HID descriptor with one subordinate descriptor, the report one.
+        const std::uint8_t hid_bytes[9] = {9,
+                                           0x21,
+                                           0x11,
+                                           0x01,
+                                           0,
+                                           1,
+                                           0x22,
+                                           static_cast<std::uint8_t>(length & 0xFFU),
+                                           static_cast<std::uint8_t>(length >> 8U)};
+        std::memcpy(hid, hid_bytes, sizeof hid);
+        // USB 2.0 9.4.3 GET_DESCRIPTOR, interface, device to host; HID 1.11 7.1.1: wValue's high
+        // byte is the type 0x22 (the report descriptor).
+        rule.request_type_mask = 0xFF;
+        rule.request_type_value = 0x81;
+        rule.request_mask = 0xFF;
+        rule.request_value = 0x06;
+        rule.value_mask = 0xFF00;
+        rule.value_value = 0x2200;
+        rule.index_mask = 0xFFFF;
+        rule.index_value = number;
+        rule.action = MIMUSB_CONTROL_ANSWER;
+        rule.data = descriptor.data();
+        rule.length = length;
         endpoint.address = static_cast<std::uint8_t>(0x81U + number);
         endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
         endpoint.max_packet_size = 64;
@@ -135,13 +156,6 @@ void test_hand_written_arguments() {
     unset.rules = &none;
     MIMUSB_CHECK(test_node_open_interfaces(device, &unset, &kCommit, &node) ==
                  MIMUSB_ERR_UNSET_FIELD);
-    // The helper refuses what it cannot make.
-    mimusb_control_rule made{};
-    MIMUSB_CHECK(mimusb_hid_descriptor_rule(0, 0x23, kDescriptor, sizeof(kDescriptor), &made) ==
-                 MIMUSB_ERR_PARAM);
-    std::uint8_t nine[9];
-    MIMUSB_CHECK(mimusb_hid_descriptor_bytes(0, 0, 10, nine) == MIMUSB_ERR_UNSET_FIELD);
-    MIMUSB_CHECK(mimusb_hid_descriptor_bytes(0x0111, 0, 0, nine) == MIMUSB_ERR_PARAM);
     // More answer bytes than the board holds.
     const std::vector<std::uint8_t> big(33, 0x00);
     HandWritten too_big(big.data(), big.size(), 0);
@@ -205,19 +219,19 @@ std::vector<std::uint8_t> descriptor_with_id(const std::uint8_t id) {
 mimusb_spec* raw_spec(const std::uint8_t id) {
     static std::vector<std::vector<std::uint8_t>> keep;
     keep.push_back(descriptor_with_id(id));
-    mimusb_raw_report report{};
+    mimusb_hid_report report{};
     report.report_id.enabled = 1;
     report.report_id.value = id;
     report.wire_length = 2;
-    mimusb_raw_options options;
-    mimusb_raw_options_init(&options);
+    mimusb_hid_options options;
+    mimusb_hid_options_init(&options);
     options.function.bcd_hid = 0x0111;
     options.descriptor = keep.back().data();
     options.descriptor_length = keep.back().size();
     options.reports = &report;
     options.report_count = 1;
     mimusb_spec* spec = nullptr;
-    MIMUSB_CHECK(mimusb_spec_create_raw(&options, &spec) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_spec_create_hid(&options, &spec) == MIMUSB_OK);
     return spec;
 }
 
@@ -291,7 +305,7 @@ void test_more_than_sixteen_nodes() {
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 1000) == MIMUSB_OK);
     board.clear();
     const std::uint8_t report[2] = {20, 0x01};
-    MIMUSB_CHECK(mimusb_raw_submit(nodes.back(), report, sizeof(report), kSendMs) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_hid_submit(nodes.back(), report, sizeof(report), kSendMs) == MIMUSB_OK);
     Received r;
     MIMUSB_CHECK(board.take(MIMUSB_T_EP_IN_BASE | 1, &r) && r.payload.size() == 2U);
     for (auto it = nodes.rbegin(); it != nodes.rend(); ++it)

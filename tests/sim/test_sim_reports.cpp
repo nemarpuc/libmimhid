@@ -291,7 +291,7 @@ void test_limits() {
     mimusb_result last = MIMUSB_OK;
     const unsigned limit = SIM_ENDPOINTS;
     for (unsigned i = 0; i < limit + 1; ++i) {
-        specs.push_back(raw_spec_no_id());
+        specs.push_back(hid_spec_no_id());
         test_hid_node_config no{};
         test_fill_node_config(&no, static_cast<uint8_t>(i));
         no.ep_in.policy.depth = 1; // the queues of all the IN endpoints share the board's pool
@@ -327,7 +327,7 @@ void test_interface_numbers() {
     std::vector<mimusb_spec*> specs;
     mimusb_node* nodes[3] = {};
     for (unsigned i : {0U, 2U, 1U, 2U}) {
-        specs.push_back(raw_spec_no_id());
+        specs.push_back(hid_spec_no_id());
         test_hid_node_config c{};
         test_fill_node_config(&c, static_cast<uint8_t>(i));
         mimusb_node* node = nullptr;

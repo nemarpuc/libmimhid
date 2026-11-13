@@ -39,8 +39,9 @@ public enum ProfileKind : int
     Digitizer = 6,
     Gamepad = 7,
     Toggle = 8,
-    Raw = 9,
+    Hid = 9,
     Interfaces = 10,
+    CdcAcm = 11,
 }
 
 public enum AxisRole : int
@@ -106,7 +107,16 @@ public enum ControlRuleAction : int
     Stall = 5,
 }
 
-public enum EndpointRole : int { In = 1, Out = 2 }
+public enum EndpointRole : int
+{
+    HidIn = 1,
+    HidOut = 2,
+    CdcNotify = 3,
+    CdcDataIn = 4,
+    CdcDataOut = 5,
+}
+
+public enum RuleSlot : int { RuleSlotCdcLineCoding = 1 }
 
 [StructLayout(LayoutKind.Sequential)]
 public struct ErrorDetail
@@ -238,12 +248,17 @@ public struct LinuxHidPolicy
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct TargetLimits
+{
+    public LinuxHidPolicy LinuxHid;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct TransportOptions
 {
     public uint BaudRate;
     public uint HandshakeTimeoutMs;
     public uint MaximumReportBytes;
-    public LinuxHidPolicy LinuxHid;
     public uint ValidateReports;
     public uint KeepAttached;
     public nint EventSink;
@@ -259,6 +274,7 @@ public struct DeviceConfig
     public uint StructSize;
     public uint Reserved;
     public TransportOptions Transport;
+    public TargetLimits Target;
     public UsbDevice UsbDevice;
     public UsbConfig UsbConfig;
 }
@@ -383,6 +399,8 @@ public unsafe struct NodePlacement
     public nint Name;
     public nint Endpoints;
     public nuint EndpointCount;
+    public nint ExtraRules;
+    public nuint ExtraRuleCount;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -633,14 +651,14 @@ public struct DigitizerOptions
 }
 
 [StructLayout(LayoutKind.Sequential)]
-public struct RawReport
+public struct HidReport
 {
     public ReportId ReportId;
     public uint WireLength;
 }
 
 [StructLayout(LayoutKind.Sequential)]
-public struct RawOptions
+public struct HidOptions
 {
     public uint StructSize;
     public uint Reserved;
@@ -651,6 +669,21 @@ public struct RawOptions
     public uint RequiresOutput;
     public uint RequiresFeatureResponse;
     public HidFunction Function;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct CdcAcmOptions
+{
+    public uint StructSize;
+    public uint Reserved;
+    public ushort BcdCdc;
+    public byte Protocol;
+    public byte CallManagementCapabilities;
+    public byte AcmCapabilities;
+    public fixed byte Reserved8[3];
+    public fixed byte LineCoding[7];
+    public byte Reserved8b;
+    public nint DataName;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -722,16 +755,6 @@ public struct DigitizerSample
     public int Twist;
 }
 
-[StructLayout(LayoutKind.Sequential)]
-public unsafe struct CdcAcmDescriptors
-{
-    public fixed byte Header[5];
-    public fixed byte CallManagement[5];
-    public fixed byte Acm[4];
-    public fixed byte Union[5];
-    public fixed byte Association[8];
-}
-
 public static class Native
 {
     private const string Library = "mimusb";
@@ -749,8 +772,8 @@ public static class Native
     public const int MIMUSB_HOST_MAX_REPORT_BYTES = 1024;
     public const uint MIMUSB_LOSS_MAX_INTERVAL_MS = 60000;
     public const uint MIMUSB_VERSION_MAJOR = 0;
-    public const uint MIMUSB_VERSION_MINOR = 6;
-    public const uint MIMUSB_VERSION_PATCH = 1;
+    public const uint MIMUSB_VERSION_MINOR = 7;
+    public const uint MIMUSB_VERSION_PATCH = 0;
     public const int MIMUSB_OK = 0;
     public const int MIMUSB_ERR_PARAM = 1;
     public const int MIMUSB_ERR_UNSET_FIELD = 2;
@@ -777,8 +800,9 @@ public static class Native
     public const int MIMUSB_PROFILE_DIGITIZER = 6;
     public const int MIMUSB_PROFILE_GAMEPAD = 7;
     public const int MIMUSB_PROFILE_TOGGLE = 8;
-    public const int MIMUSB_PROFILE_RAW = 9;
+    public const int MIMUSB_PROFILE_HID = 9;
     public const int MIMUSB_PROFILE_INTERFACES = 10;
+    public const int MIMUSB_PROFILE_CDC_ACM = 11;
     public const int MIMUSB_AXIS_X = 1;
     public const int MIMUSB_AXIS_Y = 2;
     public const int MIMUSB_AXIS_Z = 3;
@@ -829,8 +853,12 @@ public static class Native
     public const int MIMUSB_CONTROL_ACCEPT = 3;
     public const int MIMUSB_CONTROL_ASK = 4;
     public const int MIMUSB_CONTROL_STALL = 5;
-    public const int MIMUSB_HID_ROLE_IN = 1;
-    public const int MIMUSB_HID_ROLE_OUT = 2;
+    public const int MIMUSB_ROLE_HID_IN = 1;
+    public const int MIMUSB_ROLE_HID_OUT = 2;
+    public const int MIMUSB_ROLE_CDC_NOTIFY = 3;
+    public const int MIMUSB_ROLE_CDC_DATA_IN = 4;
+    public const int MIMUSB_ROLE_CDC_DATA_OUT = 5;
+    public const int MIMUSB_RULE_SLOT_CDC_LINE_CODING = 1;
     public const int MIMUSB_CONTROL_FLAG_HELD = 1;
     public const int MIMUSB_CONTROL_FLAG_TOO_LONG = 2;
     public const int MIMUSB_CONTROL_FLAG_FIXED = 4;
@@ -863,6 +891,7 @@ public static class Native
             ["mimusb_usb_device"] = typeof(UsbDevice),
             ["mimusb_usb_config"] = typeof(UsbConfig),
             ["mimusb_linux_hid_policy"] = typeof(LinuxHidPolicy),
+            ["mimusb_target_limits"] = typeof(TargetLimits),
             ["mimusb_transport_options"] = typeof(TransportOptions),
             ["mimusb_device_config"] = typeof(DeviceConfig),
             ["mimusb_commit_timeouts"] = typeof(CommitTimeouts),
@@ -891,15 +920,15 @@ public static class Native
             ["mimusb_touchpad_options"] = typeof(TouchpadOptions),
             ["mimusb_pen_options"] = typeof(PenOptions),
             ["mimusb_digitizer_options"] = typeof(DigitizerOptions),
-            ["mimusb_raw_report"] = typeof(RawReport),
-            ["mimusb_raw_options"] = typeof(RawOptions),
+            ["mimusb_hid_report"] = typeof(HidReport),
+            ["mimusb_hid_options"] = typeof(HidOptions),
+            ["mimusb_cdc_acm_options"] = typeof(CdcAcmOptions),
             ["mimusb_report_capability"] = typeof(ReportCapability),
             ["mimusb_capability_manifest"] = typeof(CapabilityManifest),
             ["mimusb_touchscreen_extra"] = typeof(TouchscreenExtra),
             ["mimusb_touchpad_extra"] = typeof(TouchpadExtra),
             ["mimusb_pen_sample"] = typeof(PenSample),
             ["mimusb_digitizer_sample"] = typeof(DigitizerSample),
-            ["mimusb_cdc_acm_descriptors"] = typeof(CdcAcmDescriptors),
         };
 
     public static readonly IReadOnlyDictionary<string, long> AbiConstants =
@@ -917,8 +946,8 @@ public static class Native
             ["MIMUSB_HOST_MAX_REPORT_BYTES"] = 1024,
             ["MIMUSB_LOSS_MAX_INTERVAL_MS"] = 60000,
             ["MIMUSB_VERSION_MAJOR"] = 0,
-            ["MIMUSB_VERSION_MINOR"] = 6,
-            ["MIMUSB_VERSION_PATCH"] = 1,
+            ["MIMUSB_VERSION_MINOR"] = 7,
+            ["MIMUSB_VERSION_PATCH"] = 0,
             ["MIMUSB_OK"] = 0,
             ["MIMUSB_ERR_PARAM"] = 1,
             ["MIMUSB_ERR_UNSET_FIELD"] = 2,
@@ -945,8 +974,9 @@ public static class Native
             ["MIMUSB_PROFILE_DIGITIZER"] = 6,
             ["MIMUSB_PROFILE_GAMEPAD"] = 7,
             ["MIMUSB_PROFILE_TOGGLE"] = 8,
-            ["MIMUSB_PROFILE_RAW"] = 9,
+            ["MIMUSB_PROFILE_HID"] = 9,
             ["MIMUSB_PROFILE_INTERFACES"] = 10,
+            ["MIMUSB_PROFILE_CDC_ACM"] = 11,
             ["MIMUSB_AXIS_X"] = 1,
             ["MIMUSB_AXIS_Y"] = 2,
             ["MIMUSB_AXIS_Z"] = 3,
@@ -997,8 +1027,12 @@ public static class Native
             ["MIMUSB_CONTROL_ACCEPT"] = 3,
             ["MIMUSB_CONTROL_ASK"] = 4,
             ["MIMUSB_CONTROL_STALL"] = 5,
-            ["MIMUSB_HID_ROLE_IN"] = 1,
-            ["MIMUSB_HID_ROLE_OUT"] = 2,
+            ["MIMUSB_ROLE_HID_IN"] = 1,
+            ["MIMUSB_ROLE_HID_OUT"] = 2,
+            ["MIMUSB_ROLE_CDC_NOTIFY"] = 3,
+            ["MIMUSB_ROLE_CDC_DATA_IN"] = 4,
+            ["MIMUSB_ROLE_CDC_DATA_OUT"] = 5,
+            ["MIMUSB_RULE_SLOT_CDC_LINE_CODING"] = 1,
             ["MIMUSB_CONTROL_FLAG_HELD"] = 1,
             ["MIMUSB_CONTROL_FLAG_TOO_LONG"] = 2,
             ["MIMUSB_CONTROL_FLAG_FIXED"] = 4,
@@ -1093,20 +1127,8 @@ public static class Native
     public static extern Result DeviceSetRuleData(nint device, nuint ruleIndex, nint data, nuint length, uint controlTimeoutMs);
     [DllImport(Library, EntryPoint = "mimusb_node_set_rule_data", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result NodeSetRuleData(nint node, nuint ruleIndex, nint data, nuint length, uint controlTimeoutMs);
-    [DllImport(Library, EntryPoint = "mimusb_hid_descriptor_bytes", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result HidDescriptorBytes(ushort bcdHid, byte countryCode, nuint reportDescriptorLength, nint @out);
-    [DllImport(Library, EntryPoint = "mimusb_hid_descriptor_rule", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, ref ControlRule rule);
-    [DllImport(Library, EntryPoint = "mimusb_hid_descriptor_rule", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result HidDescriptorRule(byte interfaceNumber, byte descriptorType, nint bytes, nuint length, nint rule);
-    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_descriptors_make", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result CdcAcmDescriptorsMake(ushort bcdCdc, byte controlInterface, byte callManagementCapabilities, byte acmCapabilities, ref CdcAcmDescriptors @out);
-    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_descriptors_make", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result CdcAcmDescriptorsMake(ushort bcdCdc, byte controlInterface, byte callManagementCapabilities, byte acmCapabilities, nint @out);
-    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_rules", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result CdcAcmRules(byte controlInterface, nint lineCoding, ref ControlRule rules);
-    [DllImport(Library, EntryPoint = "mimusb_cdc_acm_rules", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result CdcAcmRules(byte controlInterface, nint lineCoding, nint rules);
+    [DllImport(Library, EntryPoint = "mimusb_node_find_rule", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result NodeFindRule(nint node, RuleSlot slot, out nuint ruleIndex);
     [DllImport(Library, EntryPoint = "mimusb_device_control_reply", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result DeviceControlReply(nint device, uint token, ControlAction action, nint data, nuint length, uint sendTimeoutMs);
     [DllImport(Library, EntryPoint = "mimusb_device_set_loss_reporting", ExactSpelling = true, CallingConvention = Call)]
@@ -1173,10 +1195,14 @@ public static class Native
     public static extern Result SpecCreateDigitizer(in DigitizerOptions options, out nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_create_digitizer", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecCreateDigitizer(nint options, out nint spec);
-    [DllImport(Library, EntryPoint = "mimusb_spec_create_raw", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result SpecCreateRaw(in RawOptions options, out nint spec);
-    [DllImport(Library, EntryPoint = "mimusb_spec_create_raw", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result SpecCreateRaw(nint options, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_hid", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateHid(in HidOptions options, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_hid", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateHid(nint options, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_cdc_acm", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateCdcAcm(in CdcAcmOptions options, out nint spec);
+    [DllImport(Library, EntryPoint = "mimusb_spec_create_cdc_acm", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecCreateCdcAcm(nint options, out nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_create_interfaces", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecCreateInterfaces(in NodeConfig config, out nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_create_interfaces", ExactSpelling = true, CallingConvention = Call)]
@@ -1185,6 +1211,10 @@ public static class Native
     public static extern Result SpecRoles(nint spec, ref RoleInfo roles, nuint capacity, out nuint count);
     [DllImport(Library, EntryPoint = "mimusb_spec_roles", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result SpecRoles(nint spec, nint roles, nuint capacity, out nuint count);
+    [DllImport(Library, EntryPoint = "mimusb_spec_interface_count", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecInterfaceCount(nint spec, out nuint count);
+    [DllImport(Library, EntryPoint = "mimusb_spec_rule_cost", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result SpecRuleCost(nint spec, out nuint rules, out nuint answerBytes);
     [DllImport(Library, EntryPoint = "mimusb_spec_retain", ExactSpelling = true, CallingConvention = Call)]
     public static extern void SpecRetain(nint spec);
     [DllImport(Library, EntryPoint = "mimusb_spec_release", ExactSpelling = true, CallingConvention = Call)]
@@ -1263,6 +1293,6 @@ public static class Native
     public static extern Result DigitizerUpdate(nint node, nint sample);
     [DllImport(Library, EntryPoint = "mimusb_battery_update", ExactSpelling = true, CallingConvention = Call)]
     public static extern Result BatteryUpdate(nint node, int strength);
-    [DllImport(Library, EntryPoint = "mimusb_raw_submit", ExactSpelling = true, CallingConvention = Call)]
-    public static extern Result RawSubmit(nint node, nint report, nuint length, uint sendTimeoutMs);
+    [DllImport(Library, EntryPoint = "mimusb_hid_submit", ExactSpelling = true, CallingConvention = Call)]
+    public static extern Result HidSubmit(nint node, nint report, nuint length, uint sendTimeoutMs);
 }

@@ -4,8 +4,9 @@
 // mimusb_node_open: the HID descriptor, the report descriptor the target asks for, the answer to
 // GET_REPORT, the requests that are accepted, and the reports sent with mimusb_node_endpoint_write.
 // Nothing is a default: every byte below is this program's. The library places them and reads none.
-// For the same keyboard from a profile, with all of this written for you, see
-// basic_keyboard_mouse.c.
+// For the same keyboard from a Spec, with all of this written for you, see
+// basic_keyboard_mouse.c; for a report descriptor of your own that the library checks, see
+// profiles/hid.c.
 #include <mimusb.h>
 
 #include "example_values.h"
@@ -64,12 +65,18 @@ int main(void) {
     if (r != MIMUSB_OK)
         return fail("device_open", r);
 
-    // The HID descriptor (HID 1.11 6.2.1) goes after the Interface descriptor as class bytes; the
-    // helper writes its 9 bytes. 0x0111 is HID 1.11, country code 0 is "not localized".
-    uint8_t hid_descriptor[9];
-    if ((r = mimusb_hid_descriptor_bytes(0x0111, 0, sizeof(report_descriptor), hid_descriptor)) !=
-        MIMUSB_OK)
-        return fail("hid_descriptor_bytes", r);
+    // The HID descriptor (HID 1.11 6.2.1) goes after the Interface descriptor as class bytes: 9
+    // bytes, with the report descriptor as its one subordinate. 0x0111 is HID 1.11, country code 0
+    // is "not localized".
+    const uint8_t hid_descriptor[9] = {9,
+                                       0x21,
+                                       0x11,
+                                       0x01,
+                                       0,
+                                       1,
+                                       0x22,
+                                       (uint8_t)(sizeof(report_descriptor) & 0xFF),
+                                       (uint8_t)(sizeof(report_descriptor) >> 8)};
 
     // One interrupt IN endpoint of 8 bytes, polled every 10 ms (full speed: bInterval in frames,
     // USB 2.0 9.6.6). A newer report replaces one that has not left yet: a keyboard sends its whole
@@ -103,9 +110,17 @@ int main(void) {
     mimusb_control_rule rules[4];
     memset(rules, 0, sizeof(rules));
     // 0: the report descriptor, GET_DESCRIPTOR type 0x22 (HID 1.11 7.1.1).
-    if ((r = mimusb_hid_descriptor_rule(0, 0x22, report_descriptor, sizeof(report_descriptor),
-                                        &rules[0])) != MIMUSB_OK)
-        return fail("hid_descriptor_rule", r);
+    rules[0].request_type_mask = 0xFF;
+    rules[0].request_type_value = 0x81; // device to host, standard, interface
+    rules[0].request_mask = 0xFF;
+    rules[0].request_value = 0x06; // GET_DESCRIPTOR (USB 2.0 9.4.3)
+    rules[0].value_mask = 0xFF00;
+    rules[0].value_value = 0x2200; // descriptor type 0x22, any index
+    rules[0].index_mask = 0xFFFF;
+    rules[0].index_value = 0;
+    rules[0].action = MIMUSB_CONTROL_ANSWER;
+    rules[0].data = report_descriptor;
+    rules[0].length = sizeof(report_descriptor);
     // 1: GET_REPORT of an Input report (HID 1.11 7.2.1): the last report sent on endpoint 0x81. A
     // request before the first report is stalled, as the board has nothing to answer with.
     rules[1].request_type_mask = 0xFF;

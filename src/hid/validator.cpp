@@ -459,30 +459,30 @@ const char* report_id_option_violation(const mimusb_report_id_option& option) no
 }
 
 namespace {
-ValidationIssue validate_report_table(const mimusb_raw_report* reports,
+ValidationIssue validate_report_table(const mimusb_hid_report* reports,
                                       const std::size_t report_count) noexcept {
     if (reports == nullptr || report_count == 0U) {
-        return issue(MIMUSB_ERR_UNSET_FIELD, "raw.reports",
+        return issue(MIMUSB_ERR_UNSET_FIELD, "hid.reports",
                      "Raw descriptors require an explicit accepted-report table.");
     }
     if (report_count > 256U) {
-        return issue(MIMUSB_ERR_OVERFLOW, "raw.reports",
+        return issue(MIMUSB_ERR_OVERFLOW, "hid.reports",
                      "The accepted-report table exceeds the 256 possible Report IDs.");
     }
     for (std::size_t index = 0U; index < report_count; ++index) {
-        const mimusb_raw_report& report = reports[index];
+        const mimusb_hid_report& report = reports[index];
         if (const char* reason = report_id_option_violation(report.report_id)) {
-            return issue(MIMUSB_ERR_PARAM, "raw.reports", reason);
+            return issue(MIMUSB_ERR_PARAM, "hid.reports", reason);
         }
         if (report.wire_length == 0U) {
-            return issue(MIMUSB_ERR_PARAM, "raw.reports",
+            return issue(MIMUSB_ERR_PARAM, "hid.reports",
                          "Every raw report entry needs a nonzero length.");
         }
         for (std::size_t previous = 0U; previous < index; ++previous) {
             if (reports[previous].report_id.value == report.report_id.value &&
                 reports[previous].report_id.enabled == report.report_id.enabled) {
                 return issue(
-                    MIMUSB_ERR_PARAM, "raw.reports",
+                    MIMUSB_ERR_PARAM, "hid.reports",
                     "The accepted-report table contains a duplicate Input report identity.");
             }
         }
@@ -516,7 +516,7 @@ struct RawParser {
     ValidationIssue local_item(const RawItem& item) noexcept;
     ValidationIssue main_item(const RawItem& item) noexcept;
     ValidationIssue input_item(const RawItem& item) noexcept;
-    ValidationIssue match_report_table(const mimusb_raw_report* reports, std::size_t report_count,
+    ValidationIssue match_report_table(const mimusb_hid_report* reports, std::size_t report_count,
                                        std::uint8_t* trailing_valid_masks) const noexcept;
 };
 
@@ -526,7 +526,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
     case kGlobalUsagePage: {
         const std::uint32_t usage_page = unsigned_value(data, size);
         if (usage_page > 0xFFFFU) {
-            return issue(MIMUSB_ERR_PARAM, "raw.usage_page",
+            return issue(MIMUSB_ERR_PARAM, "hid.usage_page",
                          "HID Usage Page values must fit in 16 bits.", item_offset);
         }
         globals.usage_page = usage_page;
@@ -558,7 +558,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
         // audited target also accepts legacy sign-extended encodings,
         // but parser tolerance is not the strict raw format contract.
         if (unsigned_value(data, size) > 0x0FU) {
-            return issue(MIMUSB_ERR_PARAM, "raw.unit_exponent",
+            return issue(MIMUSB_ERR_PARAM, "hid.unit_exponent",
                          "Unit Exponent must use the HID 1.11 four-bit encoding.", item_offset);
         }
         globals.unit_exponent_declared = true;
@@ -566,7 +566,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
     case kGlobalUnit: {
         const std::uint32_t unit = unsigned_value(data, size);
         if (!unit_is_valid(unit)) {
-            return issue(MIMUSB_ERR_PARAM, "raw.unit",
+            return issue(MIMUSB_ERR_PARAM, "hid.unit",
                          "The Unit item uses a reserved HID system code or a nonzero "
                          "reserved high nibble.",
                          item_offset);
@@ -582,7 +582,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
     case kGlobalReportId: {
         const std::uint32_t id = unsigned_value(data, size);
         if (id == 0U || id > 255U || saw_main_before_report_id) {
-            return issue(MIMUSB_ERR_PARAM, "raw.report_id",
+            return issue(MIMUSB_ERR_PARAM, "hid.report_id",
                          "Report IDs must be 1 through 255 and precede every data Main item.",
                          item_offset);
         }
@@ -602,7 +602,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
         break;
     case kGlobalPop:
         if (global_stack.empty()) {
-            return issue(MIMUSB_ERR_PARAM, "raw.global_stack", "A Global Pop has no matching Push.",
+            return issue(MIMUSB_ERR_PARAM, "hid.global_stack", "A Global Pop has no matching Push.",
                          item_offset);
         }
         globals = global_stack.back();
@@ -613,7 +613,7 @@ ValidationIssue RawParser::global_item(const RawItem& item) {
         // 15. The exact audited target's hid_parser_global() rejects
         // every unknown Global tag, so accepting one here would defer
         // a deterministic parser failure until after the device is configured.
-        return issue(MIMUSB_ERR_PARAM, "raw.global",
+        return issue(MIMUSB_ERR_PARAM, "hid.global",
                      "The descriptor contains a reserved HID Global item tag rejected by "
                      "the audited target parser.",
                      item_offset);
@@ -632,31 +632,31 @@ ValidationIssue RawParser::local_item(const RawItem& item) noexcept {
     const std::uint32_t value = unsigned_value(data, size);
     if (tag == kLocalDelimiter) {
         if (value > 1U) {
-            return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+            return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                          "HID Local Delimiter values must be exactly zero or one.", item_offset);
         }
         if (value == 1U) {
             if (locals.delimiter_depth != 0U) {
-                return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+                return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                              "Nested HID Local delimiters are invalid.", item_offset);
             }
             ++locals.delimiter_depth;
             ++locals.delimiter_branch;
         } else {
             if (locals.delimiter_depth == 0U) {
-                return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+                return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                              "A HID Local close delimiter has no matching open delimiter.",
                              item_offset);
             }
             --locals.delimiter_depth;
         }
     } else if (tag == kLocalReserved || tag > kLocalDelimiter) {
-        return issue(MIMUSB_ERR_PARAM, "raw.local",
+        return issue(MIMUSB_ERR_PARAM, "hid.local",
                      "The descriptor contains a reserved HID Local item tag.", item_offset);
     } else if (locals.delimiter_branch <= 1U) {
         if (tag == kLocalUsage) {
             if (!add_usage_count(&locals, 1U)) {
-                return issue(MIMUSB_ERR_OVERFLOW, "raw.usages",
+                return issue(MIMUSB_ERR_OVERFLOW, "hid.usages",
                              "The Local Usage count overflows uint64_t.", item_offset);
             }
             observe_usages(&requirements, locals.usage_count);
@@ -669,25 +669,25 @@ ValidationIssue RawParser::local_item(const RawItem& item) noexcept {
             locals.usage_minimum_declared = true;
         } else if (tag == kLocalUsageMaximum) {
             if (locals.usage_minimum_declared && locals.usage_minimum_size == 4U && size != 4U) {
-                return issue(MIMUSB_ERR_PARAM, "raw.usage_range",
+                return issue(MIMUSB_ERR_PARAM, "hid.usage_range",
                              "An extended Usage Minimum requires an extended Usage Maximum.",
                              item_offset);
             }
             const std::uint32_t maximum = value;
             if (maximum == std::numeric_limits<std::uint32_t>::max()) {
-                return issue(MIMUSB_ERR_UNSUPPORTED, "raw.usage_range",
+                return issue(MIMUSB_ERR_UNSUPPORTED, "hid.usage_range",
                              "Usage Maximum UINT32_MAX is excluded because the audited "
                              "target's inclusive expansion can wrap for some Local state.",
                              item_offset);
             }
             if (maximum < locals.usage_minimum) {
-                return issue(MIMUSB_ERR_PARAM, "raw.usage_range",
+                return issue(MIMUSB_ERR_PARAM, "hid.usage_range",
                              "Usage Maximum is below the current Usage Minimum.", item_offset);
             }
             const std::uint64_t range_count =
                 static_cast<std::uint64_t>(maximum) - locals.usage_minimum + 1U;
             if (!add_usage_count(&locals, range_count)) {
-                return issue(MIMUSB_ERR_OVERFLOW, "raw.usages",
+                return issue(MIMUSB_ERR_OVERFLOW, "hid.usages",
                              "The Local Usage count overflows uint64_t.", item_offset);
             }
             observe_usages(&requirements, locals.usage_count);
@@ -699,75 +699,75 @@ ValidationIssue RawParser::local_item(const RawItem& item) noexcept {
 ValidationIssue RawParser::input_item(const RawItem& item) noexcept {
     const std::size_t item_offset = item.offset;
     if (collection_depth == 0U || globals.report_size == 0U || globals.report_count == 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "Each Input item needs a collection, Report Size, and Report Count.",
                      item_offset);
     }
     if (has_report_ids && globals.report_id == 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.report_id",
+        return issue(MIMUSB_ERR_PARAM, "hid.report_id",
                      "A descriptor using Report IDs cannot restore the implicit "
                      "ID-zero report for Input data.",
                      item_offset);
     }
     if (globals.report_size > 32U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "HID 1.11 section 8.4 limits an individual field to 32 bits.", item_offset);
     }
     const std::uint32_t input_flags = unsigned_value(item.data, item.size);
     const bool constant = (input_flags & kInputConstant) != 0U;
     const bool variable = (input_flags & kInputVariable) != 0U;
     if ((input_flags & ~kInputDefinedBits) != 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input", "The Input item sets HID-reserved flag bits.",
+        return issue(MIMUSB_ERR_PARAM, "hid.input", "The Input item sets HID-reserved flag bits.",
                      item_offset);
     }
     if (globals.unit != 0U &&
         (!globals.logical_minimum_declared || !globals.logical_maximum_declared ||
          !globals.physical_minimum_declared || !globals.physical_maximum_declared ||
          !globals.unit_exponent_declared)) {
-        return issue(MIMUSB_ERR_PARAM, "raw.unit",
+        return issue(MIMUSB_ERR_PARAM, "hid.unit",
                      "HUT 1.7 section 3.3 requires Logical and Physical extents "
                      "plus Unit Exponent when a Unit qualifies a Main item.",
                      item_offset);
     }
     if (!raw_logical_range_is_ordered(globals.logical_minimum, globals.logical_maximum)) {
-        return issue(MIMUSB_ERR_PARAM, "raw.logical_range",
+        return issue(MIMUSB_ERR_PARAM, "hid.logical_range",
                      "The Logical Maximum is below the Logical Minimum under HID "
                      "signedness rules.",
                      item_offset);
     }
     if (!variable && locals.delimiter_branch != 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+        return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                      "HID 1.11 section 6.2.2.8 forbids delimiters for Array item Usages.",
                      item_offset);
     }
     if (!constant && (!globals.usage_page_declared || !globals.logical_minimum_declared ||
                       !globals.logical_maximum_declared || locals.usage_count == 0U)) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "HID 1.11 section 6.2.2.2 requires Usage Page, Usage, Logical "
                      "Minimum, and Logical Maximum to describe control data.",
                      item_offset);
     }
     if (!constant && !raw_value_fits(globals.logical_minimum, globals.logical_maximum,
                                      static_cast<std::uint8_t>(globals.report_size))) {
-        return issue(MIMUSB_ERR_PARAM, "raw.logical_range",
+        return issue(MIMUSB_ERR_PARAM, "hid.logical_range",
                      "A data Input logical range does not fit its Report Size and "
                      "signedness.",
                      item_offset);
     }
     ParsedReport& report = parsed[globals.report_id];
     if ((input_flags & kInputBufferedBytes) != 0U && (report.bits & 7U) != 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "Buffered Bytes Input data must begin on a byte boundary.", item_offset);
     }
     if (report.seen && report.top_level != current_top_level) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "One report cannot cross two top-level collections.", item_offset);
     }
     report.seen = true;
     report.top_level = current_top_level;
     if (locals.usage_count != 0U) {
         if (report.fields == std::numeric_limits<std::uint32_t>::max()) {
-            return issue(MIMUSB_ERR_OVERFLOW, "raw.fields",
+            return issue(MIMUSB_ERR_OVERFLOW, "hid.fields",
                          "The per-report Input field count overflows uint32_t.", item_offset);
         }
         ++report.fields;
@@ -775,7 +775,7 @@ ValidationIssue RawParser::input_item(const RawItem& item) noexcept {
             std::max(requirements.maximum_fields_per_report, report.fields);
     }
     if (!field_span_is_valid(FieldSpan{report.bits, globals.report_size, globals.report_count})) {
-        return issue(MIMUSB_ERR_PARAM, "raw.input",
+        return issue(MIMUSB_ERR_PARAM, "hid.input",
                      "HID 1.11 section 8.4 forbids one field from spanning more "
                      "than four bytes.",
                      item_offset);
@@ -783,12 +783,12 @@ ValidationIssue RawParser::input_item(const RawItem& item) noexcept {
     const std::size_t size_value = static_cast<std::size_t>(globals.report_size);
     const std::size_t count_value = static_cast<std::size_t>(globals.report_count);
     if (count_value > std::numeric_limits<std::size_t>::max() / size_value) {
-        return issue(MIMUSB_ERR_OVERFLOW, "raw.input",
+        return issue(MIMUSB_ERR_OVERFLOW, "hid.input",
                      "Report Size multiplied by Report Count overflows size_t.", item_offset);
     }
     const std::size_t added_bits = size_value * count_value;
     if (report.bits > std::numeric_limits<std::size_t>::max() - added_bits) {
-        return issue(MIMUSB_ERR_OVERFLOW, "raw.input", "The report bit length overflows size_t.",
+        return issue(MIMUSB_ERR_OVERFLOW, "hid.input", "The report bit length overflows size_t.",
                      item_offset);
     }
     report.bits += added_bits;
@@ -801,29 +801,29 @@ ValidationIssue RawParser::main_item(const RawItem& item) noexcept {
     const auto [tag, data, size, item_offset] = item;
     observe_usages(&requirements, locals.usage_count);
     if (locals.delimiter_depth != 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+        return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                      "A HID Local delimiter set must be closed before its Main item.", item_offset);
     }
     if (tag == kMainCollection) {
         const std::uint32_t collection_type = unsigned_value(data, size);
         if (collection_type > 0xFFU || (collection_type >= 0x07U && collection_type <= 0x7FU)) {
-            return issue(MIMUSB_ERR_PARAM, "raw.collection",
+            return issue(MIMUSB_ERR_PARAM, "hid.collection",
                          "The Collection item uses a reserved or oversized HID type.", item_offset);
         }
         if (locals.usage_count == 0U) {
-            return issue(MIMUSB_ERR_PARAM, "raw.collection",
+            return issue(MIMUSB_ERR_PARAM, "hid.collection",
                          "HID 1.11 section 6.2.2.6 requires a Usage for every Collection.",
                          item_offset);
         }
         if (collection_type == kCollectionApplication && locals.delimiter_branch != 0U) {
-            return issue(MIMUSB_ERR_PARAM, "raw.delimiter",
+            return issue(MIMUSB_ERR_PARAM, "hid.delimiter",
                          "HID 1.11 section 6.2.2.8 forbids delimiters for Application "
                          "Collection Usages.",
                          item_offset);
         }
         if (collection_depth == 0U) {
             if (collection_type != kCollectionApplication) {
-                return issue(MIMUSB_ERR_PARAM, "raw.collection",
+                return issue(MIMUSB_ERR_PARAM, "hid.collection",
                              "Every top-level collection must be an Application collection.",
                              item_offset);
             }
@@ -832,7 +832,7 @@ ValidationIssue RawParser::main_item(const RawItem& item) noexcept {
         ++collection_depth;
     } else if (tag == kMainEndCollection) {
         if (collection_depth == 0U) {
-            return issue(MIMUSB_ERR_PARAM, "raw.collection",
+            return issue(MIMUSB_ERR_PARAM, "hid.collection",
                          "End Collection has no matching Collection.", item_offset);
         }
         --collection_depth;
@@ -844,12 +844,12 @@ ValidationIssue RawParser::main_item(const RawItem& item) noexcept {
             saw_main_before_report_id = true;
         }
         if (tag == kMainOutput && !allow_output) {
-            return issue(MIMUSB_ERR_UNSUPPORTED, "raw.descriptor",
+            return issue(MIMUSB_ERR_UNSUPPORTED, "hid.descriptor",
                          "The descriptor has an Output item; set requires_output to accept it.",
                          item_offset);
         }
         if (tag == kMainFeature && !allow_feature) {
-            return issue(MIMUSB_ERR_UNSUPPORTED, "raw.descriptor",
+            return issue(MIMUSB_ERR_UNSUPPORTED, "hid.descriptor",
                          "The descriptor has a Feature item; set requires_feature_response to "
                          "accept it.",
                          item_offset);
@@ -860,7 +860,7 @@ ValidationIssue RawParser::main_item(const RawItem& item) noexcept {
             }
         }
     } else {
-        return issue(MIMUSB_ERR_PARAM, "raw.main",
+        return issue(MIMUSB_ERR_PARAM, "hid.main",
                      "The descriptor contains a reserved HID Main item tag.", item_offset);
     }
     // Linux hid_parser_main resets the complete Local environment
@@ -869,7 +869,7 @@ ValidationIssue RawParser::main_item(const RawItem& item) noexcept {
     return {};
 }
 
-ValidationIssue RawParser::match_report_table(const mimusb_raw_report* reports,
+ValidationIssue RawParser::match_report_table(const mimusb_hid_report* reports,
                                               const std::size_t report_count,
                                               std::uint8_t* trailing_valid_masks) const noexcept {
     std::size_t parsed_count = 0U;
@@ -879,12 +879,12 @@ ValidationIssue RawParser::match_report_table(const mimusb_raw_report* reports,
         }
         ++parsed_count;
         if (parsed[id].bits > std::numeric_limits<std::size_t>::max() - 7U) {
-            return issue(MIMUSB_ERR_OVERFLOW, "raw.input",
+            return issue(MIMUSB_ERR_OVERFLOW, "hid.input",
                          "Rounding the report bit length to bytes overflows size_t.");
         }
         const std::size_t expected = (parsed[id].bits + 7U) / 8U + (has_report_ids ? 1U : 0U);
         if (expected > std::numeric_limits<std::uint32_t>::max()) {
-            return issue(MIMUSB_ERR_OVERFLOW, "raw.reports",
+            return issue(MIMUSB_ERR_OVERFLOW, "hid.reports",
                          "The descriptor report length exceeds the raw report table's 32-bit "
                          "wire-length field.");
         }
@@ -895,7 +895,7 @@ ValidationIssue RawParser::match_report_table(const mimusb_raw_report* reports,
                 reports[index].report_id.enabled == (has_report_ids ? 1U : 0U)) {
                 found = true;
                 if (reports[index].wire_length != expected) {
-                    return issue(MIMUSB_ERR_PARAM, "raw.reports",
+                    return issue(MIMUSB_ERR_PARAM, "hid.reports",
                                  "An accepted raw report length does not match the descriptor.");
                 }
                 if (trailing_valid_masks != nullptr) {
@@ -911,12 +911,12 @@ ValidationIssue RawParser::match_report_table(const mimusb_raw_report* reports,
             }
         }
         if (!found) {
-            return issue(MIMUSB_ERR_PARAM, "raw.reports",
+            return issue(MIMUSB_ERR_PARAM, "hid.reports",
                          "The accepted-report table omits a descriptor Input report.");
         }
     }
     if (parsed_count != report_count) {
-        return issue(MIMUSB_ERR_PARAM, "raw.reports",
+        return issue(MIMUSB_ERR_PARAM, "hid.reports",
                      "The accepted-report table contains a report not defined by the descriptor.");
     }
     return {};
@@ -924,7 +924,7 @@ ValidationIssue RawParser::match_report_table(const mimusb_raw_report* reports,
 } // namespace
 
 ValidationIssue validate_raw(const std::uint8_t* descriptor, const std::size_t descriptor_length,
-                             const mimusb_raw_report* reports, const std::size_t report_count,
+                             const mimusb_hid_report* reports, const std::size_t report_count,
                              std::uint8_t* trailing_valid_masks,
                              DescriptorRequirements* requirements, const bool allow_output,
                              const bool allow_feature) {
@@ -932,11 +932,11 @@ ValidationIssue validate_raw(const std::uint8_t* descriptor, const std::size_t d
         *requirements = DescriptorRequirements{};
     }
     if (descriptor == nullptr || descriptor_length == 0U) {
-        return issue(MIMUSB_ERR_UNSET_FIELD, "raw.descriptor",
+        return issue(MIMUSB_ERR_UNSET_FIELD, "hid.descriptor",
                      "The raw descriptor must contain at least one byte.");
     }
     if (descriptor_length > std::numeric_limits<std::uint16_t>::max()) {
-        return issue(MIMUSB_ERR_OVERFLOW, "raw.descriptor",
+        return issue(MIMUSB_ERR_OVERFLOW, "hid.descriptor",
                      "The descriptor exceeds the 16-bit descriptor length field.");
     }
     if (const ValidationIssue found = validate_report_table(reports, report_count);
@@ -952,14 +952,14 @@ ValidationIssue validate_raw(const std::uint8_t* descriptor, const std::size_t d
         const std::size_t item_offset = offset;
         const std::uint8_t prefix = descriptor[offset++];
         if ((prefix & 0xF0U) == 0xF0U) {
-            return issue(MIMUSB_ERR_UNSUPPORTED, "raw.descriptor",
+            return issue(MIMUSB_ERR_UNSUPPORTED, "hid.descriptor",
                          "The validated raw escape hatch does not accept HID long-item tags.",
                          item_offset);
         }
         const std::uint8_t size_code = prefix & 0x03U;
         const std::size_t size = size_code == 3U ? 4U : size_code;
         if (size > descriptor_length - offset) {
-            return issue(MIMUSB_ERR_PARAM, "raw.descriptor",
+            return issue(MIMUSB_ERR_PARAM, "hid.descriptor",
                          "A short item extends beyond the descriptor.", item_offset);
         }
         const std::uint8_t type = (prefix >> 2U) & 0x03U;
@@ -973,7 +973,7 @@ ValidationIssue validate_raw(const std::uint8_t* descriptor, const std::size_t d
         } else if (type == kTypeMain) {
             found = parser.main_item(item);
         } else {
-            found = issue(MIMUSB_ERR_PARAM, "raw.item_type",
+            found = issue(MIMUSB_ERR_PARAM, "hid.item_type",
                           "The descriptor contains a reserved HID short-item type.", item_offset);
         }
         if (found.result != MIMUSB_OK) {
@@ -984,11 +984,11 @@ ValidationIssue validate_raw(const std::uint8_t* descriptor, const std::size_t d
 
     if (parser.collection_depth != 0U || !parser.global_stack.empty() ||
         parser.locals.delimiter_depth != 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.descriptor",
+        return issue(MIMUSB_ERR_PARAM, "hid.descriptor",
                      "Collections, the Global state stack, or a Local delimiter are unbalanced.");
     }
     if (parser.top_level_count == 0U) {
-        return issue(MIMUSB_ERR_PARAM, "raw.collection",
+        return issue(MIMUSB_ERR_PARAM, "hid.collection",
                      "The descriptor has no top-level Application collection.");
     }
     if (const ValidationIssue found =

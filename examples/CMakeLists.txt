@@ -41,7 +41,7 @@ set(MIMUSB_PROFILE_EXAMPLES
     pen
     digitizer
     keyboard_battery
-    raw)
+    hid)
 foreach(mimusb_profile_example IN LISTS MIMUSB_PROFILE_EXAMPLES)
     add_executable(mimusb_example_${mimusb_profile_example}
         c/profiles/${mimusb_profile_example}.c)

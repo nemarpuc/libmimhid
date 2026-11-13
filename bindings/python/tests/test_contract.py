@@ -29,10 +29,12 @@ def test_a_new_option_structure_is_all_zero():
 
 def test_device_config_exposes_the_serial_and_usb_choices():
     names = {name for name, *_ in DeviceConfig._fields_}
-    assert {"struct_size", "transport", "usb_device", "usb_config"} <= names
+    assert {"struct_size", "transport", "target", "usb_device", "usb_config"} <= names
     transport = {name for name, *_ in native.TransportOptions._fields_}
-    assert {"baud_rate", "handshake_timeout_ms", "maximum_report_bytes", "linux_hid",
+    assert {"baud_rate", "handshake_timeout_ms", "maximum_report_bytes",
             "validate_reports", "keep_attached", "event_sink"} <= transport
+    target = {name for name, *_ in native.TargetLimits._fields_}
+    assert {"linux_hid"} <= target
 
 
 if __name__ == "__main__":

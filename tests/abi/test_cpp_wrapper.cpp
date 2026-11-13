@@ -18,8 +18,11 @@ int main() {
         mimusb::device_set_control_rules(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
         mimusb::device_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
         mimusb::node_set_rule_data(nullptr, 0U, nullptr, 0U, 1U) != MIMUSB_ERR_PARAM ||
-        mimusb::hid_descriptor_bytes(0x0111U, 0U, 0U, nullptr) != MIMUSB_ERR_PARAM ||
-        mimusb::hid_descriptor_rule(0U, 0x22U, nullptr, 0U, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::node_find_rule(nullptr, MIMUSB_RULE_SLOT_CDC_LINE_CODING, nullptr) !=
+            MIMUSB_ERR_PARAM ||
+        mimusb::spec_create_cdc_acm(nullptr, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::spec_interface_count(nullptr, nullptr) != MIMUSB_ERR_PARAM ||
+        mimusb::spec_rule_cost(nullptr, nullptr, nullptr) != MIMUSB_ERR_PARAM ||
         mimusb::last_error() != mimusb_last_error()) {
         return 1;
     }

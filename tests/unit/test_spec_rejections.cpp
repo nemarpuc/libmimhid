@@ -284,28 +284,28 @@ void test_raw() {
     static const std::array<std::uint8_t, 21> descriptor{0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85,
                                                          0x01, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01,
                                                          0x95, 0x08, 0x09, 0x01, 0x81, 0x02, 0xC0};
-    static const mimusb_raw_report report{{1U, 1U, {}}, 2U};
-    static const mimusb_raw_report wrong_length{{1U, 1U, {}}, 5U};
-    const mimusb_raw_options base{
-        sizeof(mimusb_raw_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U,
+    static const mimusb_hid_report report{{1U, 1U, {}}, 2U};
+    static const mimusb_hid_report wrong_length{{1U, 1U, {}}, 5U};
+    const mimusb_hid_options base{
+        sizeof(mimusb_hid_options), 0U, descriptor.data(), descriptor.size(), &report, 1U, 0U, 0U,
         {0x0111U, 0U, 0U, 0U, {}}};
-    expect_refusals<mimusb_raw_options>(
-        base, &mimusb_spec_create_raw,
+    expect_refusals<mimusb_hid_options>(
+        base, &mimusb_spec_create_hid,
         {
-            {"raw.options", MIMUSB_ERR_PARAM, [](auto& o) { o.requires_output = 2U; }},
-            {"raw.reports", MIMUSB_ERR_UNSET_FIELD, [](auto& o) { o.report_count = 0U; }},
-            {"raw.reports", MIMUSB_ERR_OVERFLOW, [](auto& o) { o.report_count = 257U; }},
-            {"raw", MIMUSB_ERR_PARAM, [](auto& o) { o.reports = &wrong_length; }},
+            {"hid.options", MIMUSB_ERR_PARAM, [](auto& o) { o.requires_output = 2U; }},
+            {"hid.reports", MIMUSB_ERR_UNSET_FIELD, [](auto& o) { o.report_count = 0U; }},
+            {"hid.reports", MIMUSB_ERR_OVERFLOW, [](auto& o) { o.report_count = 257U; }},
+            {"hid", MIMUSB_ERR_PARAM, [](auto& o) { o.reports = &wrong_length; }},
         });
 }
 
 // Raw descriptors the parser refuses, each naming the item at fault.
 void test_raw_descriptors() {
-    const mimusb_raw_report report{{1U, 1U, {}}, 2U};
-    const mimusb_raw_report two[2] = {{{1U, 1U, {}}, 2U}, {{1U, 2U, {}}, 2U}};
+    const mimusb_hid_report report{{1U, 1U, {}}, 2U};
+    const mimusb_hid_report two[2] = {{{1U, 1U, {}}, 2U}, {{1U, 2U, {}}, 2U}};
     const struct {
         std::vector<std::uint8_t> descriptor;
-        const mimusb_raw_report* reports;
+        const mimusb_hid_report* reports;
         std::size_t count;
         const char* field;
     } cases[] = {
@@ -313,24 +313,24 @@ void test_raw_descriptors() {
         {{0x07, 0x00, 0x00, 0x01, 0x00, 0x09, 0x06, 0xA1, 0x01, 0xC0},
          &report,
          1,
-         "raw.usage_page"},
+         "hid.usage_page"},
         // A Pop with no Push.
-        {{0xB4, 0x05, 0x01}, &report, 1, "raw.global_stack"},
+        {{0xB4, 0x05, 0x01}, &report, 1, "hid.global_stack"},
         // Report ID zero.
-        {{0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x00, 0xC0}, &report, 1, "raw.report_id"},
+        {{0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x00, 0xC0}, &report, 1, "hid.report_id"},
         // Input outside any collection.
-        {{0x75, 0x08, 0x95, 0x01, 0x81, 0x02}, &report, 1, "raw.input"},
+        {{0x75, 0x08, 0x95, 0x01, 0x81, 0x02}, &report, 1, "hid.input"},
         // Input without a Report Size.
         {{0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x95, 0x01, 0x81, 0x02, 0xC0},
          &report,
          1,
-         "raw.input"},
+         "hid.input"},
         // Report 1 in two top-level collections.
         {{0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
           0xC0, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x01, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02, 0xC0},
          two,
          1,
-         "raw.input"},
+         "hid.input"},
     };
     for (const auto& c : cases) {
         const mimusb::hid::ValidationIssue issue =

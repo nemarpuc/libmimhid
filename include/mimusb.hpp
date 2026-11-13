@@ -113,28 +113,9 @@ device_link_counters(mimusb_device* device, bool reset, uint32_t control_timeout
                                                       uint32_t control_timeout_ms) noexcept {
     return mimusb_node_set_rule_data(node, rule_index, data, length, control_timeout_ms);
 }
-[[nodiscard]] inline mimusb_result hid_descriptor_bytes(uint16_t bcd_hid, uint8_t country_code,
-                                                        size_t report_descriptor_length,
-                                                        uint8_t out[9]) noexcept {
-    return mimusb_hid_descriptor_bytes(bcd_hid, country_code, report_descriptor_length, out);
-}
-[[nodiscard]] inline mimusb_result hid_descriptor_rule(uint8_t interface_number,
-                                                       uint8_t descriptor_type,
-                                                       const uint8_t* bytes, size_t length,
-                                                       mimusb_control_rule* out_rule) noexcept {
-    return mimusb_hid_descriptor_rule(interface_number, descriptor_type, bytes, length, out_rule);
-}
-[[nodiscard]] inline mimusb_result
-cdc_acm_descriptors_make(uint16_t bcd_cdc, uint8_t control_interface,
-                         uint8_t call_management_capabilities, uint8_t acm_capabilities,
-                         mimusb_cdc_acm_descriptors* out) noexcept {
-    return mimusb_cdc_acm_descriptors_make(bcd_cdc, control_interface, call_management_capabilities,
-                                           acm_capabilities, out);
-}
-[[nodiscard]] inline mimusb_result cdc_acm_rules(uint8_t control_interface,
-                                                 const uint8_t line_coding[7],
-                                                 mimusb_control_rule out_rules[3]) noexcept {
-    return mimusb_cdc_acm_rules(control_interface, line_coding, out_rules);
+[[nodiscard]] inline mimusb_result node_find_rule(const mimusb_node* node, mimusb_rule_slot slot,
+                                                  size_t* out_rule_index) noexcept {
+    return mimusb_node_find_rule(node, slot, out_rule_index);
 }
 [[nodiscard]] inline mimusb_result device_set_loss_reporting(mimusb_device* device,
                                                              uint32_t enabled, uint32_t interval_ms,
@@ -268,9 +249,9 @@ spec_create_touchscreen(const mimusb_touchscreen_options* options,
                                                          mimusb_spec** out_spec) noexcept {
     return mimusb_spec_create_digitizer(options, out_spec);
 }
-[[nodiscard]] inline mimusb_result spec_create_raw(const mimusb_raw_options* options,
+[[nodiscard]] inline mimusb_result spec_create_hid(const mimusb_hid_options* options,
                                                    mimusb_spec** out_spec) noexcept {
-    return mimusb_spec_create_raw(options, out_spec);
+    return mimusb_spec_create_hid(options, out_spec);
 }
 inline void spec_retain(mimusb_spec* spec) noexcept { mimusb_spec_retain(spec); }
 inline void spec_release(mimusb_spec* spec) noexcept { mimusb_spec_release(spec); }
@@ -285,6 +266,18 @@ inline void spec_release(mimusb_spec* spec) noexcept { mimusb_spec_release(spec)
 [[nodiscard]] inline mimusb_result spec_create_interfaces(const mimusb_node_config* config,
                                                           mimusb_spec** out_spec) noexcept {
     return mimusb_spec_create_interfaces(config, out_spec);
+}
+[[nodiscard]] inline mimusb_result spec_create_cdc_acm(const mimusb_cdc_acm_options* options,
+                                                       mimusb_spec** out_spec) noexcept {
+    return mimusb_spec_create_cdc_acm(options, out_spec);
+}
+[[nodiscard]] inline mimusb_result spec_interface_count(const mimusb_spec* spec,
+                                                        size_t* out_count) noexcept {
+    return mimusb_spec_interface_count(spec, out_count);
+}
+[[nodiscard]] inline mimusb_result spec_rule_cost(const mimusb_spec* spec, size_t* out_rules,
+                                                  size_t* out_answer_bytes) noexcept {
+    return mimusb_spec_rule_cost(spec, out_rules, out_answer_bytes);
 }
 [[nodiscard]] inline mimusb_result spec_roles(const mimusb_spec* spec, mimusb_role_info* out_roles,
                                               size_t capacity, size_t* out_count) noexcept {
@@ -372,9 +365,9 @@ digitizer_update(mimusb_node* node, const mimusb_digitizer_sample* sample) noexc
 [[nodiscard]] inline mimusb_result battery_update(mimusb_node* node, int32_t strength) noexcept {
     return mimusb_battery_update(node, strength);
 }
-[[nodiscard]] inline mimusb_result raw_submit(mimusb_node* node, const uint8_t* report,
+[[nodiscard]] inline mimusb_result hid_submit(mimusb_node* node, const uint8_t* report,
                                               size_t length, uint32_t send_timeout_ms) noexcept {
-    return mimusb_raw_submit(node, report, length, send_timeout_ms);
+    return mimusb_hid_submit(node, report, length, send_timeout_ms);
 }
 
 // ---- Initialized options ----------------------------------------------------------------
@@ -451,9 +444,14 @@ digitizer_update(mimusb_node* node, const mimusb_digitizer_sample* sample) noexc
     mimusb_digitizer_options_init(&value);
     return value;
 }
-[[nodiscard]] inline mimusb_raw_options raw_options() noexcept {
-    mimusb_raw_options value;
-    mimusb_raw_options_init(&value);
+[[nodiscard]] inline mimusb_cdc_acm_options cdc_acm_options() noexcept {
+    mimusb_cdc_acm_options value;
+    mimusb_cdc_acm_options_init(&value);
+    return value;
+}
+[[nodiscard]] inline mimusb_hid_options hid_options() noexcept {
+    mimusb_hid_options value;
+    mimusb_hid_options_init(&value);
     return value;
 }
 [[nodiscard]] inline mimusb_capability_manifest capability_manifest() noexcept {

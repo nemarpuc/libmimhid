@@ -30,12 +30,12 @@ static inline void example_fill_device_config(mimusb_device_config* config, uint
     config->transport.baud_rate = baud_rate;
     config->transport.handshake_timeout_ms = 50U;
     config->transport.maximum_report_bytes = 64U;
-    config->transport.linux_hid.descriptor_bytes = 4096U;
-    config->transport.linux_hid.fields_per_report = 256U;
-    config->transport.linux_hid.global_stack_depth = 4U;
-    config->transport.linux_hid.report_size_bits = 256U;
-    config->transport.linux_hid.usages = 12288U;
-    config->transport.linux_hid.report_data_bits = 65528U;
+    config->target.linux_hid.descriptor_bytes = 4096U;
+    config->target.linux_hid.fields_per_report = 256U;
+    config->target.linux_hid.global_stack_depth = 4U;
+    config->target.linux_hid.report_size_bits = 256U;
+    config->target.linux_hid.usages = 12288U;
+    config->target.linux_hid.report_data_bits = 65528U;
     config->transport.log_level = MIMUSB_LOG_DISABLED;
     config->usb_device.bcd_usb = 0x0200U;
     config->usb_device.vendor_id = 0x1209U;
@@ -70,7 +70,7 @@ typedef struct example_placement {
 static inline void example_fill_placement(example_placement* p, uint8_t interface_number) {
     mimusb_node_placement_init(&p->placement);
     memset(&p->in_endpoint, 0, sizeof(p->in_endpoint));
-    p->in_endpoint.role = MIMUSB_HID_ROLE_IN;
+    p->in_endpoint.role = MIMUSB_ROLE_HID_IN;
     p->in_endpoint.endpoint.address = (uint8_t)(0x81U + interface_number);
     p->in_endpoint.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     p->in_endpoint.endpoint.interval = 1U;

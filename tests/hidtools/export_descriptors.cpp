@@ -482,8 +482,8 @@ int main(const int argc, char** argv) {
     static constexpr std::array<std::uint8_t, 21U> raw_descriptor{
         0x05U, 0x01U, 0x09U, 0x06U, 0xA1U, 0x01U, 0x85U, 0x01U, 0x15U, 0x00U, 0x25U,
         0x01U, 0x75U, 0x01U, 0x95U, 0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U};
-    static constexpr mimusb_raw_report raw_report{{1U, 1U, {}}, 2U};
-    const mimusb_raw_options raw{static_cast<std::uint32_t>(sizeof(mimusb_raw_options)),
+    static constexpr mimusb_hid_report raw_report{{1U, 1U, {}}, 2U};
+    const mimusb_hid_options raw{static_cast<std::uint32_t>(sizeof(mimusb_hid_options)),
                                  0U,
                                  raw_descriptor.data(),
                                  raw_descriptor.size(),
@@ -492,7 +492,7 @@ int main(const int argc, char** argv) {
                                  0U,
                                  0U,
                                  {0x0111U, 0U, 0U, 0U, {}}};
-    ok = emit_descriptor(output_directory, "raw-validated", mimusb_spec_create_raw(&raw, &spec),
+    ok = emit_descriptor(output_directory, "raw-validated", mimusb_spec_create_hid(&raw, &spec),
                          spec) &&
          ok;
 

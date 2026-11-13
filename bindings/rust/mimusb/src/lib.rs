@@ -124,8 +124,8 @@ pointer_spec_type!(
 );
 pointer_spec_type!(
     RawSpec,
-    sys::mimusb_raw_options,
-    sys::mimusb_spec_create_raw
+    sys::mimusb_hid_options,
+    sys::mimusb_spec_create_hid
 );
 
 #[derive(Clone, Copy)]
@@ -312,7 +312,7 @@ impl DigitizerNodeRef {
 impl RawNodeRef {
     pub fn report(self, bytes: &[u8], send_timeout_ms: u32) -> Result<(), Error> {
         result(unsafe {
-            sys::mimusb_raw_submit(self.as_ptr(), bytes.as_ptr(), bytes.len(), send_timeout_ms)
+            sys::mimusb_hid_submit(self.as_ptr(), bytes.as_ptr(), bytes.len(), send_timeout_ms)
         })
     }
 }

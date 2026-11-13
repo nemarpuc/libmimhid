@@ -25,8 +25,22 @@ void test_bad_arguments() {
     MIMUSB_CHECK(mimusb_device_open(info.port_name, &o, &device) == MIMUSB_ERR_UNSET_FIELD &&
                  device == nullptr);
     o = base_options();
-    o.transport.linux_hid.usages = 0;
-    MIMUSB_CHECK(mimusb_device_open(info.port_name, &o, &device) == MIMUSB_ERR_UNSET_FIELD);
+    o.target.linux_hid.usages = 0;
+    // The limits of the target are the HID Spec's: a Device opens without them, and a Node of a
+    // HID Spec does not.
+    MIMUSB_CHECK(mimusb_device_open(info.port_name, &o, &device) == MIMUSB_OK && device != nullptr);
+    if (device != nullptr) {
+        mimusb_spec* kbd = keyboard_spec(0);
+        test_hid_node_config nc{};
+        test_fill_node_config(&nc, 0);
+        mimusb_node* node = nullptr;
+        MIMUSB_CHECK(test_node_open_hid(device, kbd, &nc, &kCommit, &node) ==
+                         MIMUSB_ERR_UNSET_FIELD &&
+                     node == nullptr);
+        mimusb_spec_release(kbd);
+        MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
+        device = nullptr;
+    }
     // Nothing is chosen for the caller.
     o = base_options();
     o.transport.handshake_timeout_ms = 0;

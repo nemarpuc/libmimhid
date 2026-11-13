@@ -6,7 +6,7 @@ The programs find a board with `mimusb_discover` (or connect directly via port p
 |---|---|
 | [`examples/c/basic_keyboard_mouse.c`](../examples/c/basic_keyboard_mouse.c) | `mimusb_discover`, `mimusb_device_open` with every value set in the program (the initializers fill none in) and a USB identity, a keyboard and a mouse Spec on interfaces 0 and 1 opened in one batch, a key press, mouse motion, and a click. |
 | [`examples/c/control_transfers.c`](../examples/c/control_transfers.c) | Control transfers of the target: report every request, hold one by an `ASK` rule, and answer it from the event sink. Runs for 10 s and types nothing. |
-| [`examples/c/hid_interface.c`](../examples/c/hid_interface.c) | A boot keyboard whose HID interface the program writes itself with `mimusb_node_open` (class 0x03): the HID descriptor (`mimusb_hid_descriptor_bytes`), the report descriptor and HID descriptor answers (`mimusb_hid_descriptor_rule`), `GET_REPORT` from the last report sent (`MIMUSB_CONTROL_ANSWER_LAST_SENT`), `SET_REPORT`, `SET_IDLE` and `SET_PROTOCOL` taken (`MIMUSB_CONTROL_ACCEPT`), and reports sent with `mimusb_node_endpoint_write`. |
+| [`examples/c/hid_interface.c`](../examples/c/hid_interface.c) | A boot keyboard whose HID interface the program writes itself with `mimusb_node_open` (class 0x03): the HID descriptor (9 bytes written out), the report descriptor answer (an `ANSWER` rule for `GET_DESCRIPTOR`), `GET_REPORT` from the last report sent (`MIMUSB_CONTROL_ANSWER_LAST_SENT`), `SET_REPORT`, `SET_IDLE` and `SET_PROTOCOL` taken (`MIMUSB_CONTROL_ACCEPT`), and reports sent with `mimusb_node_endpoint_write`. |
 | [`examples/cpp/multitouch_gesture.cpp`](../examples/cpp/multitouch_gesture.cpp) | A two-finger touchscreen Spec and a pinch-out gesture through the `mimusb::` forwarders. |
 
 `libaoahid` has one large program, `multi_profile.c`, that CI runs against a fake transport that finds no device. `libmimusb` has no such transport for its examples: `mimusb_discover` messages every serial port of the host, so a CI run would touch real ports. The same ground is covered by `basic_keyboard_mouse.c` (open, Specs, batch, submit, close), `control_transfers.c` (the event sink and control routing), and `examples/c/verify/verify_all.c` (three profiles interleaved against one real target); the build of each is a CTest case only for the per-profile programs, which need no board.
@@ -25,7 +25,7 @@ The programs find a board with `mimusb_discover` (or connect directly via port p
 | 6 | `MIMUSB_PROFILE_DIGITIZER` | [`examples/c/profiles/digitizer.c`](../examples/c/profiles/digitizer.c) | `mimusb_spec_create_digitizer` |
 | 7 | `MIMUSB_PROFILE_GAMEPAD` | [`examples/c/profiles/gamepad.c`](../examples/c/profiles/gamepad.c) | `mimusb_spec_create_gamepad` |
 | 8 | `MIMUSB_PROFILE_TOGGLE` | [`examples/c/profiles/toggle.c`](../examples/c/profiles/toggle.c) | `mimusb_spec_create_toggle` (Consumer, System, Camera, or Telephony keys, selected by `application_page`, `application_usage`, and `field_page`) |
-| 9 | `MIMUSB_PROFILE_RAW` | [`examples/c/profiles/raw.c`](../examples/c/profiles/raw.c) | `mimusb_spec_create_raw` |
+| 9 | `MIMUSB_PROFILE_HID` | [`examples/c/profiles/hid.c`](../examples/c/profiles/hid.c) | `mimusb_spec_create_hid` |
 | - | `MIMUSB_PROFILE_KEYBOARD` with `enable_battery` | [`examples/c/profiles/keyboard_battery.c`](../examples/c/profiles/keyboard_battery.c) | `mimusb_spec_create_keyboard` (the same two option fields exist on every generated profile) |
 
 `profile_example.h` is shared by all ten. It holds only the reporting helper and no product values. The helper prints the descriptor size and report layout the library derived from the caller's options, then the call sequence that would send the profile through a real board: `mimusb_discover`, `mimusb_device_open`, `mimusb_node_open`, `mimusb_device_wait_ready`, the profile's own mutation calls, and `mimusb_device_close`. Each example supplies its own mutation steps. The sequence is printed, not executed, because these programs open no board.
@@ -83,7 +83,7 @@ static void fill_placement(placement* p, uint8_t n) {
     p->node.endpoints = &p->in_endpoint;
     p->node.endpoint_count = 1;
     memset(&p->in_endpoint, 0, sizeof(p->in_endpoint));
-    p->in_endpoint.role = MIMUSB_HID_ROLE_IN; /* mimusb_spec_roles lists the roles of a Spec */
+    p->in_endpoint.role = MIMUSB_ROLE_HID_IN; /* mimusb_spec_roles lists the roles of a Spec */
     p->in_endpoint.endpoint.address = (uint8_t)(0x81 + n);
     p->in_endpoint.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     p->in_endpoint.endpoint.interval = 1;
@@ -143,7 +143,7 @@ static void configure_interface_with_out_endpoint(placement* p, mimusb_placed_en
     p->node.name = "Keys";
     p->in_endpoint.endpoint.interval = 4;
     memset(out, 0, sizeof(*out));
-    out->role = MIMUSB_HID_ROLE_OUT; /* the target's Output reports reach event_sink */
+    out->role = MIMUSB_ROLE_HID_OUT; /* the target's Output reports reach event_sink */
     out->endpoint.address = 0x01;
     out->endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
     out->endpoint.max_packet_size = 64;
@@ -152,9 +152,9 @@ static void configure_interface_with_out_endpoint(placement* p, mimusb_placed_en
 }
 ```
 
-### Send reports of a raw Spec
+### Send reports of a generic HID Spec
 
-`mimusb_spec_create_raw` builds a Spec from a caller's report descriptor, with a report table the library checks reports against; it is opened with `mimusb_node_open` like any other Spec.
+`mimusb_spec_create_hid` builds a Spec from a caller's report descriptor, with a report table the library checks reports against; it is opened with `mimusb_node_open` like any other Spec.
 
 ```c
 #include <mimusb.h>
@@ -168,7 +168,7 @@ static mimusb_result send_raw_report(mimusb_device* device,
     mimusb_node* raw_node = NULL;
     mimusb_result r = mimusb_node_open(device, raw_spec, raw_placement, commit_timeouts, &raw_node);
     if (r != MIMUSB_OK) return r;
-    return mimusb_raw_submit(raw_node, report, report_len, 500); /* Report ID included, checked */
+    return mimusb_hid_submit(raw_node, report, report_len, 500); /* Report ID included, checked */
 }
 ```
 

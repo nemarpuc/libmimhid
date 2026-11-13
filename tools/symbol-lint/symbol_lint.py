@@ -20,6 +20,24 @@ def declared(header: Path) -> set[str]:
     return set(EXPORT_RE.findall(header.read_text(encoding="utf-8")))
 
 
+# The functions of the generic layer work on a Device, a Node or any Spec, whatever its class, so
+# their names carry no class. A class has its own prefix (mimusb_hid_, mimusb_cdc_acm_, ...) or is a
+# factory, mimusb_spec_create_<kind>.
+GENERIC_PREFIXES = ("mimusb_device_", "mimusb_node_", "mimusb_spec_")
+CLASS_WORDS = ("hid", "cdc", "raw")
+
+
+def class_in_generic_layer(names: set[str]) -> list[str]:
+    bad = []
+    for name in sorted(names):
+        if not name.startswith(GENERIC_PREFIXES) or name.startswith("mimusb_spec_create_"):
+            continue
+        words = set(name.split("_"))
+        if words & set(CLASS_WORDS):
+            bad.append(name)
+    return bad
+
+
 def pe_exports(path: Path) -> set[str]:
     data = path.read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
@@ -81,6 +99,10 @@ def main() -> int:
     api = declared(args.header)
     if not api:
         print("no MIMUSB_API function found in the header", file=sys.stderr)
+        return 1
+    misplaced = class_in_generic_layer(api)
+    if misplaced:
+        print(f"a class name in the generic layer: {misplaced}", file=sys.stderr)
         return 1
     if args.library is not None:
         head = args.library.read_bytes()[:4]

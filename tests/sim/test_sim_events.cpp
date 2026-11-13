@@ -28,7 +28,7 @@ void test_events_and_raw() {
         std::lock_guard<std::mutex> lock(g_event_mutex);
         g_events.clear();
     }
-    mimusb_spec* raw = raw_spec_io();
+    mimusb_spec* raw = hid_spec_io();
     mimusb_node* node = open_node(device, raw);
     MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
     EventRecord ev;
@@ -90,15 +90,15 @@ void test_events_and_raw() {
     // Raw reports: exact length and Report ID only.
     fake_board_clear_reports();
     const std::uint8_t good[] = {5, 0x01};
-    MIMUSB_CHECK(mimusb_raw_submit(node, good, sizeof(good), kSendMs) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_hid_submit(node, good, sizeof(good), kSendMs) == MIMUSB_OK);
     fake_report_t r{};
     MIMUSB_CHECK(next_report(&r) && r.length == 2 && r.data[0] == 5 && r.data[1] == 1);
     const std::uint8_t bad[] = {6, 0x01};
-    MIMUSB_CHECK(mimusb_raw_submit(node, bad, sizeof(bad), kSendMs) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(mimusb_hid_submit(node, bad, sizeof(bad), kSendMs) == MIMUSB_ERR_PARAM);
 
     // No wait has a default: a zero timeout is refused before anything is sent.
     const std::uint8_t feature_zero[] = {1};
-    MIMUSB_CHECK(mimusb_raw_submit(node, good, sizeof(good), 0) == MIMUSB_ERR_UNSET_FIELD);
+    MIMUSB_CHECK(mimusb_hid_submit(node, good, sizeof(good), 0) == MIMUSB_ERR_UNSET_FIELD);
     MIMUSB_CHECK(mimusb_node_set_feature_response(node, 5, feature_zero, sizeof(feature_zero), 0) ==
                  MIMUSB_ERR_UNSET_FIELD);
     const mimusb_commit_timeouts no_control = {sizeof(mimusb_commit_timeouts), 0, 0, kReconnectMs};

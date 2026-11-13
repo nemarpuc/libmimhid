@@ -100,7 +100,7 @@ void test_profiles_common() {
                  MIMUSB_PROFILE_TOUCHSCREEN == 3 && MIMUSB_PROFILE_TOUCHPAD == 4 &&
                  MIMUSB_PROFILE_PEN == 5 && MIMUSB_PROFILE_DIGITIZER == 6 &&
                  MIMUSB_PROFILE_GAMEPAD == 7 && MIMUSB_PROFILE_TOGGLE == 8 &&
-                 MIMUSB_PROFILE_RAW == 9);
+                 MIMUSB_PROFILE_HID == 9);
 
     test_send_time_report_validation();
     test_error_fields_name_their_profile();

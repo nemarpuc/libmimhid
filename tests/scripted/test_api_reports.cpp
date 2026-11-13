@@ -69,7 +69,7 @@ void test_endpoint_write_of_a_profile_node() {
     MIMUSB_CHECK(mimusb_node_endpoint_write(o.node, 0x82, bytes, 1, kSendMs) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_node_endpoint_write(nullptr, 0x81, bytes, 1, kSendMs) == MIMUSB_ERR_PARAM);
     // Input calls on a generated node, and the raw call refused on it.
-    MIMUSB_CHECK(mimusb_raw_submit(o.node, bytes, 1, kSendMs) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(mimusb_hid_submit(o.node, bytes, 1, kSendMs) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_node_submit(o.node, 0) == MIMUSB_ERR_UNSET_FIELD);
     MIMUSB_CHECK(mimusb_node_submit(nullptr, kSendMs) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_node_submit_blocking(o.node, 0) == MIMUSB_ERR_UNSET_FIELD);

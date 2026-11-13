@@ -18,8 +18,9 @@ Wire details are in [PROTOCOL.md](PROTOCOL.md), the API model in [API.md](API.md
 ```mermaid
 flowchart TD
     App["Application (include/mimusb.h, mimusb.hpp)"]
-    API["src/api: C ABI boundary (validation, handles, errors, node_open/raw, commit, bus control)"]
-    Prof["src/profiles: Specs (descriptor + layout) & node state machines"]
+    API["src/api: C ABI boundary (validation, handles, errors, node_open, commit, bus control)"]
+    Prof["src/profiles: HID Specs (descriptor + layout) & node state machines"]
+    Cls["src/classes: Specs of a class that keeps no state (CDC-ACM): interfaces and rules made at the placement"]
     HID["src/hid: Report descriptor builder, validator, item writer"]
     Trans["src/transport: Link (ACK/retry, reader thread), Handshaker (finds the board and the line rate) and the frame codec, over SerialPort"]
     FWCore["firmware/common: Portable core (frame parser, staged config, control rules, endpoint queues)"]
@@ -28,6 +29,7 @@ flowchart TD
 
     App --> API
     API --> Prof
+    API --> Cls
     Prof --> HID
     API --> Trans
     Trans -->|"UART (115,200 at boot, then the fastest verified rate up to max_baud)"| FWCore

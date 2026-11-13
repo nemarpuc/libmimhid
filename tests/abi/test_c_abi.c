@@ -56,7 +56,10 @@ _Static_assert(offsetof(mimusb_usb_interface, name) == 8, "usb_interface.name");
 _Static_assert(offsetof(mimusb_usb_interface, settings) == 16, "usb_interface.settings");
 _Static_assert(offsetof(mimusb_usb_interface, setting_count) == 24, "usb_interface.setting_count");
 
-_Static_assert(sizeof(mimusb_node_placement) == 40, "node_placement layout");
+_Static_assert(sizeof(mimusb_node_placement) == 56, "node_placement layout");
+_Static_assert(offsetof(mimusb_node_placement, extra_rules) == 40, "node_placement.extra_rules");
+_Static_assert(offsetof(mimusb_node_placement, extra_rule_count) == 48,
+               "node_placement.extra_rule_count");
 _Static_assert(offsetof(mimusb_node_placement, first_interface) == 8,
                "node_placement.first_interface");
 _Static_assert(offsetof(mimusb_node_placement, name) == 16, "node_placement.name");
@@ -90,6 +93,10 @@ _Static_assert(offsetof(mimusb_board_limits, reserved) == 4, "board_limits.reser
 
 _Static_assert(sizeof(mimusb_linux_hid_policy) == 32, "linux_hid_policy layout");
 _Static_assert(offsetof(mimusb_linux_hid_policy, usages) == 16, "linux_hid_policy.usages");
+_Static_assert(sizeof(mimusb_target_limits) == 32, "target_limits layout");
+_Static_assert(sizeof(mimusb_cdc_acm_options) == 32, "cdc_acm_options layout");
+_Static_assert(offsetof(mimusb_cdc_acm_options, line_coding) == 16, "cdc_acm_options.line_coding");
+_Static_assert(offsetof(mimusb_cdc_acm_options, data_name) == 24, "cdc_acm_options.data_name");
 _Static_assert(offsetof(mimusb_event, kind) == 8, "event.kind");
 _Static_assert(offsetof(mimusb_event, value) == 16, "event.value");
 
@@ -224,7 +231,7 @@ static int init_fills_nothing(void) {
     INIT_IS_ZERO(mimusb_touchpad_options, mimusb_touchpad_options_init);
     INIT_IS_ZERO(mimusb_pen_options, mimusb_pen_options_init);
     INIT_IS_ZERO(mimusb_digitizer_options, mimusb_digitizer_options_init);
-    INIT_IS_ZERO(mimusb_raw_options, mimusb_raw_options_init);
+    INIT_IS_ZERO(mimusb_hid_options, mimusb_hid_options_init);
     INIT_IS_ZERO(mimusb_capability_manifest, mimusb_capability_manifest_init);
     return failed;
 }

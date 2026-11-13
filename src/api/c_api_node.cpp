@@ -12,6 +12,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <optional>
 #include <utility>
 
 namespace tr = mimusb::transport;
@@ -91,7 +92,7 @@ mimusb_result initialize_node_state(mimusb_node* node) {
     case MIMUSB_PROFILE_DIGITIZER:
         node->state = mimusb::detail::PenState{};
         break;
-    case MIMUSB_PROFILE_RAW:
+    case MIMUSB_PROFILE_HID:
         node->state = mimusb::detail::RawState{};
         node->dirty = false;
         break;
@@ -101,6 +102,21 @@ mimusb_result initialize_node_state(mimusb_node* node) {
         return MIMUSB_ERR_INTERNAL;
     }
     return MIMUSB_OK;
+}
+
+// The Feature report a touch Spec answers by itself: Contact Count Maximum, when its options
+// declare it (HID Usage Tables: Contact Count Maximum).
+std::optional<mimusb_node::FeatureEntry> declared_feature(const mimusb_spec& spec) {
+    const auto* touch = std::get_if<mimusb::detail::TouchConfig>(&spec.config);
+    if (touch == nullptr || touch->fields.enable_contact_count_maximum_feature_declaration != 1U)
+        return std::nullopt;
+    mimusb_node::FeatureEntry entry;
+    entry.report_id = touch->fields.report_id.enabled == 1U ? touch->fields.report_id.value : 0U;
+    const std::size_t bytes = (touch->fields.contact_count.bit_width + 7U) / 8U;
+    for (std::size_t i = 0U; i < bytes; ++i)
+        entry.data.push_back(
+            static_cast<std::uint8_t>((touch->fields.maximum_contacts >> (8U * i)) & 0xFFU));
+    return entry;
 }
 
 // Each helper is deliberately noinline and touches exactly one NodeState
@@ -334,7 +350,7 @@ void make_neutral(mimusb_node* node) noexcept {
         had_non_neutral_state = neutralize_pen(pen);
     }
     node->dirty = (had_non_neutral_state || node->emitted_non_neutral) &&
-                  node->spec->kind != MIMUSB_PROFILE_RAW;
+                  node->spec->kind != MIMUSB_PROFILE_HID;
 }
 
 bool touch_frame_in_progress(const mimusb_node* node) noexcept {
@@ -349,7 +365,15 @@ extern "C" {
 
 // ---- nodes -----------------------------------------------------------------------------
 
+// The rules a Node of a placement has besides those its Spec carries: the placement's extra_rules.
+struct ExtraRules {
+    const mimusb_control_rule* rules{};
+    std::size_t count{};
+};
+
 static mimusb_result open_interfaces(mimusb_device* device, const mimusb_node_config* config,
+                                     const ExtraRules& extra,
+                                     const mimusb::detail::RuleSlots& slots,
                                      const mimusb_commit_timeouts* timeouts,
                                      mimusb_node** out_node) try {
     mimusb::detail::clear_error();
@@ -401,10 +425,21 @@ static mimusb_result open_interfaces(mimusb_device* device, const mimusb_node_co
     }
     node->generic = true;
     node->device = device;
-    if (const mimusb_result r = mimusb::detail::copy_control_rules(
-            device, config->rules, config->rule_count, "node_config.rules", &node->rules);
-        r != MIMUSB_OK)
-        return r;
+    {
+        // The caller's rules come first: a request is answered by the first rule that matches.
+        std::vector<mimusb_control_rule> combined;
+        combined.reserve(extra.count + config->rule_count);
+        if (extra.count != 0U)
+            combined.insert(combined.end(), extra.rules, extra.rules + extra.count);
+        if (config->rule_count != 0U)
+            combined.insert(combined.end(), config->rules, config->rules + config->rule_count);
+        if (const mimusb_result r = mimusb::detail::copy_control_rules(
+                device, combined.data(), combined.size(), "node_config.rules", &node->rules);
+            r != MIMUSB_OK)
+            return r;
+        for (const auto& [slot, index] : slots)
+            node->rule_slots.emplace_back(slot, extra.count + index);
+    }
     if (config->association != nullptr)
         node->association.assign(config->association,
                                  config->association + config->association_length);
@@ -559,7 +594,7 @@ static mimusb_result open_interfaces(mimusb_device* device, const mimusb_node_co
 MIMUSB_C_RESULT_CATCH("node.open")
 
 static mimusb_result open_hid(mimusb_device* device, mimusb_spec* spec,
-                              const mimusb::usb::HidNodeConfig& config,
+                              const mimusb::usb::HidNodeConfig& config, const ExtraRules& extra,
                               const mimusb_commit_timeouts* timeouts, mimusb_node** out_node) try {
     mimusb::detail::clear_error();
     if (out_node == nullptr) {
@@ -603,7 +638,14 @@ static mimusb_result open_hid(mimusb_device* device, mimusb_spec* spec,
         std::uint64_t allowed;
         std::uint64_t needed;
     };
-    const mimusb_linux_hid_policy& linux_hid = device->config.transport.linux_hid;
+    const mimusb_linux_hid_policy& linux_hid = device->config.target.linux_hid;
+    if (linux_hid.descriptor_bytes == 0U || linux_hid.fields_per_report == 0U ||
+        linux_hid.global_stack_depth == 0U || linux_hid.report_size_bits == 0U ||
+        linux_hid.usages == 0U || linux_hid.report_data_bits == 0U) {
+        set_error(MIMUSB_ERR_UNSET_FIELD, "target.linux_hid",
+                  "Every linux_hid limit is required to open a Node of a HID Spec.");
+        return MIMUSB_ERR_UNSET_FIELD;
+    }
     const mimusb::hid::DescriptorRequirements& needs = spec->requirements;
     const std::array<Limit, 6> limits{{
         {"spec.descriptor.linux_hid", "The descriptor exceeds linux_hid.descriptor_bytes.",
@@ -657,6 +699,10 @@ static mimusb_result open_hid(mimusb_device* device, mimusb_spec* spec,
     node->config.name = nullptr;
     node->node_id = node_id;
     node->iface = effective.interface_number;
+    if (const mimusb_result r = mimusb::detail::copy_control_rules(
+            device, extra.rules, extra.count, "placement.extra_rules", &node->rules);
+        r != MIMUSB_OK)
+        return r;
     {
         // The IN endpoint is one of the generic driver's: it has a queue and a policy.
         mimusb::detail::EndpointRuntime runtime;
@@ -671,17 +717,9 @@ static mimusb_result open_hid(mimusb_device* device, mimusb_spec* spec,
         return initialized;
 
     // A touch Spec that declares Contact Count Maximum answers the target's Feature read.
-    if (const auto* touch = std::get_if<mimusb::detail::TouchConfig>(&spec->config);
-        touch != nullptr && touch->fields.enable_contact_count_maximum_feature_declaration == 1U) {
-        mimusb_node::FeatureEntry entry;
-        entry.report_id =
-            touch->fields.report_id.enabled == 1U ? touch->fields.report_id.value : 0U;
-        const std::size_t bytes = (touch->fields.contact_count.bit_width + 7U) / 8U;
-        for (std::size_t i = 0U; i < bytes; ++i)
-            entry.data.push_back(
-                static_cast<std::uint8_t>((touch->fields.maximum_contacts >> (8U * i)) & 0xFFU));
-        node->features.push_back(std::move(entry));
-    }
+    if (std::optional<mimusb_node::FeatureEntry> declared = declared_feature(*spec);
+        declared.has_value())
+        node->features.push_back(std::move(*declared));
 
     mimusb::detail::retain_spec(spec);
     mimusb_node* published = node.get();
@@ -746,6 +784,14 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* s
                   "endpoints is null exactly when endpoint_count is 0, and there are at most 64.");
         return MIMUSB_ERR_PARAM;
     }
+    if ((placement->extra_rules == nullptr) != (placement->extra_rule_count == 0U) ||
+        placement->extra_rule_count > 65535U) {
+        set_error(MIMUSB_ERR_PARAM, "placement.extra_rules",
+                  "extra_rules is null exactly when extra_rule_count is 0, and there are at most "
+                  "65535.");
+        return MIMUSB_ERR_PARAM;
+    }
+    const ExtraRules extra{placement->extra_rules, placement->extra_rule_count};
     if (spec->kind == MIMUSB_PROFILE_INTERFACES) {
         // The Spec carries its own interface numbers, names and endpoints.
         if (placement->first_interface != 0U || placement->name != nullptr ||
@@ -755,7 +801,17 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* s
                       "names and endpoints: first_interface, name and endpoints are zero.");
             return MIMUSB_ERR_PARAM;
         }
-        return open_interfaces(device, &spec->interfaces->view, timeouts, out_node);
+        return open_interfaces(device, &spec->interfaces->view, extra, {}, timeouts, out_node);
+    }
+    if (spec->kind == MIMUSB_PROFILE_CDC_ACM) {
+        // A class without a state: its interfaces and rules are made at the placement, then
+        // opened as any interfaces are.
+        mimusb::detail::InterfacesSpec built;
+        mimusb::detail::RuleSlots slots;
+        if (const mimusb_result r = mimusb::detail::build_cdc_acm(spec, *placement, &built, &slots);
+            r != MIMUSB_OK)
+            return r;
+        return open_interfaces(device, &built.view, extra, slots, timeouts, out_node);
     }
     // A HID Spec: the function is the Spec's, the interface and the endpoints of its roles are
     // the placement's.
@@ -776,8 +832,8 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* s
                       0);
             return MIMUSB_ERR_PARAM;
         }
-        bool* seen = placed.role == MIMUSB_HID_ROLE_IN    ? &have_in
-                     : placed.role == MIMUSB_HID_ROLE_OUT ? &have_out
+        bool* seen = placed.role == MIMUSB_ROLE_HID_IN    ? &have_in
+                     : placed.role == MIMUSB_ROLE_HID_OUT ? &have_out
                                                           : nullptr;
         if (seen == nullptr || *seen) {
             set_error(MIMUSB_ERR_PARAM, "placement.endpoints.role",
@@ -788,14 +844,14 @@ mimusb_result MIMUSB_CALL mimusb_node_open(mimusb_device* device, mimusb_spec* s
             return MIMUSB_ERR_PARAM;
         }
         *seen = true;
-        (placed.role == MIMUSB_HID_ROLE_IN ? config.ep_in : config.ep_out) = placed.endpoint;
+        (placed.role == MIMUSB_ROLE_HID_IN ? config.ep_in : config.ep_out) = placed.endpoint;
     }
     if (!have_in) {
         set_error(MIMUSB_ERR_UNSET_FIELD, "placement.endpoints",
-                  "MIMUSB_HID_ROLE_IN is required: the Node's interrupt IN endpoint.");
+                  "MIMUSB_ROLE_HID_IN is required: the Node's interrupt IN endpoint.");
         return MIMUSB_ERR_UNSET_FIELD;
     }
-    return open_hid(device, spec, config, timeouts, out_node);
+    return open_hid(device, spec, config, extra, timeouts, out_node);
 }
 MIMUSB_C_RESULT_CATCH("node.open")
 
@@ -883,132 +939,94 @@ mimusb_result MIMUSB_CALL mimusb_node_set_rule_data(mimusb_node* node, const siz
 }
 MIMUSB_C_RESULT_CATCH("node.set_rule_data")
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-mimusb_result MIMUSB_CALL mimusb_hid_descriptor_bytes(const uint16_t bcd_hid,
-                                                      const uint8_t country_code,
-                                                      const size_t report_descriptor_length,
-                                                      uint8_t out[9]) try {
+mimusb_result MIMUSB_CALL mimusb_node_find_rule(const mimusb_node* node,
+                                                const mimusb_rule_slot slot,
+                                                size_t* out_rule_index) try {
     mimusb::detail::clear_error();
-    if (out == nullptr || report_descriptor_length == 0U || report_descriptor_length > 0xFFFFU) {
-        set_error(MIMUSB_ERR_PARAM, "report_descriptor_length",
-                  "out is required and the length is 1 to 65535.");
+    if (node == nullptr || node->closed || node->device == nullptr || out_rule_index == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "node", "A live Node and out_rule_index are required.");
         return MIMUSB_ERR_PARAM;
     }
-    if (bcd_hid == 0U) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "bcd_hid", "bcd_hid must be given (e.g. 0x0111).");
-        return MIMUSB_ERR_UNSET_FIELD;
+    *out_rule_index = 0U;
+    for (const auto& [named, index] : node->rule_slots) {
+        if (named == slot) {
+            *out_rule_index = index;
+            return MIMUSB_OK;
+        }
     }
-    // HID 1.11 6.2.1: bLength 9, bDescriptorType 0x21, bcdHID, bCountryCode, bNumDescriptors 1, and
-    // the report descriptor's type 0x22 with its length.
-    out[0] = 9U;
-    out[1] = 0x21U;
-    out[2] = static_cast<uint8_t>(bcd_hid & 0xFFU);
-    out[3] = static_cast<uint8_t>(bcd_hid >> 8U);
-    out[4] = country_code;
-    out[5] = 1U;
-    out[6] = 0x22U;
-    out[7] = static_cast<uint8_t>(report_descriptor_length & 0xFFU);
-    out[8] = static_cast<uint8_t>((report_descriptor_length >> 8U) & 0xFFU);
+    set_error(MIMUSB_ERR_UNSUPPORTED, "slot", "The Node's Spec has no rule of this slot.", 0, 0, 0,
+              0, 0, static_cast<std::uint32_t>(slot));
+    return MIMUSB_ERR_UNSUPPORTED;
+}
+MIMUSB_C_RESULT_CATCH("node.find_rule")
+
+mimusb_result MIMUSB_CALL mimusb_spec_interface_count(const mimusb_spec* spec,
+                                                      size_t* out_count) try {
+    mimusb::detail::clear_error();
+    if (spec == nullptr || out_count == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "spec", "spec and out_count are required.");
+        return MIMUSB_ERR_PARAM;
+    }
+    switch (spec->kind) {
+    case MIMUSB_PROFILE_INTERFACES:
+        *out_count = spec->interfaces->view.interface_count;
+        break;
+    case MIMUSB_PROFILE_CDC_ACM:
+        *out_count = 2U;
+        break;
+    default: // a HID Spec is one interface
+        *out_count = 1U;
+        break;
+    }
     return MIMUSB_OK;
 }
-MIMUSB_C_RESULT_CATCH("hid_descriptor_bytes")
+MIMUSB_C_RESULT_CATCH("spec.interface_count")
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-mimusb_result MIMUSB_CALL mimusb_hid_descriptor_rule(const uint8_t interface_number,
-                                                     const uint8_t descriptor_type,
-                                                     const uint8_t* bytes, const size_t length,
-                                                     mimusb_control_rule* out_rule) try {
+mimusb_result MIMUSB_CALL mimusb_spec_rule_cost(const mimusb_spec* spec, size_t* out_rules,
+                                                size_t* out_answer_bytes) try {
     mimusb::detail::clear_error();
-    if (bytes == nullptr || out_rule == nullptr || length == 0U || length > 0xFFFFU ||
-        (descriptor_type != 0x22U && descriptor_type != 0x21U)) {
-        set_error(MIMUSB_ERR_PARAM, "hid_descriptor_rule",
-                  "bytes and out_rule are required, the length is 1 to 65535, and the type 0x21 "
-                  "or 0x22.");
+    if (spec == nullptr || out_rules == nullptr || out_answer_bytes == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "spec", "spec and both outputs are required.");
         return MIMUSB_ERR_PARAM;
     }
-    // USB 2.0 9.4.3 GET_DESCRIPTOR: standard, device to host, interface; wValue's high byte is the
-    // type (HID 7.1.1), any index of descriptor; wIndex the interface.
-    *out_rule = mimusb_control_rule{};
-    out_rule->request_type_mask = 0xFFU;
-    out_rule->request_type_value = 0x81U;
-    out_rule->request_mask = 0xFFU;
-    out_rule->request_value = 0x06U;
-    out_rule->value_mask = 0xFF00U;
-    out_rule->value_value = static_cast<uint16_t>(descriptor_type << 8U);
-    out_rule->index_mask = 0xFFFFU;
-    out_rule->index_value = interface_number;
-    out_rule->action = MIMUSB_CONTROL_ANSWER;
-    out_rule->data = bytes;
-    out_rule->length = length;
-    return MIMUSB_OK;
-}
-MIMUSB_C_RESULT_CATCH("hid_descriptor_rule")
-
-mimusb_result MIMUSB_CALL mimusb_cdc_acm_descriptors_make(
-    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    const uint16_t bcd_cdc, const uint8_t control_interface,
-    const uint8_t call_management_capabilities, const uint8_t acm_capabilities,
-    mimusb_cdc_acm_descriptors* out) try {
-    mimusb::detail::clear_error();
-    if (out == nullptr || control_interface == 0xFFU) {
-        set_error(MIMUSB_ERR_PARAM, "control_interface",
-                  "out is required and the data interface needs the next number.");
-        return MIMUSB_ERR_PARAM;
-    }
-    if (bcd_cdc == 0U) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "bcd_cdc", "bcd_cdc must be given (e.g. 0x0120).");
-        return MIMUSB_ERR_UNSET_FIELD;
-    }
-    const uint8_t data_interface = static_cast<uint8_t>(control_interface + 1U);
-    // CDC 1.2 5.2.3: bLength, bDescriptorType 0x24 (CS_INTERFACE), bDescriptorSubtype, data.
-    const uint8_t header[5] = {5U, 0x24U, 0x00U, static_cast<uint8_t>(bcd_cdc & 0xFFU),
-                               static_cast<uint8_t>(bcd_cdc >> 8U)};
-    const uint8_t call[5] = {5U, 0x24U, 0x01U, call_management_capabilities, data_interface};
-    const uint8_t acm[4] = {4U, 0x24U, 0x02U, acm_capabilities};
-    const uint8_t onion[5] = {5U, 0x24U, 0x06U, control_interface, data_interface};
-    // The Interface Association descriptor (USB IAD ECN): first interface, two interfaces, class
-    // 0x02, subclass 0x02, protocol 0x01, no string.
-    const uint8_t association[8] = {8U, 0x0BU, control_interface, 2U, 0x02U, 0x02U, 0x01U, 0U};
-    std::memcpy(out->header, header, sizeof header);
-    std::memcpy(out->call_management, call, sizeof call);
-    std::memcpy(out->acm, acm, sizeof acm);
-    std::memcpy(out->union_, onion, sizeof onion);
-    std::memcpy(out->association, association, sizeof association);
-    return MIMUSB_OK;
-}
-MIMUSB_C_RESULT_CATCH("cdc_acm_descriptors_make")
-
-mimusb_result MIMUSB_CALL mimusb_cdc_acm_rules(const uint8_t control_interface,
-                                               const uint8_t line_coding[7],
-                                               mimusb_control_rule out_rules[3]) try {
-    mimusb::detail::clear_error();
-    if (line_coding == nullptr || out_rules == nullptr) {
-        set_error(MIMUSB_ERR_PARAM, "cdc_acm_rules", "line_coding and out_rules are required.");
-        return MIMUSB_ERR_PARAM;
-    }
-    // PSTN 1.2 6.3: class requests to the communication interface. bmRequestType 0x21 is host to
-    // device, class, interface; 0xA1 is device to host.
-    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    const auto make = [&](const uint8_t type, const uint8_t request,
-                          const mimusb_control_rule_action action) {
-        mimusb_control_rule r{};
-        r.request_type_mask = 0xFFU;
-        r.request_type_value = type;
-        r.request_mask = 0xFFU;
-        r.request_value = request;
-        r.index_mask = 0xFFFFU;
-        r.index_value = control_interface;
-        r.action = action;
-        return r;
+    std::size_t rules = 0U;
+    std::size_t bytes = 0U;
+    const auto add = [&](const mimusb_control_rule& rule) {
+        ++rules;
+        if (rule.action == MIMUSB_CONTROL_ANSWER)
+            bytes += rule.length;
     };
-    out_rules[0] = make(0x21U, 0x20U, MIMUSB_CONTROL_ACCEPT); // SET_LINE_CODING
-    out_rules[1] = make(0xA1U, 0x21U, MIMUSB_CONTROL_ANSWER); // GET_LINE_CODING
-    out_rules[1].data = line_coding;
-    out_rules[1].length = 7U;
-    out_rules[2] = make(0x21U, 0x22U, MIMUSB_CONTROL_ACCEPT); // SET_CONTROL_LINE_STATE
+    if (spec->kind == MIMUSB_PROFILE_INTERFACES) {
+        for (std::size_t i = 0U; i < spec->interfaces->view.rule_count; ++i)
+            add(spec->interfaces->view.rules[i]);
+    } else if (spec->kind == MIMUSB_PROFILE_CDC_ACM) {
+        // Three rules, 7 bytes of answer: made from a placement of any numbers.
+        rules = 3U;
+        bytes = sizeof(spec->cdc->options.line_coding);
+    } else {
+        // The rules the library writes for a Node alone on its interface.
+        mimusb::usb::HidNodeInput input;
+        input.config.bcd_hid = spec->function.bcd_hid;
+        input.report_descriptor = &spec->descriptor;
+        std::bitset<256> ids;
+        bool has_ids = false;
+        collect_report_ids(spec->descriptor, &ids, &has_ids);
+        input.has_report_ids = has_ids;
+        input.report_ids = ids;
+        if (std::optional<mimusb_node::FeatureEntry> declared = declared_feature(*spec);
+            declared.has_value())
+            input.features.push_back({declared->report_id, declared->data});
+        for (const mimusb::usb::BoardRule& rule : mimusb::usb::compose_hid_rules({input})) {
+            ++rules;
+            if (rule.rule.action == MIMUSB_CONTROL_ANSWER)
+                bytes += rule.data.size();
+        }
+    }
+    *out_rules = rules;
+    *out_answer_bytes = bytes;
     return MIMUSB_OK;
 }
-MIMUSB_C_RESULT_CATCH("cdc_acm_rules")
+MIMUSB_C_RESULT_CATCH("spec.rule_cost")
 
 uint16_t MIMUSB_CALL mimusb_node_id(const mimusb_node* node) try {
     mimusb::detail::clear_error();

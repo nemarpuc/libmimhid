@@ -9,7 +9,7 @@ and no agent: ready-made HID profiles (keyboard, mouse, gamepad, touchscreen, to
 media keys), interfaces of any other class from their descriptors, or a whole device given as
 bytes. Linux, Windows, and macOS hosts; usable from C, C++, Python, C#, and Rust. MIT licensed.
 
-> Version 0.6.1. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+> Version 0.7.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 `libmimusb` is a C++20 library with a stable C ABI. For the HID profiles you describe the USB device
 identity and each HID interface (ranges, bit widths, Report IDs, Usages,
@@ -102,7 +102,7 @@ int main(void) {
     dev_cfg.transport.baud_rate = MIMUSB_BAUD_FASTEST;
     dev_cfg.transport.handshake_timeout_ms = 200;
     dev_cfg.transport.maximum_report_bytes = 64;
-    dev_cfg.transport.linux_hid = (mimusb_linux_hid_policy){4096, 256, 4, 256, 12288, 65528};
+    dev_cfg.target.linux_hid = (mimusb_linux_hid_policy){4096, 256, 4, 256, 12288, 65528};
     dev_cfg.transport.log_level = MIMUSB_LOG_DISABLED; /* zero is refused as unset */
     dev_cfg.usb_device.bcd_usb = 0x0200;
     dev_cfg.usb_device.ep0_max_packet_size = 64;
@@ -112,7 +112,7 @@ int main(void) {
     dev_cfg.usb_config.configuration_value = 1;
     dev_cfg.usb_config.bm_attributes = 0x80;
     dev_cfg.usb_config.bmax_power = 50;
-    in_ep = (mimusb_placed_endpoint){MIMUSB_HID_ROLE_IN, 0,
+    in_ep = (mimusb_placed_endpoint){MIMUSB_ROLE_HID_IN, 0,
                                      {0x81, MIMUSB_TRANSFER_INTERRUPT, 1, 0, 64, 0,
                                       {MIMUSB_FULL_DROP_NEWEST, 7}}};
     place.endpoints = &in_ep; /* the Spec's roles: mimusb_spec_roles */
@@ -181,9 +181,15 @@ permissions, and running the watchable demos under
 | Touchpad | `mimusb_spec_create_touchpad` | `1..16` contact slots + `0..65535` buttons | Optional `Contact Count Maximum` Feature report |
 | Pen (direct screen) | `mimusb_spec_create_pen` | In Range, Tip, optional Invert (eraser), up to two barrel switches, `X`/`Y`, optional pressure, tilt, twist | — |
 | Digitizer | `mimusb_spec_create_digitizer` | The Pen report under `Digitizers / Digitizer` (`0x0D/0x01`) | — |
-| Raw descriptor | `mimusb_spec_create_raw` | Any Input report (`mimusb_raw_submit` checks it against the Spec) | Output reports and Feature writes arrive through `transport.event_sink`; Feature reads are answered with `mimusb_node_set_feature_response` |
+| Generic HID (descriptor given) | `mimusb_spec_create_hid` | Any Input report (`mimusb_hid_submit` checks it against the Spec) | Output reports and Feature writes arrive through `transport.event_sink`; Feature reads are answered with `mimusb_node_set_feature_response` |
 
-A HID interface that is not a profile (a descriptor copied from a real device) is a
+A function of another class is a Spec like these: `mimusb_spec_create_cdc_acm` makes a serial port
+(its interfaces, class descriptors and rules; the data is yours), and
+`mimusb_spec_create_interfaces` any class written out interface by interface. Every kind opens the
+same way with `mimusb_node_open`, and any placement may bring control rules of its own
+(`extra_rules`, tried before the Spec's). See *Kinds of Spec* in [docs/API.md](docs/API.md#kinds-of-spec).
+
+A HID interface whose descriptor must not be checked (a descriptor copied from a real device) is a
 `mimusb_node_open` Node of class 0x03 with its own control rules and
 `mimusb_node_endpoint_write` ([examples/c/hid_interface.c](examples/c/hid_interface.c)).
 The board has no HID driver: every interface runs on one generic driver, and

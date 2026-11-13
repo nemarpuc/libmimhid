@@ -44,13 +44,6 @@ using mimusb::detail::validate_usb_identity_on_board;
 
 namespace {
 
-bool required_product_policies_nonzero(const mimusb_transport_options& options) noexcept {
-    const mimusb_linux_hid_policy& linux_hid = options.linux_hid;
-    return linux_hid.descriptor_bytes != 0U && linux_hid.fields_per_report != 0U &&
-           linux_hid.global_stack_depth != 0U && linux_hid.report_size_bits != 0U &&
-           linux_hid.usages != 0U && linux_hid.report_data_bits != 0U;
-}
-
 void put_u16(std::vector<std::uint8_t>* out, std::uint32_t value) {
     out->push_back(static_cast<std::uint8_t>(value & 0xFFU));
     out->push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
@@ -260,11 +253,6 @@ mimusb_result prepare_device_config(const mimusb_device_config* config,
             set_error(MIMUSB_ERR_UNSET_FIELD, field, "This value is required.");
             return MIMUSB_ERR_UNSET_FIELD;
         }
-    }
-    if (!required_product_policies_nonzero(effective->transport)) {
-        set_error(MIMUSB_ERR_UNSET_FIELD, "transport.linux_hid",
-                  "Every linux_hid limit is required.");
-        return MIMUSB_ERR_UNSET_FIELD;
     }
     if (!mimusb::detail::valid_boolean(effective->transport.validate_reports) ||
         !mimusb::detail::valid_boolean(effective->transport.keep_attached) ||
@@ -657,8 +645,9 @@ mimusb_result check_rule_table(const mimusb_device* device,
     return MIMUSB_OK;
 }
 
-// The table the board is to hold: the rules of the Nodes of mimusb_spec_create_interfaces Specs in
-// node order, those the library writes for the profile Nodes, then the Device's own. What the
+// The table the board is to hold: the rules of the Nodes (the caller's extra_rules, then those of a
+// Spec that carries its own) in node order, those the library writes for the profile Nodes, then
+// the Device's own. What the
 // target has set (idle rate, protocol) is kept from the table the board holds now.
 mimusb_result build_rule_table(mimusb_device* device, const std::vector<mimusb_node*>& nodes,
                                const std::vector<usb::HidNodeInput>& hid,
@@ -666,10 +655,8 @@ mimusb_result build_rule_table(mimusb_device* device, const std::vector<mimusb_n
     table->clear();
     // An ANSWER rule keeps the capacity it was given however its bytes change, so the board
     // reserves the same room each time the table is sent and a shortened answer can grow again.
-    for (mimusb_node* node : nodes) {
-        if (node->generic)
-            table->insert(table->end(), node->rules.begin(), node->rules.end());
-    }
+    for (mimusb_node* node : nodes)
+        table->insert(table->end(), node->rules.begin(), node->rules.end());
     std::vector<usb::BoardRule> library = usb::compose_hid_rules(hid);
     {
         std::lock_guard<std::mutex> lock(device->rules_mutex);
@@ -962,8 +949,7 @@ mimusb_result change_rule_data(mimusb_device* device, mimusb_node* node,
         for (const mimusb_node* other : live_nodes(device)) {
             if (other == node)
                 break;
-            if (other->generic)
-                index += other->rules.size();
+            index += other->rules.size();
         }
     }
     if (!live) {

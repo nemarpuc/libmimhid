@@ -169,9 +169,9 @@ mimusb_result MIMUSB_CALL mimusb_node_submit(mimusb_node* node,
                   "This timeout must be set; it has no default.");
         return MIMUSB_ERR_UNSET_FIELD;
     }
-    if (node->spec->kind == MIMUSB_PROFILE_RAW) {
+    if (node->spec->kind == MIMUSB_PROFILE_HID) {
         set_error(MIMUSB_ERR_UNSUPPORTED, "node.submit",
-                  "Raw nodes require mimusb_raw_submit() with an explicit report buffer.");
+                  "Raw nodes require mimusb_hid_submit() with an explicit report buffer.");
         return MIMUSB_ERR_UNSUPPORTED;
     }
     if (const mimusb_result link = mimusb::detail::link_available(node, "node.submit");
@@ -287,13 +287,14 @@ mimusb_result MIMUSB_CALL mimusb_node_submit_blocking(mimusb_node* node,
 }
 MIMUSB_C_RESULT_CATCH("node.submit_blocking")
 
-mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_t* report,
+mimusb_result MIMUSB_CALL mimusb_hid_submit(mimusb_node* node, const std::uint8_t* report,
                                             const std::size_t length,
                                             const std::uint32_t send_timeout_ms) try {
     mimusb::detail::clear_error();
     if (node == nullptr || node->closed || node->device == nullptr || node->spec == nullptr ||
-        node->spec->kind != MIMUSB_PROFILE_RAW || report == nullptr) {
-        set_error(MIMUSB_ERR_PARAM, "raw.submit", "A live raw node and a report are required.");
+        node->spec->kind != MIMUSB_PROFILE_HID || report == nullptr) {
+        set_error(MIMUSB_ERR_PARAM, "hid.submit",
+                  "A live generic HID Node and a report are required.");
         return MIMUSB_ERR_PARAM;
     }
     if (send_timeout_ms == 0U) {
@@ -301,15 +302,16 @@ mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_
                   "This timeout must be set; it has no default.");
         return MIMUSB_ERR_UNSET_FIELD;
     }
-    if (const mimusb_result link = mimusb::detail::link_available(node, "raw.submit");
+    if (const mimusb_result link = mimusb::detail::link_available(node, "hid.submit");
         link != MIMUSB_OK) {
         return link;
     }
     if (node->transfer_inflight.exchange(true, std::memory_order_acq_rel)) {
-        set_error(MIMUSB_ERR_BUSY, "raw.submit", "The raw node already has one report in flight.");
+        set_error(MIMUSB_ERR_BUSY, "hid.submit",
+                  "The generic HID Node already has one report in flight.");
         return MIMUSB_ERR_BUSY;
     }
-    const mimusb_result completion = consume_completion(node, "raw.completion");
+    const mimusb_result completion = consume_completion(node, "hid.completion");
     if (completion != MIMUSB_OK) {
         node->transfer_inflight.store(false, std::memory_order_release);
         return completion;
@@ -325,7 +327,7 @@ mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_
             });
         if (accepted == raw->reports.end()) {
             node->transfer_inflight.store(false, std::memory_order_release);
-            set_error(MIMUSB_ERR_PARAM, "raw.report",
+            set_error(MIMUSB_ERR_PARAM, "hid.report",
                       "The report ID or exact wire length is not accepted by the raw spec.");
             return MIMUSB_ERR_PARAM;
         }
@@ -334,7 +336,7 @@ mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_
         const std::uint8_t valid_mask = raw->trailing_valid_masks[accepted_index];
         if ((report[length - 1U] & static_cast<std::uint8_t>(~valid_mask)) != 0U) {
             node->transfer_inflight.store(false, std::memory_order_release);
-            set_error(MIMUSB_ERR_PARAM, "raw.report.trailing_padding",
+            set_error(MIMUSB_ERR_PARAM, "hid.report.trailing_padding",
                       "Unused trailing Input-report bits must be zero.", 0, 0, public_node_id(node),
                       accepted->report_id.enabled == 1U ? accepted->report_id.value : 0U,
                       static_cast<std::uint32_t>(length - 1U), 1U);
@@ -346,7 +348,7 @@ mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_
     }
     if (length > kMaximumReportBytes || length > node->device->maximum_report_bytes) {
         node->transfer_inflight.store(false, std::memory_order_release);
-        set_error(MIMUSB_ERR_OVERFLOW, "raw.report",
+        set_error(MIMUSB_ERR_OVERFLOW, "hid.report",
                   "The report is longer than the board or the caller allows.");
         return MIMUSB_ERR_OVERFLOW;
     }
@@ -354,11 +356,11 @@ mimusb_result MIMUSB_CALL mimusb_raw_submit(mimusb_node* node, const std::uint8_
     node->submitted_non_neutral = false;
     node->submitted_report_length = length;
     node->submitted_report_id = submitted_id;
-    const mimusb_result result = write_report(node, report, length, "raw.submit", send_timeout_ms);
+    const mimusb_result result = write_report(node, report, length, "hid.submit", send_timeout_ms);
     if (result == MIMUSB_OK)
         mimusb::detail::clear_error();
     return result;
 }
-MIMUSB_C_RESULT_CATCH("raw.submit")
+MIMUSB_C_RESULT_CATCH("hid.submit")
 
 } // extern "C"

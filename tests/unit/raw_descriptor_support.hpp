@@ -31,8 +31,8 @@ inline void append_globals(std::vector<std::uint8_t>* descriptor, const std::uin
     append_u32_item(descriptor, 0x97U, report_count);
 }
 
-inline mimusb_raw_report idless_report(const std::uint32_t wire_length) {
-    mimusb_raw_report report{};
+inline mimusb_hid_report idless_report(const std::uint32_t wire_length) {
+    mimusb_hid_report report{};
     report.wire_length = wire_length;
     return report;
 }

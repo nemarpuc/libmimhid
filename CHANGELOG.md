@@ -6,6 +6,59 @@ change of the minor number may change the API, the ABI or the wire protocol.
 
 ## [Unreleased]
 
+The API has one shape for every kind of function: a factory makes a Spec, `mimusb_node_open` opens any
+Spec at a placement, and control rules are the one way a class talks on endpoint 0, for HID and for
+any class that comes after it. The wire protocol and the firmware are unchanged apart from the version
+they report (a board must run firmware of the same minor version, 0.7).
+
+### Added
+
+- `mimusb_spec_create_cdc_acm` and `mimusb_cdc_acm_options`: a CDC-ACM function as a Spec. The library
+  writes the two interfaces, the class descriptors, the Interface Association descriptor and the
+  three rules (`SET_LINE_CODING`, `GET_LINE_CODING`, `SET_CONTROL_LINE_STATE`); the data is the
+  program's. Roles `MIMUSB_ROLE_CDC_NOTIFY`, `_CDC_DATA_IN`, `_CDC_DATA_OUT`; kind
+  `MIMUSB_PROFILE_CDC_ACM`. `src/classes/cdc_acm.cpp` is where a class without a state lives: it only
+  makes interfaces and rules at the placement and opens them as any interfaces are.
+- `mimusb_node_placement.extra_rules` and `extra_rule_count`: control rules of the caller's own for a
+  Node of any Spec (a HID profile too), tried before the rules the Spec brings. A request is answered by
+  the first rule that matches, so a rule of the caller's can take over one the library would answer.
+- `mimusb_node_find_rule` and `mimusb_rule_slot` (`MIMUSB_RULE_SLOT_CDC_LINE_CODING`): a rule a Spec
+  names is found by name, not by its place among the Node's rules.
+- `mimusb_spec_interface_count` and `mimusb_spec_rule_cost`: how many interface numbers a Spec takes
+  and what it adds to the board's rule memory.
+- `mimusb_target_limits` (`mimusb_device_config.target`): what the target machine limits, whatever the
+  function. Its one member is `linux_hid`.
+- `docs/API.md`: *Kinds of Spec*, one table of every factory with its interfaces, roles, rules and
+  state.
+
+### Changed
+
+- `mimusb_spec_create_raw` is `mimusb_spec_create_hid`, and `mimusb_raw_options`, `mimusb_raw_report`,
+  `mimusb_raw_options_init`, `mimusb_raw_submit` and `MIMUSB_PROFILE_RAW` are
+  `mimusb_hid_options`, `mimusb_hid_report`, `mimusb_hid_options_init`, `mimusb_hid_submit` and
+  `MIMUSB_PROFILE_HID`: it was always a HID Spec, with a report descriptor of the caller's own. The
+  fields of its errors begin with `hid.` instead of `raw.`. "Raw" now means only a Device given as
+  bytes (`mimusb_device_set_descriptors`).
+- `MIMUSB_HID_ROLE_IN` and `_OUT` are `MIMUSB_ROLE_HID_IN` and `_HID_OUT`: a role is named for the kind
+  of Spec that has it.
+- `mimusb_transport_options.linux_hid` is `mimusb_device_config.target.linux_hid`, and it is required
+  when a Node of a HID Spec is opened (`MIMUSB_ERR_UNSET_FIELD` otherwise), not when the Device is
+  opened: a Device that opens only CDC-ACM or interfaces Nodes leaves it 0.
+- `mimusb_node_placement` is 56 bytes (was 40) and `mimusb_device_config` has `target` after
+  `transport`; the layout golden file and the generated bindings follow. The control rules of every
+  Node, not only those of a `mimusb_spec_create_interfaces` Spec, come first in the table the board
+  holds, before those the library writes for the HID profiles and those of the Device.
+- `mimusb_node_set_rule_data` numbers a Node's rules as its `extra_rules` first, then the rules its
+  Spec brings.
+
+### Removed
+
+- `mimusb_hid_descriptor_bytes` and `mimusb_hid_descriptor_rule`: a HID interface of the caller's own is
+  a `mimusb_spec_create_hid` Spec; for one whose descriptor must not be checked the 9 bytes and the rule
+  are written out in a `mimusb_spec_create_interfaces` Spec (`examples/c/hid_interface.c`).
+- `mimusb_cdc_acm_descriptors`, `mimusb_cdc_acm_descriptors_make` and `mimusb_cdc_acm_rules`:
+  replaced by `mimusb_spec_create_cdc_acm`.
+
 ## [0.6.1] - 2026-11-13
 
 The firmware's RAM limits are the port's, and none has a default. The wire protocol and the C ABI
@@ -106,8 +159,8 @@ target, Windows or macOS, the RP2350, the other boards, the `mimusb_verify_*` pr
 
 ### Added
 
-- `mimusb_spec_roles` lists the endpoint roles of a Spec (`MIMUSB_HID_ROLE_IN`, required;
-  `MIMUSB_HID_ROLE_OUT`, optional), so a caller sees what its placement must give.
+- `mimusb_spec_roles` lists the endpoint roles of a Spec (`MIMUSB_ROLE_HID_IN`, required;
+  `MIMUSB_ROLE_HID_OUT`, optional), so a caller sees what its placement must give.
 - Refusals with the field named in `mimusb_error_detail`: a role given twice or one the Spec does not
   have, a nonzero reserved field, a missing IN role, a non-empty placement for a Spec of interfaces.
 

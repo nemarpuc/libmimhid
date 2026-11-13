@@ -117,7 +117,7 @@ void test_no_names() {
     mimusb_device* device = open_device(o);
     if (device == nullptr)
         return;
-    mimusb_spec* raw = raw_spec_no_id();
+    mimusb_spec* raw = hid_spec_no_id();
     mimusb_node* node = open_node(device, raw);
     MIMUSB_CHECK(node != nullptr);
     const std::uint8_t* d = fake_board_device_descriptor();
@@ -134,7 +134,7 @@ void test_zero_identity() {
     mimusb_device* device = open_device(o);
     if (device == nullptr)
         return;
-    mimusb_spec* raw = raw_spec_no_id();
+    mimusb_spec* raw = hid_spec_no_id();
     mimusb_node* node = open_node(device, raw);
     MIMUSB_CHECK(node != nullptr);
     const std::uint8_t* d = fake_board_device_descriptor();
@@ -157,7 +157,7 @@ void test_chip_serial_and_boot() {
     function.protocol = 1;
     function.country_code = 33;
     mimusb_spec* raw = nullptr;
-    MIMUSB_CHECK(create_raw_spec_no_id(function, &raw) == MIMUSB_OK);
+    MIMUSB_CHECK(create_hid_spec_no_id(function, &raw) == MIMUSB_OK);
     test_hid_node_config no{};
     test_fill_node_config(&no, 0);
     no.ep_in.max_packet_size = 6;
@@ -263,19 +263,19 @@ void test_chip_serial_and_boot() {
         mimusb_spec* refused = nullptr;
         mimusb_hid_function f = function;
         f.subclass = 2;
-        MIMUSB_CHECK(create_raw_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
+        MIMUSB_CHECK(create_hid_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
         f = function;
         f.protocol = 3;
-        MIMUSB_CHECK(create_raw_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
+        MIMUSB_CHECK(create_hid_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
         f = function;
         f.country_code = 36;
-        MIMUSB_CHECK(create_raw_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
+        MIMUSB_CHECK(create_hid_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
         f = function;
         f.reserved8[1] = 1;
-        MIMUSB_CHECK(create_raw_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
+        MIMUSB_CHECK(create_hid_spec_no_id(f, &refused) == MIMUSB_ERR_PARAM && refused == nullptr);
         f = function;
         f.bcd_hid = 0;
-        MIMUSB_CHECK(create_raw_spec_no_id(f, &refused) == MIMUSB_ERR_UNSET_FIELD &&
+        MIMUSB_CHECK(create_hid_spec_no_id(f, &refused) == MIMUSB_ERR_UNSET_FIELD &&
                      refused == nullptr);
     }
     broken = no;
@@ -296,7 +296,7 @@ void test_keep_attached_and_discovery() {
     mimusb_device* device = open_device(o);
     if (device == nullptr)
         return;
-    mimusb_spec* raw = raw_spec_no_id();
+    mimusb_spec* raw = hid_spec_no_id();
     mimusb_node* node = open_node(device, raw);
     MIMUSB_CHECK(node != nullptr);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
@@ -313,7 +313,7 @@ void test_keep_attached_and_discovery() {
         // Device leaves it. The first configuration of the new Device takes it off the bus first,
         // so the target enumerates the new device and the board reports it mounted.
         MIMUSB_CHECK(fake_board_mounted() == 1);
-        mimusb_spec* next = raw_spec_no_id();
+        mimusb_spec* next = hid_spec_no_id();
         mimusb_node* opened = open_node(again, next);
         MIMUSB_CHECK(opened != nullptr);
         MIMUSB_CHECK(mimusb_device_wait_ready(again, 2000) == MIMUSB_OK);
@@ -398,7 +398,7 @@ void test_init_fills_nothing() {
                  o.usb_device.product_id == 0 && o.usb_device.bcd_usb == 0 &&
                  o.usb_device.language_id == 0 && o.usb_device.manufacturer == nullptr &&
                  o.transport.baud_rate == 0 && o.transport.handshake_timeout_ms == 0 &&
-                 o.transport.maximum_report_bytes == 0 && o.transport.linux_hid.usages == 0 &&
+                 o.transport.maximum_report_bytes == 0 && o.target.linux_hid.usages == 0 &&
                  o.usb_config.bm_attributes == 0 && o.usb_config.bmax_power == 0);
     mimusb_device* device = nullptr;
     MIMUSB_CHECK(mimusb_device_open(g_slave.c_str(), &o, &device) == MIMUSB_ERR_UNSET_FIELD &&
@@ -484,12 +484,12 @@ void test_placement_and_roles() {
     mimusb_role_info roles[4]{};
     std::size_t count = 0;
     MIMUSB_CHECK(mimusb_spec_roles(kbd, roles, 4, &count) == MIMUSB_OK && count == 2 &&
-                 roles[0].role == MIMUSB_HID_ROLE_IN && roles[0].required == 1 &&
-                 roles[1].role == MIMUSB_HID_ROLE_OUT && roles[1].required == 0);
+                 roles[0].role == MIMUSB_ROLE_HID_IN && roles[0].required == 1 &&
+                 roles[1].role == MIMUSB_ROLE_HID_OUT && roles[1].required == 0);
     // A capacity below the count writes that many and still reports the count.
     mimusb_role_info one{};
     MIMUSB_CHECK(mimusb_spec_roles(kbd, &one, 1, &count) == MIMUSB_OK && count == 2 &&
-                 one.role == MIMUSB_HID_ROLE_IN);
+                 one.role == MIMUSB_ROLE_HID_IN);
     MIMUSB_CHECK(mimusb_spec_roles(nullptr, roles, 4, &count) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_spec_roles(kbd, roles, 4, nullptr) == MIMUSB_ERR_PARAM);
     MIMUSB_CHECK(mimusb_spec_roles(kbd, nullptr, 1, &count) == MIMUSB_ERR_PARAM);
@@ -502,7 +502,7 @@ void test_placement_and_roles() {
     test_hid_node_config good{};
     test_fill_node_config(&good, 0);
     mimusb_placed_endpoint in{};
-    in.role = MIMUSB_HID_ROLE_IN;
+    in.role = MIMUSB_ROLE_HID_IN;
     in.endpoint = good.ep_in;
     mimusb_node_placement placement;
     mimusb_node_placement_init(&placement);
@@ -582,6 +582,169 @@ void test_placement_and_roles() {
     mimusb_spec_release(ispec);
     MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
     mimusb_spec_release(kbd);
+}
+
+// The rules of a placement, for any kind of Spec: tried before the Spec's own, found by slot, and
+// counted in what a Spec costs.
+void test_extra_rules() {
+    mimusb_device* device = open_device(base_options());
+    if (device == nullptr)
+        return;
+    mimusb_node* node = nullptr;
+    fake_control_result_t res{};
+    const std::uint8_t get_idle[8] = {0xA1, 0x02, 0, 0, 0, 0, 1, 0};
+
+    // A HID Node answers GET_IDLE with the library's rule; a rule of the placement takes it over.
+    mimusb_spec* kbd = keyboard_spec(0);
+    test_hid_node_config good{};
+    test_fill_node_config(&good, 0);
+    mimusb_placed_endpoint in{};
+    in.role = MIMUSB_ROLE_HID_IN;
+    in.endpoint = good.ep_in;
+    mimusb_node_placement placement;
+    mimusb_node_placement_init(&placement);
+    placement.endpoints = &in;
+    placement.endpoint_count = 1;
+    MIMUSB_CHECK(mimusb_node_open(device, kbd, &placement, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
+    fake_board_target_control(get_idle, nullptr, 0);
+    MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 && res.outcome == FAKE_CONTROL_ANSWERED);
+    MIMUSB_CHECK(mimusb_node_close(node, &kCommit, kDrainMs) == MIMUSB_OK);
+    node = nullptr;
+
+    mimusb_control_rule stall{};
+    stall.request_type_mask = 0xFF;
+    stall.request_type_value = 0xA1;
+    stall.request_mask = 0xFF;
+    stall.request_value = 0x02;
+    stall.index_mask = 0xFFFF;
+    stall.index_value = 0;
+    stall.action = MIMUSB_CONTROL_STALL;
+    placement.extra_rules = &stall;
+    placement.extra_rule_count = 1;
+    MIMUSB_CHECK(mimusb_node_open(device, kbd, &placement, &kCommit, &node) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
+    fake_board_target_control(get_idle, nullptr, 0);
+    MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 && res.outcome == FAKE_CONTROL_STALLED);
+    // A Spec names no rule it does not bring.
+    std::size_t index = 99;
+    MIMUSB_CHECK(mimusb_node_find_rule(node, MIMUSB_RULE_SLOT_CDC_LINE_CODING, &index) ==
+                 MIMUSB_ERR_UNSUPPORTED);
+    MIMUSB_CHECK(mimusb_node_close(node, &kCommit, kDrainMs) == MIMUSB_OK);
+    node = nullptr;
+    // A pointer and a count go together.
+    placement.extra_rules = nullptr;
+    MIMUSB_CHECK(mimusb_node_open(device, kbd, &placement, &kCommit, &node) == MIMUSB_ERR_PARAM &&
+                 node == nullptr);
+    placement.extra_rules = &stall;
+    placement.extra_rule_count = 0;
+    MIMUSB_CHECK(mimusb_node_open(device, kbd, &placement, &kCommit, &node) == MIMUSB_ERR_PARAM &&
+                 node == nullptr);
+
+    // What a HID Spec costs in rules: more than its descriptors, with their bytes.
+    std::size_t rules = 0;
+    std::size_t bytes = 0;
+    const std::uint8_t* descriptor = nullptr;
+    std::size_t descriptor_length = 0;
+    MIMUSB_CHECK(mimusb_spec_rule_cost(kbd, &rules, &bytes) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_spec_descriptor(kbd, &descriptor, &descriptor_length) == MIMUSB_OK);
+    MIMUSB_CHECK(rules >= 8 && bytes >= descriptor_length + 11);
+    mimusb_spec_release(kbd);
+
+    // A CDC-ACM Node with a rule of its own: its line coding rule is found after the extra ones.
+    mimusb_cdc_acm_options options;
+    mimusb_cdc_acm_options_init(&options);
+    options.bcd_cdc = 0x0120;
+    options.line_coding[1] = 0xC2; // dwDTERate 49664
+    options.line_coding[6] = 8;
+    mimusb_spec* cdc = nullptr;
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&options, &cdc) == MIMUSB_OK && cdc != nullptr);
+    auto endpoint = [](std::uint8_t address, std::uint8_t type) {
+        mimusb_usb_endpoint ep{};
+        ep.address = address;
+        ep.transfer_type = type;
+        ep.max_packet_size = type == MIMUSB_TRANSFER_BULK ? 64 : 16;
+        ep.interval = type == MIMUSB_TRANSFER_INTERRUPT ? 4 : 0;
+        if ((address & 0x80U) != 0U)
+            ep.policy = {MIMUSB_FULL_DROP_NEWEST, 2};
+        return ep;
+    };
+    mimusb_placed_endpoint placed[3] = {
+        {MIMUSB_ROLE_CDC_NOTIFY, 0, endpoint(0x82, MIMUSB_TRANSFER_INTERRUPT)},
+        {MIMUSB_ROLE_CDC_DATA_IN, 0, endpoint(0x83, MIMUSB_TRANSFER_BULK)},
+        {MIMUSB_ROLE_CDC_DATA_OUT, 0, endpoint(0x03, MIMUSB_TRANSFER_BULK)}};
+    mimusb_node_placement cp;
+    mimusb_node_placement_init(&cp);
+    cp.endpoints = placed;
+    cp.endpoint_count = 3;
+    cp.extra_rules = &stall;
+    cp.extra_rule_count = 1;
+    // Each role has its type and direction, and all three are required.
+    mimusb_placed_endpoint wrong = placed[1];
+    wrong.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+    mimusb_placed_endpoint wrong_set[3] = {placed[0], wrong, placed[2]};
+    mimusb_node_placement bad = cp;
+    bad.endpoints = wrong_set;
+    MIMUSB_CHECK(mimusb_node_open(device, cdc, &bad, &kCommit, &node) == MIMUSB_ERR_UNSUPPORTED &&
+                 node == nullptr);
+    bad = cp;
+    bad.endpoint_count = 2;
+    MIMUSB_CHECK(mimusb_node_open(device, cdc, &bad, &kCommit, &node) == MIMUSB_ERR_UNSET_FIELD &&
+                 node == nullptr);
+    mimusb_placed_endpoint hid_role[3] = {placed[0], placed[1], placed[2]};
+    hid_role[2].role = MIMUSB_ROLE_HID_IN;
+    bad.endpoints = hid_role;
+    bad.endpoint_count = 3;
+    MIMUSB_CHECK(mimusb_node_open(device, cdc, &bad, &kCommit, &node) == MIMUSB_ERR_PARAM &&
+                 node == nullptr);
+
+    MIMUSB_CHECK(mimusb_node_open(device, cdc, &cp, &kCommit, &node) == MIMUSB_OK &&
+                 node != nullptr);
+    MIMUSB_CHECK(mimusb_node_find_rule(node, MIMUSB_RULE_SLOT_CDC_LINE_CODING, &index) ==
+                     MIMUSB_OK &&
+                 index == 2); // after the one extra rule
+    MIMUSB_CHECK(mimusb_device_wait_ready(device, 2000) == MIMUSB_OK);
+    const std::uint8_t get_coding[8] = {0xA1, 0x21, 0, 0, 0, 0, 7, 0};
+    fake_board_target_control(get_coding, nullptr, 0);
+    MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 && res.outcome == FAKE_CONTROL_ANSWERED &&
+                 res.length == 7 && std::memcmp(res.data, options.line_coding, 7) == 0);
+    const std::uint8_t next[7] = {0x00, 0x4B, 0x00, 0x00, 0x00, 0x00, 0x08};
+    MIMUSB_CHECK(mimusb_node_set_rule_data(node, index, next, sizeof(next), kControlMs) ==
+                 MIMUSB_OK);
+    fake_board_target_control(get_coding, nullptr, 0);
+    MIMUSB_CHECK(fake_board_wait_control(&res, 2000) != 0 && res.outcome == FAKE_CONTROL_ANSWERED &&
+                 res.length == 7 && std::memcmp(res.data, next, 7) == 0);
+    // The extra rule is number 0 and is not an ANSWER rule.
+    MIMUSB_CHECK(mimusb_node_set_rule_data(node, 0, next, sizeof(next), kControlMs) ==
+                 MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(mimusb_node_close(node, &kCommit, kDrainMs) == MIMUSB_OK);
+
+    // The options an unset or bad value is refused in.
+    mimusb_spec* refused = nullptr;
+    mimusb_cdc_acm_options o = options;
+    o.bcd_cdc = 0;
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&o, &refused) == MIMUSB_ERR_UNSET_FIELD &&
+                 refused == nullptr);
+    o = options;
+    std::memset(o.line_coding, 0, 4);
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&o, &refused) == MIMUSB_ERR_UNSET_FIELD);
+    o = options;
+    o.reserved8b = 1;
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&o, &refused) == MIMUSB_ERR_PARAM);
+    o = options;
+    o.struct_size = 1;
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&o, &refused) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(nullptr, &refused) == MIMUSB_ERR_PARAM);
+    MIMUSB_CHECK(mimusb_spec_create_cdc_acm(&options, nullptr) == MIMUSB_ERR_PARAM);
+    std::size_t interfaces = 0;
+    MIMUSB_CHECK(mimusb_spec_interface_count(cdc, &interfaces) == MIMUSB_OK && interfaces == 2);
+    mimusb_role_info roles[4]{};
+    std::size_t count = 0;
+    MIMUSB_CHECK(mimusb_spec_roles(cdc, roles, 4, &count) == MIMUSB_OK && count == 3 &&
+                 roles[0].role == MIMUSB_ROLE_CDC_NOTIFY &&
+                 roles[2].role == MIMUSB_ROLE_CDC_DATA_OUT && roles[2].required == 1);
+    mimusb_spec_release(cdc);
+    MIMUSB_CHECK(mimusb_device_close(device, kControlMs, kDrainMs) == MIMUSB_OK);
 }
 
 } // namespace sim

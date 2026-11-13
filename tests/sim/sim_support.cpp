@@ -165,9 +165,9 @@ constexpr std::uint8_t kRawDescriptorNoId[] = {0x05, 0x01, 0x09, 0x06, 0xA1, 0x0
                                                0x09, 0x01, 0x81, 0x02, 0xC0};
 } // namespace
 
-mimusb_result create_raw_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out) {
-    static const mimusb_raw_report report{{0, 0, {}}, 1};
-    mimusb_raw_options o{};
+mimusb_result create_hid_spec_no_id(const mimusb_hid_function& function, mimusb_spec** out) {
+    static const mimusb_hid_report report{{0, 0, {}}, 1};
+    mimusb_hid_options o{};
     o.struct_size = sizeof(o);
     o.function.bcd_hid = 0x0111;
     o.descriptor = kRawDescriptorNoId;
@@ -175,14 +175,14 @@ mimusb_result create_raw_spec_no_id(const mimusb_hid_function& function, mimusb_
     o.reports = &report;
     o.report_count = 1;
     o.function = function;
-    return mimusb_spec_create_raw(&o, out);
+    return mimusb_spec_create_hid(&o, out);
 }
 
-mimusb_spec* raw_spec_no_id() {
+mimusb_spec* hid_spec_no_id() {
     mimusb_hid_function function;
     test_fill_function(&function);
     mimusb_spec* spec = nullptr;
-    MIMUSB_CHECK(create_raw_spec_no_id(function, &spec) == MIMUSB_OK);
+    MIMUSB_CHECK(create_hid_spec_no_id(function, &spec) == MIMUSB_OK);
     return spec;
 }
 
@@ -192,9 +192,9 @@ constexpr std::uint8_t kRawDescriptorIo[] = {
     0x08, 0x09, 0x01, 0x81, 0x02, 0x09, 0x02, 0x91, 0x02, 0x09, 0x03, 0xB1, 0x02, 0xC0};
 } // namespace
 
-mimusb_spec* raw_spec_io() {
-    static const mimusb_raw_report report{{1, 5, {}}, 2};
-    mimusb_raw_options o{};
+mimusb_spec* hid_spec_io() {
+    static const mimusb_hid_report report{{1, 5, {}}, 2};
+    mimusb_hid_options o{};
     o.struct_size = sizeof(o);
     o.function.bcd_hid = 0x0111;
     o.descriptor = kRawDescriptorIo;
@@ -204,7 +204,7 @@ mimusb_spec* raw_spec_io() {
     o.requires_output = 1;
     o.requires_feature_response = 1;
     mimusb_spec* spec = nullptr;
-    MIMUSB_CHECK(mimusb_spec_create_raw(&o, &spec) == MIMUSB_OK);
+    MIMUSB_CHECK(mimusb_spec_create_hid(&o, &spec) == MIMUSB_OK);
     return spec;
 }
 

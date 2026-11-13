@@ -24,7 +24,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(),
                           {0x15U, 0x00U, 0x27U, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x75U, 0x20U, 0x95U,
                            0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(4U);
+        const mimusb_hid_report report = idless_report(4U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -39,7 +39,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(),
                           {0x15U, 0xFFU, 0x27U, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x75U, 0x20U, 0x95U,
                            0x01U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(4U);
+        const mimusb_hid_report report = idless_report(4U);
         // Minimum -1 makes the four-byte Maximum signed, so 0xffffffff is -1.
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
@@ -57,7 +57,7 @@ void test_raw_arithmetic_and_failure_paths() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 33U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(5U);
+        const mimusb_hid_report report = idless_report(5U);
         mimusb::hid::DescriptorRequirements requirements{99U, 99U, 99U, 99U, 99U};
         const mimusb::hid::ValidationIssue result = mimusb::hid::validate_raw(
             descriptor.data(), descriptor.size(), &report, 1U, nullptr, &requirements);
@@ -73,7 +73,7 @@ void test_raw_arithmetic_and_failure_paths() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 31U, 2U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(8U);
+        const mimusb_hid_report report = idless_report(8U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_PARAM);
@@ -82,7 +82,7 @@ void test_raw_arithmetic_and_failure_paths() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 32U, std::numeric_limits<std::uint32_t>::max());
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         // On a 64-bit host the computed wire length exceeds the public u32
         // table field; on a 32-bit host the Size*Count product overflows
         // size_t first. Both paths are an arithmetic overflow, not a generic
@@ -95,7 +95,7 @@ void test_raw_arithmetic_and_failure_paths() {
         auto descriptor = application_preamble();
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x91U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_UNSUPPORTED);
@@ -107,7 +107,7 @@ void test_raw_arithmetic_and_failure_paths() {
         // In the selected target's fetch_item(), every tag-15 prefix denotes
         // a long item, not only the canonical FE prefix.
         descriptor.insert(descriptor.end(), {0xF0U, 0x00U, 0x00U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_UNSUPPORTED);
@@ -118,7 +118,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
         // hid_open_report() rejects a Local delimiter left open at EOF.
         descriptor.insert(descriptor.end(), {0xA9U, 0x01U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_PARAM);
@@ -129,7 +129,7 @@ void test_raw_arithmetic_and_failure_paths() {
         // Constant padding item that has no local Usage.
         descriptor.insert(descriptor.end(), {0x15U, 0x02U, 0x25U, 0x01U, 0x75U, 0x08U, 0x95U, 0x01U,
                                              0x81U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_PARAM);
@@ -142,7 +142,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(), {0xC5U, 0x00U});
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_ERR_PARAM);
@@ -156,7 +156,7 @@ void test_raw_arithmetic_and_failure_paths() {
                           {0x35U, 0x00U, 0x45U, 0x01U, 0x55U, 0x0CU, 0x65U, 0x11U});
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         const mimusb::hid::ValidationIssue result =
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U);
         MIMUSB_CHECK(result.result == MIMUSB_OK);
@@ -169,7 +169,7 @@ void test_raw_arithmetic_and_failure_paths() {
         // later Input after Global state is explicitly reset to zero.
         descriptor.insert(descriptor.end(),
                           {0x65U, 0x11U, 0x65U, 0x00U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -181,7 +181,7 @@ void test_raw_arithmetic_and_failure_paths() {
         // and Unit Exponent when a non-None Unit qualifies any data Main item,
         // including Constant padding with no local Usage.
         descriptor.insert(descriptor.end(), {0x65U, 0x11U, 0x81U, 0x01U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -199,7 +199,7 @@ void test_raw_arithmetic_and_failure_paths() {
             descriptor.insert(descriptor.end(), {0x55U, 0x0CU});
         }
         descriptor.insert(descriptor.end(), {0x65U, 0x11U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);
@@ -210,7 +210,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(),
                           {0x35U, 0x00U, 0x45U, 0x01U, 0x55U, 0x0CU, 0x65U, 0x11U, 0xA4U, 0x65U,
                            0x00U, 0xB4U, 0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_OK);
@@ -222,7 +222,7 @@ void test_raw_arithmetic_and_failure_paths() {
         descriptor.insert(descriptor.end(), {0x55U, 0xFCU});
         append_globals(&descriptor, 1U, 1U);
         descriptor.insert(descriptor.end(), {0x09U, 0x01U, 0x81U, 0x02U, 0xC0U});
-        const mimusb_raw_report report = idless_report(1U);
+        const mimusb_hid_report report = idless_report(1U);
         MIMUSB_CHECK(
             mimusb::hid::validate_raw(descriptor.data(), descriptor.size(), &report, 1U).result ==
             MIMUSB_ERR_PARAM);

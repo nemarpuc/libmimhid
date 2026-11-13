@@ -45,7 +45,7 @@ ValidationIssue validate_generated(const std::uint8_t* descriptor, std::size_t d
 // allow_output and allow_feature admit Output and Feature Main items, which are passed through
 // unchecked: only Input reports are described by the accepted-report table.
 ValidationIssue validate_raw(const std::uint8_t* descriptor, std::size_t descriptor_length,
-                             const mimusb_raw_report* reports, std::size_t report_count,
+                             const mimusb_hid_report* reports, std::size_t report_count,
                              std::uint8_t* trailing_valid_masks = nullptr,
                              DescriptorRequirements* requirements = nullptr,
                              bool allow_output = false, bool allow_feature = false);

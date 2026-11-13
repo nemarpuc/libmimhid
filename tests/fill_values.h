@@ -17,12 +17,12 @@ static inline void test_fill_device_config(mimusb_device_config* config) {
     config->transport.baud_rate = 115200U;
     config->transport.handshake_timeout_ms = 50U;
     config->transport.maximum_report_bytes = 64U;
-    config->transport.linux_hid.descriptor_bytes = 4096U;
-    config->transport.linux_hid.fields_per_report = 256U;
-    config->transport.linux_hid.global_stack_depth = 4U;
-    config->transport.linux_hid.report_size_bits = 256U;
-    config->transport.linux_hid.usages = 12288U;
-    config->transport.linux_hid.report_data_bits = 65528U;
+    config->target.linux_hid.descriptor_bytes = 4096U;
+    config->target.linux_hid.fields_per_report = 256U;
+    config->target.linux_hid.global_stack_depth = 4U;
+    config->target.linux_hid.report_size_bits = 256U;
+    config->target.linux_hid.usages = 12288U;
+    config->target.linux_hid.report_data_bits = 65528U;
     config->transport.log_level = MIMUSB_LOG_DISABLED;
     config->usb_device.bcd_usb = 0x0200U;
     config->usb_device.vendor_id = 0x1209U;
@@ -87,13 +87,13 @@ static inline mimusb_result test_node_open_hid(mimusb_device* device, mimusb_spe
         return mimusb_node_open(device, spec, NULL, timeouts, out_node);
     mimusb_node_placement_init(&placement);
     memset(&endpoints[0], 0, sizeof(endpoints[0]));
-    endpoints[0].role = MIMUSB_HID_ROLE_IN;
+    endpoints[0].role = MIMUSB_ROLE_HID_IN;
     endpoints[0].endpoint = config->ep_in;
     count = 1U;
     if (config->ep_out.address != 0U || config->ep_out.max_packet_size != 0U ||
         config->ep_out.transfer_type != 0U || config->ep_out.interval != 0U) {
         memset(&endpoints[1], 0, sizeof(endpoints[1]));
-        endpoints[1].role = MIMUSB_HID_ROLE_OUT;
+        endpoints[1].role = MIMUSB_ROLE_HID_OUT;
         endpoints[1].endpoint = config->ep_out;
         count = 2U;
     }

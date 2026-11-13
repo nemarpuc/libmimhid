@@ -9,6 +9,7 @@ How the host implementation behind `include/mimusb.h` works: which object owns w
 | `src/api` | The ABI boundary, split across four files by what an entry point works on: `c_api_device.cpp` (discovery, Device lifecycle, control transfers), `c_api_node.cpp` (opening, configuring, and closing Nodes), `c_api_send.cpp` (report submission and the serial write path), and `device_ops.cpp` (the internals the entry points share: option checks, interface assignment, the rule table, commit, event delivery) and `c_api_endpoint.cpp` (the endpoint calls and `endpoint_write`, which a profile Node's reports use too). `support.hpp` declares what crosses files and holds the exception-barrier macros; `internal.hpp` defines the handles; `error_detail.cpp` holds the per-thread error record. | everything below |
 | `src/usb` | `descriptor_composer.cpp` composes the device, configuration and string descriptors (no class); `hid_layer.cpp` groups profile Nodes into interfaces (`compose_hid_groups`) and writes their control rules (`compose_hid_rules`); `board_rule.hpp` is one rule as the library keeps it. Pure code, no I/O. | `src/hid` |
 | `src/profiles` | `spec.cpp` builds a Spec from the options of each profile. `state.cpp` holds the per-Node state machines and the bit-exact serializers. | `src/hid` |
+| `src/classes` | One file for each class of function that keeps no state: `cdc_acm.cpp` makes the `mimusb_spec_create_cdc_acm` Spec, and, at the placement of its Node, the interfaces, class descriptors, association and control rules, which `mimusb_node_open` opens as it opens any interfaces (`open_interfaces` in `src/api/c_api_node.cpp`). A class without a state is added here, as one more factory and one more `build_*` function; the board and `src/usb` do not change. |
 | `src/hid` | The report descriptor builder (`descriptor_builder`, `item_writer`), the layout it records (`report_layout.hpp`), and the validator that parses a descriptor back (`validator.cpp`). | nothing |
 | `src/transport` | `frame.*` (`FrameParser`, `encode_frame`, `decode_pong`), `Link` (ACK and retry, reader thread), `Handshaker` (finds a board and agrees a line rate), and `SerialPort` with one implementation per platform (`serial_posix.cpp`, `serial_baud_linux.cpp`, `serial_win32.cpp`) and port listing (`ports_linux.cpp`, `ports_macos.cpp`, `ports_win32.cpp`). | `proto/mimusb_proto.h` |
 
@@ -49,7 +50,7 @@ The error record is `thread_local` (`error_detail.cpp`): each call clears it on 
 
 `mimusb_node_submit` (`c_api_send.cpp`) builds and writes one report, synchronously:
 
-1. Check the arguments and the profile (a Raw Node must use `mimusb_raw_submit`).
+1. Check the arguments and the profile (a generic HID Node must use `mimusb_hid_submit`).
 2. `link_available`: refuse when the serial link is gone, the Node was opened in a batch that has not ended, or the board is re-enumerating.
 3. `transfer_inflight.exchange(true)`; refuse with `MIMUSB_ERR_BUSY` when it was already set.
 4. `consume_completion`: surface the result of the previous report.
@@ -149,7 +150,7 @@ Each decision states what the code does. A reason is given only where the reposi
 - `mimusb.unit` links `mimusb_test_objects`, a second compile of the sources, so it can call the internal functions (`serialize_node`, `FrameParser`, the descriptor builder) that the shared library does not export.
 - `mimusb.scripted` (`tests/scripted/`) runs the host library over a pseudo-terminal against a scripted board peer to test protocol edge cases, NAKs, timeouts, and hangups.
 - `mimusb.sim-*` (`tests/sim/`) runs the real firmware core against the host library through a pseudo-terminal (`tests/sim/fake_board.c`) for Full-Speed builds with 15, 7 and 3 endpoint numbers and a High-Speed build. The board's HID behaviour is what the rules make it: the fake target reads descriptors, reports and Feature answers with control transfers, as a real target does. It needs a TinyUSB checkout (`MIMUSB_TINYUSB_PATH`).
-- `tests/fuzz/fuzz_descriptor.cpp` (`MIMUSB_BUILD_FUZZ=ON`, Clang) feeds the descriptor builder, the serializer, the raw-descriptor validator, and the `FrameParser`.
+- `tests/fuzz/fuzz_descriptor.cpp` (`MIMUSB_BUILD_FUZZ=ON`, Clang) feeds the descriptor builder, the serializer, the generic HID descriptor validator, and the `FrameParser`.
 - `bindings/*/tests` compare each binding's layout with `tests/abi/layout_oracle.c`, compiled from the header.
 - `mimusb.example-profile-*` build a Spec of every profile kind and check its manifest against the descriptor.
 - CI formats with `clang-format` 14 and lints the production sources with `clang-tidy` 14 (`.clang-tidy`; the Windows sources cannot be parsed on Linux and are skipped). A newer version of either tool reports and lays out some things differently. `bugprone-easily-swappable-parameters` is silenced with `NOLINTNEXTLINE` on functions whose parameters follow the wire or the C ABI order, as in `libaoahid`; the other checks are fixed in the code.

@@ -43,7 +43,7 @@ add_executable(mimusb_tests
     tests/unit/test_profiles_gamepad.cpp
     tests/unit/test_profiles_touch.cpp
     tests/unit/test_profiles_pen.cpp
-    tests/unit/test_profiles_raw.cpp
+    tests/unit/test_profiles_hid.cpp
     tests/unit/test_profiles_battery.cpp
     tests/unit/test_error_detail.cpp
     tests/unit/test_api_arguments.cpp
@@ -70,7 +70,7 @@ if(NOT WIN32)
         tests/scripted/test_api_commands.cpp
         tests/scripted/test_api_events.cpp
         tests/scripted/test_api_open.cpp
-        tests/scripted/test_api_raw_node.cpp
+        tests/scripted/test_api_hid_node.cpp
         tests/scripted/test_api_generic.cpp
         tests/scripted/test_api_reports.cpp
         tests/scripted/test_handshaker.cpp

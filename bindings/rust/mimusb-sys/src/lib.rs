@@ -25,6 +25,7 @@ pub type mimusb_event_kind = i32;
 pub type mimusb_control_action = i32;
 pub type mimusb_control_rule_action = i32;
 pub type mimusb_endpoint_role = i32;
+pub type mimusb_rule_slot = i32;
 
 pub const MIMUSB_BAUD_FASTEST: u32 = 4294967295;
 pub const MIMUSB_BOOT_BAUD: u32 = 115200;
@@ -38,8 +39,8 @@ pub const MIMUSB_CONTROL_MAX_TIMEOUT_MS: i32 = 5000;
 pub const MIMUSB_HOST_MAX_REPORT_BYTES: i32 = 1024;
 pub const MIMUSB_LOSS_MAX_INTERVAL_MS: u32 = 60000;
 pub const MIMUSB_VERSION_MAJOR: u32 = 0;
-pub const MIMUSB_VERSION_MINOR: u32 = 6;
-pub const MIMUSB_VERSION_PATCH: u32 = 1;
+pub const MIMUSB_VERSION_MINOR: u32 = 7;
+pub const MIMUSB_VERSION_PATCH: u32 = 0;
 pub const MIMUSB_OK: i32 = 0;
 pub const MIMUSB_ERR_PARAM: i32 = 1;
 pub const MIMUSB_ERR_UNSET_FIELD: i32 = 2;
@@ -66,8 +67,9 @@ pub const MIMUSB_PROFILE_PEN: i32 = 5;
 pub const MIMUSB_PROFILE_DIGITIZER: i32 = 6;
 pub const MIMUSB_PROFILE_GAMEPAD: i32 = 7;
 pub const MIMUSB_PROFILE_TOGGLE: i32 = 8;
-pub const MIMUSB_PROFILE_RAW: i32 = 9;
+pub const MIMUSB_PROFILE_HID: i32 = 9;
 pub const MIMUSB_PROFILE_INTERFACES: i32 = 10;
+pub const MIMUSB_PROFILE_CDC_ACM: i32 = 11;
 pub const MIMUSB_AXIS_X: i32 = 1;
 pub const MIMUSB_AXIS_Y: i32 = 2;
 pub const MIMUSB_AXIS_Z: i32 = 3;
@@ -118,8 +120,12 @@ pub const MIMUSB_CONTROL_ANSWER_LAST_SENT: i32 = 2;
 pub const MIMUSB_CONTROL_ACCEPT: i32 = 3;
 pub const MIMUSB_CONTROL_ASK: i32 = 4;
 pub const MIMUSB_CONTROL_STALL: i32 = 5;
-pub const MIMUSB_HID_ROLE_IN: i32 = 1;
-pub const MIMUSB_HID_ROLE_OUT: i32 = 2;
+pub const MIMUSB_ROLE_HID_IN: i32 = 1;
+pub const MIMUSB_ROLE_HID_OUT: i32 = 2;
+pub const MIMUSB_ROLE_CDC_NOTIFY: i32 = 3;
+pub const MIMUSB_ROLE_CDC_DATA_IN: i32 = 4;
+pub const MIMUSB_ROLE_CDC_DATA_OUT: i32 = 5;
+pub const MIMUSB_RULE_SLOT_CDC_LINE_CODING: i32 = 1;
 pub const MIMUSB_CONTROL_FLAG_HELD: i32 = 1;
 pub const MIMUSB_CONTROL_FLAG_TOO_LONG: i32 = 2;
 pub const MIMUSB_CONTROL_FLAG_FIXED: i32 = 4;
@@ -266,11 +272,15 @@ pub struct mimusb_linux_hid_policy {
 }
 
 #[repr(C)]
+pub struct mimusb_target_limits {
+    pub linux_hid: mimusb_linux_hid_policy,
+}
+
+#[repr(C)]
 pub struct mimusb_transport_options {
     pub baud_rate: u32,
     pub handshake_timeout_ms: u32,
     pub maximum_report_bytes: u32,
-    pub linux_hid: mimusb_linux_hid_policy,
     pub validate_reports: u32,
     pub keep_attached: u32,
     pub event_sink: mimusb_event_sink,
@@ -285,6 +295,7 @@ pub struct mimusb_device_config {
     pub struct_size: u32,
     pub reserved: u32,
     pub transport: mimusb_transport_options,
+    pub target: mimusb_target_limits,
     pub usb_device: mimusb_usb_device,
     pub usb_config: mimusb_usb_config,
 }
@@ -398,6 +409,8 @@ pub struct mimusb_node_placement {
     pub name: *const c_char,
     pub endpoints: *const mimusb_placed_endpoint,
     pub endpoint_count: usize,
+    pub extra_rules: *const mimusb_control_rule,
+    pub extra_rule_count: usize,
 }
 
 #[repr(C)]
@@ -633,22 +646,36 @@ pub struct mimusb_digitizer_options {
 }
 
 #[repr(C)]
-pub struct mimusb_raw_report {
+pub struct mimusb_hid_report {
     pub report_id: mimusb_report_id_option,
     pub wire_length: u32,
 }
 
 #[repr(C)]
-pub struct mimusb_raw_options {
+pub struct mimusb_hid_options {
     pub struct_size: u32,
     pub reserved: u32,
     pub descriptor: *const u8,
     pub descriptor_length: usize,
-    pub reports: *const mimusb_raw_report,
+    pub reports: *const mimusb_hid_report,
     pub report_count: usize,
     pub requires_output: u32,
     pub requires_feature_response: u32,
     pub function: mimusb_hid_function,
+}
+
+#[repr(C)]
+pub struct mimusb_cdc_acm_options {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub bcd_cdc: u16,
+    pub protocol: u8,
+    pub call_management_capabilities: u8,
+    pub acm_capabilities: u8,
+    pub reserved8: [u8; 3],
+    pub line_coding: [u8; 7],
+    pub reserved8b: u8,
+    pub data_name: *const c_char,
 }
 
 #[repr(C)]
@@ -714,15 +741,6 @@ pub struct mimusb_digitizer_sample {
     pub twist: i32,
 }
 
-#[repr(C)]
-pub struct mimusb_cdc_acm_descriptors {
-    pub header: [u8; 5],
-    pub call_management: [u8; 5],
-    pub acm: [u8; 4],
-    pub union_: [u8; 5],
-    pub association: [u8; 8],
-}
-
 extern "C" {
     pub fn mimusb_last_error() -> *const mimusb_error_detail;
     pub fn mimusb_result_name(result: mimusb_result) -> *const c_char;
@@ -751,10 +769,7 @@ extern "C" {
     pub fn mimusb_device_set_control_rules(device: *mut mimusb_device, report_all: u32, rules: *const mimusb_control_rule, rule_count: usize, control_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_device_set_rule_data(device: *mut mimusb_device, rule_index: usize, data: *const u8, length: usize, control_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_node_set_rule_data(node: *mut mimusb_node, rule_index: usize, data: *const u8, length: usize, control_timeout_ms: u32) -> mimusb_result;
-    pub fn mimusb_hid_descriptor_bytes(bcd_hid: u16, country_code: u8, report_descriptor_length: usize, out: *mut u8) -> mimusb_result;
-    pub fn mimusb_hid_descriptor_rule(interface_number: u8, descriptor_type: u8, bytes: *const u8, length: usize, out_rule: *mut mimusb_control_rule) -> mimusb_result;
-    pub fn mimusb_cdc_acm_descriptors_make(bcd_cdc: u16, control_interface: u8, call_management_capabilities: u8, acm_capabilities: u8, out: *mut mimusb_cdc_acm_descriptors) -> mimusb_result;
-    pub fn mimusb_cdc_acm_rules(control_interface: u8, line_coding: *const u8, out_rules: *mut mimusb_control_rule) -> mimusb_result;
+    pub fn mimusb_node_find_rule(node: *const mimusb_node, slot: mimusb_rule_slot, out_rule_index: *mut usize) -> mimusb_result;
     pub fn mimusb_device_control_reply(device: *mut mimusb_device, token: u32, action: mimusb_control_action, data: *const u8, length: usize, send_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_device_set_loss_reporting(device: *mut mimusb_device, enabled: u32, interval_ms: u32, control_timeout_ms: u32) -> mimusb_result;
     pub fn mimusb_device_add_string(device: *mut mimusb_device, utf8: *const c_char, out_index: *mut u8) -> mimusb_result;
@@ -777,9 +792,12 @@ extern "C" {
     pub fn mimusb_spec_create_touchpad(options: *const mimusb_touchpad_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_create_pen(options: *const mimusb_pen_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_create_digitizer(options: *const mimusb_digitizer_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
-    pub fn mimusb_spec_create_raw(options: *const mimusb_raw_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
+    pub fn mimusb_spec_create_hid(options: *const mimusb_hid_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
+    pub fn mimusb_spec_create_cdc_acm(options: *const mimusb_cdc_acm_options, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_create_interfaces(config: *const mimusb_node_config, out_spec: *mut *mut mimusb_spec) -> mimusb_result;
     pub fn mimusb_spec_roles(spec: *const mimusb_spec, out_roles: *mut mimusb_role_info, capacity: usize, out_count: *mut usize) -> mimusb_result;
+    pub fn mimusb_spec_interface_count(spec: *const mimusb_spec, out_count: *mut usize) -> mimusb_result;
+    pub fn mimusb_spec_rule_cost(spec: *const mimusb_spec, out_rules: *mut usize, out_answer_bytes: *mut usize) -> mimusb_result;
     pub fn mimusb_spec_retain(spec: *mut mimusb_spec);
     pub fn mimusb_spec_release(spec: *mut mimusb_spec);
     pub fn mimusb_spec_descriptor(spec: *const mimusb_spec, bytes: *const *const u8, length: *mut usize) -> mimusb_result;
@@ -810,5 +828,5 @@ extern "C" {
     pub fn mimusb_pen_update(node: *mut mimusb_node, sample: *const mimusb_pen_sample) -> mimusb_result;
     pub fn mimusb_digitizer_update(node: *mut mimusb_node, sample: *const mimusb_digitizer_sample) -> mimusb_result;
     pub fn mimusb_battery_update(node: *mut mimusb_node, strength: i32) -> mimusb_result;
-    pub fn mimusb_raw_submit(node: *mut mimusb_node, report: *const u8, length: usize, send_timeout_ms: u32) -> mimusb_result;
+    pub fn mimusb_hid_submit(node: *mut mimusb_node, report: *const u8, length: usize, send_timeout_ms: u32) -> mimusb_result;
 }
