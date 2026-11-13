@@ -98,7 +98,6 @@ static int g_bootloader_entered;
 bool hal_has_bootloader(void) { return g_has_bootloader; }
 void hal_enter_bootloader(void) { g_bootloader_entered++; }
 void hal_control_silent_drop(void) {}
-void hal_usb_clear_endpoint(uint8_t address) { (void)address; }
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
     (void)ep_addr;
@@ -152,6 +151,10 @@ bool tud_remote_wakeup(void) {
 // both, and usbd_edpt_xfer refuses an endpoint that is busy.
 static struct {
     bool opened, busy, stalled;
+    // The controller armed a transfer with the data toggle of the time, and the toggle was reset
+    // since without the transfer being started again (RP2040: dcd_edpt_clear_stall sets next_pid
+    // to DATA0 but does not touch the buffer control of a transfer already armed).
+    bool stale;
     uint8_t* buffer;
     uint16_t length;
     int xfers; // transfers started since the endpoint was opened
@@ -193,10 +196,16 @@ bool usbd_edpt_stalled(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
     return EPSTATE(ep_addr).stalled;
 }
+// Takes the armed transfer off the controller, as the RP2040's driver needs before another is armed.
+void hal_usb_clear_endpoint(uint8_t address) { EPSTATE(address).stale = false; }
 bool usbd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
     (void)rhport;
     assert(EPSTATE(ep_addr).opened && !EPSTATE(ep_addr).busy);
+    // "ep was already available": the driver stops when a transfer is armed on top of one that is
+    // still armed.
+    assert(!EPSTATE(ep_addr).stale);
     EPSTATE(ep_addr).busy = true;
+    EPSTATE(ep_addr).stale = false;
     EPSTATE(ep_addr).buffer = buffer;
     EPSTATE(ep_addr).length = total_bytes;
     EPSTATE(ep_addr).xfers++;
@@ -216,6 +225,7 @@ void usbd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
 }
 void usbd_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
+    EPSTATE(ep_addr).stale = EPSTATE(ep_addr).busy && !EPSTATE(ep_addr).stalled;
     EPSTATE(ep_addr).stalled = false;
     EPSTATE(ep_addr).busy = false;
 }
@@ -3610,6 +3620,40 @@ static void test_generic(void) {
         r.wValue = TUSB_REQ_FEATURE_EDPT_HALT;
         r.wIndex = 0x84; // not in the configuration
         assert(!gen_driver()->control_xfer_cb(0, CONTROL_STAGE_SETUP, &r));
+    }
+
+    // ClearFeature(ENDPOINT_HALT) of an endpoint that is not halted, as the host's clear_halt in
+    // the recovery of a Bulk-Only reset: the toggle goes back to DATA0 whatever the state (USB 2.0
+    // 9.4.5). A transfer armed before keeps the toggle it was armed with, so it is started again.
+    {
+        vendor_commit(2, MIMUSB_EP_FULL_WAIT, 2, MIMUSB_EP_FULL_DROP_NEWEST);
+        start_loss_counting();
+        reset_io();
+        const uint8_t P[4] = {1, 2, 3, 4}, Q[4] = {5, 6, 7, 8};
+        // OUT: armed, and still armed after the clear, with nothing stale in the controller.
+        assert(EPSTATE(0x01).busy);
+        const int armed = EPSTATE(0x01).xfers;
+        target_halt(0x01, false);
+        assert(!EPSTATE(0x01).stale && EPSTATE(0x01).busy && EPSTATE(0x01).xfers == armed + 1);
+        out_packet(1, P, 4);
+        pump();
+        assert(out_frames(1, P, 4) == 1 && EPSTATE(0x01).busy);
+        // IN with nothing on the bus: nothing to start again.
+        const int idle = EPSTATE(0x81).xfers;
+        target_halt(0x81, false);
+        assert(!EPSTATE(0x81).busy && EPSTATE(0x81).xfers == idle && !EPSTATE(0x81).stale);
+        // IN with a transfer on the bus: the same bytes go again with the new toggle, and the
+        // transfer is neither lost nor counted twice.
+        reset_io();
+        ep_in(1, Q, 4);
+        pump();
+        assert(EPSTATE(0x81).busy && EPSTATE(0x81).xfers == idle + 1);
+        target_halt(0x81, false);
+        assert(!EPSTATE(0x81).stale && EPSTATE(0x81).busy && EPSTATE(0x81).xfers == idle + 2 &&
+               EPSTATE(0x81).length == 4 && memcmp(EPSTATE(0x81).buffer, Q, 4) == 0);
+        complete_in(1);
+        pump();
+        assert(event_sum(MIMUSB_EV_EP_DONE, 0x81) == 1 && event_sum(MIMUSB_EV_TRANSFER_LOST, 0x81) == 0);
     }
 
     // EP_FLUSH and the refusals of EP_STALL / EP_FLUSH.

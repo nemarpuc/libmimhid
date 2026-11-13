@@ -9,7 +9,7 @@ change of the minor number may change the API, the ABI or the wire protocol.
 ## [0.6.0] - 2026-11-13
 
 The C ABI changes: one way to open a Node. A Spec says what a function is, a placement says where
-it goes on a Device. The wire protocol and the firmware are unchanged.
+it goes on a Device. The wire protocol is unchanged; the firmware has one fix (below).
 
 ### Changed
 
@@ -24,6 +24,13 @@ it goes on a Device. The wire protocol and the firmware are unchanged.
 - Any class of Node is a Spec too: `mimusb_spec_create_interfaces(mimusb_node_config*)` copies the
   interfaces, items and rules into a Spec of kind `MIMUSB_PROFILE_INTERFACES`, which is opened with
   an empty placement.
+
+### Fixed
+
+- Firmware (RP2040, RP2350): `CLEAR_FEATURE(ENDPOINT_HALT)` on an endpoint that was not halted left an
+  armed OUT transfer expecting the old data toggle, so the target's next packet (DATA0) was taken for
+  a retransmission and dropped. The toggle is now returned to DATA0 at once (USB 2.0 9.4.5), which is
+  what a Bulk-Only Mass Storage Reset needs.
 
 ### Added
 

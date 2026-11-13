@@ -62,6 +62,7 @@ typedef struct {
     uint16_t base;
     uint16_t n;
     bool inflight; // a transfer is on the bus, from g_bus
+    uint16_t bus_len; // its length, to start it again (resume_after_clear)
     bool orphan; // a flush forgot the transfer on the bus; its completion is not counted
     bool open;   // the target configured the device: the endpoint is open
     uint16_t done; // completions not yet reported (wait policy only)
@@ -238,6 +239,7 @@ static bool producing(const in_t* q) {
 }
 
 static void in_service(uint8_t number);
+static void lost_add(in_t* q, uint32_t count);
 
 static void out_arm(uint8_t number) {
     out_t* o = &g_out[number];
@@ -246,6 +248,40 @@ static void out_arm(uint8_t number) {
     // One packet at a time: the transfer ends with the packet (USB 2.0 5.8.3).
     if (usbd_edpt_xfer(0, number, o->buf, o->packet))
         o->armed = true;
+}
+
+// ClearFeature(ENDPOINT_HALT) sets the data toggle to DATA0 whatever the state of the endpoint (USB
+// 2.0 9.4.5): a host does it on an endpoint that is not halted, as the recovery of a Bulk-Only
+// reset does. The stack does it for the controller (usbd_edpt_clear_stall) and clears the busy flag
+// of the endpoint, but on the RP2040 and RP2350 a transfer that was armed before keeps the PID it was
+// armed with (dcd_rp2040.c: dcd_edpt_clear_stall sets next_pid to DATA0, and the buffer control of
+// an armed transfer is not touched). An OUT endpoint then takes the target's next packet, DATA0,
+// for the repeat of the one before and drops it; an IN transfer on the bus is taken the same way by
+// the target. So the transfer that was armed is taken off the controller (hal_usb_clear_endpoint:
+// the driver stops with "ep was already available" when a transfer is armed on top of another) and
+// started again with the toggle as now set. A packet that arrived in the moment between the clear and
+// this is lost; a host does not send on an endpoint it is clearing.
+static void resume_after_clear(uint8_t number, in_t* q, out_t* o) {
+#if CFG_TUSB_MCU == OPT_MCU_RP2040 || CFG_TUSB_MCU == OPT_MCU_RP2350
+    if (q != NULL && q->inflight) {
+        hal_usb_clear_endpoint((uint8_t)(0x80u | number));
+        if (!usbd_edpt_xfer(0, (uint8_t)(0x80u | number), g_bus[number].data, q->bus_len)) {
+            q->inflight = false; // the transfer is lost
+            lost_add(q, 1u);
+        }
+        return; // it is still the transfer on the bus: nothing else is started
+    }
+    if (o != NULL && o->armed) {
+        hal_usb_clear_endpoint(number);
+        o->armed = false; // what was armed is void: the stack cleared the busy flag
+    }
+#else
+    (void)o;
+#endif
+    if (q != NULL)
+        in_service(number);
+    else
+        out_arm(number);
 }
 
 uint8_t mimusb_generic_stall(uint8_t address, bool stall) {
@@ -271,10 +307,7 @@ uint8_t mimusb_generic_stall(uint8_t address, bool stall) {
         }
     } else {
         usbd_edpt_clear_stall(0, address);
-        if (q != NULL)
-            in_service(number);
-        else
-            out_arm(number);
+        resume_after_clear(number, q, o);
     }
     return 0;
 }
@@ -430,6 +463,7 @@ static void in_service(uint8_t number) {
     const uint16_t len = slot->len;
     memcpy(g_bus[number].data, slot->data, len);
     q->inflight = true;
+    q->bus_len = len;
     __atomic_store_n(&q->tail, ring_add(tail, 1u, n), __ATOMIC_RELEASE);
     if (!usbd_edpt_xfer(0, address, g_bus[number].data, len)) {
         q->inflight = false; // the transfer is lost
@@ -711,10 +745,8 @@ static bool gen_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request
         }
         if (o != NULL)
             o->armed = false;
-    } else if (q != NULL) {
-        in_service(number);
     } else {
-        out_arm(number);
+        resume_after_clear(number, q, o);
     }
     const uint8_t ev[2] = {address, halted ? 1u : 0u};
     mimusb_send_event(MIMUSB_EV_EP_HALT, ev, sizeof(ev));
