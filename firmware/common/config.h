@@ -50,6 +50,12 @@
 #ifndef MIMUSB_LAST_SENT_SLOTS
 #error MIMUSB_LAST_SENT_SLOTS must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
 #endif
+#ifndef MIMUSB_TX_RING_BYTES
+#error MIMUSB_TX_RING_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
+#ifndef MIMUSB_TX_RX_RING_BYTES
+#error MIMUSB_TX_RX_RING_BYTES must be defined by the port in mimusb_limits.h (see docs/PORTING.md)
+#endif
 
 // The interfaces one configuration holds, of any class: bInterfaceNumber is 0, 1, 2, ... in order
 // (USB 2.0 9.6.5), and TinyUSB keeps a driver per interface number (CFG_TUD_INTERFACE_MAX, 16 unless

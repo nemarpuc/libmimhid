@@ -26,5 +26,7 @@
 #define MIMUSB_CONTROL_RULES 96                      // PONG: one byte, and 0xFF means none, so 254 at most
 #define MIMUSB_ANSWER_BYTES 4096                     // two copies; a length and an offset are 16 bits
 #define MIMUSB_LAST_SENT_SLOTS 8                     // one per Input report of the interfaces (2 each) and two to spare; at most 254
+#define MIMUSB_TX_RING_BYTES 1088      // frames the USB side queues for the host (tx.c): the longest one (6 + the frame limit) and room to spare
+#define MIMUSB_TX_RX_RING_BYTES 128    // frames the receive side queues (a PONG is at most 71 bytes)
 
 #endif

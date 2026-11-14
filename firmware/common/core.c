@@ -6,6 +6,7 @@
 #include "generic.h"
 #include "hal.h"
 #include "tusb.h"
+#include "tx.h"
 #include <string.h>
 
 // The port's stated endpoint packet size and the speed the stack runs at must agree, and the
@@ -27,36 +28,11 @@ static uint32_t g_lost_sent_ms;
 // -------------------------------------------------------------
 // Frames to the host
 // -------------------------------------------------------------
-// A frame longer than 127 bytes is only ever sent from the USB side (events), so one buffer
-// serves them all; short frames use the stack of whichever side sends them.
-static uint8_t g_tx_long[6 + MIMUSB_MAX_FRAME_PAYLOAD];
-
-static void send_frame(uint8_t type, const uint8_t* payload, uint16_t len) {
-    uint8_t shortbuf[6 + 127];
-    uint8_t* frame = len < 0x80 ? shortbuf : g_tx_long;
-    size_t n = 0;
-    uint16_t crc = mimusb_crc16_update(MIMUSB_CRC16_INIT, type);
-    frame[n++] = MIMUSB_SYNC;
-    frame[n++] = type;
-    if (len < 0x80) {
-        frame[n++] = (uint8_t)len;
-        crc = mimusb_crc16_update(crc, (uint8_t)len);
-    } else {
-        const uint8_t low = (uint8_t)(0x80 | (len & 0x7F));
-        const uint8_t high = (uint8_t)(len >> 7);
-        frame[n++] = low;
-        frame[n++] = high;
-        crc = mimusb_crc16_update(crc, low);
-        crc = mimusb_crc16_update(crc, high);
-    }
-    for (uint16_t i = 0; i < len; i++) {
-        frame[n++] = payload[i];
-        crc = mimusb_crc16_update(crc, payload[i]);
-    }
-    frame[n++] = (uint8_t)(crc & 0xFF);
-    frame[n++] = (uint8_t)(crc >> 8);
-    hal_uart_write(frame, n);
-}
+// A frame is encoded into one of two rings (tx.c), one for each context that sends: the USB side
+// (events, EP_OUT data, the answers to configuration commands) and the receive side (PONG and the
+// answers to SET_BAUD, COUNTERS and CONTROL_REPLY).
+#define SEND_USB(type, payload, len) mimusb_tx_frame(MIMUSB_TX_USB_SIDE, type, payload, len)
+#define SEND_RX(type, payload, len)  mimusb_tx_frame(MIMUSB_TX_RX_SIDE, type, payload, len)
 
 static uint8_t g_event[1 + MIMUSB_MAX_FRAME_PAYLOAD - 1];
 
@@ -67,33 +43,33 @@ void mimusb_send_event(uint8_t kind, const uint8_t* data, uint16_t len) {
     g_event[0] = kind;
     if (len && data)
         memcpy(&g_event[1], data, len);
-    send_frame(MIMUSB_T_EVENT, g_event, (uint16_t)(1 + len));
+    SEND_USB(MIMUSB_T_EVENT, g_event, (uint16_t)(1 + len));
 }
 
-// USB side only (it uses the long-frame buffer): a packet the target sent on an OUT endpoint, to
+// USB side only: a packet the target sent on an OUT endpoint, to
 // the host, as it came (see MIMUSB_T_EP_OUT_BASE in mimusb_proto.h).
 void mimusb_send_ep_out(uint8_t number, const uint8_t* data, uint16_t length) {
-    send_frame((uint8_t)(MIMUSB_T_EP_OUT_BASE | (number & 0x0F)), data, length);
+    SEND_USB((uint8_t)(MIMUSB_T_EP_OUT_BASE | (number & 0x0F)), data, length);
 }
 
-static void send_ack(uint8_t seq, uint8_t type) {
+static void send_ack(mimusb_tx_side side, uint8_t seq, uint8_t type) {
     const uint8_t p[2] = {seq, type};
-    send_frame(MIMUSB_T_ACK, p, 2);
+    mimusb_tx_frame(side, MIMUSB_T_ACK, p, 2);
 }
 
-static void send_ack_data(uint8_t seq, uint8_t type, const uint8_t* data, uint16_t len) {
+static void send_ack_data(mimusb_tx_side side, uint8_t seq, uint8_t type, const uint8_t* data, uint16_t len) {
     uint8_t p[2 + 16];
     if (len > sizeof(p) - 2)
         len = (uint16_t)(sizeof(p) - 2);
     p[0] = seq;
     p[1] = type;
     memcpy(&p[2], data, len);
-    send_frame(MIMUSB_T_ACK, p, (uint16_t)(2 + len));
+    mimusb_tx_frame(side, MIMUSB_T_ACK, p, (uint16_t)(2 + len));
 }
 
-static void send_nak(uint8_t seq, uint8_t type, uint8_t code) {
+static void send_nak(mimusb_tx_side side, uint8_t seq, uint8_t type, uint8_t code) {
     const uint8_t p[3] = {seq, type, code};
-    send_frame(MIMUSB_T_NAK, p, 3);
+    mimusb_tx_frame(side, MIMUSB_T_NAK, p, 3);
 }
 
 // -------------------------------------------------------------
@@ -122,9 +98,9 @@ static void cmd_answer(uint8_t seq, uint8_t type, uint8_t code) {
     g_answer_last.code = code;
     g_answer_last.ping = g_cmd_pings;
     if (code)
-        send_nak(seq, type, code);
+        send_nak(MIMUSB_TX_USB_SIDE, seq, type, code);
     else
-        send_ack(seq, type);
+        send_ack(MIMUSB_TX_USB_SIDE, seq, type);
 }
 
 #define CMD_SLOTS 4
@@ -214,7 +190,7 @@ static bool known_command(uint8_t type) {
 }
 
 static void set_baud(uint32_t baud) {
-    hal_uart_set_baud(baud);
+    mimusb_tx_set_baud(baud); // what is queued leaves at the old rate first
     g_baud = baud;
     g_baud_pending = baud != MIMUSB_BOOT_BAUD;
     g_baud_since_ms = hal_millis();
@@ -241,18 +217,18 @@ static uint32_t baud_error_ppm(uint32_t asked, uint32_t actual) {
 static void cmd_set_baud(const uint8_t* data, uint16_t len) {
     const uint8_t seq = data[0];
     if (len != 5) {
-        send_nak(seq, MIMUSB_T_SET_BAUD, MIMUSB_NAK_PARAM);
+        send_nak(MIMUSB_TX_RX_SIDE, seq, MIMUSB_T_SET_BAUD, MIMUSB_NAK_PARAM);
         return;
     }
     const uint32_t baud = get_u32(&data[1]);
     const uint32_t actual = (baud == 0 || baud > g_max_baud) ? 0 : hal_uart_baud_actual(baud);
     if (actual == 0 || baud_error_ppm(baud, actual) > MIMUSB_BAUD_TOLERANCE_PPM) {
-        send_nak(seq, MIMUSB_T_SET_BAUD, MIMUSB_NAK_PARAM);
+        send_nak(MIMUSB_TX_RX_SIDE, seq, MIMUSB_T_SET_BAUD, MIMUSB_NAK_PARAM);
         return;
     }
     uint8_t out[4];
     put_u32(out, actual);
-    send_ack_data(seq, MIMUSB_T_SET_BAUD, out, 4);
+    send_ack_data(MIMUSB_TX_RX_SIDE, seq, MIMUSB_T_SET_BAUD, out, 4);
     set_baud(baud);
 }
 
@@ -260,7 +236,7 @@ static void cmd_set_baud(const uint8_t* data, uint16_t len) {
 static void cmd_counters(const uint8_t* data, uint16_t len) {
     const uint8_t seq = data[0];
     if (len != 2) {
-        send_nak(seq, MIMUSB_T_COUNTERS, MIMUSB_NAK_PARAM);
+        send_nak(MIMUSB_TX_RX_SIDE, seq, MIMUSB_T_COUNTERS, MIMUSB_NAK_PARAM);
         return;
     }
     uint8_t out[2 * MIMUSB_COUNTER_COUNT];
@@ -268,7 +244,7 @@ static void cmd_counters(const uint8_t* data, uint16_t len) {
         out[2 * i] = (uint8_t)(g_counters[i] & 0xFF);
         out[2 * i + 1] = (uint8_t)(g_counters[i] >> 8);
     }
-    send_ack_data(seq, MIMUSB_T_COUNTERS, out, sizeof(out));
+    send_ack_data(MIMUSB_TX_RX_SIDE, seq, MIMUSB_T_COUNTERS, out, sizeof(out));
     if (data[1] & MIMUSB_COUNTERS_F_RESET)
         memset(g_counters, 0, sizeof(g_counters));
 }
@@ -321,7 +297,7 @@ static void send_pong(void) {
     p[47] = (uint8_t)(MIMUSB_MAX_BOS_BYTES & 0xFF);
     p[48] = (uint8_t)(MIMUSB_MAX_BOS_BYTES >> 8);
     memcpy(&p[MIMUSB_PONG_MIN_LEN], g_unique_id, g_unique_id_len);
-    send_frame(MIMUSB_T_PONG, p, (uint16_t)(MIMUSB_PONG_MIN_LEN + g_unique_id_len));
+    SEND_RX(MIMUSB_T_PONG, p, (uint16_t)(MIMUSB_PONG_MIN_LEN + g_unique_id_len));
 }
 
 // The command frame being read; used by the receive side only.
@@ -440,9 +416,9 @@ static bool rx_step(void) {
             // The USB side may be waiting in a TinyUSB callback, so the reply is taken here.
             const uint8_t code = mimusb_control_reply(&g_rx_cmd[1], (uint16_t)(len - 1));
             if (code)
-                send_nak(g_rx_cmd[0], type, code);
+                send_nak(MIMUSB_TX_RX_SIDE, g_rx_cmd[0], type, code);
             else
-                send_ack(g_rx_cmd[0], type);
+                send_ack(MIMUSB_TX_RX_SIDE, g_rx_cmd[0], type);
         } else {
             cmd_push(type, g_rx_cmd,
                      len); // a full mailbox drops the frame; the host retries on no ACK
@@ -454,6 +430,8 @@ static bool rx_step(void) {
 }
 
 void mimusb_rx_poll(void) {
+    // The UART takes the next piece of what is queued; on the RP boards this loop is what keeps it fed.
+    mimusb_tx_pump();
     // An unconfirmed rate that heard nothing valid in time falls back to the boot rate.
     if (g_baud_pending && (int32_t)(hal_millis() - g_baud_since_ms) >= MIMUSB_BAUD_CONFIRM_MS)
         set_baud(MIMUSB_BOOT_BAUD);
@@ -862,9 +840,9 @@ static void run_command(const command_t* c) {
     const answer_t* last = &g_answer_last;
     if (last->valid && last->ping == g_cmd_pings && last->seq == seq && last->type == c->type) {
         if (last->code)
-            send_nak(seq, c->type, last->code);
+            send_nak(MIMUSB_TX_USB_SIDE, seq, c->type, last->code);
         else
-            send_ack(seq, c->type);
+            send_ack(MIMUSB_TX_USB_SIDE, seq, c->type);
         return;
     }
     switch (c->type) {
@@ -933,6 +911,7 @@ static void run_command(const command_t* c) {
             // The target sees the device leave, the host gets its answer, and the chip restarts.
             tud_disconnect();
             cmd_answer(seq, c->type, 0);
+            mimusb_tx_flush(); // the answer has left the pin before the chip restarts
             hal_enter_bootloader();
         }
         break;
@@ -979,7 +958,6 @@ void mimusb_usb_poll(void) {
 }
 
 void mimusb_run(void) {
-    mimusb_control_set_single_context(true);
     for (;;) {
         tud_task();
         mimusb_rx_poll();

@@ -113,7 +113,9 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     return n;
 }
 
-void hal_uart_write(const uint8_t* data, size_t len) {
+// EasyDMA sends a chunk and this waits for it, so a start returns when the bytes are out and the
+// line is never busy afterwards.
+void hal_uart_tx_start(const uint8_t* data, size_t len) {
     while (len > 0) {
         size_t n = len < TX_CHUNK ? len : TX_CHUNK;
         memcpy(g_tx_buf, data, n);
@@ -131,6 +133,11 @@ void hal_uart_write(const uint8_t* data, size_t len) {
         len -= n;
     }
 }
+
+bool hal_uart_tx_busy(void) { return false; }
+
+// hal_uart_tx_start returns only once its bytes have left (ENDTX, then TXSTOPPED).
+void hal_uart_tx_wait_done(void) {}
 
 uint32_t hal_uart_baud_actual(uint32_t baud) {
     const uint32_t setting = baud_setting(baud);
@@ -150,7 +157,7 @@ uint8_t hal_uart_errors(void) {
     return __atomic_exchange_n(&g_errors, 0, __ATOMIC_RELAXED);
 }
 
-// hal_uart_write returns only once its bytes have left, so nothing is queued here. The
+// The output is idle here (tx.c drained it). The
 // receiver is stopped and the peripheral disabled while the rate changes.
 void hal_uart_set_baud(uint32_t baud) {
     UARTE_REG->SHORTS = 0;
@@ -196,7 +203,7 @@ bool hal_has_bootloader(void) { return NRF_UICR->NRFFW[0] != 0xFFFFFFFFu; }
 
 void hal_enter_bootloader(void) {
     if (!hal_has_bootloader()) return;
-    // hal_uart_write returns only once its bytes have left, so the answer is out.
+    // tx.c flushed the queue, so the answer is out.
     NRF_POWER->GPREGRET = (uint32_t)(MIMUSB_NRF_BOOTLOADER_GPREGRET);
     NVIC_SystemReset();
 }

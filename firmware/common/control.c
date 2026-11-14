@@ -166,13 +166,25 @@ static struct {
 } g_reply;
 static volatile uint8_t g_expect;
 
-static bool g_single_context;
+// The status stage of a host-to-device transfer whose data the host is judging. The data stage is
+// over and the host has been told what arrived (CONTROL_DATA); the stack is allowed to ask for the
+// status stage, but the board keeps that request (mimusb_control_hold_status) until the host says
+// yes or no, or its time runs out. Nothing waits: the USB side goes on serving the other endpoints.
+enum { DHOLD_IDLE = 0, DHOLD_WAIT = 1, DHOLD_HELD = 2 };
+static struct {
+    volatile uint8_t state; // IDLE; WAIT: the callback has asked the host and the stack is about to
+                            // ask for the status stage; HELD: that request was kept
+    uint8_t token;
+    uint8_t after; // MIMUSB_REPLY_STALL or MIMUSB_REPLY_DROP: what no verdict in time does
+    uint32_t deadline_ms;
+} g_dhold;
 
 // The linker maps these to the stack's own dcd functions (-Wl,--wrap=...).
 void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr);
 void __wrap_dcd_event_handler(dcd_event_t const* event, bool in_isr);
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
 void __wrap_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr);
+bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes);
 
 static volatile bool g_suppress_stall;
 
@@ -182,10 +194,6 @@ void __wrap_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
         return;
     }
     __real_dcd_edpt_stall(rhport, ep_addr);
-}
-
-void mimusb_control_set_single_context(bool single) {
-    g_single_context = single;
 }
 
 static rule_set_t* staged(void) { return &g_set[1u - g_act]; }
@@ -355,6 +363,7 @@ CONTROL_FAST static bool note_room(void) {
 
 CONTROL_FAST static void drop_held(void) {
     g_hold.state = HOLD_IDLE;
+    g_dhold.state = DHOLD_IDLE;
     g_expect = 0;
     g_answer.armed = false;
     g_answer.serving = NONE;
@@ -572,8 +581,11 @@ static void flush_notes(void) {
     }
 }
 
+static void poll_data_verdict(void);
+
 void mimusb_control_poll(void) {
     flush_notes();
+    poll_data_verdict();
 
     if (__atomic_load_n(&g_hold.state, __ATOMIC_ACQUIRE) != HOLD_HELD) return;
     const uint8_t token = g_hold.token;
@@ -713,32 +725,71 @@ void mimusb_control_sent_rules(uint8_t number, const uint8_t* data, uint16_t len
     }
 }
 
-// Waits for the host to say yes or no to a host-to-device transfer whose data it has now seen.
-// Returns true to acknowledge the status stage.
-static bool wait_for_verdict(void) {
+// Shows the host the data of a host-to-device transfer and starts waiting for its verdict. Returns
+// true: the stack goes on to the status stage, and mimusb_control_hold_status keeps it until the
+// verdict is in (mimusb_control_poll).
+static bool begin_verdict(void) {
     g_reply.full = 0;
     g_expect = g_answer.token;
     g_answer.buf[0] = g_answer.token;
     flush_notes(); // the setup first, so the host knows what the data belongs to
     mimusb_send_event(MIMUSB_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
+    dcd_int_disable(RHPORT);
+    g_dhold.token = g_answer.token;
+    g_dhold.after = g_answer.timeout_action;
+    g_dhold.deadline_ms = hal_millis() + g_answer.timeout_ms;
+    g_dhold.state = DHOLD_WAIT;
+    dcd_int_enable(RHPORT);
+    return true;
+}
 
-    uint8_t action = g_answer.timeout_action;
-    const uint32_t start = hal_millis();
-    while ((uint32_t)(hal_millis() - start) < g_answer.timeout_ms) {
-        if (g_single_context) mimusb_rx_poll();
-        if (__atomic_load_n(&g_reply.full, __ATOMIC_ACQUIRE)) {
-            if (g_reply.token == g_answer.token) action = g_reply.action;
-            g_reply.full = 0;
-            break;
-        }
+bool mimusb_control_hold_status(uint8_t ep_addr, uint16_t total_bytes) {
+    if (ep_addr != 0x80 || total_bytes != 0 || g_dhold.state != DHOLD_WAIT) return false;
+    bool held = false;
+    dcd_int_disable(RHPORT);
+    if (g_dhold.state == DHOLD_WAIT) {
+        g_dhold.state = DHOLD_HELD;
+        held = true;
     }
+    dcd_int_enable(RHPORT);
+    return held;
+}
+
+// The verdict is in, or the time ran out: the kept status stage is given to the controller (yes),
+// or the transfer is stalled or dropped without a word (no).
+static void settle_data(uint8_t action) {
+    dcd_int_disable(RHPORT);
+    if (g_dhold.state != DHOLD_HELD) { // a new setup packet or a bus reset voided it
+        dcd_int_enable(RHPORT);
+        return;
+    }
+    g_dhold.state = DHOLD_IDLE;
     g_expect = 0;
     if (action == MIMUSB_REPLY_DROP) {
         g_suppress_stall = true;
         hal_control_silent_drop();
-        return false;
+        dcd_int_enable(RHPORT);
+        return;
     }
-    return action != MIMUSB_REPLY_STALL;
+    dcd_int_enable(RHPORT);
+    if (action == MIMUSB_REPLY_STALL) {
+        __wrap_dcd_edpt_stall(RHPORT, 0x00);
+        __wrap_dcd_edpt_stall(RHPORT, 0x80);
+        return;
+    }
+    (void)__wrap_dcd_edpt_xfer(RHPORT, 0x80, NULL, 0); // the status stage, as the stack asked for it
+}
+
+static void poll_data_verdict(void) {
+    if (g_dhold.state != DHOLD_HELD) return; // nothing to decide, or the stack has not asked yet
+    if (__atomic_load_n(&g_reply.full, __ATOMIC_ACQUIRE)) {
+        const bool mine = g_reply.token == g_dhold.token;
+        const uint8_t action = g_reply.action;
+        g_reply.full = 0;
+        if (mine) settle_data(action);
+    } else if ((int32_t)(hal_millis() - g_dhold.deadline_ms) >= 0) {
+        settle_data(g_dhold.after);
+    }
 }
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) {
@@ -798,7 +849,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
             mimusb_send_event(MIMUSB_EV_CONTROL_DATA, g_answer.buf, (uint16_t)(1 + g_answer.length));
             return true;
         }
-        return wait_for_verdict();
+        return begin_verdict();
 
     default: // CONTROL_STAGE_ACK
         g_answer.active = false;

@@ -65,22 +65,22 @@ The board takes the speed it runs at from its chip: the Pico, the Pico 2, the nR
 
 The limits of the board's RAM are not defaults of the firmware: every port states all of them in its own `mimusb_limits.h` (`firmware/rp/limits/<chip>/`, `firmware/ports/nrf52840/limits/`, `firmware/ports/stm32f4/limits/<ram class>/`, `firmware/ports/esp32s3/main/`), and a build whose port leaves one out stops at `config.h` with the message that names it (tests `missing_*_limit`). Each value is what the chip's RAM holds beside the rest of the image: the sources of the RAM sizes are in the header of each port (the datasheets of Raspberry Pi Ltd, Nordic Semiconductor, Espressif Systems and STMicroelectronics), and `firmware/tools/check_ram.py` stops the build when the image leaves less than the reserve the port's CMake file states (a project choice) or when the linker has no room. What a limit can be at the most is the protocol's: rules 254 (PONG field of one byte, 0xFF means none), strings 255, a control data stage 4088 (the frame carries 4096 bytes, `MIMUSB_PROTO_MAX_PAYLOAD`), configuration, BOS, answer and string bytes 65535 (16-bit lengths and offsets). Interfaces are 15 on every port: an interface may have no endpoint, so the chip's endpoint numbers do not bound them.
 
-Measured with the builds of 2026-11-13 (`arm-none-eabi-size`, data + bss, the stack included; Pico SDK 2.x, TinyUSB of the SDK for the RP boards and `build/tinyusb`'s for the others):
+Measured with the builds of 2026-11-13, the RP2040 and RP2350 rows again on 2026-11-14 after the frame queue (`tx.c`) replaced the 2 KiB long-frame buffer (`arm-none-eabi-size`, data + bss, the stack included; Pico SDK 2.x, TinyUSB of the SDK for the RP boards and `build/tinyusb`'s for the others):
 
-| Port | config | BOS | strings | string bytes | rules | answer | control data | queue slots | last-sent | RAM used (build) | free (reserve) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| RP2040 | 4096 | 512 | 64 | 8192 | 254 | 16384 | 2048 | 72 | 32 | 252,932 of 270,336 | 17,404 (16,384) |
-| RP2350 | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 192 | 32 | 454,168 of 532,480 | 78,312 (32,768) |
-| nRF52840 | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 576 | 16 | 245,036 of 262,144 (16,384 of it the BSP stack) | 17,108 (16,384) |
-| STM32F4, 64 kB (F401) | 2048 | 256 | 24 | 4096 | 96 | 4096 | 1024 | 128 | 8 | 56,720 of 65,536 | 8,816 (6,144) |
-| STM32F4, 128 kB (F405, F407, F411) | 2048 | 512 | 32 | 4096 | 160 | 16384 | 2048 | 384 | 8 | 117,296 of 131,072 | 13,776 (8,192) |
-| STM32F4, 192 kB (F439) | 4096 | 512 | 64 | 8192 | 254 | 16384 | 4088 | 768 | 8 | 181,812 of 196,608 | 14,796 (12,288) |
-| STM32F4, 256 kB (F412) | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 768 | 12 | 242,516 of 262,144 | 19,628 (16,384) |
-| ESP32-S3 | 4096 | 512 | 64 | 8192 | 254 | 16384 | 2048 | 256 | 16 | not built here (no ESP-IDF) | - |
+| Port | config | BOS | strings | string bytes | rules | answer | control data | queue slots | last-sent | TX rings (USB / receive) | RAM used (build) | free (reserve) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| RP2040 | 4096 | 512 | 64 | 8192 | 254 | 16384 | 2048 | 72 | 32 | 2560 / 256 | 253,692 of 270,336 | 16,644 (16,384) |
+| RP2350 | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 192 | 32 | 6144 / 256 | 456,472 of 532,480 | 76,008 (32,768) |
+| nRF52840 | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 576 | 16 | 4160 / 128 | 245,036 of 262,144 (16,384 of it the BSP stack) | 17,108 (16,384) |
+| STM32F4, 64 kB (F401) | 2048 | 256 | 24 | 4096 | 96 | 4096 | 1024 | 128 | 8 | 1088 / 128 | 56,720 of 65,536 | 8,816 (6,144) |
+| STM32F4, 128 kB (F405, F407, F411) | 2048 | 512 | 32 | 4096 | 160 | 16384 | 2048 | 384 | 8 | 2112 / 128 | 117,296 of 131,072 | 13,776 (8,192) |
+| STM32F4, 192 kB (F439) | 4096 | 512 | 64 | 8192 | 254 | 16384 | 4088 | 768 | 8 | 4160 / 128 | 181,812 of 196,608 | 14,796 (12,288) |
+| STM32F4, 256 kB (F412) | 8192 | 1024 | 128 | 16384 | 254 | 32768 | 4088 | 768 | 12 | 4160 / 128 | 242,516 of 262,144 | 19,628 (16,384) |
+| ESP32-S3 | 4096 | 512 | 64 | 8192 | 254 | 16384 | 2048 | 256 | 16 | 2112 / 128 | not built here (no ESP-IDF) | - |
 
 RAM sizes: RP2040 264 kB, RP2350 520 kB, nRF52840 256 kB, ESP32-S3 512 kB of SRAM (of which ESP-IDF's linker script gives the image about 340 kB, as a small application's build summary shows); the STM32F4 figures are what the BSP's linker script gives the image as its RAM region (the 64-kB CCM of the F405, F407 and F439 is not in it). The ESP32-S3 values are about half of the nRF52840's and have not been built, since this workspace has no ESP-IDF: build the port and read its memory summary before raising them. The STM32F4 figures of the 192-kB and 256-kB classes and the nRF52840 and RP boards were built; no board of them was run with these values (the hardware run of 0.6.0 used the library's former defaults).
 
-The board's numbers are fixed when its firmware is built, at the most the chip can hold, and the board reports them in its PONG. The host library cannot raise them. `MIMUSB_MAX_ENDPOINT_BYTES`, `MIMUSB_MAX_REPORT_BYTES`, `MIMUSB_CONTROL_DATA_MAX`, `MIMUSB_CONTROL_RULES`, `MIMUSB_ANSWER_BYTES` and `MIMUSB_LAST_SENT_SLOTS` (`firmware/common/config.h`) can be set by a port before the header is read; the endpoint size follows the port's USB speed.
+The board's numbers are fixed when its firmware is built, at the most the chip can hold, and the board reports them in its PONG. The host library cannot raise them. `MIMUSB_MAX_ENDPOINT_BYTES`, `MIMUSB_MAX_REPORT_BYTES`, `MIMUSB_CONTROL_DATA_MAX`, `MIMUSB_CONTROL_RULES`, `MIMUSB_ANSWER_BYTES`, `MIMUSB_LAST_SENT_SLOTS`, `MIMUSB_TX_RING_BYTES` and `MIMUSB_TX_RX_RING_BYTES` (`firmware/common/config.h`) can be set by a port before the header is read; the endpoint size follows the port's USB speed.
 
 ## Who answers a control request
 

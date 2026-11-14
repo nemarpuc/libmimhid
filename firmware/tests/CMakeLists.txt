@@ -39,6 +39,7 @@ foreach(itfs 15 7 6 3)
         ../common/ep0.c
         ../common/usb_descriptors.c
         ../common/generic.c
+        ../common/tx.c
     )
     target_include_directories(test_core_${itfs} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}      # test tusb_config.h
@@ -64,6 +65,7 @@ add_executable(test_core_hs
     ../common/ep0.c
     ../common/usb_descriptors.c
     ../common/generic.c
+    ../common/tx.c
 )
 target_include_directories(test_core_hs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -130,7 +132,8 @@ endforeach()
 # mimusb_limits.h, or one that leaves a limit out, with the message that names it.
 set(limit_names MIMUSB_MAX_INTERFACES MIMUSB_MAX_CONFIG_BYTES MIMUSB_MAX_BOS_BYTES MIMUSB_MAX_STRINGS
     MIMUSB_MAX_STRING_BYTES MIMUSB_MAX_REPORT_BYTES MIMUSB_CONTROL_DATA_MAX MIMUSB_EP_POOL_SLOTS
-    MIMUSB_CONTROL_RULES MIMUSB_ANSWER_BYTES MIMUSB_LAST_SENT_SLOTS)
+    MIMUSB_CONTROL_RULES MIMUSB_ANSWER_BYTES MIMUSB_LAST_SENT_SLOTS
+    MIMUSB_TX_RING_BYTES MIMUSB_TX_RX_RING_BYTES)
 mimusb_port_defs(7 port_defs)
 set(limits_flags "")
 foreach(def IN LISTS port_defs)
@@ -153,4 +156,18 @@ foreach(missing IN LISTS limit_names)
         COMMAND ${limits_compile} -I${dir} ${CMAKE_CURRENT_SOURCE_DIR}/limits_probe.c)
     set_tests_properties(missing_${missing}_limit PROPERTIES
         PASS_REGULAR_EXPRESSION "${missing} must be defined by the port")
+endforeach()
+
+# The frame queue alone, against a fake UART that stays busy for a number of polls after each start.
+foreach(itfs 15 7 6 3)
+    mimusb_port_defs(${itfs} port_defs)
+    add_executable(test_tx_${itfs} test_tx.c ../common/tx.c)
+    target_include_directories(test_tx_${itfs} PRIVATE
+        ${limits_${itfs}}
+        ../common
+        ../../proto
+    )
+    target_compile_definitions(test_tx_${itfs} PRIVATE ${port_defs})
+    target_compile_options(test_tx_${itfs} PRIVATE -Wall -Wextra -UNDEBUG)
+    add_test(NAME firmware_tx_${itfs} COMMAND test_tx_${itfs})
 endforeach()

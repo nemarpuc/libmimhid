@@ -25,6 +25,9 @@ static const uint8_t rd[] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x0
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static mimusb_device* g_device;
 static int g_setup_accepted, g_data_events, g_out_events, g_asked;
+// The vendor request 0x44 (host to device, ASK): the program answers its setup at once, and keeps
+// the token of its data stage for the test to give the verdict.
+static uint32_t g_ask_data_token;
 static uint8_t g_last_setup[8], g_last_data[64], g_last_out[64];
 static size_t g_last_data_len, g_last_out_len;
 
@@ -36,7 +39,10 @@ static void on_event(void* user, const mimusb_event* e) {
             memcpy(g_last_setup, e->data, 8);
         if (e->control_flags & MIMUSB_CONTROL_FLAG_ACCEPTED)
             g_setup_accepted++;
-        if (e->control_flags & MIMUSB_CONTROL_FLAG_HELD) {
+        if ((e->control_flags & MIMUSB_CONTROL_FLAG_HELD) && e->length >= 8 && e->data[1] == 0x44) {
+            mimusb_device_control_reply(g_device, e->control_token, MIMUSB_CONTROL_ACTION_ANSWER,
+                                        NULL, 0, 100);
+        } else if (e->control_flags & MIMUSB_CONTROL_FLAG_HELD) {
             g_asked++;
             static const uint8_t answer[] = "answered by the program";
             mimusb_device_control_reply(g_device, e->control_token, MIMUSB_CONTROL_ACTION_ANSWER,
@@ -44,6 +50,7 @@ static void on_event(void* user, const mimusb_event* e) {
         }
     } else if (e->kind == MIMUSB_EVENT_CONTROL_DATA) {
         g_data_events++;
+        g_ask_data_token = e->control_token;
         g_last_data_len = e->length < 64 ? e->length : 64;
         memcpy(g_last_data, e->data, g_last_data_len);
     } else if (e->kind == MIMUSB_EVENT_ENDPOINT_DATA) {
@@ -106,6 +113,59 @@ static void hex(const char* what, const uint8_t* b, int n) {
     printf("\n");
 }
 
+// A control transfer to the device from its own thread, as the target's driver would make it: the
+// call does not return until the board has answered the status stage.
+static libusb_device_handle* g_usb;
+static int g_usb_result;
+static void* control_out_thread(void* arg) {
+    (void)arg;
+    uint8_t data[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    g_usb_result = libusb_control_transfer(g_usb, 0x40, 0x44, 0, 0, data, 8, 4000);
+    return NULL;
+}
+
+// One host-to-device transfer under an ASK rule. While the program has not given its verdict, the
+// board must go on serving its other endpoints: an input report sent now has to reach the target.
+// verdict: the action to give, or -1 to give none (the rule's time then runs out).
+static void ask_data_round(int fd, mimusb_node* node, int verdict, const char* name) {
+    pthread_t t;
+    pthread_mutex_lock(&g_lock);
+    g_ask_data_token = 0;
+    pthread_mutex_unlock(&g_lock);
+    g_usb_result = 12345;
+    pthread_create(&t, NULL, control_out_thread, NULL);
+    uint32_t token = 0;
+    for (int i = 0; i < 100 && token == 0; i++) {
+        sleep_ms(10);
+        pthread_mutex_lock(&g_lock);
+        token = g_ask_data_token;
+        pthread_mutex_unlock(&g_lock);
+    }
+    CHECK(token != 0, "%s: the program is shown the data stage", name);
+    // The transfer is now waiting for the verdict. An input report must still go out.
+    uint8_t rep[8] = {0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7};
+    uint8_t got[64];
+    struct timespec a, c;
+    clock_gettime(CLOCK_MONOTONIC, &a);
+    mimusb_result r = mimusb_node_endpoint_write(node, 0x81, rep, 8, 100);
+    struct pollfd pf = {fd, POLLIN, 0};
+    poll(&pf, 1, 300);
+    int n = (int)read(fd, got, sizeof(got));
+    clock_gettime(CLOCK_MONOTONIC, &c);
+    const double ms = (double)(c.tv_sec - a.tv_sec) * 1e3 + (double)(c.tv_nsec - a.tv_nsec) / 1e6;
+    CHECK(r == MIMUSB_OK && n == 8 && memcmp(got, rep, 8) == 0 && g_usb_result == 12345,
+          "%s: an input report reaches the target while the verdict is pending (%.1f ms)", name,
+          ms);
+    if (verdict >= 0)
+        mimusb_device_control_reply(g_device, token, (mimusb_control_action)verdict, NULL, 0, 100);
+    pthread_join(t, NULL);
+    if (verdict == MIMUSB_CONTROL_ACTION_ANSWER)
+        CHECK(g_usb_result == 8, "%s: the transfer completes (%d)", name, g_usb_result);
+    else
+        CHECK(g_usb_result == LIBUSB_ERROR_PIPE, "%s: the transfer is stalled (%s)", name,
+              libusb_error_name(g_usb_result));
+}
+
 int main(void) {
     mimusb_discovery* found = NULL;
     mimusb_result r = mimusb_discover(3000, &found);
@@ -152,7 +212,7 @@ int main(void) {
     itf.settings = &setting;
     itf.setting_count = 1;
     static uint8_t feature[4] = {1, 2, 3, 4};
-    mimusb_control_rule rules[6];
+    mimusb_control_rule rules[7];
     memset(rules, 0, sizeof(rules));
     /* GET_DESCRIPTOR (USB 2.0 9.4.3) of the report descriptor (HID 1.11 7.1.1) on interface 0. */
     rules[0].request_type_mask = 0xFF;
@@ -190,12 +250,16 @@ int main(void) {
     rules[5].action = MIMUSB_CONTROL_ASK;
     rules[5].timeout_ms = 500;
     rules[5].when_late = MIMUSB_CONTROL_ACTION_STALL;
+    RULE(6, 0x40, 0x44, 0, 0);
+    rules[6].action = MIMUSB_CONTROL_ASK;
+    rules[6].timeout_ms = 1500;
+    rules[6].when_late = MIMUSB_CONTROL_ACTION_STALL;
     mimusb_node_config nc;
     mimusb_node_config_init(&nc);
     nc.interfaces = &itf;
     nc.interface_count = 1;
     nc.rules = rules;
-    nc.rule_count = 6;
+    nc.rule_count = 7;
     mimusb_commit_timeouts to;
     example_fill_commit_timeouts(&to);
     mimusb_node* node = NULL;
@@ -316,6 +380,12 @@ int main(void) {
         n = libusb_control_transfer(h, 0xC0, 0x43, 0, 0, b, 64, 1000);
         CHECK(n == LIBUSB_ERROR_PIPE, "a request no rule matches is stalled: %s",
               libusb_error_name(n));
+        printf("ASK on a host-to-device data stage (the board keeps serving while the program "
+               "decides)\n");
+        g_usb = h;
+        ask_data_round(fd, node, MIMUSB_CONTROL_ACTION_ANSWER, "accepted");
+        ask_data_round(fd, node, MIMUSB_CONTROL_ACTION_STALL, "refused");
+        ask_data_round(fd, node, -1, "no verdict in time");
         libusb_close(h);
     }
     libusb_exit(ctx);

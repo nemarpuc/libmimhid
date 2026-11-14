@@ -56,10 +56,12 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     g_in_pos += n;
     return n;
 }
-void hal_uart_write(const uint8_t* d, size_t n) {
+void hal_uart_tx_start(const uint8_t* d, size_t n) {
     memcpy(g_out + g_out_len, d, n);
     g_out_len += n;
 }
+bool hal_uart_tx_busy(void) { return false; }
+void hal_uart_tx_wait_done(void) {}
 static uint32_t g_now_step;
 uint32_t hal_millis(void) {
     g_now += g_now_step;
@@ -98,9 +100,11 @@ static int g_bootloader_entered;
 bool hal_has_bootloader(void) { return g_has_bootloader; }
 void hal_enter_bootloader(void) { g_bootloader_entered++; }
 void hal_control_silent_drop(void) {}
+static int g_real_ep0_stalls; // stalls of endpoint 0 that reached the controller through the wrapper
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
-    (void)ep_addr;
+    if ((ep_addr & 0x0F) == 0)
+        g_real_ep0_stalls++;
 }
 
 // ---- TinyUSB stubs ----
@@ -2675,32 +2679,33 @@ static void test_control(void) {
     setup(0xC0, 0x42, 0, 0, 2);
     assert(g_nforwarded == 1); // still no rules
 
-    // Host to device with a data stage: the data is shown and the host gives the verdict.
-    mimusb_control_set_single_context(true);
+    // Host to device with a data stage: the data is shown and the host gives the verdict. Nothing
+    // waits for it: the callback returns at once, the board keeps the status stage the stack asks
+    // for, and the verdict (or the end of the time) lets it go or stalls the transfer.
     trule_t out_rule = rule_for(0x21, T_HID_SET_REPORT, 100, MIMUSB_REPLY_STALL);
     assert(control_config(0, &out_rule, 1) == 1);
-    reset_io();
-    setup(0x21, T_HID_SET_REPORT, 0x0302, 0, 3);
-    pump();
-    pos = 0;
-    assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMUSB_CONTROL_F_HELD);
-    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
-    {
+    for (int round = 0; round < 4; round++) {
+        // 0: refused (STALL), 1: accepted, 2: no verdict in time, 3: a new setup packet voids it.
+        reset_io();
+        setup(0x21, T_HID_SET_REPORT, 0x0302, 0, 3);
+        pump();
+        pos = 0;
+        assert(next_control_event(&pos, &token, &flags, raw) && flags == MIMUSB_CONTROL_F_HELD);
+        assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
         const tusb_control_request_t req = g_forwarded[0].setup_received;
         assert(req.bmRequestType == 0x41); // retyped as vendor, direction and recipient kept
         assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
         assert(g_xfer.kind == 1 && g_xfer.length == 3);
         const uint8_t sent[3] = {9, 8, 7};
         memcpy(g_xfer.buffer, sent, 3);
-        // The host refuses it.
         reset_io();
-        uint8_t v[2] = {token, MIMUSB_REPLY_STALL};
-        put_cmd(MIMUSB_T_CONTROL_REPLY, v, 2);
-        assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
+        // The data stage is over: the callback does not wait.
+        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
         size_t q = 0;
         uint8_t t, p[2048];
         uint16_t n;
         bool saw_data = false;
+        pump();
         while ((t = next_out(&q, p, &n)) != 0) {
             if (t == MIMUSB_T_EVENT && p[0] == MIMUSB_EV_CONTROL_DATA) {
                 assert(n == 1 + 1 + 3 && p[1] == token && memcmp(&p[2], sent, 3) == 0);
@@ -2708,27 +2713,49 @@ static void test_control(void) {
             }
         }
         assert(saw_data);
-        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
-    }
-
-    // No verdict in time: the rule's action again (a stall).
-    reset_io();
-    setup(0x21, T_HID_SET_REPORT, 0x0302, 0, 3);
-    pump();
-    pos = 0;
-    assert(next_control_event(&pos, &token, &flags, raw));
-    assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
-    {
-        const tusb_control_request_t req = g_forwarded[0].setup_received;
-        assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_SETUP, &req));
-        g_now_step = 10; // each look at the clock is 10 ms later
-        assert(!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req));
-        g_now_step = 0;
+        // The stack asks for the status stage: the board keeps it. A transfer on another
+        // endpoint is not kept.
+        const int started = g_ndcd;
+        const int stalls = g_real_ep0_stalls;
+        assert(__wrap_dcd_edpt_xfer(0, 0x80, NULL, 0));
+        assert(g_ndcd == started);
+        assert(__wrap_dcd_edpt_xfer(0, 0x81, NULL, 0) && g_ndcd == started + 1);
+        pump();
+        assert(g_ndcd == started + 1 && g_real_ep0_stalls == stalls); // still waiting
+        if (round == 0) {
+            reset_io();
+            uint8_t v[2] = {token, MIMUSB_REPLY_STALL};
+            put_cmd(MIMUSB_T_CONTROL_REPLY, v, 2);
+            pump();
+            assert(g_real_ep0_stalls == stalls + 2); // both directions of endpoint 0
+            assert(g_ndcd == started + 1);
+        } else if (round == 1) {
+            assert(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0) == 1);
+            pump();
+            assert(g_ndcd == started + 2 && g_dcd[g_ndcd - 1].ep_addr == 0x80 &&
+                   g_dcd[g_ndcd - 1].length == 0); // the status stage went to the controller
+            assert(g_real_ep0_stalls == stalls);
+            assert(tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &req));
+        } else if (round == 2) {
+            g_now_step = 10; // each look at the clock is 10 ms later
+            for (int i = 0; i < 8 && g_real_ep0_stalls == stalls; i++)
+                pump();
+            g_now_step = 0;
+            assert(g_real_ep0_stalls == stalls + 2); // the rule's action: a stall
+        } else {
+            // The host moved on: the old transfer is void, and a verdict for it is refused.
+            setup(0xC0, 0x42, 0, 0, 2);
+            expect_nak(reply(token, MIMUSB_REPLY_ANSWER, NULL, 0), MIMUSB_NAK_STATE);
+            pump();
+            assert(g_ndcd == started + 1 && g_real_ep0_stalls == stalls);
+        }
+        // Once decided, nothing is kept: the next status stage goes straight through.
+        const int after = g_ndcd;
+        assert(__wrap_dcd_edpt_xfer(0, 0x80, NULL, 0) && g_ndcd == after + 1);
     }
 
     // Leaving the control routing: back to nothing.
     assert(control_config(0, NULL, 0) == 1);
-    mimusb_control_set_single_context(false);
 }
 
 // ---- endpoint 0 in the announced packet size ----

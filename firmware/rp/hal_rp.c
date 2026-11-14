@@ -3,7 +3,6 @@
 // RP2040 and RP2350: hardware UART0 received by a circular DMA channel.
 #include <string.h>
 #include "pico/stdlib.h"
-#include "pico/critical_section.h"
 #include "hardware/uart.h"
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
@@ -29,15 +28,15 @@
 #define UART_TX_PIN      MIMUSB_UART_TX_PIN
 #define UART_RX_PIN      MIMUSB_UART_RX_PIN
 
-// Both cores write to the UART (Pong from core 1, events and ACK from core 0).
-static critical_section_t g_uart_tx_lock;
-
 // DMA Ring Buffer placed in dedicated SRAM Bank 5 (.scratch_y)
 #define DMA_BUF_SIZE     1024u
 #define DMA_BUF_MASK     (DMA_BUF_SIZE - 1u)
 static uint8_t uart_rx_buffer[DMA_BUF_SIZE] __attribute__((aligned(DMA_BUF_SIZE), section(".scratch_y")));
 static int dma_chan = -1;
 static int dma_reload_chan = -1;
+// Output: a DMA channel feeds the UART's data register, paced by its transmit request, so no core
+// waits for the line (tx.c queues the frames and starts it).
+static int dma_tx_chan = -1;
 static uint32_t dma_read_idx = 0;
 // Set when a read finds the ring three quarters full: a lap cannot be seen once it happened, so
 // the warning is the near miss.
@@ -50,8 +49,6 @@ static const uint32_t dma_reload_count = DMA_RX_TRANSFER_COUNT;
 
 void hal_init(void) {
     board_init();
-
-    critical_section_init(&g_uart_tx_lock);
 
     // 1. Hardware UART Setup
     uart_init(UART_ID, MIMUSB_BOOT_BAUD);
@@ -97,6 +94,17 @@ void hal_init(void) {
         DMA_RX_TRANSFER_COUNT,
         true
     );
+
+    // 3. Output channel. The FIFO is off, so the request means "the data register is empty" and the
+    // channel hands the UART one byte each time it is. uart_init enabled the UART's transmit
+    // requests (UARTDMACR).
+    dma_tx_chan = dma_claim_unused_channel(true);
+    dma_channel_config tc = dma_channel_get_default_config(dma_tx_chan);
+    channel_config_set_transfer_data_size(&tc, DMA_SIZE_8);
+    channel_config_set_read_increment(&tc, true);
+    channel_config_set_write_increment(&tc, false);
+    channel_config_set_dreq(&tc, uart_get_dreq(UART_ID, true));
+    dma_channel_configure(dma_tx_chan, &tc, &uart_get_hw(UART_ID)->dr, NULL, 0, false);
 }
 
 size_t hal_uart_read(uint8_t* dst, size_t max) {
@@ -116,10 +124,20 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     return avail;
 }
 
-void hal_uart_write(const uint8_t* data, size_t len) {
-    critical_section_enter_blocking(&g_uart_tx_lock);
-    uart_write_blocking(UART_ID, data, len);
-    critical_section_exit(&g_uart_tx_lock);
+void hal_uart_tx_start(const uint8_t* data, size_t len) {
+    dma_channel_transfer_from_buffer_now(dma_tx_chan, data, (uint32_t)len);
+}
+
+bool hal_uart_tx_busy(void) {
+    return dma_channel_is_busy(dma_tx_chan);
+}
+
+// The channel is done when the last byte is in the data register; the line is quiet when the shift
+// register has sent it too.
+void hal_uart_tx_wait_done(void) {
+    while (dma_channel_is_busy(dma_tx_chan)) {
+    }
+    uart_tx_wait_blocking(UART_ID);
 }
 
 // The PL011's divider, as the SDK's uart_set_baudrate computes it (7 fractional bits), without
@@ -170,10 +188,7 @@ uint8_t hal_uart_errors(void) {
 }
 
 void hal_uart_set_baud(uint32_t baud) {
-    critical_section_enter_blocking(&g_uart_tx_lock);
-    uart_tx_wait_blocking(UART_ID);
     uart_set_baudrate(UART_ID, baud);
-    critical_section_exit(&g_uart_tx_lock);
 }
 
 uint32_t hal_millis(void) {
@@ -201,7 +216,7 @@ bool hal_has_bootloader(void) { return true; }
 // The bootloader in ROM (RP2040 datasheet 2.8, RP2350 datasheet 5.5): reset_usb_boot restarts the
 // chip as the RPI-RP2 mass-storage device, with no activity LED and both of its interfaces.
 void hal_enter_bootloader(void) {
-    uart_tx_wait_blocking(UART_ID);
+    hal_uart_tx_wait_done();
     reset_usb_boot(0, 0);
 }
 

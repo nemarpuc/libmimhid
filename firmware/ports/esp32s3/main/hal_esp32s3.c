@@ -63,8 +63,16 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     return n > 0 ? (size_t)n : 0;
 }
 
-void hal_uart_write(const uint8_t* data, size_t len) {
+// The driver copies the bytes into its own transmit buffer and returns, so a start does not wait for
+// the line and the buffer is free at once.
+void hal_uart_tx_start(const uint8_t* data, size_t len) {
     uart_write_bytes(UART_PORT, data, len);
+}
+
+bool hal_uart_tx_busy(void) { return false; }
+
+void hal_uart_tx_wait_done(void) {
+    uart_wait_tx_done(UART_PORT, portMAX_DELAY);
 }
 
 uint32_t hal_uart_baud_actual(uint32_t baud) {
@@ -105,7 +113,6 @@ uint8_t hal_uart_errors(void) {
 }
 
 void hal_uart_set_baud(uint32_t baud) {
-    uart_wait_tx_done(UART_PORT, portMAX_DELAY);
     uart_set_baudrate(UART_PORT, baud);
 }
 

@@ -26,10 +26,6 @@
 // one (read by the interrupt, and by the USB side to send an ANSWER in place) and the staged one
 // (written by the USB side only); applying them swaps which is which with the interrupt masked.
 
-// Single-context ports (mimusb_run) read the UART from the USB side, so a wait inside a TinyUSB
-// callback has to read it too; the two-core RP port reads it on the other core.
-void mimusb_control_set_single_context(bool single);
-
 // ---- the staged table (USB side, commands) ----
 // Each returns 0 or a MIMUSB_NAK_* code.
 
@@ -86,6 +82,12 @@ static inline void mimusb_control_sent(uint8_t number, const uint8_t* data, uint
 // Receive side, CONTROL_REPLY: payload after the sequence number. Returns 0 when the board waits
 // for that token and has taken the answer, otherwise a MIMUSB_NAK_* code.
 uint8_t mimusb_control_reply(const uint8_t* payload, uint16_t len);
+
+// The stack asks the controller for a transfer on endpoint ep_addr. When it is the zero-length status
+// stage of a host-to-device transfer whose data the host is still judging, the board keeps the
+// request (returns true: do not start it); mimusb_control_poll gives it to the controller, or stalls
+// the transfer, when the verdict is in.
+bool mimusb_control_hold_status(uint8_t ep_addr, uint16_t total_bytes);
 
 // USB side: reports the transfers seen, and settles a held one when the host answered or its
 // time ran out.

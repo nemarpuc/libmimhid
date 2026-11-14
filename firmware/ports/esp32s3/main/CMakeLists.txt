@@ -9,6 +9,7 @@ idf_component_register(
         ../../../common/ep0.c
         ../../../common/usb_descriptors.c
         ../../../common/generic.c
+        ../../../common/tx.c
     INCLUDE_DIRS
         .
         ../../../common

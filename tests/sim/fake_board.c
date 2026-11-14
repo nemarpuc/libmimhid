@@ -67,19 +67,30 @@ void hal_uart_set_baud(uint32_t baud) { g_board_baud = baud; }
 uint8_t hal_chip(void) { return MIMUSB_CHIP_UNKNOWN; }
 bool hal_has_bootloader(void) { return false; }
 void hal_enter_bootloader(void) {}
-void hal_control_silent_drop(void) {}
+// The status stage of a host-to-device transfer the board is keeping while the program decides (see
+// mimusb_control_hold_status): the result is known when the board starts the status stage (the
+// transfer completes), stalls endpoint 0 or disarms it.
+static struct {
+    bool active;
+    fake_control_result_t result;
+    tusb_control_request_t request;
+} g_pending;
+static void finish_pending(int outcome);
+bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes);
+void hal_control_silent_drop(void) { finish_pending(FAKE_CONTROL_STALLED); }
 static unsigned g_clear_endpoint[256];
 void hal_usb_clear_endpoint(uint8_t address) { ++g_clear_endpoint[address]; }
 unsigned fake_board_clear_endpoint_count(uint8_t address) { return g_clear_endpoint[address]; }
 void __real_dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
     (void)rhport;
-    (void)ep_addr;
+    if ((ep_addr & 0x0F) == 0)
+        finish_pending(FAKE_CONTROL_STALLED);
 }
 bool __real_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
     (void)rhport;
-    (void)ep_addr;
     (void)buffer;
-    (void)total_bytes;
+    if (ep_addr == 0x80 && total_bytes == 0)
+        finish_pending(FAKE_CONTROL_ACKED);
     return true;
 }
 void usbd_defer_func(osal_task_func_t func, void* param, bool in_isr) {
@@ -87,7 +98,8 @@ void usbd_defer_func(osal_task_func_t func, void* param, bool in_isr) {
     func(param);
 }
 
-void hal_uart_write(const uint8_t* data, size_t len) {
+// The simulated UART takes the bytes where the call is made (the pty), so the line is never busy.
+void hal_uart_tx_start(const uint8_t* data, size_t len) {
     if (!line_matches())
         return;
     pthread_mutex_lock(&g_tx_lock);
@@ -105,6 +117,9 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     }
     pthread_mutex_unlock(&g_tx_lock);
 }
+
+bool hal_uart_tx_busy(void) { return false; }
+void hal_uart_tx_wait_done(void) {}
 
 uint32_t hal_millis(void) {
     struct timespec ts;
@@ -375,6 +390,15 @@ static void control_result(const fake_control_result_t* r) {
     pthread_mutex_unlock(&g_lock);
 }
 
+static void finish_pending(int outcome) {
+    if (!g_pending.active)
+        return;
+    g_pending.active = false;
+    g_pending.result.outcome = outcome;
+    tud_vendor_control_xfer_cb(0, CONTROL_STAGE_ACK, &g_pending.request);
+    control_result(&g_pending.result);
+}
+
 // What reaches the stack from the board's wrapper.
 void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
     (void)in_isr;
@@ -405,8 +429,17 @@ void __real_dcd_event_handler(dcd_event_t const* event, bool in_isr) {
         memcpy(g_xfer.buffer, g_control_out, n);
         r.length = g_xfer.length;
         memcpy(r.data, g_xfer.buffer, g_xfer.length);
-        r.outcome = tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req) ? FAKE_CONTROL_ACKED
-                                                                            : FAKE_CONTROL_STALLED;
+        if (!tud_vendor_control_xfer_cb(0, CONTROL_STAGE_DATA, &req)) {
+            r.outcome = FAKE_CONTROL_STALLED;
+        } else {
+            // The stack goes on to the status stage. The board may keep it until the program has
+            // judged the data: the outcome is then known later (finish_pending).
+            g_pending.active = true;
+            g_pending.result = r;
+            g_pending.request = req;
+            (void)__wrap_dcd_edpt_xfer(0, 0x80, NULL, 0);
+            return;
+        }
     } else {
         r.outcome = FAKE_CONTROL_ACKED;
     }
@@ -523,7 +556,6 @@ static void run_actions(void) {
 static void* board_main(void* arg) {
     (void)arg;
     mimusb_core_init();
-    mimusb_control_set_single_context(true);
     while (__atomic_load_n(&g_run, __ATOMIC_ACQUIRE)) {
         mimusb_rx_poll();
         mimusb_usb_poll();

@@ -31,17 +31,30 @@ bool hal_uart_has_break(void);
 #define HAL_UART_ERR_RING    0x08 // the receive ring was lapped (software or DMA)
 uint8_t hal_uart_errors(void);
 
-// Waits until queued output has left, then switches the UART to baud (one hal_uart_baud_actual
-// accepts). Called from the receive context; it must not interleave with hal_uart_write.
+// Switches the UART to baud (one hal_uart_baud_actual accepts). Called with the output idle and
+// the line quiet (tx.c drains first and starts nothing while it switches).
 void hal_uart_set_baud(uint32_t baud);
 
 // Copies up to max received bytes into dst without blocking and returns the count.
 // Called from one context only.
 size_t hal_uart_read(uint8_t* dst, size_t max);
 
-// Sends len bytes, blocking until queued. Safe to call from both the receive and USB contexts,
-// and one call is never interleaved with another.
-void hal_uart_write(const uint8_t* data, size_t len);
+// Output. tx.c is the only caller and calls these one at a time (it holds a lock), so a port needs
+// no lock of its own.
+//
+// Starts sending len bytes at data (len is at least 1). A port that can send without the CPU (a DMA
+// channel, EasyDMA) returns at once, and hal_uart_tx_busy is true until the bytes have been taken
+// from data; data must not change before that. A port that cannot sends them here and returns
+// when they have been taken, so hal_uart_tx_busy is false at once. Called only when
+// hal_uart_tx_busy is false.
+void hal_uart_tx_start(const uint8_t* data, size_t len);
+
+// True while the bytes of the last hal_uart_tx_start have not all been taken from their buffer.
+bool hal_uart_tx_busy(void);
+
+// Returns when nothing is queued in the UART and its last stop bit has left the pin: the line is
+// quiet, so the rate may change or the chip may restart.
+void hal_uart_tx_wait_done(void);
 
 // Milliseconds since boot; wraps at 2^32.
 uint32_t hal_millis(void);

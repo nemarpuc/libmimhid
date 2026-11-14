@@ -130,7 +130,8 @@ size_t hal_uart_read(uint8_t* dst, size_t max) {
     return avail;
 }
 
-void hal_uart_write(const uint8_t* data, size_t len) {
+// Sent from the CPU, byte by byte: a start returns when the last byte has left (TC).
+void hal_uart_tx_start(const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         while (!(USART2->SR & USART_SR_TXE)) {
         }
@@ -139,6 +140,10 @@ void hal_uart_write(const uint8_t* data, size_t len) {
     while (!(USART2->SR & USART_SR_TC)) {
     }
 }
+
+bool hal_uart_tx_busy(void) { return false; }
+
+void hal_uart_tx_wait_done(void) {}
 
 uint32_t hal_uart_baud_actual(uint32_t baud) {
     return baud == 0 ? 0u : divider(baud).actual;
@@ -173,7 +178,7 @@ uint8_t hal_uart_errors(void) {
     return out;
 }
 
-// hal_uart_write returns only once its last byte has left. The DMA receiver keeps running.
+// The output is idle here (tx.c drained it). The DMA receiver keeps running.
 void hal_uart_set_baud(uint32_t baud) {
     set_rate(divider(baud));
 }

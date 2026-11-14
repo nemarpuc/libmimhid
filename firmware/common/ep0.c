@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 libmimusb contributors
 #include "ep0.h"
+#include "control.h"
 #include "device/usbd_pvt.h"
 
 // Code that runs in the USB interrupt sits in RAM where the port asks for it (see control.c).
@@ -55,6 +56,8 @@ static void next_packet(void* param) {
 }
 
 bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes) {
+    if (mimusb_control_hold_status(ep_addr, total_bytes))
+        return true;
     if ((ep_addr & 0x7F) != 0 || g_x.size == 0 || g_x.size >= CFG_TUD_ENDPOINT0_SIZE)
         return __real_dcd_edpt_xfer(rhport, ep_addr, buffer, total_bytes);
     dcd_int_disable(rhport);

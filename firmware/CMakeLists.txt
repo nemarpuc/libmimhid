@@ -47,6 +47,7 @@ add_executable(mimusb_firmware
     common/ep0.c
     common/usb_descriptors.c
     common/generic.c
+    common/tx.c
 )
 
 # The limits of the chip's RAM (common/config.h reads mimusb_limits.h and has no default).

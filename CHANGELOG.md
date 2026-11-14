@@ -4,7 +4,36 @@ All notable changes to libmimusb are recorded in this file.
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); until 1.0.0 a
 change of the minor number may change the API, the ABI or the wire protocol.
 
-## [Unreleased]
+## [0.7.2] - 2026-11-14
+
+### Changed
+
+- Firmware: frames to the host are queued, not written in place. `firmware/common/tx.c` encodes each
+  frame into one of two rings (one for the USB side, one for the receive side) and feeds the UART
+  from them; `hal_uart_write` is replaced by `hal_uart_tx_start`, `hal_uart_tx_busy` and
+  `hal_uart_tx_wait_done`. On the RP2040 and RP2350 the UART output is a DMA channel and the
+  critical section around every write is gone: before, an `EP_OUT` frame, an event or a control data
+  stage written by the USB core spun on the UART byte by byte with interrupts off on that core, so the
+  target's IN transfers waited for it. The other ports send from the CPU inside `hal_uart_tx_start` as
+  before. Each port's `mimusb_limits.h` states `MIMUSB_TX_RING_BYTES` and `MIMUSB_TX_RX_RING_BYTES`
+  (the build stops when they are missing; tests `missing_*_limit`). The ring replaces the 2 KiB
+  long-frame buffer of the USB side.
+- Firmware: an `ASK` rule on a host-to-device request with a data stage no longer stops the USB side while
+  the host decides. The vendor callback of the data stage returns at once and the board keeps the
+  status stage the stack asks for until the verdict is in (`mimusb_control_hold_status`); reports on
+  the other endpoints go out meanwhile. `mimusb_control_set_single_context` is gone, since nothing
+  waits any more. The wire protocol is unchanged.
+- Firmware: the queue's lock is released with an atomic exchange, not a store. On the RP2040 (Cortex-M0+) the
+  exchange runs under a hardware spinlock and a plain store does not, so a release landing inside the other
+  core's exchange was overwritten and the lock stayed taken (the board stopped answering).
+
+### Added
+
+- `firmware/tests/test_tx.c`: the frame queue against a UART that stays busy (ring wrap, frames of every
+  length, two producers in order, a full ring, the rate change after the queue, a producer that does not
+  wait for the line).
+- Tests of the held status stage in `firmware/tests/test_core.c`: refused, accepted, no verdict in time,
+  and voided by a new setup packet.
 
 ## [0.7.1] - 2026-11-14
 

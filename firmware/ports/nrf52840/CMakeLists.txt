@@ -26,6 +26,7 @@ target_sources(mimusb_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common/ep0.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/usb_descriptors.c
     ${CMAKE_CURRENT_LIST_DIR}/../../common/generic.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../common/tx.c
 )
 target_include_directories(mimusb_firmware_nrf52840 PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/../../common

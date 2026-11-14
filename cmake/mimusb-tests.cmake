@@ -184,7 +184,8 @@ if(MIMUSB_TINYUSB_PATH AND NOT WIN32)
         firmware/common/control.c
         firmware/common/ep0.c
         firmware/common/usb_descriptors.c
-        firmware/common/generic.c)
+        firmware/common/generic.c
+        firmware/common/tx.c)
     # The limits of the RAM are the real ports': RP2040 (15), nRF52840 (7), STM32F4 with 128 kB (3);
     # the isochronous board is the RP2040 and the high-speed one the RP2350's (no port is high speed).
     set(mimusb_sim_limits_15 firmware/rp/limits/rp2040)
